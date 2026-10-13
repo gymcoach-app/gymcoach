@@ -109,7 +109,8 @@ reverted forward, re-shipped as PR #279).
 - **Give each concurrently running dev/ship tick its own `git worktree`** (`git worktree
   add ../wt-<task> <branch>`), so branch checkouts and commits in one tick never touch
   another tick's tree. Worktrees do not share `node_modules` (lesson L4: `npm ci` +
-  `npm rebuild bcrypt` + `prisma migrate deploy` in a fresh worktree before the gate).
+  `npm rebuild bcrypt` in a fresh worktree before the gate; `verify.sh --full` now migrates
+  the test database itself).
 - **Until worktree isolation is in place, serialize same-checkout ticks** - never overlap
   two ticks in one tree. This is stricter than the same-file serialization of step 4: any
   two ticks sharing a tree must not overlap, related or not.
@@ -130,7 +131,7 @@ shared-infra `flock` for the test Postgres and dev port (L16), which serialized 
 `--full` gates without anyone coordinating them. So the recipe is: pick file-disjoint issues
 (step 4's same-file serialization still applies - it decides *what* may run in parallel,
 worktrees only decide *where*), `git worktree add ../gymcoach-wt-<n>` per tick, `npm ci` +
-`npm rebuild bcrypt` + `prisma migrate deploy` in each (L4), let the ticks stop at the PR
+`npm rebuild bcrypt` in each (L4; the test database is migrated by `verify.sh --full`), let the ticks stop at the PR
 (L3), and ship them one at a time. Clean up with `git worktree remove` after the merge -
 and note that `gh pr merge --delete-branch` exits 1 after a successful merge while the
 branch is still checked out in a worktree (see the `ship-pr` skill, step 5).

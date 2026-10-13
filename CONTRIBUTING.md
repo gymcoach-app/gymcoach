@@ -81,7 +81,8 @@ change.
 npm run test              # unit + component (Vitest, jsdom)
 npm run test:coverage     # with coverage
 
-# Integration + E2E need the test database:
+# Integration + E2E need the test database. `bash scripts/verify.sh --full`
+# starts and migrates it for you (scripts/test-db.sh); by hand:
 docker compose -f docker-compose.test.yml up -d
 npx prisma migrate deploy   # DATABASE_URL pointing at the test DB (port 5434)
 npm run test:integration    # Vitest against real Postgres

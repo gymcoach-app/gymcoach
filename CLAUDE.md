@@ -33,20 +33,17 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit, integration, build
 and E2E on every PR. The default gate mirrors the fast, DB-free part so a loop
 can catch its own regressions locally.
 
-**`--full` does not migrate the test database.** `verify.sh` runs the integration
-and E2E tiers against whatever schema the test Postgres on :5434 already holds; it
-never runs `prisma migrate deploy` itself. A container that was just started - or
-restarted, since its data lives in tmpfs and is wiped on stop - therefore fails the
-integration tier with `relation "Message" does not exist`. After
-`docker compose -f docker-compose.test.yml up -d`, apply the migrations once:
-
-```bash
-DATABASE_URL=postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test \
-  npx prisma migrate deploy
-```
-
-History: lesson L23 (L4 said this for a fresh worktree; it is true of any fresh or
-restarted container too).
+**`--full` bootstraps the test database itself.** Inside its lock, `verify.sh`
+runs `scripts/test-db.sh`: it starts the test Postgres on :5434 with
+`docker compose -f docker-compose.test.yml up -d` when Docker is available,
+waits until it accepts connections, and applies `prisma migrate deploy` to it. A
+guard refuses any database URL other than `localhost:5434/gymcoach_test`, so the
+step can never migrate a dev or production database (self-tested by
+`scripts/test-db.test.sh` in the default gate). If Docker is unavailable and
+nothing listens on :5434, the gate stops with instructions (on this WSL box,
+start Docker Desktop first). History: lessons L4 and L23, where a fresh or
+restarted container (tmpfs data) failed the integration tier with
+`relation "Message" does not exist` until someone migrated it by hand.
 
 **Back-to-back E2E runs are expected green.** The specs still register users
 through the app's real per-IP rate limit (`register:<ip>`, 5 per 60s), but since

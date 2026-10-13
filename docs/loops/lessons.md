@@ -54,6 +54,9 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   `prisma migrate deploy` against the test Postgres on :5434 before integration/E2E.
 - **Status:** graduated -> `implement-issue` and `ship-pr` operational notes. Extended by
   **L23**: the migrated-DB half is not about the checkout at all, it is about the container.
+  The migrated-DB half is **resolved** by `scripts/test-db.sh` (roadmap Milestone 2):
+  `verify.sh --full` now migrates the test database itself; `npm ci` and the native rebuild
+  still apply.
 
 ### L5 - This environment's `gh` is an older build; some flags do not exist
 - **Trigger:** `gh label`, `gh issue close --reason/--comment`, `gh run rerun --failed/--job`,
@@ -408,7 +411,11 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   the migrations applied once before `--full`:
   `DATABASE_URL=postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test npx prisma migrate deploy`.
 - **Status:** graduated -> a paragraph in `CLAUDE.md`'s green-gate section and in
-  `implement-issue` step 5, both with the command, and L4 now points here.
+  `implement-issue` step 5, both with the command, and L4 now points here. **Resolved** by
+  `scripts/test-db.sh` (roadmap Milestone 2): `verify.sh --full` starts the container when
+  Docker is available, waits for it, and applies the migrations under its lock, with a guard
+  that refuses any database other than the local test one. The manual step is retired from
+  `CLAUDE.md` and `implement-issue`.
 
 ### L24 - Switching branches leaves stale `.next/types` stubs, and the gate typechecks before it builds
 - **Trigger:** 2026-09-11, the first gate run on the #347 branch failed typecheck on route type

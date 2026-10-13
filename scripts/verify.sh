@@ -12,7 +12,9 @@
 #
 # Tiers:
 #   (default)  prisma generate + lint + typecheck + unit tests + production build
-#   --full     also runs integration + E2E (needs the test Postgres on :5434)
+#   --full     also runs integration + E2E against the test Postgres on :5434,
+#              which it starts (docker compose) and migrates itself when needed
+#              (scripts/test-db.sh)
 #
 # The integration/E2E tiers need Docker + a database, so the default gate stays
 # fast and hermetic; CI runs the full pyramid on every PR.
@@ -50,6 +52,9 @@ npm run typecheck || fail "typecheck"
 step "unit tests"
 npm run test || fail "unit tests"
 
+step "script self-tests"
+bash scripts/test-db.test.sh || fail "script self-tests"
+
 step "production build"
 # Build needs these set but never connects; placeholders are fine and are NOT
 # exported globally (so real prisma/dev commands keep using your .env).
@@ -71,7 +76,12 @@ if [ "$FULL" = "1" ]; then
     echo "  another verify run holds the shared test infra (:5434/:3031); waiting for the lock..."
     flock --wait 3600 9 || fail "test-infra lock (still held after 60m; a stale next-server or vitest from an interrupted run may hold it - check: fuser -v $LOCK_FILE)"
   fi
-  step "integration tests (needs Postgres on :5434)"
+  step "test database (start if down, apply migrations)"
+  # Inside the lock: one run bootstraps, a waiting run finds it ready and the
+  # migrate step is a no-op. Retires the manual `prisma migrate deploy` that a
+  # fresh or restarted container used to need (lessons L4, L23).
+  bash scripts/test-db.sh 9>&- || fail "test database bootstrap"
+  step "integration tests (Postgres on :5434)"
   # 9>&- keeps the lock fd out of the test children, so a zombie next-server
   # surviving an interrupted run (lesson L12) cannot hold the lock forever.
   npm run test:integration 9>&- || fail "integration tests"

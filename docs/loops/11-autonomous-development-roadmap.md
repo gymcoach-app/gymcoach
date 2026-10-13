@@ -136,6 +136,11 @@ remain attributable after a model or skill upgrade.
       a merge queue or an equivalent serialized integration check.
 - [ ] Bootstrap the test database and migrations automatically; retire procedural
       workarounds once the scripts enforce their intent.
+      Partial: [`scripts/test-db.sh`](../../scripts/test-db.sh) starts, waits for and
+      migrates the test Postgres inside the `verify.sh --full` lock, behind a guard
+      self-tested by [`scripts/test-db.test.sh`](../../scripts/test-db.test.sh); the
+      manual step is retired from `CLAUDE.md` and `implement-issue`. Still to show: a
+      `--full` run from a wiped container on a host with Docker running.
 
 Acceptance: simulate a crash immediately after PR creation, lease expiry with a
 stale worker, concurrent task claims, budget exhaustion, absent CI checks, a push

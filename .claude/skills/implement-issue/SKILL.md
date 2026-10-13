@@ -68,13 +68,11 @@ for repo conventions; this skill assumes them.
 
 5. **Green-gate (self-verify).** Run `bash scripts/verify.sh`. (In a fresh checkout or git
    worktree, first `npm ci` - worktrees do not share `node_modules` - then `npm rebuild
-   bcrypt` if its native binding is missing, and `prisma migrate deploy` against the test
-   Postgres on :5434 before the integration/E2E tiers. Lesson L4.)
-   **`verify.sh --full` never migrates the test database**, and the test Postgres keeps its
-   data in tmpfs, so any freshly started or restarted container reds the integration tier
-   with `relation "Message" does not exist`. After
-   `docker compose -f docker-compose.test.yml up -d`, run once (lesson L23):
-   `DATABASE_URL=postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test npx prisma migrate deploy`.
+   bcrypt` if its native binding is missing. Lesson L4.)
+   `verify.sh --full` starts and migrates the test Postgres on :5434 itself
+   (`scripts/test-db.sh`, which retired the manual `prisma migrate deploy` of lessons L4 and
+   L23). It needs Docker running, or a Postgres already listening on :5434; otherwise it stops
+   with instructions.
    **If typecheck fails on `.next/types` stubs for a route that does not exist on your
    branch**, the stale stubs are from the previous branch's build and `verify.sh` typechecks
    before it builds: run `npm run build` on the current branch to regenerate them, then
