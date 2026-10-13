@@ -44,7 +44,10 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   the image is pinned by digest, restored from the Actions cache, and on a cache miss pulled
   by digest from `mirror.gcr.io`, the ECR public mirror or Docker Hub in turn (same index
   digest on all three), then saved to the cache. A choice of mirror is not a fix; removing
-  the per-run dependency on any one external registry is.
+  the per-run dependency on any one external registry is. A cache entry whose image ID does
+  not match the pin fails closed with no fallback pull; clear it with
+  `gh api -X DELETE "repos/gymcoach-app/gymcoach/actions/caches?key=<key>"` (gh 2.4.0 has no
+  `gh cache`) and re-run.
 
 ### L3 - The orchestrator owns CI-watch and merge; subagents stop at the PR
 - **Trigger:** background maintainer-tick agents repeatedly terminated early - they ended
