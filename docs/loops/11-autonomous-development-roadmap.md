@@ -170,6 +170,15 @@ remain attributable after a model or skill upgrade.
 - [ ] Enforce total duration, spending, turns, retries, and concurrency limits,
       including delegated work. Define a bounded in-flight overrun allowance and
       stop dispatching before the remaining budget is exhausted.
+      Partial: concurrency and spending are enforced locally. Heavy local work takes
+      one of N machine-wide slots ([`scripts/heavy-slot.sh`](../../scripts/heavy-slot.sh),
+      self-test [`scripts/heavy-slot.test.sh`](../../scripts/heavy-slot.test.sh)), and a
+      session's Agent calls are refused beyond a concurrency limit or once its finished
+      subagents exceed a token budget, the in-flight overrun bounded by the concurrency
+      limit ([`automation/hooks/dispatch-limit.cjs`](../../automation/hooks/dispatch-limit.cjs),
+      tests and a live check in [`automation/README.md`](../../automation/README.md)).
+      Turn, retry and wall-time budgets, and a machine-wide (cross-session) dispatch
+      limit, are not enforced yet.
 - [ ] Keep deployment credentials and unrestricted GitHub tokens out of worker
       environments. Restrict filesystem access and network destinations. Use scoped
       publishing operations rather than arbitrary shell access with a merge token.

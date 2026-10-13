@@ -1,6 +1,13 @@
 import { createRequire } from 'node:module';
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -156,6 +163,35 @@ function transcriptFile(lines: string[]): string {
 const SESSION_ID = '5f0e9a52-1111-2222-3333-444455556666';
 
 describe('record-usage hook process', () => {
+  it('waits for a subagent transcript that is written after SubagentStop fires', async () => {
+    // Claude Code 2.1.296 writes the subagent's last records ~40 ms after the
+    // hook starts; the hook must not record zero responses for it.
+    const all = subagentTranscript();
+    const firstAssistant = all.findIndex((l) => l.includes('"assistant"'));
+    const f = transcriptFile(all.slice(0, firstAssistant));
+    const ledger = join(tmp(), 'ledger.jsonl');
+    const child = spawn(process.execPath, [SCRIPT], {
+      env: { ...process.env, GYMCOACH_USAGE_LEDGER_PATH: ledger, GYMCOACH_USAGE_LEDGER: '' },
+    });
+    child.stdin.end(
+      JSON.stringify({
+        hook_event_name: 'SubagentStop',
+        session_id: SESSION_ID,
+        agent_id: 'late1',
+        agent_type: 'general-purpose',
+        agent_transcript_path: f,
+        transcript_path: '/nonexistent/parent.jsonl',
+        cwd: WT,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    appendFileSync(f, all.slice(firstAssistant).join('\n') + '\n');
+    const code = await new Promise<number | null>((r) => child.on('exit', r));
+    expect(code).toBe(0);
+    const line = JSON.parse(readFileSync(ledger, 'utf8').trim());
+    expect(line.responses).toBe(3);
+  });
+
   it('appends exactly one schema-valid agent line on SubagentStop, with no text or path', () => {
     const r = run({
       hook_event_name: 'SubagentStop',

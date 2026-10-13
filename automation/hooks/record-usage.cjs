@@ -46,6 +46,8 @@ const MODEL_ID = /^claude-[a-z0-9.-]+$/;
 const SKILL_NAME = /^[a-z0-9][a-z0-9:-]*$/;
 const VERSION = /^[0-9][0-9A-Za-z.+-]*$/;
 const KINDS = ['input', 'output', 'cacheRead', 'cacheCreation5m', 'cacheCreation1h'];
+// How long an agent line waits for the subagent transcript's final write.
+const FLUSH_WAIT_MS = 2000;
 
 function hash(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
@@ -328,18 +330,36 @@ function main() {
       raw += d;
     });
     process.stdin.on('end', function () {
+      let input;
       try {
-        const line = lineFor(JSON.parse(raw));
-        if (line) {
-          const file = ledgerPath(process.env);
-          fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.appendFileSync(file, JSON.stringify(line) + '\n');
-        }
-      } catch (e) {
-        // The error code only: a message could name a path.
-        process.stderr.write('record-usage: skipped (' + ((e && e.code) || 'error') + ')\n');
+        input = JSON.parse(raw);
+      } catch {
+        process.exit(0);
       }
-      process.exit(0);
+      // SubagentStop fires a few tens of milliseconds BEFORE Claude Code
+      // writes the subagent's last records (observed on 2.1.296: the
+      // transcript's final write lands ~40 ms after the hook starts), so a
+      // first read can see no response at all. Re-read for up to
+      // FLUSH_WAIT_MS before recording an agent line with zero responses.
+      const deadline = Date.now() + FLUSH_WAIT_MS;
+      (function attempt() {
+        try {
+          const line = lineFor(input);
+          if (line && line.kind === 'agent' && line.responses === 0 && Date.now() < deadline) {
+            setTimeout(attempt, 100);
+            return;
+          }
+          if (line) {
+            const file = ledgerPath(process.env);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.appendFileSync(file, JSON.stringify(line) + '\n');
+          }
+        } catch (e) {
+          // The error code only: a message could name a path.
+          process.stderr.write('record-usage: skipped (' + ((e && e.code) || 'error') + ')\n');
+        }
+        process.exit(0);
+      })();
     });
   } catch {
     process.exit(0);

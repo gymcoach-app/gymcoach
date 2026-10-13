@@ -129,6 +129,12 @@ to pass the gate is itself a defect.
   prompt counts (never text) per finished agent and session to a local ledger,
   `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`; start Claude Code with
   `GYMCOACH_USAGE_LEDGER=off` to disable it (`automation/README.md`).
+- Local limits (`automation/README.md`, "Local limits"): `verify.sh` takes one of
+  `GYMCOACH_HEAVY_SLOTS` machine-wide slots (default a quarter of the cores) and waits,
+  naming the holders, when all are taken; a session may have at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents running, and the next Agent call is
+  refused until one finishes; `GYMCOACH_SESSION_TOKEN_BUDGET` (unset by default) also
+  refuses new subagents once finished ones spent more. Set either to `off` to disable it.
 
 ## Security: untrusted input (public repo)
 

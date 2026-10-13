@@ -300,6 +300,60 @@ failing write), so a session line can be missing; usage outside Claude Code, and
 before this hook, is not recorded; attribution is as conservative as the
 transcript scan.
 
+Flush race (fixed in the milestone 2 limits PR): `SubagentStop` fires a few tens
+of milliseconds before Claude Code writes the subagent's last records, so a
+first read often saw no response at all; 3 of the first 4 live `agent` lines had
+`responses: 0`. An `agent` line that finds no response now re-reads the
+transcript for up to 2 s before it is written.
+
+## Local limits: heavy-work slots and subagent dispatch (milestone 2)
+
+Two machine-level limits replace "be careful when running ticks in parallel".
+Both were motivated by one session (2026-10-13) where three or four dev ticks
+plus Docker pushed the load average to ~20: Playwright pages crashed with
+`ERR_INSUFFICIENT_RESOURCES` and jsdom tests crossed their timeouts (L42).
+
+- **Heavy-work slots** (`scripts/heavy-slot.sh`, sourced by `scripts/verify.sh`).
+  A `verify.sh` run takes one of N machine-wide slots before it lints, tests and
+  builds: N = `GYMCOACH_HEAVY_SLOTS`, default max(1, cores / 4). A slot is a
+  `flock` on `${TMPDIR:-/tmp}/gymcoach-heavy/slot-<i>`, so the kernel releases it
+  when the run dies; there is no stale-lock cleanup to get wrong. A run that finds
+  every slot taken waits (up to `GYMCOACH_HEAVY_WAIT` seconds, default 3600) and
+  prints each holder's pid, start time and label. Lock order: heavy slot first,
+  then the `--full` test-infra lock, and long-lived children get `8>&- 9>&-`, so
+  the two locks cannot deadlock and a zombie next-server (L12) holds neither.
+  `GYMCOACH_HEAVY_SLOTS=off` skips it for one run. Self-test:
+  `scripts/heavy-slot.test.sh` (run by the default gate).
+- **Subagent dispatch limit** (`hooks/dispatch-limit.cjs`, wired in
+  `.claude/settings.json` on `PreToolUse` for the Agent tool, `SubagentStart`,
+  `SubagentStop` and `SessionEnd`). A session may have at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents running or starting; the next
+  Agent call is refused with a reason that tells the model to wait for a
+  completion notification. Running means between `SubagentStart` and
+  `SubagentStop` (subagents run in the background by default, so the Agent call
+  itself returns at once); an accepted call leaves a two-minute reservation so
+  several Agent calls in one turn cannot overshoot. With
+  `GYMCOACH_SESSION_TOKEN_BUDGET` set, a new subagent is also refused once the
+  session's finished subagents spent more tokens than the budget at full or write
+  rates (input, output, cache writes, from the run-time ledger; cache reads not
+  counted). Subagents already running finish: the in-flight overrun is bounded by
+  the concurrency limit. Only the Agent tool is ever refused; the hook fails open
+  on any error. State lives in
+  `${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents/<session key>/` and a
+  running entry older than `GYMCOACH_SUBAGENT_STALE_HOURS` (default 12) is
+  ignored. `GYMCOACH_MAX_SUBAGENTS=off` disables the concurrency limit.
+
+Checked live on Claude Code 2.1.296 in a throwaway repository (trivial "reply ok"
+subagents on Haiku): with a limit of 3, four parallel Agent calls in one message
+gave three accepted and the fourth refused with the hook's reason, and a fifth
+call after the first three finished was accepted; with a budget of 1 token, the
+first subagent ran and the second was refused ("finished subagents used 62
+tokens"). Limits: the slots cover `verify.sh` only (a bare `npm run build` or
+Playwright run outside it takes no slot); the dispatch limit is per session, not
+machine-wide, so two orchestrating sessions get three subagents each; the token
+budget sees only finished subagents and only what the ledger recorded; turn,
+retry and wall-time budgets are not enforced yet.
+
 ## Related: replayable evaluation tasks
 
 The maintainer's evaluation harness (roadmap milestone 3) lives in
