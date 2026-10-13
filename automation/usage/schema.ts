@@ -15,10 +15,11 @@ export const USAGE_SCHEMA_VERSION = 1 as const;
 const isoDate = z.string().datetime();
 
 export const attributionRules = [
-  // The subagent worked on exactly one non-default branch, and it is the
-  // PR's head branch.
+  // The subagent worked, from inside an agent worktree, on exactly one
+  // non-default branch, and it is the PR's head branch.
   'head-branch',
-  // The subagent's task prompt names exactly one PR of this repository.
+  // The subagent worked on no branch of its own, and its task prompt names
+  // exactly one PR of this repository.
   'pr-reference',
 ] as const;
 
@@ -27,6 +28,9 @@ export const usageRecordSchema = z
     schemaVersion: z.literal(USAGE_SCHEMA_VERSION),
     runId: z.string().min(1),
     prNumber: z.number().int().positive(),
+    // The run was created soon after the start of transcript coverage, so part
+    // of its work may sit in sessions that cleanup had already removed.
+    possiblyPartial: z.boolean(),
     // Subagent sessions attributed to this run, by rule.
     subagentSessions: measurementSchema,
     sessionsByRule: z
@@ -59,13 +63,15 @@ export const usageRecordSchema = z
   .strict();
 export type UsageRecord = z.infer<typeof usageRecordSchema>;
 
+// null: some response did not record that count, so the total is unknown.
+const tokenCount = z.number().int().nonnegative().nullable();
 const tokenTotalsSchema = z
   .object({
-    input: z.number().int().nonnegative(),
-    output: z.number().int().nonnegative(),
-    cacheRead: z.number().int().nonnegative(),
-    cacheCreation5m: z.number().int().nonnegative(),
-    cacheCreation1h: z.number().int().nonnegative(),
+    input: tokenCount,
+    output: tokenCount,
+    cacheRead: tokenCount,
+    cacheCreation5m: tokenCount,
+    cacheCreation1h: tokenCount,
   })
   .strict();
 export type TokenTotals = z.infer<typeof tokenTotalsSchema>;
@@ -73,6 +79,7 @@ export type TokenTotals = z.infer<typeof tokenTotalsSchema>;
 const unattributedSchema = z
   .object({
     sessions: z.number().int().nonnegative(),
+    responses: z.number().int().nonnegative(),
     tokens: tokenTotalsSchema,
     estimatedCostUsd: measurementSchema,
   })
@@ -93,8 +100,17 @@ export const usageMetaSchema = z
     // Subagents with no evidence, conflicting evidence, or a PR outside the
     // baseline. Never guessed.
     subagentsUnattributed: z.number().int().nonnegative(),
-    // API responses seen in more than one transcript file; counted once.
-    duplicateResponses: z.number().int().nonnegative(),
+    // API responses seen in more than one transcript file, counted once: on
+    // the orchestration side when an orchestrating transcript holds one (a
+    // fork copies its parent's turns), otherwise on the unattributed side.
+    duplicateResponses: z
+      .object({
+        toOrchestration: z.number().int().nonnegative(),
+        toUnattributed: z.number().int().nonnegative(),
+      })
+      .strict(),
+    // Assistant records without a response id, model or usage; not counted.
+    droppedResponses: z.number().int().nonnegative(),
     orchestration: unattributedSchema,
     unattributedSubagents: unattributedSchema,
     priceTable: z.object({ checkedAt: z.string().min(1), source: z.string().min(1) }).strict(),

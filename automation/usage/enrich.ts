@@ -16,7 +16,8 @@ import { USAGE_SCHEMA_VERSION, type UsageMeta } from '@/automation/usage/schema'
 //   npx tsx automation/usage/enrich.ts --dir docs/loops/baseline/2026-10-13 \
 //     --transcripts ~/.claude/projects/<project-slug>
 //
-// Privacy: transcripts are read in memory only. The outputs hold per-run
+// Privacy: transcripts are read in memory only (`cwd` only to tell an agent
+// worktree from the main checkout, the first prompt only for PR numbers). The outputs hold per-run
 // aggregates (token counts, estimated cost, durations, model ids, skill
 // name@commit), never prompts, tool output, paths, branch names or session ids.
 
@@ -96,7 +97,8 @@ async function main() {
     },
     subagentsAttributed: result.subagentsAttributed,
     subagentsUnattributed: result.subagentsUnattributed,
-    duplicateResponses: result.duplicateResponses,
+    duplicateResponses: result.duplicates,
+    droppedResponses: result.droppedResponses,
     orchestration: result.orchestration,
     unattributedSubagents: result.unattributedSubagents,
     priceTable: { checkedAt: PRICE_TABLE.checkedAt, source: PRICE_TABLE.source },

@@ -26,7 +26,10 @@ export interface SessionSummary {
   responses: Map<string, PricedTokens>;
   firstAt: string | null;
   lastAt: string | null;
-  // Branches the session worked on, minus the default and detached states.
+  // Branches the session worked on from inside an agent worktree, minus the
+  // default and detached states. A branch seen while the session sat in the
+  // main checkout is whatever that checkout had checked out at the time, so
+  // it says nothing about the session's own task.
   branches: Set<string>;
   // PR numbers named by the session's task prompt (subagents only).
   pullRefs: Set<number>;
@@ -35,11 +38,22 @@ export interface SessionSummary {
   skills: Set<string>;
   // PR numbers the session recorded a link to (main sessions).
   prLinks: Set<number>;
+  // Assistant records with a message but no response id, model or usage:
+  // they cannot be counted, so they are dropped and the drop is reported.
+  droppedResponses: number;
 }
 
 // Branches that say nothing about a task: the default branch, a detached
 // HEAD, and the throwaway branch a fresh agent worktree starts on.
 const NEUTRAL_BRANCH = /^(main|master|HEAD|worktree-agent-[0-9a-f]+)$/;
+
+// Agent worktrees live under this directory; the main checkout does not.
+const WORKTREE_DIR = '/.claude/worktrees/';
+
+// Only Claude model ids are published; anything else is counted as "other",
+// which has no price, so its cost stays unknown.
+const MODEL_ID = /^claude-[a-z0-9.-]+$/;
+export const OTHER_MODEL = 'other';
 
 interface RawUsage {
   input_tokens?: number;
@@ -48,6 +62,11 @@ interface RawUsage {
   cache_creation_input_tokens?: number;
   cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number };
   speed?: string;
+}
+
+// A token count the transcript did not record is unknown (NaN here), never 0.
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : Number.NaN;
 }
 
 function textOf(content: unknown): string {
@@ -76,6 +95,7 @@ export function parseTranscript(id: string, kind: SessionKind, lines: string[]):
     prRefs: new Set(),
     skills: new Set(),
     prLinks: new Set(),
+    droppedResponses: 0,
   };
   let promptSeen = false;
   for (const line of lines) {
@@ -92,7 +112,8 @@ export function parseTranscript(id: string, kind: SessionKind, lines: string[]):
       if (!summary.lastAt || at > summary.lastAt) summary.lastAt = at;
     }
     const branch = record.gitBranch;
-    if (typeof branch === 'string' && branch && !NEUTRAL_BRANCH.test(branch))
+    const inWorktree = typeof record.cwd === 'string' && record.cwd.includes(WORKTREE_DIR);
+    if (inWorktree && typeof branch === 'string' && branch && !NEUTRAL_BRANCH.test(branch))
       summary.branches.add(branch);
     if (record.type === 'pr-link' && typeof record.prNumber === 'number')
       summary.prLinks.add(record.prNumber);
@@ -107,7 +128,11 @@ export function parseTranscript(id: string, kind: SessionKind, lines: string[]):
       summary.pullRefs = numbers(text, /\bpull\/(\d+)\/head\b/g);
       summary.prRefs = numbers(text, /\bPR #(\d+)\b/g);
     }
-    if (record.type !== 'assistant' || !message?.id || !message.usage || !message.model) continue;
+    if (record.type !== 'assistant' || !message) continue;
+    if (!message.id || !message.usage || !message.model) {
+      summary.droppedResponses += 1;
+      continue;
+    }
     if (Array.isArray(message.content))
       for (const block of message.content as {
         type?: string;
@@ -122,21 +147,21 @@ export function parseTranscript(id: string, kind: SessionKind, lines: string[]):
           summary.skills.add(block.input.skill);
     const u = message.usage;
     const split = u.cache_creation;
+    // Without the TTL split a cache write is unknown on both TTLs; a response
+    // that wrote nothing to the cache (a recorded total of 0) has 0 on both.
+    const noWrite = !split && u.cache_creation_input_tokens === 0;
     const tokens: PricedTokens = {
-      model: message.model,
+      model: MODEL_ID.test(message.model) ? message.model : OTHER_MODEL,
       speed: u.speed ?? null,
-      input: u.input_tokens ?? 0,
-      output: u.output_tokens ?? 0,
-      cacheRead: u.cache_read_input_tokens ?? 0,
-      // Without the TTL split, the write is booked at the 5-minute rate only
-      // when there was no cache write at all; otherwise the split is unknown.
-      cacheCreation5m:
-        split?.ephemeral_5m_input_tokens ?? (u.cache_creation_input_tokens ? Number.NaN : 0),
-      cacheCreation1h: split?.ephemeral_1h_input_tokens ?? 0,
+      input: count(u.input_tokens),
+      output: count(u.output_tokens),
+      cacheRead: count(u.cache_read_input_tokens),
+      cacheCreation5m: noWrite ? 0 : count(split?.ephemeral_5m_input_tokens),
+      cacheCreation1h: noWrite ? 0 : count(split?.ephemeral_1h_input_tokens),
     };
     // A response is logged once per streamed block; keep its final usage.
     const previous = summary.responses.get(message.id);
-    if (!previous || tokens.output >= previous.output) summary.responses.set(message.id, tokens);
+    if (!previous || !(tokens.output < previous.output)) summary.responses.set(message.id, tokens);
   }
   return summary;
 }
@@ -159,11 +184,16 @@ export type Attribution =
 // attributed to one.
 export function attributeSession(session: SessionSummary, runs: RunTarget[]): Attribution {
   if (session.kind === 'main') return { status: 'unattributed', reason: 'orchestrating session' };
+  if (session.branches.size > 1) return { status: 'unattributed', reason: 'ambiguous evidence' };
   const byBranch =
     session.branches.size === 1
       ? runs.filter((r) => r.headBranch !== null && session.branches.has(r.headBranch))
       : [];
   const branchPr = byBranch.length === 1 ? byBranch[0]!.prNumber : null;
+  // A session that worked on its own branch, and that branch is no run's head
+  // branch, was doing other work: a PR it merely names is context.
+  if (session.branches.size === 1 && branchPr === null)
+    return { status: 'unattributed', reason: 'works on a branch that matches no run' };
   const refs = session.pullRefs.size > 0 ? session.pullRefs : session.prRefs;
   const refPr = refs.size === 1 ? [...refs][0]! : null;
   if (branchPr !== null && refPr !== null && branchPr !== refPr)
@@ -174,8 +204,7 @@ export function attributeSession(session: SessionSummary, runs: RunTarget[]): At
       return { status: 'unattributed', reason: 'references a PR outside the baseline' };
     return { status: 'attributed', prNumber: refPr, rule: 'pr-reference' };
   }
-  if (refs.size > 1 || session.branches.size > 1)
-    return { status: 'unattributed', reason: 'ambiguous evidence' };
+  if (refs.size > 1) return { status: 'unattributed', reason: 'ambiguous evidence' };
   return { status: 'unattributed', reason: 'no branch or PR reference' };
 }
 
@@ -185,10 +214,14 @@ export interface BuildUsageInput {
   // "skill@sha12" for the SKILL.md commit in effect at a time, or null.
   skillVersionAt: (skill: string, at: string) => string | null;
   prices?: Record<string, ModelPrice>;
+  // Runs created within this many hours after the start of transcript
+  // coverage may have work in sessions already removed by cleanup.
+  partialMarginHours?: number;
 }
 
 export interface UsageTotals {
   sessions: number;
+  responses: number;
   tokens: TokenTotals;
   estimatedCostUsd: Measurement;
 }
@@ -197,24 +230,22 @@ export interface BuildUsageResult {
   records: UsageRecord[];
   subagentsAttributed: number;
   subagentsUnattributed: number;
-  duplicateResponses: number;
+  duplicates: { toOrchestration: number; toUnattributed: number };
+  droppedResponses: number;
   orchestration: UsageTotals;
   unattributedSubagents: UsageTotals;
   coverage: { from: string | null; to: string | null };
 }
 
-const emptyTokens = (): TokenTotals => ({
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheCreation5m: 0,
-  cacheCreation1h: 0,
-});
+const tokenKinds = ['input', 'output', 'cacheRead', 'cacheCreation5m', 'cacheCreation1h'] as const;
+type TokenKind = (typeof tokenKinds)[number];
 
 interface Tally {
   sessions: number;
-  tokens: TokenTotals;
-  splitKnown: boolean;
+  responses: number;
+  tokens: Record<TokenKind, number>;
+  // A kind with any unrecorded count is unknown as a whole.
+  tokensKnown: Record<TokenKind, boolean>;
   cost: number;
   costKnown: boolean;
   models: Set<string>;
@@ -223,25 +254,33 @@ interface Tally {
 function tally(): Tally {
   return {
     sessions: 0,
-    tokens: emptyTokens(),
-    splitKnown: true,
+    responses: 0,
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation5m: 0, cacheCreation1h: 0 },
+    tokensKnown: {
+      input: true,
+      output: true,
+      cacheRead: true,
+      cacheCreation5m: true,
+      cacheCreation1h: true,
+    },
     cost: 0,
     costKnown: true,
     models: new Set(),
   };
 }
 
-function add(t: Tally, responses: PricedTokens[], prices: Record<string, ModelPrice>) {
-  t.sessions += 1;
+function addResponses(t: Tally, responses: PricedTokens[], prices: Record<string, ModelPrice>) {
   for (const r of responses) {
+    t.responses += 1;
     t.models.add(r.model);
-    t.tokens.input += r.input;
-    t.tokens.output += r.output;
-    t.tokens.cacheRead += r.cacheRead;
-    if (Number.isNaN(r.cacheCreation5m)) t.splitKnown = false;
-    else t.tokens.cacheCreation5m += r.cacheCreation5m;
-    t.tokens.cacheCreation1h += r.cacheCreation1h;
-    const cost = Number.isNaN(r.cacheCreation5m) ? null : responseCostUsd(r, prices);
+    let complete = true;
+    for (const kind of tokenKinds) {
+      if (Number.isNaN(r[kind])) {
+        t.tokensKnown[kind] = false;
+        complete = false;
+      } else t.tokens[kind] += r[kind];
+    }
+    const cost = complete ? responseCostUsd(r, prices) : null;
     if (cost === null) t.costKnown = false;
     else t.cost += cost;
   }
@@ -251,13 +290,16 @@ function costOf(t: Tally): Measurement {
   if (t.sessions === 0) return unknown('no session');
   if (!t.costKnown)
     return unknown(
-      'a model or speed without a verified price, or a cache write without its TTL split',
+      'a model or speed without a verified price, or a token count the transcript did not record',
     );
   return { status: 'known', value: Math.round(t.cost * 10000) / 10000, unit: 'usd' };
 }
 
 function totals(t: Tally): UsageTotals {
-  return { sessions: t.sessions, tokens: t.tokens, estimatedCostUsd: costOf(t) };
+  const tokens = Object.fromEntries(
+    tokenKinds.map((k) => [k, t.tokensKnown[k] ? t.tokens[k] : null]),
+  ) as TokenTotals;
+  return { sessions: t.sessions, responses: t.responses, tokens, estimatedCostUsd: costOf(t) };
 }
 
 const tokenMeasure = (value: number): Measurement => ({ status: 'known', value, unit: 'tokens' });
@@ -265,25 +307,38 @@ const countMeasure = (value: number): Measurement => ({ status: 'known', value, 
 
 export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
   const prices = input.prices ?? MODEL_PRICES;
-  // Each API response is counted once, in the first transcript holding it.
-  const seen = new Set<string>();
-  let duplicateResponses = 0;
-  const ownResponses = new Map<string, PricedTokens[]>();
+  const marginMs = (input.partialMarginHours ?? 48) * 3600 * 1000;
+
+  // Each API response is counted once. A response present in an orchestrating
+  // transcript and in a subagent one (a fork copies its parent's turns) goes to
+  // orchestration; one held by several subagents goes to the unattributed side.
+  // The rule depends on who holds the response, not on file order.
+  const holders = new Map<string, SessionSummary[]>();
+  for (const s of input.sessions)
+    for (const id of s.responses.keys()) holders.set(id, [...(holders.get(id) ?? []), s]);
+  const duplicates = { toOrchestration: 0, toUnattributed: 0 };
+  const owner = new Map<string, 'own' | 'orchestration' | 'unattributed'>();
+  for (const [id, sessions] of holders) {
+    if (sessions.length === 1) {
+      owner.set(id, 'own');
+      continue;
+    }
+    if (sessions.some((s) => s.kind === 'main')) {
+      owner.set(id, 'orchestration');
+      duplicates.toOrchestration += 1;
+    } else {
+      owner.set(id, 'unattributed');
+      duplicates.toUnattributed += 1;
+    }
+  }
+
   let from: string | null = null;
   let to: string | null = null;
+  let droppedResponses = 0;
   for (const s of input.sessions) {
-    const own: PricedTokens[] = [];
-    for (const [id, tokens] of s.responses) {
-      if (seen.has(id)) {
-        duplicateResponses += 1;
-        continue;
-      }
-      seen.add(id);
-      own.push(tokens);
-    }
-    ownResponses.set(s.id, own);
     if (s.firstAt && (!from || s.firstAt < from)) from = s.firstAt;
     if (s.lastAt && (!to || s.lastAt > to)) to = s.lastAt;
+    droppedResponses += s.droppedResponses;
   }
 
   const orchestration = tally();
@@ -292,18 +347,32 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
     number,
     { tally: Tally; sessions: SessionSummary[]; byRule: Record<string, number> }
   >();
+  // A shared response is counted under its first holder only.
+  const sharedCounted = new Set<string>();
+  const shared = (s: SessionSummary, side: 'orchestration' | 'unattributed') =>
+    [...s.responses].flatMap(([id, t]) => {
+      if (owner.get(id) !== side || sharedCounted.has(id)) return [];
+      sharedCounted.add(id);
+      return [t];
+    });
+  const own = (s: SessionSummary) =>
+    [...s.responses].flatMap(([id, t]) => (owner.get(id) === 'own' ? [t] : []));
+
   let attributedCount = 0;
   let unattributedCount = 0;
   for (const s of input.sessions) {
-    const responses = ownResponses.get(s.id) ?? [];
+    addResponses(orchestration, shared(s, 'orchestration'), prices);
+    addResponses(unattributed, shared(s, 'unattributed'), prices);
     if (s.kind === 'main') {
-      add(orchestration, responses, prices);
+      orchestration.sessions += 1;
+      addResponses(orchestration, own(s), prices);
       continue;
     }
     const a = attributeSession(s, input.runs);
     if (a.status === 'unattributed') {
       unattributedCount += 1;
-      add(unattributed, responses, prices);
+      unattributed.sessions += 1;
+      addResponses(unattributed, own(s), prices);
       continue;
     }
     attributedCount += 1;
@@ -312,7 +381,8 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
       sessions: [],
       byRule: Object.fromEntries(attributionRules.map((r) => [r, 0])),
     };
-    add(entry.tally, responses, prices);
+    entry.tally.sessions += 1;
+    addResponses(entry.tally, own(s), prices);
     entry.sessions.push(s);
     entry.byRule[a.rule]! += 1;
     perRun.set(a.prNumber, entry);
@@ -330,6 +400,10 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
       to !== null &&
       Date.parse(run.createdAt) <= Date.parse(to) &&
       (run.closedAt === null || Date.parse(run.closedAt) >= Date.parse(from));
+    // Work on a run created soon after the start of coverage may sit in
+    // sessions that cleanup had already removed.
+    const possiblyPartial =
+      inCoverage && from !== null && Date.parse(run.createdAt) < Date.parse(from) + marginMs;
     const none = inCoverage
       ? 'no subagent session attributable to this PR by head branch or PR reference'
       : 'no session transcript retained for this period';
@@ -338,6 +412,7 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
       schemaVersion: USAGE_SCHEMA_VERSION,
       runId: run.runId,
       prNumber: run.prNumber,
+      possiblyPartial,
       orchestratorSessionsLinked: orchestrators
         ? countMeasure(orchestrators)
         : unknown(inCoverage ? 'no orchestrating session recorded a link to this PR' : none),
@@ -361,7 +436,10 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
         skillVersion: unknown(none),
       };
     const t = entry.tally;
-    const split = t.splitKnown ? null : unknown('cache write recorded without its TTL split');
+    const tokenOf = (kind: TokenKind): Measurement =>
+      t.tokensKnown[kind]
+        ? tokenMeasure(t.tokens[kind])
+        : unknown('a response in the attributed sessions did not record this count');
     let seconds = 0;
     for (const s of entry.sessions)
       if (s.firstAt && s.lastAt) seconds += (Date.parse(s.lastAt) - Date.parse(s.firstAt)) / 1000;
@@ -394,11 +472,11 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
         'pr-reference': entry.byRule['pr-reference']!,
       },
       tokens: {
-        input: tokenMeasure(t.tokens.input),
-        output: tokenMeasure(t.tokens.output),
-        cacheRead: tokenMeasure(t.tokens.cacheRead),
-        cacheCreation5m: split ?? tokenMeasure(t.tokens.cacheCreation5m),
-        cacheCreation1h: split ?? tokenMeasure(t.tokens.cacheCreation1h),
+        input: tokenOf('input'),
+        output: tokenOf('output'),
+        cacheRead: tokenOf('cacheRead'),
+        cacheCreation5m: tokenOf('cacheCreation5m'),
+        cacheCreation1h: tokenOf('cacheCreation1h'),
       },
       estimatedCostUsd: costOf(t),
       agentDuration: { status: 'known', value: Math.round(seconds), unit: 'seconds' },
@@ -411,7 +489,8 @@ export function buildUsageRecords(input: BuildUsageInput): BuildUsageResult {
     records,
     subagentsAttributed: attributedCount,
     subagentsUnattributed: unattributedCount,
-    duplicateResponses,
+    duplicates,
+    droppedResponses,
     orchestration: totals(orchestration),
     unattributedSubagents: totals(unattributed),
     coverage: { from, to },

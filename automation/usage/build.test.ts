@@ -25,18 +25,26 @@ interface Turn {
   branch?: string;
   skill?: string;
   speed?: string;
+  // Working directory of the record; defaults to the main checkout.
+  cwd?: string;
+  // Replaces the usage object entirely (to drop fields).
+  usage?: Record<string, unknown>;
 }
+
+const MAIN_CHECKOUT = '/repo';
+const WORKTREE = '/repo/.claude/worktrees/agent-1';
 
 function assistant(t: Turn): string {
   return JSON.stringify({
     type: 'assistant',
     timestamp: t.at ?? '2026-10-01T10:00:00.000Z',
     gitBranch: t.branch ?? 'main',
+    cwd: t.cwd ?? MAIN_CHECKOUT,
     message: {
       id: t.id,
       model: t.model ?? 'claude-opus-5-5',
       content: t.skill ? [{ type: 'tool_use', name: 'Skill', input: { skill: t.skill } }] : [],
-      usage: {
+      usage: t.usage ?? {
         input_tokens: t.input ?? 0,
         output_tokens: t.output ?? 0,
         cache_read_input_tokens: t.cacheRead ?? 0,
@@ -51,11 +59,17 @@ function assistant(t: Turn): string {
   });
 }
 
-function prompt(text: string, branch = 'main', at = '2026-10-01T09:59:00.000Z'): string {
+function prompt(
+  text: string,
+  branch = 'main',
+  at = '2026-10-01T09:59:00.000Z',
+  cwd = MAIN_CHECKOUT,
+): string {
   return JSON.stringify({
     type: 'user',
     timestamp: at,
     gitBranch: branch,
+    cwd,
     message: { role: 'user', content: text },
   });
 }
@@ -107,13 +121,71 @@ describe('parseTranscript', () => {
     expect(r.agentDuration).toEqual({ status: 'known', value: 31 * 60, unit: 'seconds' });
     expect(usageRecordSchema.parse(r)).toEqual(r);
   });
+
+  it('keeps an unrecorded count unknown, never 0, and drops a response it cannot count', () => {
+    const s = session('n', 'subagent', [
+      prompt('Fix PR #101'),
+      // A cache write without its TTL split: both write kinds are unknown.
+      assistant({
+        id: 'n1',
+        usage: {
+          input_tokens: 2,
+          output_tokens: 3,
+          cache_read_input_tokens: 4,
+          cache_creation_input_tokens: 50,
+        },
+      }),
+      // No cache write at all and no split: 0, known.
+      assistant({
+        id: 'n2',
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      }),
+      // No response id: dropped and counted as dropped.
+      JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-10-01T10:00:00.000Z',
+        message: { model: 'claude-opus-5-5', usage: { output_tokens: 9 } },
+      }),
+    ]);
+    expect(s.droppedResponses).toBe(1);
+    const result = buildUsageRecords({ sessions: [s], runs, skillVersionAt: noSkills });
+    const r = result.records.find((x) => x.prNumber === 101)!;
+    expect(r.tokens.output).toEqual({ status: 'known', value: 4, unit: 'tokens' });
+    expect(r.tokens.cacheCreation5m.status).toBe('unknown');
+    expect(r.tokens.cacheCreation1h.status).toBe('unknown');
+    expect(r.estimatedCostUsd.status).toBe('unknown');
+    expect(result.droppedResponses).toBe(1);
+    // A missing input count is unknown too, in records and in side totals.
+    const noInput = session('m', 'main', [
+      assistant({ id: 'm9', usage: { output_tokens: 1, cache_read_input_tokens: 0 } }),
+    ]);
+    const side = buildUsageRecords({ sessions: [noInput], runs, skillVersionAt: noSkills });
+    expect(side.orchestration.tokens.input).toBeNull();
+    expect(side.orchestration.tokens.output).toBe(1);
+    expect(side.orchestration.estimatedCostUsd.status).toBe('unknown');
+  });
+
+  it('publishes only Claude model ids and counts anything else as other, unpriced', () => {
+    const s = session('o', 'subagent', [
+      prompt('Fix PR #101'),
+      assistant({ id: 'o9', output: 10, model: 'some-other-model' }),
+    ]);
+    const r = buildUsageRecords({ sessions: [s], runs, skillVersionAt: noSkills }).records[0]!;
+    expect(r.models).toMatchObject({ status: 'known', value: 'other' });
+    expect(r.estimatedCostUsd.status).toBe('unknown');
+  });
 });
 
 describe('attribution', () => {
   it('attributes a subagent by its one head branch, and by a single PR reference', () => {
     const byBranch = session('b', 'subagent', [
-      prompt('Implement issue 2', 'worktree-agent-abc123'),
-      assistant({ id: 'x1', branch: 'fix/issue-2-other' }),
+      prompt('Implement issue 2', 'worktree-agent-abc123', undefined, WORKTREE),
+      assistant({ id: 'x1', branch: 'fix/issue-2-other', cwd: WORKTREE }),
     ]);
     const byRef = session('c', 'subagent', [
       prompt('Review: git fetch origin pull/101/head:refs/pr/101'),
@@ -135,47 +207,86 @@ describe('attribution', () => {
     const two = session('e', 'subagent', [prompt('Compare PR #101 and PR #102')]);
     const conflict = session('f', 'subagent', [
       prompt('Review PR #101'),
-      assistant({ id: 'y1', branch: 'fix/issue-2-other' }),
+      assistant({ id: 'y1', branch: 'fix/issue-2-other', cwd: WORKTREE }),
     ]);
+    // Working on a branch of its own that is no run's head branch: the PR it
+    // names is context, not its task.
+    const otherWork = session('ow', 'subagent', [
+      prompt('Follow the pattern of PR #101'),
+      assistant({ id: 'w1', branch: 'feat/unrelated', cwd: WORKTREE }),
+    ]);
+    expect(attributeSession(otherWork, runs)).toEqual({
+      status: 'unattributed',
+      reason: 'works on a branch that matches no run',
+    });
     const outside = session('g', 'subagent', [prompt('Review PR #999')]);
     // Even on the PR's head branch, a main session is never attributed.
     const main = session('h', 'main', [
       prompt('Review PR #101'),
       assistant({ id: 'h1', branch: 'feat/issue-1-thing' }),
     ]);
-    for (const s of [none, two, conflict, outside, main])
+    for (const s of [none, two, conflict, outside, main, otherWork])
       expect(attributeSession(s, runs).status).toBe('unattributed');
+  });
+
+  it('ignores a branch inherited from the main checkout', () => {
+    // Not in a worktree: the branch is whatever the main checkout had, so it
+    // is not evidence; the single PR reference decides.
+    const inherited = session('i', 'subagent', [
+      prompt('Review PR #101'),
+      assistant({ id: 'i1', branch: 'fix/issue-2-other' }),
+    ]);
+    expect(attributeSession(inherited, runs)).toEqual({
+      status: 'attributed',
+      prNumber: 101,
+      rule: 'pr-reference',
+    });
+  });
+
+  it('prefers a pull/<n>/head reference over a PR #n mention', () => {
+    const s = session('ph', 'subagent', [
+      prompt('Review git fetch origin pull/101/head, compare with PR #102'),
+    ]);
+    expect(attributeSession(s, runs)).toMatchObject({ status: 'attributed', prNumber: 101 });
   });
 
   it('attributes subagent usage to the run, never main-session usage, and never twice', () => {
     const sub = session('sub', 'subagent', [
       prompt('Fix PR #101'),
       assistant({ id: 's1', output: 5 }),
+      assistant({ id: 's2', output: 7 }),
+      assistant({ id: 's3', output: 11 }),
     ]);
-    // A copy of the same response in another file (e.g. a fork that logged
-    // its parent's turn) must not be counted again.
+    // s2 also sits in another subagent: shared, so it goes to the unattributed side.
     const copy = session('copy', 'subagent', [
       prompt('Fix PR #102'),
-      assistant({ id: 's1', output: 5 }),
+      assistant({ id: 's2', output: 7 }),
     ]);
+    // s3 also sits in the orchestrating transcript (a fork copies its
+    // parent's turns): it goes to orchestration.
     const main = session('main', 'main', [
       prompt('orchestrate'),
       assistant({ id: 'o1', output: 1000 }),
+      assistant({ id: 's3', output: 11 }),
       JSON.stringify({ type: 'pr-link', prNumber: 101, timestamp: '2026-10-01T10:00:00.000Z' }),
     ]);
-    const result = buildUsageRecords({
-      sessions: [sub, copy, main],
-      runs,
-      skillVersionAt: noSkills,
-    });
+    const build = (sessions: ReturnType<typeof session>[]) =>
+      buildUsageRecords({ sessions, runs, skillVersionAt: noSkills });
+    const result = build([sub, copy, main]);
     const r101 = result.records.find((r) => r.prNumber === 101)!;
     const r102 = result.records.find((r) => r.prNumber === 102)!;
     expect(r101.tokens.output).toEqual({ status: 'known', value: 5, unit: 'tokens' });
     expect(r101.orchestratorSessionsLinked).toEqual({ status: 'known', value: 1, unit: 'count' });
     // The copy is attributed to #102 but holds no response of its own.
     expect(r102.tokens.output).toEqual({ status: 'known', value: 0, unit: 'tokens' });
-    expect(result.duplicateResponses).toBe(1);
-    expect(result.orchestration.tokens.output).toBe(1000);
+    expect(result.duplicates).toEqual({ toOrchestration: 1, toUnattributed: 1 });
+    expect(result.orchestration.tokens.output).toBe(1011);
+    expect(result.unattributedSubagents.tokens.output).toBe(7);
+    // The outcome does not depend on the order the files were read in.
+    const reversed = build([main, copy, sub]);
+    expect(reversed.records).toEqual(result.records);
+    expect(reversed.orchestration).toEqual(result.orchestration);
+    expect(reversed.unattributedSubagents).toEqual(result.unattributedSubagents);
   });
 });
 
@@ -231,6 +342,28 @@ describe('unknown runs', () => {
     expect(r102.tokens.output).toMatchObject({
       reason: 'no session transcript retained for this period',
     });
+  });
+
+  it('gives an in-window run without evidence its own reason, and flags early runs', () => {
+    const s = session('iw', 'subagent', [
+      prompt('PR #101', 'main', '2026-09-30T08:00:00.000Z'),
+      assistant({ id: 'iw1', output: 1, at: '2026-10-02T00:00:00.000Z' }),
+    ]);
+    const { records } = buildUsageRecords({ sessions: [s], runs, skillVersionAt: noSkills });
+    const r102 = records.find((r) => r.prNumber === 102)!;
+    expect(r102.tokens.output).toMatchObject({
+      status: 'unknown',
+      reason: 'no subagent session attributable to this PR by head branch or PR reference',
+    });
+    // Created about 25 h after coverage starts: within the 48 h margin.
+    expect(r102.possiblyPartial).toBe(true);
+    const late = buildUsageRecords({
+      sessions: [s],
+      runs,
+      skillVersionAt: noSkills,
+      partialMarginHours: 1,
+    });
+    expect(late.records.every((r) => !r.possiblyPartial)).toBe(true);
   });
 
   it('records a skill version only for a skill invoked through the Skill tool', () => {
@@ -306,7 +439,8 @@ describe('report', () => {
       sessionsScanned: { main: 0, subagent: 1 },
       subagentsAttributed: result.subagentsAttributed,
       subagentsUnattributed: result.subagentsUnattributed,
-      duplicateResponses: result.duplicateResponses,
+      duplicateResponses: result.duplicates,
+      droppedResponses: result.droppedResponses,
       orchestration: result.orchestration,
       unattributedSubagents: result.unattributedSubagents,
       priceTable: { checkedAt: '2026-10-13', source: 'test' },
@@ -317,7 +451,11 @@ describe('report', () => {
       { records: result.records, meta },
     );
     expect(report).toContain('| Output tokens | 1 of 2 | 1 of 2');
-    expect(report).toContain('| Estimated cost (USD) | 1 of 2 | 1 of 2');
+    expect(report).toContain('| Estimated cost (USD), a lower bound | 1 of 2 | 1 of 2');
+    expect(report).toContain('not billed');
+    expect(report).toContain('Every per-run figure is a lower bound');
+    expect(report).toContain('known estimate for 1 of 2 merged runs');
+    expect(report).toContain('Summed session time is not human-attended time');
     expect(report).toContain('Runs with known usage: 1 of 2 (#101)');
     expect(report).toContain('over 1 runs with a known estimate');
     expect(report).toContain('Not extrapolated to the 1 runs whose cost is unknown');
