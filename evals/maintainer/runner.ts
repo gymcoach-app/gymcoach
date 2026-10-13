@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { agents, type AgentKind, type Outcome, type TestRun } from './schema';
+import { agents, type AgentKind, type EvalTask, type Outcome, type TestRun } from './schema';
 
 // Pure parts of the replay runner (run.ts does the I/O). Kept apart so the
 // rules that decide an outcome are unit-tested without a snapshot or a database.
@@ -111,8 +111,17 @@ export function summariseVitestReport(raw: string | null): {
   }
 }
 
+// A run passes only with a report of at least one passing test, no failure, and
+// a zero exit: vitest exits non-zero on an unhandled error even when every
+// counted test passed.
 function runPassed(run: TestRun): boolean {
-  return run.passed !== null && run.passed > 0 && run.failed === 0 && run.failedSuites === 0;
+  return (
+    run.exitCode === 0 &&
+    run.passed !== null &&
+    run.passed > 0 &&
+    run.failed === 0 &&
+    run.failedSuites === 0
+  );
 }
 
 function runUnreadable(run: TestRun): boolean {
@@ -146,5 +155,158 @@ export function sameDependencies(baseLock: string, currentLock: string): boolean
 }
 
 // Paths removed from a materialised snapshot: the eval suite itself (graders and
-// broken variants would reveal the answer if a future base contains them).
-export const SNAPSHOT_EXCLUDES = ['evals'] as const;
+// broken variants would reveal the answer if a future base contains them), and
+// `.claude/` (project settings that would widen the agent's permissions, hooks,
+// and skills that tell an agent to open PRs and merge).
+export const SNAPSHOT_EXCLUDES = ['evals', '.claude'] as const;
+
+// Files the grade depends on besides the hidden tests: test runner configs and
+// setup files, package and TypeScript configs, every test file and everything
+// under tests/ (helpers, integration setup). The agent may change application
+// code only; these are put back to the base commit before grading, so editing a
+// preserved test, a vitest setup file (for example a vi.mock of the module under
+// test) or a config cannot turn a fail into a pass.
+const GRADE_CONFIG_FILES = new Set([
+  'package.json',
+  'package-lock.json',
+  'tsconfig.json',
+  'vitest.setup.ts',
+]);
+
+export function isGradeInput(file: string, task: Pick<EvalTask, 'grader'>): boolean {
+  if (task.grader.hidden.includes(file) || task.grader.preserved.includes(file)) return true;
+  if (GRADE_CONFIG_FILES.has(file)) return true;
+  if (/^vitest\.[^/]+$/.test(file)) return true;
+  if (file.startsWith('tests/')) return true;
+  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(file);
+}
+
+// What to put back before grading, given the base tree and the workspace (path
+// to blob id; `null` when the file is absent from the workspace). Hidden tests
+// are excluded: they are copied from the fix commit right after.
+export function planGradeInputRestore(
+  task: Pick<EvalTask, 'grader'>,
+  base: ReadonlyMap<string, string>,
+  work: ReadonlyMap<string, string | null>,
+): { restore: string[]; remove: string[] } {
+  const hidden = new Set(task.grader.hidden);
+  // Paths stripped from the snapshot stay stripped.
+  const excluded = (file: string) =>
+    SNAPSHOT_EXCLUDES.some((e) => file === e || file.startsWith(`${e}/`));
+  const restore: string[] = [];
+  const remove: string[] = [];
+  for (const [file, blob] of base) {
+    if (!isGradeInput(file, task) || hidden.has(file) || excluded(file)) continue;
+    if (work.get(file) !== blob) restore.push(file);
+  }
+  for (const [file, blob] of work) {
+    if (blob === null || base.has(file) || hidden.has(file)) continue;
+    if (isGradeInput(file, task)) remove.push(file);
+  }
+  return { restore: restore.sort(), remove: remove.sort() };
+}
+
+// The docker invocation for the paid agent. Only these paths enter the
+// container: the task workspace (read-write), the installed node_modules and
+// the claude binary (read-only), and a fresh HOME holding a copy of the model
+// credential and the eval settings. Nothing else from the host: no repository,
+// no ~/.config/gh, ~/.git-credentials, ~/.ssh or ~/.gitconfig, and no host
+// environment (docker passes only the variables listed here).
+export interface ContainerSpec {
+  name: string;
+  image: string;
+  workspace: string;
+  nodeModules: string;
+  viteCacheInNodeModules: boolean;
+  claudeBinary: string;
+  home: string;
+  uid: number;
+  gid: number;
+  command: string[];
+}
+
+export const CONTAINER_WORKDIR = '/work';
+export const CONTAINER_HOME = '/home/eval';
+
+export function containerArgs(spec: ContainerSpec): string[] {
+  const args = [
+    'run',
+    '--rm',
+    '--name',
+    spec.name,
+    '--user',
+    `${spec.uid}:${spec.gid}`,
+    '--read-only',
+    '--tmpfs',
+    '/tmp:rw,exec,size=1g',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--pids-limit',
+    '1024',
+    '--memory',
+    '6g',
+    '-v',
+    `${spec.workspace}:${CONTAINER_WORKDIR}:rw`,
+    '-v',
+    `${spec.nodeModules}:${CONTAINER_WORKDIR}/node_modules:ro`,
+  ];
+  // Vitest writes its cache under node_modules/.vite; a tmpfs over it keeps the
+  // install read-only without breaking a test run.
+  if (spec.viteCacheInNodeModules)
+    args.push('--tmpfs', `${CONTAINER_WORKDIR}/node_modules/.vite:rw,size=256m`);
+  args.push(
+    '-v',
+    `${spec.claudeBinary}:/usr/local/bin/claude:ro`,
+    '-v',
+    `${spec.home}:${CONTAINER_HOME}:rw`,
+    '-e',
+    `HOME=${CONTAINER_HOME}`,
+    '-e',
+    'DISABLE_AUTOUPDATER=1',
+    '-e',
+    'DISABLE_TELEMETRY=1',
+    '-e',
+    'GIT_TERMINAL_PROMPT=0',
+    '-e',
+    'CI=1',
+    '-w',
+    CONTAINER_WORKDIR,
+    spec.image,
+    ...spec.command,
+  );
+  return args;
+}
+
+// Eval settings for the paid agent: an explicit allow list for the tools a fix
+// needs and a deny list for every publishing or fetching path, loaded as the
+// only settings source (project settings are not loaded, and `.claude/` is not
+// in the snapshot anyway).
+export function evalSettings(): Record<string, unknown> {
+  return {
+    permissions: {
+      allow: [
+        'Read',
+        'Edit',
+        'Write',
+        'Glob',
+        'Grep',
+        'Bash(npx vitest:*)',
+        'Bash(npm run test:*)',
+        'Bash(git diff:*)',
+        'Bash(git status:*)',
+      ],
+      deny: [
+        'WebFetch',
+        'WebSearch',
+        'Bash(git push:*)',
+        'Bash(git remote:*)',
+        'Bash(gh:*)',
+        'Bash(curl:*)',
+        'Bash(wget:*)',
+      ],
+    },
+    hooks: {},
+  };
+}

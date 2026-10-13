@@ -2,12 +2,18 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  CONTAINER_HOME,
+  SNAPSHOT_EXCLUDES,
   UsageError,
   assertOutsideRepo,
   claudeRunAllowed,
+  containerArgs,
   decideOutcome,
+  evalSettings,
   groupByTier,
+  isGradeInput,
   parseArgs,
+  planGradeInputRestore,
   sameDependencies,
   summariseVitestReport,
 } from './runner';
@@ -175,5 +181,147 @@ describe('committed tasks', () => {
     // The statement must not point the agent at the fix.
     expect(task.statement).not.toMatch(/#\d+|issue \d+|PR \d+|[0-9a-f]{7,40}/i);
     expect(task.snapshot.baseSha).not.toBe(task.snapshot.fixSha);
+  });
+});
+
+describe('decideOutcome and the vitest exit code', () => {
+  it('fails a run whose counts look green but whose exit code is not zero', () => {
+    // vitest exits non-zero on an unhandled error even when every test passed.
+    expect(decideOutcome({ hidden: [run({ exitCode: 1 })], preserved: [], infraErrors: [] })).toBe(
+      'fail',
+    );
+  });
+});
+
+const task = {
+  grader: {
+    hidden: ['lib/cardio.test.ts'],
+    preserved: ['lib/import/track.test.ts'],
+  },
+};
+
+describe('isGradeInput', () => {
+  it('covers tests, test helpers, runner and package configs', () => {
+    for (const file of [
+      'lib/cardio.test.ts',
+      'lib/import/track.test.ts',
+      'components/a.test.tsx',
+      'tests/integration/setup.ts',
+      'tests/integration/helpers/seed.ts',
+      'vitest.config.ts',
+      'vitest.integration.config.ts',
+      'vitest.workspace.ts',
+      'vitest.setup.ts',
+      'package.json',
+      'package-lock.json',
+      'tsconfig.json',
+    ])
+      expect(isGradeInput(file, task), file).toBe(true);
+  });
+
+  it('leaves application code to the agent', () => {
+    for (const file of ['lib/cardio.ts', 'app/api/x/route.ts', 'prisma/schema.prisma'])
+      expect(isGradeInput(file, task), file).toBe(false);
+  });
+});
+
+describe('planGradeInputRestore', () => {
+  const base = new Map([
+    ['lib/cardio.ts', 'b-src'],
+    ['lib/cardio.test.ts', 'b-hidden-old'],
+    ['lib/import/track.test.ts', 'b-preserved'],
+    ['vitest.setup.ts', 'b-setup'],
+    ['evals/maintainer/runner.test.ts', 'b-evals'],
+  ]);
+
+  it('puts back a weakened preserved test and an edited setup file, not the agent code', () => {
+    const work = new Map<string, string | null>([
+      ['lib/cardio.ts', 'agent-fix'],
+      ['lib/cardio.test.ts', 'b-hidden-old'],
+      ['lib/import/track.test.ts', 'weakened'],
+      ['vitest.setup.ts', 'with-vi-mock'],
+    ]);
+    expect(planGradeInputRestore(task, base, work)).toEqual({
+      restore: ['lib/import/track.test.ts', 'vitest.setup.ts'],
+      remove: [],
+    });
+  });
+
+  it('restores a deleted grade input and removes an added one', () => {
+    const work = new Map<string, string | null>([
+      ['lib/import/track.test.ts', null],
+      ['vitest.setup.ts', 'b-setup'],
+      ['vitest.workspace.ts', 'added'],
+      ['tests/integration/cheat.ts', 'added'],
+      ['lib/cardio.tamper.ts', 'added'],
+    ]);
+    expect(planGradeInputRestore(task, base, work)).toEqual({
+      restore: ['lib/import/track.test.ts'],
+      remove: ['tests/integration/cheat.ts', 'vitest.workspace.ts'],
+    });
+  });
+
+  it('leaves hidden tests to the fix-commit copy and stripped paths stripped', () => {
+    const work = new Map<string, string | null>([
+      ['lib/cardio.test.ts', 'agent-edit'],
+      ['lib/import/track.test.ts', 'b-preserved'],
+      ['vitest.setup.ts', 'b-setup'],
+    ]);
+    expect(planGradeInputRestore(task, base, work)).toEqual({ restore: [], remove: [] });
+  });
+});
+
+describe('the snapshot and the contained agent', () => {
+  it('strips the project .claude directory from the snapshot', () => {
+    expect(SNAPSHOT_EXCLUDES).toContain('.claude');
+    expect(SNAPSHOT_EXCLUDES).toContain('evals');
+  });
+
+  const spec = {
+    name: 'gymcoach-eval-abcd',
+    image: 'node:22-bookworm',
+    workspace: '/tmp/ws',
+    nodeModules: '/home/u/repo/node_modules',
+    viteCacheInNodeModules: true,
+    claudeBinary: '/home/u/.local/share/claude/versions/1',
+    home: '/tmp/home',
+    uid: 1000,
+    gid: 1000,
+    command: ['claude', '-p', 'x'],
+  };
+
+  it('mounts only the workspace read-write, the install and binary read-only, and a fresh HOME', () => {
+    const args = containerArgs(spec);
+    const mounts = args.flatMap((a, i) => (args[i - 1] === '-v' ? [a] : []));
+    expect(mounts).toEqual([
+      '/tmp/ws:/work:rw',
+      '/home/u/repo/node_modules:/work/node_modules:ro',
+      '/home/u/.local/share/claude/versions/1:/usr/local/bin/claude:ro',
+      `/tmp/home:${CONTAINER_HOME}:rw`,
+    ]);
+    expect(args).toContain('--read-only');
+    expect(args.join(' ')).toContain('--cap-drop ALL');
+    expect(args).toContain('no-new-privileges');
+    expect(args.slice(-4)).toEqual(['node:22-bookworm', 'claude', '-p', 'x']);
+  });
+
+  it('passes no host environment except the listed variables', () => {
+    const args = containerArgs(spec);
+    const env = args.flatMap((a, i) => (args[i - 1] === '-e' ? [a.split('=')[0]] : []));
+    expect(env.sort()).toEqual(
+      ['CI', 'DISABLE_AUTOUPDATER', 'DISABLE_TELEMETRY', 'GIT_TERMINAL_PROMPT', 'HOME'].sort(),
+    );
+    expect(args).not.toContain('--env-file');
+    expect(args.some((a) => /GH_TOKEN|GITHUB_TOKEN|ANTHROPIC_API_KEY/.test(a))).toBe(false);
+  });
+
+  it('denies every publishing and fetching path in the eval settings', () => {
+    const deny = (evalSettings().permissions as { deny: string[] }).deny;
+    for (const rule of ['Bash(git push:*)', 'Bash(gh:*)', 'Bash(curl:*)', 'WebFetch'])
+      expect(deny).toContain(rule);
+  });
+
+  it('accepts the tamper self-check agent', () => {
+    expect(parseArgs(['--task', 'dev-x', '--agent', 'tamper']).agent).toBe('tamper');
   });
 });

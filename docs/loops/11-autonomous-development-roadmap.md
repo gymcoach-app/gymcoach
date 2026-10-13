@@ -270,9 +270,14 @@ changes within the charter.
 - [x] Provide a documented replay command that requires no production credentials
       and cannot publish to the real repository.
       Evidence: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md));
-      the snapshot has no remote, and the paid `claude` agent is refused without a budget
-      and `EVAL_BUDGET_APPROVED=1` and runs with `gh` logged out and a Bash allowlist.
-      On 2026-10-13 the 3 smoke tasks gave dry fail, reference pass, broken fail (9/9).
+      the snapshot has no remote and no `.claude/`, and the paid `claude` agent is refused
+      without a budget and `EVAL_BUDGET_APPROVED=1` and runs in a container that mounts
+      only the snapshot (no repository, gh config, git credentials, SSH keys or host
+      environment). `npx tsx evals/maintainer/probe-isolation.ts` builds that container
+      and checks 14 publish and read paths without a model call: all held on 2026-10-13.
+      Grade inputs are restored to the base before grading. On 2026-10-13 the 3 smoke
+      tasks gave dry fail, reference pass, broken fail and tamper fail (12/12). Network
+      egress from the container is not filtered (the model API needs it).
 
 Acceptance: the runner reproduces a known defect, rejects an intentionally
 incomplete fix, accepts a correct fix, and verifies preserved behavior. Include

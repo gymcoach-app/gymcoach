@@ -1,15 +1,21 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   EVAL_SCHEMA_VERSION,
@@ -20,13 +26,18 @@ import {
   type TestRun,
 } from './schema';
 import {
+  CONTAINER_HOME,
   SNAPSHOT_EXCLUDES,
   UsageError,
   assertOutsideRepo,
   claudeRunAllowed,
+  containerArgs,
   decideOutcome,
+  evalSettings,
   groupByTier,
+  isGradeInput,
   parseArgs,
+  planGradeInputRestore,
   sameDependencies,
   summariseVitestReport,
   type RunArgs,
@@ -40,15 +51,22 @@ import {
 // dry: the agent does nothing (the grader must fail: red before).
 // reference: applies the real fix (base..fix diff of the task's source paths).
 // broken: applies the task's intentionally incomplete fix (must be rejected).
-// claude: runs `claude -p` in the snapshot; refused unless --budget-usd is given
-// and the operator set EVAL_BUDGET_APPROVED=1.
+// tamper: the broken fix plus an attempt to cheat the grader (must be rejected).
+// claude: runs `claude -p` inside a container that sees only the snapshot;
+// refused unless --budget-usd is given and the operator set
+// EVAL_BUDGET_APPROVED=1.
 //
 // The snapshot is a `git archive` of the base commit in a temp dir with a fresh
 // one-commit history and no remote: no later commit, lesson or PR text exists in
-// it, and nothing in it can push to the real repository. Exit codes: 0 pass,
-// 1 fail, 3 infra-error, 2 usage.
+// it, and nothing in it can push to the real repository. Before grading, every
+// grade input (tests, test helpers, runner and package configs) is put back to
+// the base. Exit codes: 0 pass, 1 fail, 3 infra-error, 2 usage.
 
 const TASKS_DIR = path.join(__dirname, 'tasks');
+export const AGENT_IMAGE = 'node:22-bookworm';
+// The model credential on this machine (Claude Code's OAuth login). A copy goes
+// into the container's fresh HOME; nothing else from the host HOME does.
+const CLAUDE_CREDENTIAL = path.join(homedir(), '.claude', '.credentials.json');
 const EVAL_DB_USER = 'gymcoach_test';
 const TEST_DB_CONTAINER = 'gymcoach-test-db';
 
@@ -143,60 +161,221 @@ function runAgent(
     sh('git', ['apply', '--whitespace=nowarn', patch], { cwd: work });
     return { ...none, exitCode: 0, note: 'applied the intentionally incomplete fix' };
   }
-  // claude: no publish credentials. GH_CONFIG_DIR points at an empty dir so gh
-  // is logged out; tokens are removed from the environment; the snapshot has no
-  // remote. The model API needs the network, so the agent's network is not cut.
-  const ghConfig = mkdtempSync(path.join(tmpdir(), 'gymcoach-eval-gh-'));
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    GH_CONFIG_DIR: ghConfig,
-    GIT_TERMINAL_PROMPT: '0',
-  };
-  for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'DATABASE_URL'])
-    delete env[k];
-  const run = spawnSync(
-    'claude',
-    [
-      '-p',
-      task.statement,
-      '--output-format',
-      'json',
-      '--max-budget-usd',
-      String(args.budgetUsd),
-      '--no-session-persistence',
-      '--setting-sources',
-      'project,local',
-      '--permission-mode',
-      'acceptEdits',
-      '--allowedTools',
-      'Read Edit Write Glob Grep Bash(npx vitest:*) Bash(npm run test:*) Bash(git diff:*) Bash(git status:*)',
-      '--disallowedTools',
-      'WebFetch WebSearch',
-    ],
-    {
-      cwd: work,
-      env,
-      encoding: 'utf8',
-      timeout: task.budget.maxWallSeconds * 1000,
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  );
-  rmSync(ghConfig, { recursive: true, force: true });
-  let costUsd: number | null = null;
-  let turns: number | null = null;
-  try {
-    const out = JSON.parse(run.stdout) as { total_cost_usd?: number; num_turns?: number };
-    costUsd = typeof out.total_cost_usd === 'number' ? out.total_cost_usd : null;
-    turns = typeof out.num_turns === 'number' ? out.num_turns : null;
-  } catch {
-    // Invalid model output stays visible as an unknown cost and turn count.
+  if (args.agent === 'tamper') return tamper(task, repoRoot, work);
+  return runClaudeContained(args, task, repoRoot, work);
+}
+
+// Harness self-check: the broken fix, then two cheats a grader must resist. A
+// vi.mock in the test setup files swaps the module under test for a copy of the
+// fixed code, and every preserved test is replaced by one that always passes.
+function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['agentRun'] {
+  sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
+    cwd: work,
+  });
+  const mocks: string[] = [];
+  for (const source of task.reference.paths) {
+    const ext = path.extname(source);
+    const stem = source.slice(0, -ext.length);
+    const copy = `${stem}.tamper${ext}`;
+    writeFileSync(
+      path.join(work, copy),
+      sh('git', ['-C', repoRoot, 'show', `${task.snapshot.fixSha}:${source}`]),
+    );
+    mocks.push(`vi.mock('@/${stem}', () => import('@/${stem}.tamper'));`);
+  }
+  const cheat = `\nimport { vi as tamperVi } from 'vitest';\n${mocks
+    .join('\n')
+    .replace(/vi\.mock/g, 'tamperVi.mock')}\n`;
+  for (const setup of ['vitest.setup.ts', 'tests/integration/setup.ts']) {
+    const file = path.join(work, setup);
+    if (existsSync(file)) writeFileSync(file, readFileSync(file, 'utf8') + cheat);
+  }
+  for (const preserved of task.grader.preserved) {
+    writeFileSync(
+      path.join(work, preserved),
+      "import { it } from 'vitest';\nit('always passes', () => {});\n",
+    );
   }
   return {
-    exitCode: run.status,
-    costUsd,
-    turns,
-    note: run.error ? `claude did not finish: ${run.error.message}` : null,
+    exitCode: 0,
+    costUsd: null,
+    turns: null,
+    note: 'broken fix + vi.mock of the fixed module in setup + preserved tests weakened',
   };
+}
+
+// The paid agent runs in a container (containerArgs): the workspace is its only
+// writable host path, node_modules and the claude binary are read-only, HOME is
+// a fresh directory holding a copy of the model credential and the eval
+// settings, and no host environment variable is passed. The snapshot has no
+// remote and no .claude/ directory.
+export function prepareAgentHome(): string {
+  const home = mkdtempSync(path.join(tmpdir(), 'gymcoach-eval-home-'));
+  mkdirSync(path.join(home, '.claude'), { recursive: true });
+  if (existsSync(CLAUDE_CREDENTIAL)) {
+    const copy = path.join(home, '.claude', '.credentials.json');
+    copyFileSync(CLAUDE_CREDENTIAL, copy);
+    chmodSync(copy, 0o600);
+  }
+  writeFileSync(
+    path.join(home, '.claude', 'settings.json'),
+    `${JSON.stringify(evalSettings(), null, 2)}\n`,
+  );
+  return home;
+}
+
+export function agentContainerSpec(
+  repoRoot: string,
+  work: string,
+  home: string,
+  command: string[],
+) {
+  const nodeModules = realpathSync(path.join(repoRoot, 'node_modules'));
+  return {
+    name: `gymcoach-eval-${randomBytes(4).toString('hex')}`,
+    image: AGENT_IMAGE,
+    workspace: work,
+    nodeModules,
+    viteCacheInNodeModules: existsSync(path.join(nodeModules, '.vite')),
+    claudeBinary: realpathSync(sh('which', ['claude']).toString().trim()),
+    home,
+    uid: process.getuid ? process.getuid() : 1000,
+    gid: process.getgid ? process.getgid() : 1000,
+    command,
+  };
+}
+
+// The workspace's node_modules is a symlink to the host install for grading on
+// the host. Inside the container the install is mounted read-only at the same
+// place instead, so the symlink is swapped for an empty mount point meanwhile.
+export function withContainerMountPoint<T>(work: string, fn: () => T): T {
+  const link = path.join(work, 'node_modules');
+  const target = lstatSync(link).isSymbolicLink() ? realpathSync(link) : null;
+  if (target) {
+    unlinkSync(link);
+    mkdirSync(link);
+  }
+  try {
+    return fn();
+  } finally {
+    if (target) {
+      rmSync(link, { recursive: true, force: true });
+      symlinkSync(target, link);
+    }
+  }
+}
+
+function runClaudeContained(
+  args: RunArgs,
+  task: EvalTask,
+  repoRoot: string,
+  work: string,
+): EvalResult['agentRun'] {
+  const home = prepareAgentHome();
+  const settings = `${CONTAINER_HOME}/.claude/settings.json`;
+  const spec = agentContainerSpec(repoRoot, work, home, [
+    'claude',
+    '-p',
+    task.statement,
+    '--output-format',
+    'json',
+    '--max-budget-usd',
+    String(args.budgetUsd),
+    '--no-session-persistence',
+    '--setting-sources',
+    'user',
+    '--settings',
+    settings,
+    '--strict-mcp-config',
+    '--permission-mode',
+    'acceptEdits',
+    '--allowedTools',
+    'Read Edit Write Glob Grep Bash(npx vitest:*) Bash(npm run test:*) Bash(git diff:*) Bash(git status:*)',
+    '--disallowedTools',
+    'WebFetch WebSearch',
+  ]);
+  try {
+    const run = withContainerMountPoint(work, () =>
+      spawnSync('docker', containerArgs(spec), {
+        encoding: 'utf8',
+        timeout: task.budget.maxWallSeconds * 1000,
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
+    let costUsd: number | null = null;
+    let turns: number | null = null;
+    try {
+      const out = JSON.parse(run.stdout) as { total_cost_usd?: number; num_turns?: number };
+      costUsd = typeof out.total_cost_usd === 'number' ? out.total_cost_usd : null;
+      turns = typeof out.num_turns === 'number' ? out.num_turns : null;
+    } catch {
+      // Invalid model output stays visible as an unknown cost and turn count.
+    }
+    return {
+      exitCode: run.status,
+      costUsd,
+      turns,
+      note: run.error ? `claude did not finish: ${run.error.message}` : null,
+    };
+  } finally {
+    // A timeout kills only the docker client; removing the container stops
+    // every process the agent started inside it.
+    spawnSync('docker', ['rm', '-f', spec.name], { stdio: 'ignore' });
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// Workspace files that count as grade inputs, with their blob ids (null when a
+// base file is missing from the workspace). Skips node_modules and .git.
+function listFiles(dir: string, rel = ''): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+    const child = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    if (entry.isDirectory()) out.push(...listFiles(dir, child));
+    else if (entry.isFile()) out.push(child);
+  }
+  return out;
+}
+
+function restoreGradeInputs(repoRoot: string, task: EvalTask, work: string): string[] {
+  const base = new Map<string, string>();
+  const tree = sh('git', ['-C', repoRoot, 'ls-tree', '-r', '-z', task.snapshot.baseSha])
+    .toString()
+    .split('\0')
+    .filter(Boolean);
+  for (const line of tree) {
+    const [meta, file] = line.split('\t') as [string, string];
+    const [, type, blob] = meta.split(' ') as [string, string, string];
+    if (type === 'blob' && isGradeInput(file, task)) base.set(file, blob);
+  }
+  const candidates = new Set([...base.keys()]);
+  for (const file of listFiles(work)) if (isGradeInput(file, task)) candidates.add(file);
+  const present = [...candidates].filter((f) => existsSync(path.join(work, f)));
+  const hashes = present.length
+    ? sh('git', ['hash-object', '--stdin-paths'], { cwd: work, input: present.join('\n') })
+        .toString()
+        .trim()
+        .split('\n')
+    : [];
+  const workMap = new Map<string, string | null>();
+  for (const file of candidates) workMap.set(file, null);
+  present.forEach((file, i) => workMap.set(file, hashes[i]!));
+  const plan = planGradeInputRestore(task, base, workMap);
+  for (const file of plan.remove) rmSync(path.join(work, file), { force: true });
+  if (plan.restore.length) {
+    const tar = sh('git', [
+      '-C',
+      repoRoot,
+      'archive',
+      '--format=tar',
+      task.snapshot.baseSha,
+      '--',
+      ...plan.restore,
+    ]);
+    sh('tar', ['-x', '-C', work], { input: tar });
+  }
+  return [...plan.restore, ...plan.remove].sort();
 }
 
 function copyHidden(repoRoot: string, task: EvalTask, work: string) {
@@ -210,10 +389,15 @@ function copyHidden(repoRoot: string, task: EvalTask, work: string) {
 // The integration tier gets its own throwaway database on the shared test
 // Postgres, migrated to the base schema, so a replay never touches the
 // database verify.sh uses and the schema matches the snapshot.
-function prepareEvalDatabase(repoRoot: string, work: string): string {
+// The name is chosen and handed to the caller before anything is created, so the
+// caller's finally drops the database even when the migration fails.
+function evalDatabaseName(): string {
+  return `gymcoach_eval_${randomBytes(4).toString('hex')}`;
+}
+
+function prepareEvalDatabase(repoRoot: string, work: string, name: string): void {
   const lock = path.join(process.env.TMPDIR || '/tmp', 'gymcoach-test-infra.lock');
   sh('flock', ['--wait', '600', lock, 'bash', 'scripts/test-db.sh'], { cwd: repoRoot });
-  const name = `gymcoach_eval_${randomBytes(4).toString('hex')}`;
   sh('docker', [
     'exec',
     TEST_DB_CONTAINER,
@@ -230,7 +414,6 @@ function prepareEvalDatabase(repoRoot: string, work: string): string {
     cwd: work,
     env: { ...process.env, DATABASE_URL: url },
   });
-  return name;
 }
 
 function dropEvalDatabase(name: string) {
@@ -316,6 +499,7 @@ async function main(argv: string[]): Promise<number> {
   const preserved: TestRun[] = [];
   const work = mkdtempSync(path.join(tmpdir(), 'gymcoach-eval-ws-'));
   let dbName: string | null = null;
+  let gradeInputsRestored: string[] = [];
 
   try {
     let t = Date.now();
@@ -336,10 +520,13 @@ async function main(argv: string[]): Promise<number> {
   if (infraErrors.length === 0) {
     const t = Date.now();
     try {
+      gradeInputsRestored = restoreGradeInputs(repoRoot, task, work);
       copyHidden(repoRoot, task, work);
       const all = [...task.grader.hidden, ...task.grader.preserved];
-      if (all.some((f) => f.startsWith('tests/integration/')))
-        dbName = prepareEvalDatabase(repoRoot, work);
+      if (all.some((f) => f.startsWith('tests/integration/'))) {
+        dbName = evalDatabaseName();
+        prepareEvalDatabase(repoRoot, work, dbName);
+      }
       for (const group of groupByTier(task.grader.hidden))
         hidden.push(runTests(work, out, 'hidden', group, dbName));
       for (const group of groupByTier(task.grader.preserved))
@@ -365,11 +552,15 @@ async function main(argv: string[]): Promise<number> {
     hidden,
     preserved,
     infraErrors,
+    gradeInputsRestored,
     agentRun,
     environment: {
       node: process.version,
       dependenciesMatchBase: depsMatch,
-      networkBlockedForAgent: args.agent !== 'claude',
+      // The self-checks run no agent; the contained agent keeps the network
+      // (the model API needs it).
+      networkBlockedForAgent: args.agent === 'claude' ? false : null,
+      agentContained: args.agent === 'claude' ? true : null,
       networkBlockedForGrader: !hidden.concat(preserved).some((r) => r.tier === 'integration'),
     },
   });
@@ -388,20 +579,22 @@ async function main(argv: string[]): Promise<number> {
         (r) => `${r.tier} ${r.passed ?? '?'} passed / ${r.failed ?? '?'} failed`,
       ),
       infraErrors: result.infraErrors,
+      gradeInputsRestored: result.gradeInputsRestored,
       result: path.join(out, 'result.json'),
     }),
   );
   return result.outcome === 'pass' ? 0 : result.outcome === 'fail' ? 1 : 3;
 }
 
-main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
-  (err) => {
-    if (err instanceof UsageError) {
-      console.error(`usage: ${err.message}`);
-      process.exit(2);
-    }
-    console.error(`error: ${firstLine(err)}`);
-    process.exit(3);
-  },
-);
+if (require.main === module)
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err) => {
+      if (err instanceof UsageError) {
+        console.error(`usage: ${err.message}`);
+        process.exit(2);
+      }
+      console.error(`error: ${firstLine(err)}`);
+      process.exit(3);
+    },
+  );

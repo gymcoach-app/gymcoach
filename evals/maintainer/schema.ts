@@ -87,7 +87,11 @@ export const evalTaskSchema = z
   .strict();
 export type EvalTask = z.infer<typeof evalTaskSchema>;
 
-export const agents = ['dry', 'reference', 'broken', 'claude'] as const;
+// dry, reference, broken and tamper are harness self-checks that run no model:
+// tamper applies the broken fix and then tries to cheat the grader (a vi.mock of
+// the module under test in a setup file, a weakened preserved test); it must
+// still fail.
+export const agents = ['dry', 'reference', 'broken', 'tamper', 'claude'] as const;
 export type AgentKind = (typeof agents)[number];
 
 // One vitest invocation of the grader. `null` counts mean the run produced no
@@ -130,6 +134,9 @@ export const evalResultSchema = z
     hidden: z.array(testRunSchema),
     preserved: z.array(testRunSchema),
     infraErrors: z.array(z.string()),
+    // Grade inputs the agent changed, added or removed, put back to the base
+    // before grading (runner.ts isGradeInput).
+    gradeInputsRestored: z.array(repoPath),
     agentRun: z
       .object({
         exitCode: z.number().int().nullable(),
@@ -142,7 +149,10 @@ export const evalResultSchema = z
       .object({
         node: z.string(),
         dependenciesMatchBase: z.boolean().nullable(),
-        networkBlockedForAgent: z.boolean(),
+        // null when no agent ran (the harness self-checks).
+        networkBlockedForAgent: z.boolean().nullable(),
+        // The paid agent ran in a container with only the workspace mounted.
+        agentContained: z.boolean().nullable(),
         networkBlockedForGrader: z.boolean(),
       })
       .strict(),

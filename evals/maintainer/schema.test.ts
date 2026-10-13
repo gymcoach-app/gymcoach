@@ -57,11 +57,13 @@ describe('evalResultSchema', () => {
     hidden: [],
     preserved: [],
     infraErrors: ['grade: the test database did not start'],
+    gradeInputsRestored: [],
     agentRun: { exitCode: null, costUsd: null, turns: null, note: null },
     environment: {
       node: 'v22.17.1',
       dependenciesMatchBase: true,
-      networkBlockedForAgent: true,
+      networkBlockedForAgent: null,
+      agentContained: null,
       networkBlockedForGrader: true,
     },
   };
