@@ -1,9 +1,16 @@
 # Autonomous development implementation roadmap
 
-Status: in progress. Milestone 1 is partly delivered (run-record schemas and a
-first baseline from public GitHub data); the other milestones are proposed, not
-implemented. Baseline inspection: 2026-10-13, commit `dd0fcf7`. Update milestone
-status with implementation PRs and validation evidence as work lands.
+Status: in progress (updated 2026-10-13, through #449). Milestone 1 is partly
+delivered: run-record schemas, a baseline from public GitHub data (#439) and agent
+usage recovered from local transcripts (#443). Milestone 2 is partly delivered: a
+SHA-pinned merge gate for every merge (#442) that requires structured review evidence
+for the exact head and base (#449), and a self-bootstrapping test database (#441).
+Milestone 4 is partly delivered: structured review records (#449) and one recurring
+mechanical lesson converted into code (L42, #447). Milestones 3, 5 and 6 and the
+product LLM track are proposed, not implemented. A PreToolUse hook that keeps
+sessions off checkouts they do not own (PR #448) is open, not shipped. Baseline
+inspection: 2026-10-13, commit `dd0fcf7`. Update milestone status with
+implementation PRs and validation evidence as work lands.
 
 The objective is to make GymCoach's autonomous maintenance reproducible,
 measurable, and capable of testing improvements to its own working methods.
@@ -42,7 +49,9 @@ The next iteration should address these concrete gaps:
 Keep the maintenance runtime separate from the workout application. A proposed
 layout is `automation/` for the controller, policies, runner adapters, and schemas;
 `evals/maintainer/` for task fixtures and graders; and this directory for public
-documentation. These paths do not exist as delivered capabilities yet.
+documentation. `automation/` now holds the run records, the baseline and usage
+tooling, the merge gate and the review records; the controller, policies, runner
+adapters and `evals/maintainer/` do not exist yet.
 
 Use a small TypeScript controller with a Claude Agent SDK adapter. The existing
 Claude CLI can remain an adapter during migration. Start with SQLite for durable
@@ -106,7 +115,7 @@ grading code, or reserved evaluation data that determine its own acceptance.
 - [x] Capture a baseline using the current workflow before optimizing it.
       Evidence: [`baseline/2026-10-13/report.md`](baseline/2026-10-13/report.md)
       (79 PR runs since 2026-08-14). Limits: reconstructed after the fact; agent usage
-      is known only where transcripts were retained and attributable (34 runs);
+      is known only where transcripts were retained and attributable (32 runs);
       human interventions are unknown for every run.
 
 Store task state and artifacts outside mutable worker checkouts. Export sanitized

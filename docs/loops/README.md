@@ -45,8 +45,13 @@ flowchart LR
 5. **Record what happened.** The journal links decisions and shipped work. Lessons
    are promoted into skills or conventions, or recorded as accepted risks.
 
-These are the operating procedures the agents are instructed to follow. The
-repository contains verification and isolation scripts, but it does not yet
+These are the operating procedures the agents are instructed to follow. Two
+transitions now have code behind them. The shipping skill routes every merge
+through [`automation/publish/merge.ts`](../../automation/publish/merge.ts), which
+merges only at the reviewed head SHA, with all required CI checks green on it and
+a structured review record for that head and base; it constrains an agent that
+follows the skill, since it runs with the caller's own GitHub token. And
+`verify.sh --full` prepares its own test database. The repository does not yet
 contain a standalone controller that mechanically enforces every transition.
 The journal also records occasions when the procedure failed.
 
@@ -55,11 +60,11 @@ The journal also records occasions when the procedure failed.
 | Capability             | Current implementation                                 | Next step                                                     |
 | ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
 | Task pipeline          | Claude Code loops invoking repository skills           | Versioned controller with durable task state                  |
-| Verification           | Local gate, CI, review procedures, SHA-pinned merge gate | Review evidence bound to the reviewed commit and base       |
-| Isolation              | Worktree procedures and container verification scripts | Enforced worker isolation and separate publishing authority   |
+| Verification           | Local gate, CI, independent reviews; a merge gate that needs green CI and a structured review record for the exact head and base | Revalidate the combined result when `main` moves under a reviewed PR |
+| Isolation              | Worktree procedures, container verification scripts, a test database that `verify.sh --full` starts and migrates itself | Enforced worker isolation and separate publishing authority   |
 | Limits                 | Documented attempt, merge, and turn-budget limits      | Runtime accounting and enforced aggregate limits              |
 | Memory                 | Git, issues, run journal, lessons, skills              | Indexed retrieval and executable fixes for recurring mistakes |
-| Agent evaluation       | Run reports and a versioned PR-outcome baseline        | Repeatable task benchmark with a measured baseline            |
+| Agent evaluation       | A versioned PR-outcome baseline, with agent usage recovered from transcripts where attributable | Usage recorded at run time; a repeatable task benchmark |
 | Improvement of methods | Lessons promoted into procedures                       | Candidate procedures compared with the current version        |
 | Laya                   | Not integrated                                         | Optional classification experiment after baseline evaluation  |
 
@@ -95,7 +100,9 @@ GitHub account, or server.
 For example, lessons L15 and L38 describe agents interfering with shared Git state;
 L29 describes why a fixup needs a fresh review; L36 records checking that a new
 test actually fails without the fix. These incidents guide the move from written
-rules to executable controls.
+rules to executable controls: L29 is now checked by the merge gate (a fixup
+changes the head, so the old review record no longer counts), and L4, L23 and L42
+became script and code changes.
 
 A first [baseline report](baseline/2026-10-13/report.md) counts PR outcomes, CI
 evidence, human and bot reviews, reverts and fix follow-ups from public GitHub data, using the versioned

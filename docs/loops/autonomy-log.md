@@ -3190,3 +3190,113 @@ detail page (duplicate actions, not a captured still; the `program.gif` clip pre
 and the history session detail page (Save as a workout; `history.png` captures the calendar,
 which did not change). Not shot in this run: screenshot debt now covers progress (2026-10-09) and catalog, and the recorded
 session clip debt from 2026-09-30 stands, past the ~3-batch cap; a media run is due.
+
+## 2026-10-13 (afternoon) - the roadmap's first slices: a measured baseline, a merge gate that needs review evidence, a test database that sets itself up
+
+**Context.** The operator committed an overview and an implementation roadmap
+(`docs/loops/README.md`, `docs/loops/11-autonomous-development-roadmap.md`, #438): make the
+maintenance measurable first, then move rules from prose into code. The loop worked the
+first slices the same day. Merged, in order: **#438** (roadmap, operator-authored), **#439**
+(M1 run records and baseline), **#440** (launch video v2, operator), **#442** (M2 merge
+gate), **#443** (M1 usage from transcripts), **#444** (launch video v3, operator), **#441**
+(M2 test database bootstrap), **#447** (L42, unit tier under load), **#445** (closes #381,
+CI Postgres image), **#449** (M2/M4 review records). Open: **#448**, a PreToolUse hook that
+refuses HEAD-moving git commands from subagents in checkouts they do not own; its latest
+review record is ready (head `d16a427`) and it waits on the operator's confirmation, since
+it changes `.claude/settings.json` (group B) and every agent session's Bash calls.
+
+**What shipped.**
+- **Baseline (#439, #443).** Versioned Zod records under `automation/records/`, rebuilt
+  from public GitHub data for 79 PR runs since 2026-08-14: 75 merged, 2 closed unmerged, 2
+  open; 0 reverted over the 46 merged runs whose 14-day window has closed, 3 with a fix
+  follow-up citing them. #443 adds what GitHub cannot show, from local Claude Code
+  transcripts: tokens by kind, summed session time and an API-list-price cost estimate for
+  32 of 79 runs, each a lower bound. Loop-authored: known for 16 of 50 merged runs, median
+  $1.69. External: known for 15 of 25, median $5.78, which is the maintainer's review,
+  fixup and integration work on someone else's PR. Orchestrating sessions ($111.19, 32% of
+  the retained total) and unattributed subagents ($99.28, 29%) stay outside any run. Human
+  interventions and agent attempts stay unknown for all 79 runs.
+- **Merge gate (#442, #449).** `automation/publish/merge.ts`, run by `ship-pr` from a
+  detached worktree of freshly fetched `origin/main`, merges only at the approved head SHA
+  when the five required checks succeeded on it, from the pinned CI app and one check
+  suite. #442 merged itself through the one bootstrap exception it named (a dry run of its
+  own gate, then a pinned PUT). Since #449 the gate also needs a structured review record,
+  posted as a PR comment from a maintainer account (numeric user id), for that head and
+  the PR's `base.sha`; the latest record of every reviewer must be ready. A fixup or a
+  rebase therefore voids the old review mechanically (L29). Limit, stated in the roadmap:
+  the gate proves review evidence exists for the exact commits, not that the reviewer was
+  independent, and it runs with the caller's own token.
+- **Test database (#441).** `verify.sh --full` starts, waits for and migrates the test
+  Postgres under the existing lock, behind a URL guard (15 self-test cases). Lessons L4 and
+  L23 are resolved and the manual step is gone from `CLAUDE.md` and the skills. Validated
+  with Docker: from a wiped container 28 migrations applied, unit 1376, integration 372,
+  E2E 23; a second fresh worktree reused the container and passed integration.
+- **Unit tier under load (#447, L42).** Profiled instead of raising timeouts:
+  `formatWeight` built an `Intl.NumberFormat` per call. One formatter per configuration and
+  a local worker cap (half the cores) took the slowest test from a 5.2 s timeout to 2.9 s at
+  load about 20.
+- **CI Postgres (#445, closes #381).** 30 of 115 CI attempts over the last 100 runs (26%)
+  had died at the ECR mirror's `toomanyrequests`; 37 of 37 failed pull logs said so. The
+  image is now pinned by digest and restored from the Actions cache; on PR #445's own run,
+  attempts 2 and 3 contacted no registry.
+
+**Review rounds and the catches worth keeping.** Every loop PR had an independent Opus
+review before merge, and every one of them changed the code.
+- **#439** (two rounds): bot reviews were counted as human reviews, inflating the review
+  figure; they are now reported apart (31 of 75 bot, 22 of 75 human or posted verdict, 10
+  bound to the final head). The delta review found the report did not say it included two
+  PRs still open at collection, #439 itself among them.
+- **#443** (one round, nine findings F1 to F9): per-run cost had to be framed as a lower
+  bound with its share of all retained usage; a branch seen in the main checkout was being
+  taken as attribution evidence. The stricter rule moved known usage from 34 to 32 runs.
+- **#442** (two rounds): `automation/**` was missing from the human-merge-only list, so an
+  external PR could have edited the gate that grades its own merge; the gate ran from the
+  candidate's checkout; any app's check could count. Fixed: group B, a fresh `origin/main`
+  worktree, a pinned app id and a single check suite.
+- **#441** (one round): two green `--full` runs from the same folder could not show that
+  compose named its project after the folder while the container name was fixed, so a second
+  worktree would collide. One pinned project now serves every checkout (L43).
+- **#447** (one round): the half-cores cap only slowed CI's dedicated 4 vCPU runners; CI
+  keeps Vitest's default.
+- **#445** (one round): each pull is bounded to 5 minutes; L2 says how to clear a cache entry
+  that does not match the pin.
+- **#449** (two rounds, both posted in the record format it introduces): one lens's later
+  ready record could clear another lens's blocking record, and a test asserted it; then an
+  edited needs-changes record was dropped as invalid, erasing its stop. Fixed: latest record
+  per reviewer, all ready; an edited or broken record refuses the merge (L44).
+- **#448** (three rounds, open): round one found the hook blocked the operator's own session
+  and three skills; round two found that reading `agent_type` as "subagent" would lock out a
+  main session started with `claude --agent`, and that the documented gate cleanup was
+  refused. It now keys on `agent_id` only.
+
+**Process failures absorbed.**
+- **L33 repeated.** An integration-tier run went out with `VITEST_MAX_WORKERS` set, the
+  variable that overrides the integration config's `fileParallelism: false` and lets test
+  files truncate each other's tables. Its red said nothing about the change; L42's status line, corrected in #447's fixup, now states that any
+  value above 1 must never reach the integration tier.
+- **A reviewer moved another tick's checkout.** A review subagent ran `git checkout --detach`
+  in a worktree it did not own and moved a dev tick's `HEAD` mid-work: L15 and L38 recurring
+  despite both being in the skills. Prose is not a control; #448 is the response.
+- **Machine overload.** With several agents, CI watchers and a Docker database on 12 cores
+  (load 16 to 33), the unit tier timed out in at least five gate runs (fixed in #447) and two
+  `--full` runs failed only at E2E with `ERR_INSUFFICIENT_RESOURCES` at load about 20. The
+  second is a concurrency-limit problem for roadmap M2, not fixed here.
+- **ECR pull reruns.** Until #445 landed, red CI was read step by step and rerun only when the
+  failed step was the image pull (L35).
+
+**Green gate.** `bash scripts/verify.sh` before each loop PR's merge. Two PR bodies record
+the load flake on the way (#441: unit timeouts at load 33 on its first push, before its
+Docker validation; #443: one timeout, the unit tier then green with two workers); both are
+the L42 class #447 fixed. CI ran all five jobs on every merged head.
+
+**One metric.** 10 PRs merged (7 loop-authored, 3 operator: #438, #440, #444), 0 abandoned,
+0 reverted, 1 open (#448). Review-driven fixup rounds: 10 across the 7 merged loop PRs, plus 3 on the open #448. Token spend
+for this batch was not extracted; the baseline's medians above cover runs up to #439.
+
+**Lessons.** L42 (#447). New: L43 (a proof from the authoring folder cannot see a clash
+between folders) and L44 (review a control through the control, and ask whether one actor
+can clear another's stop), graduated into `implement-issue` and `ship-pr`.
+
+**Media.** No app page changed. The launch video in the README was replaced twice by the
+operator (#440, #444: now a 92-second narrated presentation). Screenshot and clip debt from
+the morning entry stands.

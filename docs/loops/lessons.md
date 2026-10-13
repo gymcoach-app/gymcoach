@@ -714,3 +714,38 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   in `vitest.config.ts` (this PR; CI runners keep Vitest's default). Never let a
   `VITEST_MAX_WORKERS` above 1 reach the integration tier: it overrides
   `fileParallelism: false` and files truncate each other's tables (L33).
+
+### L43 - A proof run from the authoring folder cannot see a clash between folders
+- **Trigger:** 2026-10-13, #441. `verify.sh --full` began starting the test Postgres itself
+  with `docker compose -f docker-compose.test.yml up -d`. The author ran it green twice from
+  the same worktree. The review found what those runs could not: compose derives its project
+  name from the checkout's directory, while the container name is fixed, so a second worktree
+  (every dev tick has its own) would fail on a container already owned by another project.
+  The fix pinned one compose project (`gymcoach-test`) shared by every checkout and replaces
+  a container left by an older directory-derived project; the validation then included a
+  second fresh worktree reusing the container ("No pending migrations", integration green).
+- **Lesson:** when a change touches state shared across checkouts (a Docker container or
+  compose project, a port, a lock file, a cache directory, the test database), its proof
+  includes a run from a second checkout. Repeating the run from the authoring folder adds
+  confidence, not coverage.
+- **Status:** graduated -> step 4 ("Test") of the `implement-issue` skill and step 4 of the
+  `ship-pr` skill (the reviewer asks for the second-checkout run).
+
+### L44 - Review a control through the control, and ask whether one actor can clear another's stop
+- **Trigger:** 2026-10-13, #449 (structured review records required by the merge gate). Its
+  reviews were posted in the record format the PR introduced. The first record
+  (needs-changes) found a major: the gate took the latest record for a head and base, so a
+  later ready record from one lens cleared an earlier blocking record from another lens,
+  and a test asserted that override. The delta review found the next hole of the same
+  shape: an edited maintainer record was dropped as invalid, so editing a needs-changes
+  record erased its stop. Both were fixed (latest record per reviewer, all must be ready;
+  an edited or broken record refuses the merge; maintainers pinned by numeric user id). The
+  same shape came up on #448: reading `agent_type` as "subagent" would have locked the
+  operator's own `claude --agent` session out.
+- **Lesson:** a change to a gate, a review format or a guard is reviewed by using it on
+  itself (post the PR's own records with the PR's tool, dry-run its gate against itself),
+  and the review asks one adversarial question first: can one record, lens, edit or account
+  undo another's refusal, or can the guard refuse the operator it serves? Plain correctness
+  review of a control misses these, because each piece works as written.
+- **Status:** graduated -> step 4 of the `ship-pr` skill (a review of review, merge or guard
+  machinery asks that question and is posted through the machinery when it exists).

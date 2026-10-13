@@ -843,3 +843,46 @@ worktrees need `"root": true`, fixed in `.eslintrc.json`).
 
 **Trust the gate (lower risk):** the catalog star UI and its focus handling, the duplicate
 and save-as-workout buttons, the i18n strings, the CHANGELOG and README lines.
+
+## 2026-10-13 (afternoon) - roadmap slices: baseline, merge gate with review records, test database bootstrap
+
+Merged: **#438** (your roadmap and overview), **#439** (run records and the baseline),
+**#443** (usage and estimated cost from local transcripts), **#442** (SHA-pinned merge gate),
+**#449** (structured review records required by the gate), **#441** (`verify.sh --full`
+starts and migrates the test DB), **#447** (unit tier under load, L42), **#445** (CI Postgres
+from a digest-pinned cached image, closes #381), and your launch videos **#440** and
+**#444**. Open and waiting on you: **#448** (git guard hook). In this PR: L43, L44, roadmap
+status line.
+
+**Read first:**
+
+1. **#442 + #449 - the merge path itself.** `gh pr diff 442`, then `gh pr diff 449`. Read
+   `automation/publish/gate.ts` whole: it is now the only route to a merge in `ship-pr`, so
+   a bug there either blocks every merge or lets one through. Check `evaluateReviews` (latest
+   record per reviewer, all ready; edited or broken records refuse) and `MAINTAINERS` in
+   `automation/publish/checks.ts` (numeric user ids). Know the two stated limits: the gate
+   runs with the caller's own token, and it proves a review record exists for the commits,
+   not that the reviewer was independent (the loop posts records from the account that
+   authors its PRs).
+2. **#445 - CI pipeline.** `gh pr diff 445`. `.github/actions/start-postgres/action.yml`
+   replaces the service containers in three required jobs. Check the digest pin and the
+   image-ID check before `docker run`; a cache entry written on `main` is read by every PR,
+   forks included.
+3. **#441 - a script that runs `prisma migrate deploy`.** `gh pr diff 441`. Read the URL
+   guard in `scripts/test-db.sh` and its cases in `scripts/test-db.test.sh`: it is what
+   stops the step from migrating anything but `localhost:5434/gymcoach_test`. Note the
+   pinned compose project `gymcoach-test`, shared by every checkout on the machine.
+4. **#448 - decide it.** `gh pr diff 448`. It adds a PreToolUse hook to
+   `.claude/settings.json` that runs before every Bash call of every agent session in this
+   project. Subagents are refused HEAD-moving git in checkouts they do not own; the main
+   session is refused only in another session's worktree; untagged stash commands are
+   refused for everyone; `GYMCOACH_GIT_GUARD=off` at launch disables it. Merge it, or say
+   what to change.
+
+**Process:** L43 (prove a shared-state change from a second checkout, now in
+`implement-issue` and `ship-pr`), L44 (review a control through the control and ask whether
+one actor can clear another's stop, now in `ship-pr`).
+
+**Trust the gate (lower risk):** #439 and #443 (maintainer tooling, never imported by the
+app, outputs checked for private strings), #447 (a formatter cache with a cache-key test),
+the CHANGELOG, README and roadmap lines.

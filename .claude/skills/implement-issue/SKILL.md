@@ -65,6 +65,10 @@ for repo conventions; this skill assumes them.
    the suite that holds its cross-user test. The ratchet runs in the integration tier, so
    the default `verify.sh` does not catch a missing entry; CI does, one cycle later (#436,
    lesson L40).
+   **A change to state shared across checkouts** (a Docker container or compose project, a
+   port, a lock file, a cache directory, the test database) is proven from a second
+   checkout too, e.g. a fresh `git worktree add` of your branch: runs from the authoring
+   folder cannot show a clash between folders (#441, lesson L43).
 
 5. **Green-gate (self-verify).** Run `bash scripts/verify.sh`. (In a fresh checkout or git
    worktree, first `npm ci` - worktrees do not share `node_modules` - then `npm rebuild

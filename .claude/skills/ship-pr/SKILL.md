@@ -107,6 +107,13 @@ changes on.
    tick's `HEAD` mid-work. Read through `gh pr diff <n>`, `git show <sha>:<path>` and
    `git diff`; when a tree on disk is needed, `git worktree add <scratch-path> <sha>` and
    remove it afterwards. Say so in every review subagent's prompt (lesson L38).
+   **Two review questions the prompt names when they apply.** If the change touches state
+   shared across checkouts (a container or compose project, a port, a lock file, a cache, the
+   test database), ask for its proof from a second checkout, not only the authoring one
+   (lesson L43). If it touches review, merge or guard machinery (`automation/publish/**`,
+   `automation/review/**`, a hook), ask first whether one record, lens, edit or account can
+   undo another's refusal, and whether the control can refuse the operator it serves; post
+   that review through the machinery itself when it exists (lesson L44).
    **Every review ends in a structured review record**, which the merge gate requires
    (roadmap milestones 2 and 4). Read the PR's live base and head first
    (`gh api repos/gymcoach-app/gymcoach/pulls/<n>`: `base.sha`, `head.sha`) and give both
