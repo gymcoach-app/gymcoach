@@ -27,7 +27,7 @@ subscription.
   <video src="https://github.com/gymcoach-app/gymcoach/raw/main/docs/brag-launch.mp4" poster="docs/brag-poster.jpg" controls muted loop playsinline width="720"></video>
 </p>
 <p align="center">
-  <a href="https://github.com/gymcoach-app/gymcoach/raw/main/docs/brag-launch.mp4"><b>▶ Watch the 20-second launch video</b></a>
+  <a href="https://github.com/gymcoach-app/gymcoach/raw/main/docs/brag-launch.mp4"><b>▶ Watch the 25-second launch video</b></a>
   &nbsp;&middot;&nbsp; an AI coach, built by an AI
 </p>
 
