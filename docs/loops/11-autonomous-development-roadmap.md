@@ -126,6 +126,13 @@ remain attributable after a model or skill upgrade.
       reviewing, ready, merged, observing, completed, blocked, and failed.
 - [ ] Allocate a worktree and disposable test environment per worker. Give each
       reviewer a read-only snapshot or its own isolated environment.
+      Partial: reviewers get a read-only detached worktree at the PR head
+      ([`automation/review/snapshot.sh`](../../automation/review/snapshot.sh)), and a
+      PreToolUse hook ([`automation/hooks/guard-git.cjs`](../../automation/hooks/guard-git.cjs),
+      tests in [`guard-git.test.ts`](../../automation/hooks/guard-git.test.ts)) refuses
+      HEAD-moving git commands outside the session's own worktree; checked live in a fresh
+      `claude -p` session. Workers still share one test database (serialized by the `flock`),
+      and allocation is the orchestrator's, not a controller's.
 - [ ] Use task leases with heartbeat, expiry, and a generation token so a resumed
       stale worker cannot publish after another worker has claimed the task.
 - [ ] Reconcile external actions after crashes. Use stable operation IDs and
@@ -238,7 +245,8 @@ evaluations; report the limitations of a small sample.
       Partial: L42 (unit-tier timeouts under machine load, recurring since #219) became a
       formatter cache in [`lib/units.ts`](../../lib/units.ts) with a cache-key test and a
       worker cap in [`vitest.config.ts`](../../vitest.config.ts), with before/after timings
-      in [L42](lessons.md); the other lessons are not yet reviewed for this.
+      in [L42](lessons.md). L15 and L38 (shared-checkout incidents) became the git guard
+      hook above. The other lessons are not yet reviewed for this.
 
 Acceptance: a reviewer catches a seeded defect without the author's explanation;
 fixups invalidate or refresh the relevant review evidence; a task retrieves the

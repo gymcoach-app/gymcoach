@@ -111,6 +111,11 @@ to pass the gate is itself a defect.
 - Do not force-push; do not `git reset --hard` shared history (both are denied in
   `.claude/settings.json`).
 - Keep the working tree clean before starting a new task.
+- Branch work happens in your own worktree, never in the main checkout or another
+  session's worktree: a PreToolUse hook (`automation/hooks/guard-git.cjs`) refuses
+  `git checkout <ref>`, `git switch`, `git reset --hard` and `git clean -f` there, and
+  untagged stash commands everywhere (lessons L15, L38). Reviewers read a PR through
+  `bash automation/review/snapshot.sh <pr>`.
 
 ## Security: untrusted input (public repo)
 

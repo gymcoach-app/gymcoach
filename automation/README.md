@@ -5,6 +5,39 @@ the app never imports this directory and the Docker image does not ship it
 (`.dockerignore`). See the
 [implementation roadmap](../docs/loops/11-autonomous-development-roadmap.md).
 
+## Git guard and review snapshots (milestone 2, lessons L15 and L38)
+
+- `hooks/guard-git.cjs` - a PreToolUse hook for the Bash tool, wired in
+  `.claude/settings.json`. It reads the hook JSON on stdin, parses the command (quotes,
+  `&&`/`;`/`|`, subshells, `$(...)`, `bash -c`, here-documents, `cd`/`pushd`, `git -C`)
+  and exits 2 with a reason when a git command would move `HEAD` or clobber the tree of a
+  checkout the session does not own:
+  - refused when the target is a **primary checkout** (its `.git` is a directory, such as
+    the main checkout) or a **linked worktree other than the one containing the session's
+    cwd**: `git checkout <ref>` (including `-b` and `--detach`), `git switch`,
+    `git reset --hard|--keep|--merge|--soft`, `git reset <commit>`, `git clean -f`;
+  - refused everywhere, because the stash stack is shared by every worktree: `git stash`,
+    `git stash pop|drop|clear`, and `git stash push` without `-m`;
+  - allowed: read-only git, `fetch`, `pull`, `merge`, `commit`, `push`, `worktree add`,
+    `git checkout -- <path>`, `git reset [HEAD] -- <path>`, tagged stash pushes,
+    `git stash apply <sha>`.
+  A git command it cannot parse (unbalanced quotes, an unterminated here-document) or
+  whose target it cannot resolve (`cd "$DIR"`, `cd -`, `--work-tree`) is refused. A bug in
+  the guard itself allows the command, so a broken guard cannot block every Bash call. It
+  runs on old Node too (no modern syntax) and takes about 30 ms. The operator turns it off
+  for one session by starting Claude Code with `GYMCOACH_GIT_GUARD=off`; an assignment
+  inside the command has no effect.
+- `review/snapshot.sh <pr> [dir]` - fetches the PR head into `refs/remotes/pr/<pr>`, adds
+  a detached worktree at that SHA (default `${TMPDIR:-/tmp}/gymcoach-review/pr-<n>-<sha12>`),
+  makes it read-only and prints its path; `--remove <dir>` deletes it. For reading only:
+  external code still runs only in CI.
+
+Limits: "own" means the worktree containing the session's current directory, so a session
+that `cd`s into another worktree in one call and runs a checkout in the next is treated as
+its owner; a git call hidden in a variable, `eval`, a script file or `"$(...)"` inside double
+quotes is not inspected; the hook guards Claude Code sessions in this project, not humans
+or other tools.
+
 ## Merge gate (milestone 2)
 
 - `publish/gate.ts` - pure decision: a PR may be merged at an approved SHA only when

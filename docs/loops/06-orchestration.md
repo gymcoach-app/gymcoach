@@ -117,7 +117,17 @@ reverted forward, re-shipped as PR #279).
 - **Reviewers write git state too (lesson L38).** A review subagent never runs `git
   checkout`/`git switch` in the main checkout or in another tick's worktree; on 2026-10-09
   two did, and one detached another tick's `HEAD` mid-work. It reads via `gh pr diff`,
-  `git show <sha>:<path>` and `git diff`, or adds its own `git worktree add` path.
+  `git show <sha>:<path>` and `git diff`, or takes a read-only snapshot with
+  `bash automation/review/snapshot.sh <pr>` (a detached worktree at the PR head under the
+  scratch dir; `--remove <dir>` deletes it).
+- **Enforced by a hook, not only by these rules.** `.claude/settings.json` runs
+  `automation/hooks/guard-git.cjs` before every Bash call. It refuses `git checkout <ref>`,
+  `git switch`, `git reset --hard`/`<commit>` and `git clean -f` when their target (after
+  `cd`, `pushd` or `git -C`) is a primary checkout, such as the main checkout, or a worktree
+  other than the one the session's cwd is in; and it refuses the stash forms that act on the
+  shared stack without a tag (`git stash`, `pop`, `drop`, `clear`, untagged `push`). The
+  orchestrator therefore does its own branch work in a worktree too. The operator can turn
+  the guard off for one session by starting Claude Code with `GYMCOACH_GIT_GUARD=off`.
 - **If a commit still lands on `main`, revert forward** (a revert commit restoring `main`'s
   content), never `git push --force` shared history (it is denied anyway), then re-ship the
   work through a proper PR.

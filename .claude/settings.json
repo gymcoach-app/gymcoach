@@ -50,5 +50,19 @@
       "Bash(curl *)",
       "Bash(wget *)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/automation/hooks/guard-git.cjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
