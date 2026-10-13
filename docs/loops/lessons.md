@@ -260,6 +260,10 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   conflicts, three green first-pass CI runs, no `main` breach, with the L16 `flock`
   serializing the three `--full` gates unprompted. Now written into `06-orchestration.md` as
   the confirmed parallel-dev pattern rather than a contingency.
+  **Enforced 2026-10-13:** the main checkout is now off limits for HEAD-moving git commands
+  from any subagent (PreToolUse hook `automation/hooks/guard-git.cjs`, see L38; Claude Code
+  marks a subagent's hook input with `agent_id`): a subagent that needs a branch works in its
+  own worktree; the operator's and orchestrator's main session keeps the main checkout.
 
 ### L16 - Isolated worktrees are not enough: the shared test Postgres (:5434) and dev port (:3031) also need a lock
 - **Trigger:** 2026-07-22 batch. Two loop sessions ran `bash scripts/verify.sh --full` at the
@@ -648,7 +652,16 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   `git worktree add <scratch-path> <sha>` and removes it afterwards. The orchestrator says so
   in every review prompt.
 - **Status:** graduated -> step 4 of the `ship-pr` skill and "Concurrent ticks" in
-  `06-orchestration.md`.
+  `06-orchestration.md`. **Enforced since 2026-10-13:** it recurred on 2026-10-13 (a
+  reviewer's `git checkout --detach` hijacked a dev tick's worktree), so prose was not
+  enough. A PreToolUse hook (`automation/hooks/guard-git.cjs`, wired in
+  `.claude/settings.json`) now refuses a subagent's `git checkout <ref>`, `git switch`,
+  `git reset --hard`/`<commit>`, `git clean -f`, rebase-like commands and path-wide restores
+  whenever the target, after `cd`/`pushd`/`git -C`, is a primary checkout or a worktree other
+  than its own (the main session only in another session's worktree), plus the stash forms
+  that can take another session's entry, for everyone. Every incident came from a subagent;
+  the hook input tells them apart (`agent_id`, checked live). Reviewers read through
+  `bash automation/review/snapshot.sh <pr>` (a read-only detached worktree at the PR head).
 
 ### L39 - A merge that changes a shared type or schema invalidates a sibling PR's green CI
 - **Trigger:** 2026-10-13, #435 -> #436. Both PRs were open at once. #435 (favourite

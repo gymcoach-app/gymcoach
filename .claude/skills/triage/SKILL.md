@@ -61,8 +61,10 @@ issue names the file(s) and the acceptance check.
 
 ## Procedure
 
-1. **Start clean** on `main` (`git switch main && git pull --ff-only`). Triage reads;
-   it does not branch or edit code.
+1. **Start from a fresh `origin/main`** (`git fetch origin`, then read with
+   `git show origin/main:<path>` or a detached worktree `git worktree add --detach
+   <scratch-path> origin/main`). Triage reads; it does not branch, edit code or switch the
+   main checkout (the git guard refuses a subagent's `git switch` there).
 2. **Sweep** the sources above until you have up to 3 strong candidates.
 3. **De-dupe** against open issues and against each other.
 4. **Write each issue** with this shape:

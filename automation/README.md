@@ -5,6 +5,73 @@ the app never imports this directory and the Docker image does not ship it
 (`.dockerignore`). See the
 [implementation roadmap](../docs/loops/11-autonomous-development-roadmap.md).
 
+## Git guard and review snapshots (milestone 2, lessons L15 and L38)
+
+- `hooks/guard-git.cjs` - a PreToolUse hook for the Bash tool, wired in
+  `.claude/settings.json`. It reads the hook JSON on stdin, parses the command (quotes,
+  `&&`/`;`/`|`, subshells, `$(...)`, `bash -c`, here-documents, `cd`/`pushd`, `git -C`)
+  and exits 2 with a reason when a git command would move `HEAD` or clobber the tree of a
+  checkout the session does not own. Claude Code puts `agent_id` in a subagent's hook
+  input and leaves it out for the main session (checked live on Claude Code 2.1.296, the
+  minimum version assumed). `agent_type` is not used: Claude Code also sets it for a main
+  session started with `claude --agent`. If a version ever omitted `agent_id` for a
+  subagent, the guard would treat it as a main session (fail open); the session-start
+  canary below catches that. The rules differ:
+  - "moves HEAD or clobbers": `git checkout <ref>` (including `-b`, `--detach`), `git switch`,
+    `git reset --hard|--keep|--merge|--soft` and `git reset <commit>`, `git clean -f`,
+    `rebase`, `cherry-pick`, `am`, `revert`, `update-ref`, `symbolic-ref <name> <ref>`,
+    `read-tree -u`, and path-wide or sourced restores (`git checkout -- .`,
+    `git checkout <commit> -- <path>`, `git restore .`, `git restore --source=...`);
+    plus `git checkout-index -f`, `git apply -R`, `git worktree add --force|-B` and
+    `git submodule update --force`, and a git subcommand only known at run time
+    (`git $x`, `git $(...)`);
+  - a **subagent** is refused those in a **primary checkout** (its `.git` is a directory,
+    such as the main checkout) and in a **linked worktree other than the one containing its
+    cwd**; it is also refused `git worktree remove|move` of another worktree,
+    `git branch -D|-d|-f|-M|-m|-C` (the orchestrator cleans up), and `git pull`, `git merge`
+    and `git commit --amend` in a primary checkout;
+  - the **main session** (operator or orchestrator) may do them in a primary checkout, but
+    not in another session's linked worktree;
+  - refused for everyone, because the stash stack is shared by every worktree: `git stash`,
+    `git stash push|save` without a message, `pop`, `drop`, `clear`, `branch`, and `apply`
+    without an explicit stash commit sha;
+  - allowed: read-only git, `fetch`, `commit`, `push`, `worktree add -b` (and, outside a
+    primary checkout or for the main session, `pull` and `merge`),
+    restoring a single file (`git checkout -- <file>`, `git restore <file>`),
+    `git reset [HEAD] [--] <paths>`, tagged stash pushes, `git stash apply <sha>`.
+  The parser follows shell keywords and groups (`if`/`then`, `do`/`done`, `{ }`, `!`),
+  wrappers (`env`, `command`, `time`, `timeout`, `nice`, `xargs`, `sudo`, `stdbuf`; the
+  chdir of `env -C`/`--chdir` and `sudo -D` is applied), `cd` options (`cd -P`, `cd --`),
+  an absolute `git -C /path` even after `cd -`, git spelled with quotes or a backslash, any
+  `-c` flag cluster of a shell (`bash -lc`, `sh -ec`), and treats `GIT_DIR=`/`GIT_WORK_TREE=`
+  (also exported) as an unknown target. Unbalanced quotes alone (an apostrophe in prose) are
+  not refused; a guarded git command next to them is. A guarded command whose target it
+  cannot resolve (`cd "$DIR"`, `cd -` followed by a relative path, `--work-tree`,
+  `xargs git checkout`) is refused; a main session's `git worktree remove|move` is allowed
+  wherever its shell is (the merge-gate cleanup). Session-start canary:
+  `node automation/hooks/guard-git.cjs --self-test` checks the decision logic, and the
+  subagent probe in `docs/loops/06-orchestration.md` checks that Claude Code still sends
+  `agent_id`. A bug in
+  the guard itself allows the command, so a broken guard cannot block every Bash call. It
+  runs on old Node too (no modern syntax) and takes about 30 ms. The operator turns it off
+  for one session by starting Claude Code with `GYMCOACH_GIT_GUARD=off`; an assignment
+  inside the command has no effect.
+- `review/snapshot.sh <pr> [dir]` - fetches the PR head into `refs/remotes/pr/<pr>`, adds
+  a detached worktree at that SHA (default `${TMPDIR:-/tmp}/gymcoach-review/pr-<n>-<sha12>`),
+  makes it read-only and prints its path; `--remove <dir>` deletes it, and refuses any path
+  outside `${TMPDIR:-/tmp}/gymcoach-review/` or a worktree that is not detached. For reading
+  only: never start `claude`, `npm` or `eslint` inside a snapshot of a fork PR (its
+  `.claude/settings.json` hooks and configs would run); external code still runs only in CI.
+  If a snapshot directory is deleted by hand, `git worktree prune` drops the stale entry.
+
+Limits: "own" means the worktree containing the session's current directory, so a session
+that `cd`s into another worktree in one call and runs a checkout in the next is treated as
+its owner; a git call hidden in a variable, `eval`, an alias (`git co`), a script file, a
+here-document fed to a shell, backticks or `"$(...)"` inside double quotes is not
+inspected; `merge` and `pull` are not guarded; `git branch -D` by the main session is
+allowed (git itself refuses to delete a branch checked out in a worktree); the hook guards
+Claude Code sessions in this project, not humans or other tools.
+
 ## Merge gate (milestone 2)
 
 - `publish/gate.ts` - pure decision: a PR may be merged at an approved SHA only when

@@ -111,6 +111,20 @@ to pass the gate is itself a defect.
 - Do not force-push; do not `git reset --hard` shared history (both are denied in
   `.claude/settings.json`).
 - Keep the working tree clean before starting a new task.
+- Subagents do branch work in their own worktree, never in the main checkout or another
+  session's worktree: a PreToolUse hook (`automation/hooks/guard-git.cjs`) refuses their
+  `git checkout <ref>`, `git switch`, `git reset --hard`, `git clean -f`, rebase and
+  path-wide restores there, plus worktree and branch deletion. The main session (operator
+  or orchestrator) may still switch branches in the main checkout, but not in another
+  session's worktree. Untagged stash commands are refused for everyone (lessons L15, L38).
+  A subagent is recognised by the `agent_id` Claude Code puts in its hook input (Claude
+  Code 2.1.296 or later); a main session started with `claude --agent` is still a main
+  session. Prefer the Agent tool's worktree isolation for subagents: a scratch worktree
+  created by a non-isolated subagent is treated as another session's (its shell returns to
+  the main checkout between calls).
+  Start a branch with `git fetch origin && git worktree add -b <branch> <path> origin/main`.
+  Reviewers read a PR through `bash automation/review/snapshot.sh <pr>`. To switch the
+  guard off for one session, start Claude Code with `GYMCOACH_GIT_GUARD=off`.
 
 ## Security: untrusted input (public repo)
 
