@@ -5,6 +5,40 @@ the app never imports this directory and the Docker image does not ship it
 (`.dockerignore`). See the
 [implementation roadmap](../docs/loops/11-autonomous-development-roadmap.md).
 
+## Merge gate (milestone 2)
+
+- `publish/gate.ts` - pure decision: a PR may be merged at an approved SHA only when
+  it is open, not a draft, targets `main`, is `clean`, its head is still the approved
+  SHA, and every allowlisted CI check, from the pinned CI app and one check suite,
+  succeeded on that exact SHA (latest rerun in that suite decides). Empty, missing,
+  pending, skipped, neutral, foreign-app, second-suite and other-SHA checks refuse
+  the merge.
+- `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
+  the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
+  disagrees with the repository's required status checks; when the rules cannot be
+  read, the allowlist and the pinned app still apply (fail closed).
+- `publish/merge.ts` - the only way the maintainer merges (see the `ship-pr` skill,
+  which runs it from a detached worktree of freshly fetched `origin/main`). Dry run by
+  default; `--merge` calls the merge endpoint with `sha=<approved>`, then deletes a
+  same-repo head branch (never a fork's; `--keep-branch` to keep it). Strict argument
+  parsing; re-reads an unknown mergeable state up to 5 times. Exit codes: 0 merged or
+  mergeable, 1 refused, 2 usage error, 3 `gh`, network or any unexpected error (one
+  line, no stack; check the PR before any retry).
+
+  ```bash
+  npx tsx automation/publish/merge.ts 123 --sha <reviewed-40-hex-sha>
+  npx tsx automation/publish/merge.ts 123 --sha <sha> --merge --method squash \
+    --title "feat: ... (#123)" --message "Closes #120"
+  ```
+
+Limits: the gate checks CI, not review evidence; the review binding is still a
+procedure. Closing and reopening a PR, or opening a second PR at the same head SHA,
+starts a second check suite, and the gate then refuses that SHA for good (fail
+closed, `check-suite-mismatch`); the remedy is a new commit, a review of it, and a
+new gate run. The trusted copy is whatever `origin/main` holds, which is why
+`automation/**` is a group B path in `docs/loops/10-external-contributions.md`. It runs with the caller's gh credentials, so it constrains the agent that
+follows the skill, not a determined one with the same token.
+
 ## Run records (milestone 1)
 
 - `records/schema.ts` - versioned Zod schemas (schema version 1) for task, run,

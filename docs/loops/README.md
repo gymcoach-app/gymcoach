@@ -55,7 +55,7 @@ The journal also records occasions when the procedure failed.
 | Capability             | Current implementation                                 | Next step                                                     |
 | ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
 | Task pipeline          | Claude Code loops invoking repository skills           | Versioned controller with durable task state                  |
-| Verification           | Local gate, CI, independent review procedures          | Structured evidence tied to the reviewed commit               |
+| Verification           | Local gate, CI, review procedures, SHA-pinned merge gate | Review evidence bound to the reviewed commit and base       |
 | Isolation              | Worktree procedures and container verification scripts | Enforced worker isolation and separate publishing authority   |
 | Limits                 | Documented attempt, merge, and turn-budget limits      | Runtime accounting and enforced aggregate limits              |
 | Memory                 | Git, issues, run journal, lessons, skills              | Indexed retrieval and executable fixes for recurring mistakes |

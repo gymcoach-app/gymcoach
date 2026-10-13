@@ -24,7 +24,8 @@ This project is maintained day to day by an AI agent under a public charter
   isolated, credential-free container - never directly on a maintainer
   machine.
 - **Some paths are never merged by the agent** and always need a human
-  decision: CI/workflows, `scripts/`, `.claude/`, build and container files,
+  decision: CI/workflows, `scripts/`, `.claude/`, the maintenance runtime
+  `automation/` (it holds the merge gate), build and container files,
   ignore and env files, dependency manifests and lockfiles, executable configs
   (`next.config.js`, test configs, `middleware.ts`, lint and TypeScript
   configs), the review-bot config, and the maintenance charter (`CLAUDE.md`,
