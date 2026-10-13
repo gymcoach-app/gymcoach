@@ -137,6 +137,9 @@ export const evalResultSchema = z
     // Grade inputs the agent changed, added or removed, put back to the base
     // before grading (runner.ts isGradeInput).
     gradeInputsRestored: z.array(repoPath),
+    // Agent changes the static tamper check rejected (runner.ts
+    // tamperViolations); any entry makes the outcome a fail.
+    tamperViolations: z.array(z.string()),
     agentRun: z
       .object({
         exitCode: z.number().int().nullable(),
@@ -153,6 +156,10 @@ export const evalResultSchema = z
         networkBlockedForAgent: z.boolean().nullable(),
         // The paid agent ran in a container with only the workspace mounted.
         agentContained: z.boolean().nullable(),
+        // true when every grading run used a fresh network namespace (unit tier,
+        // unshare -rn). It says nothing about the filesystem: grading runs on the
+        // host as the operator, which is acceptable only for the self-check
+        // agents, whose changes are this repo's own historical patches.
         networkBlockedForGrader: z.boolean(),
       })
       .strict(),

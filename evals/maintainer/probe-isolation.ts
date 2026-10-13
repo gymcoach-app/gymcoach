@@ -13,6 +13,11 @@ import { containerArgs } from './runner';
 // containerArgs, prepareAgentHome), but runs a shell probe instead of claude.
 // Each check prints ok when the agent CANNOT do the thing. Exit 0 only when every
 // check is ok. Spends nothing.
+//
+// The network checks fail today (issue #453): the container can reach the
+// unauthenticated Docker Desktop engine API and host services, and has open
+// egress. The paid agent stays disabled (runner.ts PAID_AGENT_DISABLED_REASON)
+// until this probe exits 0.
 
 const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: __dirname })
   .toString()
@@ -44,6 +49,9 @@ check write-node-modules "touch /work/node_modules/.probe-write"
 check write-claude-binary "touch /usr/local/bin/claude"
 check write-root-fs "touch /etc/probe-write"
 check sudo "sudo -n true"
+check reach-docker-api "node /work/.probe-net.cjs http://host.docker.internal:2375/version"
+check reach-host-postgres "node /work/.probe-net.cjs tcp:host.docker.internal:5434"
+check reach-public-internet "node /work/.probe-net.cjs https://github.com/"
 echo "info home-entries $(cd "$HOME" && find . -mindepth 1 | sort | tr '\\n' ' ')"
 echo "info uid $(id -u) workspace-writable $(touch /work/.probe-write && echo yes || echo no)"
 `;
@@ -55,6 +63,24 @@ function main(): number {
     // A minimal workspace shaped like a materialised snapshot: one commit, no
     // remote, node_modules linked to the host install.
     writeFileSync(path.join(work, 'README.md'), 'probe\n');
+    // Network reachability helper: exit 0 when the target answers within 5 s.
+    writeFileSync(
+      path.join(work, '.probe-net.cjs'),
+      [
+        'const t = process.argv[2];',
+        'const done = (ok) => process.exit(ok ? 0 : 1);',
+        'setTimeout(() => done(false), 5000);',
+        "if (t.startsWith('tcp:')) {",
+        "  const [, host, port] = t.split(':');",
+        "  const s = require('net').connect(Number(port), host);",
+        "  s.on('connect', () => done(true));",
+        "  s.on('error', () => done(false));",
+        '} else {',
+        '  fetch(t).then(() => done(true), () => done(false));',
+        '}',
+        '',
+      ].join('\n'),
+    );
     for (const args of [
       ['init', '-q', '-b', 'main'],
       ['add', '-A'],

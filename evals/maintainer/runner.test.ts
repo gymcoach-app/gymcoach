@@ -16,6 +16,8 @@ import {
   planGradeInputRestore,
   sameDependencies,
   summariseVitestReport,
+  tamperViolations,
+  PAID_AGENT_DISABLED_REASON,
 } from './runner';
 import { evalTaskSchema, type TestRun } from './schema';
 
@@ -61,11 +63,57 @@ describe('claudeRunAllowed', () => {
     expect(
       claudeRunAllowed({ agent: 'claude', budgetUsd: 2 }, { EVAL_BUDGET_APPROVED: 'yes' }).allowed,
     ).toBe(false);
+  });
+
+  it('refuses the paid agent even with a budget and the approval (issue #453)', () => {
     expect(
       claudeRunAllowed({ agent: 'claude', budgetUsd: 2 }, { EVAL_BUDGET_APPROVED: '1' }),
-    ).toEqual({
-      allowed: true,
-    });
+    ).toEqual({ allowed: false, reason: PAID_AGENT_DISABLED_REASON });
+    expect(PAID_AGENT_DISABLED_REASON).toContain('#453');
+  });
+});
+
+describe('tamperViolations', () => {
+  const task = { grader: { hidden: ['lib/a.test.ts'], preserved: [] } };
+
+  it('rejects a test framework import in application code', () => {
+    const cheat =
+      "export const x = 1;\nimport { chai } from 'vitest';\n" +
+      'chai.Assertion.prototype.assert = function () {};\n';
+    expect(tamperViolations([{ file: 'lib/a.ts', content: cheat }], task)).toHaveLength(1);
+    for (const content of [
+      "import 'chai';",
+      "const c = require('chai');",
+      "import { expect } from '@vitest/expect';",
+      "const v = await import('vitest');",
+      "import { defineConfig } from 'vitest/config';",
+    ])
+      expect(tamperViolations([{ file: 'lib/b.ts', content }], task)).toHaveLength(1);
+  });
+
+  it('rejects any edit to the generated Prisma client', () => {
+    expect(
+      tamperViolations([{ file: 'prisma/generated/client.ts', content: 'x' }], task),
+    ).toHaveLength(1);
+    expect(tamperViolations([{ file: 'prisma/generated/old.ts', content: null }], task)).toEqual([
+      expect.stringContaining('generated Prisma client'),
+    ]);
+  });
+
+  it('leaves legitimate application changes and grade inputs alone', () => {
+    expect(
+      tamperViolations(
+        [
+          { file: 'lib/a.ts', content: "import { z } from 'zod';\n// mentions vitest in prose\n" },
+          { file: 'lib/a.test.ts', content: "import { it } from 'vitest';" },
+          { file: 'tests/integration/x.test.ts', content: "import { it } from 'vitest';" },
+          { file: 'vitest.setup.ts', content: "import { vi } from 'vitest';" },
+          { file: 'lib/gone.ts', content: null },
+          { file: 'lib/vitest-like.ts', content: "import x from 'vitest-ish';" },
+        ],
+        task,
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -112,6 +160,17 @@ describe('summariseVitestReport', () => {
 });
 
 describe('decideOutcome', () => {
+  it('fails a run with a tamper violation even when every test passed', () => {
+    expect(
+      decideOutcome({
+        hidden: [run()],
+        preserved: [run()],
+        infraErrors: [],
+        tamperViolations: ['lib/a.ts: application code imports a test framework'],
+      }),
+    ).toBe('fail');
+  });
+
   it('passes only when every hidden and preserved run is green', () => {
     expect(decideOutcome({ hidden: [run()], preserved: [run()], infraErrors: [] })).toBe('pass');
     expect(

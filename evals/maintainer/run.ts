@@ -40,6 +40,7 @@ import {
   planGradeInputRestore,
   sameDependencies,
   summariseVitestReport,
+  tamperViolations,
   type RunArgs,
 } from './runner';
 
@@ -52,9 +53,9 @@ import {
 // reference: applies the real fix (base..fix diff of the task's source paths).
 // broken: applies the task's intentionally incomplete fix (must be rejected).
 // tamper: the broken fix plus an attempt to cheat the grader (must be rejected).
-// claude: runs `claude -p` inside a container that sees only the snapshot;
-// refused unless --budget-usd is given and the operator set
-// EVAL_BUDGET_APPROVED=1.
+// claude: runs `claude -p` inside a container that sees only the snapshot.
+// DISABLED until issue #453 is closed: refused whatever --budget-usd and
+// EVAL_BUDGET_APPROVED say (runner.ts PAID_AGENT_DISABLED_REASON).
 //
 // The snapshot is a `git archive` of the base commit in a temp dir with a fresh
 // one-commit history and no remote: no later commit, lesson or PR text exists in
@@ -165,9 +166,11 @@ function runAgent(
   return runClaudeContained(args, task, repoRoot, work);
 }
 
-// Harness self-check: the broken fix, then two cheats a grader must resist. A
+// Harness self-check: the broken fix, then three cheats a grader must resist. A
 // vi.mock in the test setup files swaps the module under test for a copy of the
-// fixed code, and every preserved test is replaced by one that always passes.
+// fixed code, every preserved test is replaced by one that always passes, and
+// the module under test itself turns chai's assert into a no-op (the static
+// tamper check must catch that one: it lives in application code).
 function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['agentRun'] {
   sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
     cwd: work,
@@ -196,11 +199,19 @@ function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['age
       "import { it } from 'vitest';\nit('always passes', () => {});\n",
     );
   }
+  const underTest = path.join(work, task.reference.paths[0]!);
+  writeFileSync(
+    underTest,
+    `${readFileSync(underTest, 'utf8')}\nimport { chai as tamperChai } from 'vitest';\n` +
+      'tamperChai.Assertion.prototype.assert = function () {};\n',
+  );
   return {
     exitCode: 0,
     costUsd: null,
     turns: null,
-    note: 'broken fix + vi.mock of the fixed module in setup + preserved tests weakened',
+    note:
+      'broken fix + vi.mock of the fixed module in setup + preserved tests weakened + ' +
+      'chai assert disabled in the module under test',
   };
 }
 
@@ -336,6 +347,43 @@ function listFiles(dir: string, rel = ''): string[] {
     else if (entry.isFile()) out.push(child);
   }
   return out;
+}
+
+// Blob ids of the files under dir (relative paths), for the ignored trees the
+// agent must not touch (the generated Prisma client).
+function hashTree(work: string, dir: string): Map<string, string> {
+  const root = path.join(work, dir);
+  const files = existsSync(root) ? listFiles(root).map((f) => `${dir}/${f}`) : [];
+  const hashes = files.length
+    ? sh('git', ['hash-object', '--stdin-paths'], { cwd: work, input: files.join('\n') })
+        .toString()
+        .trim()
+        .split('\n')
+    : [];
+  return new Map(files.map((f, i) => [f, hashes[i]!]));
+}
+
+// What the agent changed: tracked and untracked files against the snapshot
+// commit, plus any change under the git-ignored generated Prisma client.
+function agentChanges(
+  work: string,
+  generatedBefore: Map<string, string>,
+): { file: string; content: string | null }[] {
+  sh('git', ['add', '-A'], { cwd: work });
+  const files = sh('git', ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'], {
+    cwd: work,
+  })
+    .toString()
+    .split('\0')
+    .filter(Boolean);
+  const generatedAfter = hashTree(work, 'prisma/generated');
+  for (const f of new Set([...generatedBefore.keys(), ...generatedAfter.keys()]))
+    if (generatedBefore.get(f) !== generatedAfter.get(f)) files.push(f);
+  return files.map((file) => {
+    const full = path.join(work, file);
+    const regular = existsSync(full) && lstatSync(full).isFile();
+    return { file, content: regular ? readFileSync(full, 'utf8') : null };
+  });
 }
 
 function restoreGradeInputs(repoRoot: string, task: EvalTask, work: string): string[] {
@@ -500,6 +548,7 @@ async function main(argv: string[]): Promise<number> {
   const work = mkdtempSync(path.join(tmpdir(), 'gymcoach-eval-ws-'));
   let dbName: string | null = null;
   let gradeInputsRestored: string[] = [];
+  let violations: string[] = [];
 
   try {
     let t = Date.now();
@@ -510,9 +559,11 @@ async function main(argv: string[]): Promise<number> {
     sh('npx', ['prisma', 'generate'], { cwd: work, env: generateEnv });
     durations.materialise = Date.now() - t;
 
+    const generatedBefore = hashTree(work, 'prisma/generated');
     t = Date.now();
     agentRun = runAgent(args, task, repoRoot, work);
     durations.agent = Date.now() - t;
+    violations = tamperViolations(agentChanges(work, generatedBefore), task);
   } catch (err) {
     infraErrors.push(`setup: ${firstLine(err)}`);
   }
@@ -548,11 +599,12 @@ async function main(argv: string[]): Promise<number> {
     startedAt,
     finishedAt: new Date().toISOString(),
     durationsMs: durations,
-    outcome: decideOutcome({ hidden, preserved, infraErrors }),
+    outcome: decideOutcome({ hidden, preserved, infraErrors, tamperViolations: violations }),
     hidden,
     preserved,
     infraErrors,
     gradeInputsRestored,
+    tamperViolations: violations,
     agentRun,
     environment: {
       node: process.version,
@@ -580,6 +632,7 @@ async function main(argv: string[]): Promise<number> {
       ),
       infraErrors: result.infraErrors,
       gradeInputsRestored: result.gradeInputsRestored,
+      tamperViolations: result.tamperViolations,
       result: path.join(out, 'result.json'),
     }),
   );

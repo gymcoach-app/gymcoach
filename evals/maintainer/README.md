@@ -18,13 +18,24 @@ npx tsx evals/maintainer/run.ts --task <id> --agent dry|reference|broken|tamper|
 | `dry`       | Changes nothing (red-before check)                                     | `fail`   |
 | `reference` | Applies the real fix: the base..fix diff of the task's paths           | `pass`   |
 | `broken`    | Applies `tasks/<id>/broken.patch`, an intentionally incomplete fix     | `fail`   |
-| `tamper`    | `broken`, plus a `vi.mock` cheat in setup and weakened preserved tests | `fail`   |
-| `claude`    | Runs `claude -p` with the task statement, in a container               | measured |
+| `tamper`    | `broken`, plus three grader cheats (see below)                         | `fail`   |
+| `claude`    | **Disabled** (issue #453); would run `claude -p` in a container         | n/a      |
 
-`--agent claude` is a paid run. The runner refuses it unless `--budget-usd` is
-given **and** the operator set `EVAL_BUDGET_APPROVED=1`, so a loop cannot start
-one by passing a flag. The budget is passed to Claude Code as
-`--max-budget-usd`; the wall-time cap of the task is enforced with a timeout.
+**`--agent claude` is disabled.** The runner refuses it unconditionally, whatever
+`--budget-usd` and `EVAL_BUDGET_APPROVED` say, until issue #453 is closed: its
+container can reach the unauthenticated Docker Desktop engine API and other host
+services, its code would be graded on the host, and the operator's model
+credential is readable inside it. It stays disabled until
+`npx tsx evals/maintainer/probe-isolation.ts` exits 0. The budget gate stays in
+place in front of that refusal: a paid run will also need `--budget-usd` **and**
+`EVAL_BUDGET_APPROVED=1` set by the operator, so a loop cannot start one by
+passing a flag.
+
+The four self-check agents (`dry`, `reference`, `broken`, `tamper`) only apply
+this repository's own historical patches (the real fix, the broken variant and
+the cheats below), never model-written code. Grading them on the host, as the
+operator, is acceptable for that reason only; it is not acceptable for an
+agent's code, which is why #453 also moves grading into a container.
 
 Results go to `${TMPDIR:-/tmp}/gymcoach-evals/<stamp>-<task>-<agent>/result.json`
 (or `--out`, which must be outside the repository). Exit codes: 0 pass, 1 fail,
@@ -60,10 +71,15 @@ Results go to `${TMPDIR:-/tmp}/gymcoach-evals/<stamp>-<task>-<agent>/result.json
 
 Validated on 2026-10-13 (12 runs, Docker up so the integration task ran):
 `dry` fails, `reference` passes, `broken` fails and `tamper` fails on all three,
-with the preserved tests green each time. `tamper` is the broken fix plus two
-cheats (a `vi.mock` of the fixed module in the test setup files and every
-preserved test replaced by one that always passes). With the grade-input restore
-disabled, `tamper` passed all three: the restore is what rejects it.
+with the preserved tests green each time. `tamper` is the broken fix plus three
+cheats: a `vi.mock` of the fixed module in the test setup files, every preserved
+test replaced by one that always passes, and, in the module under test itself,
+`chai.Assertion.prototype.assert` turned into a no-op (application code, so the
+grade-input restore does not undo it). The restore rejects the first two; the
+static tamper check rejects the third. Re-run on 2026-10-13 after adding it (12
+runs, Docker up): the chai cheat made every hidden test pass on two tasks
+(cardio 34/0, duplicate POST 4/0), and only the static check (one violation)
+turned them into `fail`. With that check disabled, `tamper` passed both.
 
 ## How a replay is isolated
 
@@ -83,13 +99,20 @@ disabled, `tamper` passed all three: the restore is what rejects it.
    `tsconfig.json`; grade inputs the agent added are removed. The agent may only
    change application code, so weakening a preserved test or adding a `vi.mock` of
    the module under test to a setup file cannot turn a fail into a pass (the
-   result lists what was put back in `gradeInputsRestored`). Then the hidden
+   result lists what was put back in `gradeInputsRestored`). Before that, a
+   static tamper check reads the agent's changes (tracked and untracked files
+   against the snapshot commit, plus the git-ignored generated Prisma client):
+   application code that imports `vitest`, `chai` or `@vitest/*`, or any edit
+   under `prisma/generated/`, is a violation listed in `tamperViolations`, and
+   any violation makes the outcome `fail`. Then the hidden
    tests are fetched from the fix commit. A run passes only when vitest also
-   exits 0. Unit tests run inside `unshare -rn` (no network at all). Integration
+   exits 0. Grading runs on the host as the operator. Unit tests run inside
+   `unshare -rn` (no network, but full access to the operator's files: the
+   result field `networkBlockedForGrader` means the network only). Integration
    tests get a throwaway database `gymcoach_eval_<random>` on the shared test
    Postgres (started by `scripts/test-db.sh` under the test-infra lock),
    migrated to the base schema and dropped afterwards.
-4. **Claude agent, in a container.** `claude -p` runs in a `node:22-bookworm`
+4. **Claude agent, in a container (disabled, see #453).** `claude -p` would run in a `node:22-bookworm`
    container that sees only: the snapshot at `/work` (read-write), the installed
    `node_modules` and the `claude` binary (read-only), and a fresh `HOME` holding a
    copy of the model credential (`~/.claude/.credentials.json`) and the eval
@@ -98,39 +121,52 @@ disabled, `tamper` passed all three: the restore is what rejects it.
    is passed (no `GH_TOKEN`, `GITHUB_TOKEN`, `DATABASE_URL`). The root filesystem
    is read-only, capabilities are dropped, `no-new-privileges` is set, the image
    has no `gh`. Only the eval settings load (`--setting-sources user` with that
-   fresh `HOME`, plus `--settings`): an allow list for the edit tools,
-   `npx vitest`, `npm run test`, `git diff` and `git status`, and a deny list for
-   `git push`, `git remote`, `gh`, `curl`, `wget` and web tools; no MCP server
-   (`--strict-mcp-config`). On a timeout the container is removed, which stops
-   every process the agent started.
+   fresh `HOME`, plus `--settings`), with no MCP server (`--strict-mcp-config`).
+   Those settings carry an allow list (edit tools, `npx vitest`, `npm run test`,
+   `git diff`, `git status`) and a deny list (`git push`, `git remote`, `gh`,
+   `curl`, `wget`, web tools), but they are **not a security control**: write
+   access plus `npx vitest` already runs arbitrary code. The container is the only
+   boundary. On a timeout the container is removed, which stops every process the
+   agent started.
 
    Proof without a model call: `npx tsx evals/maintainer/probe-isolation.ts`
-   builds the same container and runs a shell probe instead of `claude`. On
-   2026-10-13 all 14 checks held: reading the gh token, `~/.git-credentials`,
-   `~/.ssh`, `~/.gitconfig` or the live checkout by absolute path, finding a gh
-   config, a git remote, `git push`, `gh api`, a token in the environment,
-   writing to `node_modules`, the binary or the root filesystem, and `sudo` all
-   failed. The same commands succeed on the host, so the probe is not vacuous.
-   `HOME` held only `.claude/.credentials.json` and `.claude/settings.json`.
+   builds the same container and runs a shell probe instead of `claude`; it exits
+   0 only when every check holds. On 2026-10-13 it ran 17 checks and **exited 1**.
+   14 held: reading the gh token, `~/.git-credentials`, `~/.ssh`, `~/.gitconfig`
+   or the live checkout by absolute path, finding a gh config, a git remote,
+   `git push`, `gh api`, a token in the environment, writing to `node_modules`,
+   the binary or the root filesystem, and `sudo` all failed (the same commands
+   succeed on the host, so the probe is not vacuous). **3 failed**: the container
+   reached the Docker Desktop engine API at `host.docker.internal:2375` (no TLS,
+   no authentication: it can start a container that mounts any host path, so a
+   credential the container does not hold is still within reach), the shared
+   test Postgres at `host.docker.internal:5434`, and the public internet. `HOME`
+   held only `.claude/.credentials.json` and `.claude/settings.json`.
 
-**Not enforced on this machine** (disclosed, not hidden):
+**Not enforced on this machine** (disclosed, not hidden; all tracked in #453):
 
-- The container keeps network egress: the model API needs it, and no egress
-  filter (proxy or firewall) is in place. With no credential for anything but
-  the model API and a deny list for `curl`, `wget`, `gh` and web tools, a
-  publish needs a credential the container does not have, but a determined
-  agent could still reach other hosts (for example with `node -e`).
-- The model credential itself is inside the container (a copy, deleted after
-  the run); the agent can read it. It is a Claude login, not a GitHub token.
+- The container keeps open network egress: no egress filter (proxy or
+  firewall) limits it to the model API. Through it the agent reaches the
+  unauthenticated Docker Desktop engine API on the host (port 2375), which lets
+  it start a container mounting any host path, read the gh token and publish.
+  It also reaches the shared test Postgres and other host services.
+- The operator's model credential (a copy of the Claude Code OAuth login) is
+  readable inside the container, and the open egress lets the agent send it
+  anywhere. A token refresh inside the container may also log the host out. The
+  copy is deleted after the run, but not if the runner is killed (SIGKILL).
+  The operator must accept this risk explicitly before any paid run.
+- Grading runs the agent's application code on the host as the operator (unit
+  tier with no network but full file access, integration tier with the host
+  network, `prisma migrate deploy` with the agent-editable `prisma.config.ts`).
 - The snapshot's `CLAUDE.md` is kept: it is part of the repository the agent
   maintains. Its publishing instructions have no effect without a remote, `gh` or
   a token.
 - The authentication of `claude` inside the container has not been exercised:
   that needs a model call, and no evaluation budget is approved yet. The first
   approved run verifies it; a failure there is an infra-error, never a result.
-- The integration tier runs on the host network, because the test Postgres
-  listens on localhost. Grading runs on the host, after the agent's container is
-  gone.
+- The static tamper check is a pattern match on imports, not a proof: dynamic
+  tricks (for example building the module name at run time) are not caught.
+  Grading in a container (#453) is the structural fix.
 - A turn cap is recorded in the task but not passed to the CLI (it has no such
   flag); the budget and the wall-time timeout bound the run.
 

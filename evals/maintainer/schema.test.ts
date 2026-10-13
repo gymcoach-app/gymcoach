@@ -58,6 +58,7 @@ describe('evalResultSchema', () => {
     preserved: [],
     infraErrors: ['grade: the test database did not start'],
     gradeInputsRestored: [],
+    tamperViolations: [],
     agentRun: { exitCode: null, costUsd: null, turns: null, note: null },
     environment: {
       node: 'v22.17.1',

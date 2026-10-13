@@ -50,8 +50,17 @@ export function parseArgs(argv: string[]): RunArgs {
   return args;
 }
 
+// The paid agent stays disabled until issue #453 is closed: its container can
+// reach the unauthenticated Docker Desktop API and other host services, its
+// code is graded on the host, and the operator's model credential is readable
+// inside it. evals/maintainer/probe-isolation.ts must pass first.
+export const PAID_AGENT_DISABLED_REASON =
+  '--agent claude is disabled until issue #453 is closed (container egress, ' +
+  'container grading, credential exposure); probe-isolation.ts must pass first';
+
 // A paid run needs both an explicit cap and an operator approval in the
-// environment, so no loop can start one by passing a flag alone.
+// environment, so no loop can start one by passing a flag alone. Even with
+// both, it is refused while PAID_AGENT_DISABLED_REASON applies.
 export function claudeRunAllowed(
   args: Pick<RunArgs, 'agent' | 'budgetUsd'>,
   env: Record<string, string | undefined>,
@@ -65,7 +74,35 @@ export function claudeRunAllowed(
       reason: '--agent claude needs EVAL_BUDGET_APPROVED=1 set by the operator',
     };
   }
-  return { allowed: true };
+  return { allowed: false, reason: PAID_AGENT_DISABLED_REASON };
+}
+
+// Static tamper check on the agent's changes to non-grade-input files. Grade
+// inputs are restored to the base anyway (planGradeInputRestore), but
+// application code can still sabotage the grader at run time, for example by
+// importing chai from vitest and turning Assertion.prototype.assert into a no-op
+// inside the module under test or a module the test setup imports. No
+// application file of this repo imports a test framework, so any such import is
+// rejected, as is any edit to the generated Prisma client.
+const TEST_FRAMEWORK_IMPORT =
+  /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*['"`](?:vitest|chai|@vitest\/[^'"`]*)(?:\/[^'"`]*)?['"`]/;
+
+export function tamperViolations(
+  changed: { file: string; content: string | null }[],
+  task: Pick<EvalTask, 'grader'>,
+): string[] {
+  const out: string[] = [];
+  for (const { file, content } of changed) {
+    if (file.startsWith('prisma/generated/')) {
+      out.push(`${file}: edits the generated Prisma client`);
+      continue;
+    }
+    if (isGradeInput(file, task) || content === null) continue;
+    if (TEST_FRAMEWORK_IMPORT.test(content)) {
+      out.push(`${file}: application code imports a test framework (vitest, chai or @vitest/*)`);
+    }
+  }
+  return out;
 }
 
 // Results go outside the repository so a replay can never commit or publish them
@@ -135,9 +172,12 @@ export function decideOutcome(input: {
   hidden: TestRun[];
   preserved: TestRun[];
   infraErrors: string[];
+  tamperViolations?: string[];
 }): Outcome {
   const runs = [...input.hidden, ...input.preserved];
   if (input.infraErrors.length > 0 || input.hidden.length === 0) return 'infra-error';
+  // A tamper violation is the agent's doing: a fail whatever the tests report.
+  if ((input.tamperViolations ?? []).length > 0) return 'fail';
   if (runs.some(runUnreadable)) return 'infra-error';
   return runs.every(runPassed) ? 'pass' : 'fail';
 }

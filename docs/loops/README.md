@@ -66,7 +66,7 @@ The journal also records occasions when the procedure failed.
 | Isolation              | Worktree procedures, a git guard hook for subagents, container verification scripts, a test database that `verify.sh --full` starts and migrates itself | Enforced worker isolation and separate publishing authority   |
 | Limits                 | Documented attempt, merge, and turn-budget limits      | Runtime accounting and enforced aggregate limits              |
 | Memory                 | Git, issues, run journal, lessons, skills              | Indexed retrieval and executable fixes for recurring mistakes |
-| Agent evaluation       | A versioned PR-outcome baseline, with agent usage recovered from transcripts where attributable; a 3-task replay smoke suite (`evals/maintainer/`) | Usage recorded at run time; 20-30 tasks and a budgeted agent baseline |
+| Agent evaluation       | A versioned PR-outcome baseline, with agent usage recovered from transcripts where attributable; a 3-task replay smoke suite (`evals/maintainer/`; the paid agent stays disabled until #453) | 20-30 tasks; container egress and grading (#453), then a budgeted agent baseline |
 | Improvement of methods | Lessons promoted into procedures                       | Candidate procedures compared with the current version        |
 | Laya                   | Not integrated                                         | Optional classification experiment after baseline evaluation  |
 

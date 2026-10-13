@@ -8,8 +8,8 @@ for the exact head and base (#449), and a self-bootstrapping test database (#441
 Milestone 4 is partly delivered: structured review records (#449) and recurring
 mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hook).
 Milestone 3 has started: a 3-task smoke suite and a replay runner in
-`evals/maintainer/`, validated with reference and broken fixes; no paid agent
-run yet. Milestones 5 and 6 and the product LLM track are proposed, not
+`evals/maintainer/`, validated with reference, broken and tamper fixes; the
+paid agent is disabled until its container isolation holds (#453). Milestones 5 and 6 and the product LLM track are proposed, not
 implemented. A PreToolUse hook keeps subagents
 from moving HEAD in checkouts they do not own (#448, merged on the operator's
 confirmation). Baseline
@@ -267,17 +267,22 @@ changes within the charter.
       Partial: the task schema carries the split; only `dev` tasks exist so far.
 - [ ] Repeat trials. Publish trial counts, variability, task-level outcomes, cost
       per successful task, interventions, and policy violations.
-- [x] Provide a documented replay command that requires no production credentials
+- [ ] Provide a documented replay command that requires no production credentials
       and cannot publish to the real repository.
-      Evidence: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md));
-      the snapshot has no remote and no `.claude/`, and the paid `claude` agent is refused
-      without a budget and `EVAL_BUDGET_APPROVED=1` and runs in a container that mounts
-      only the snapshot (no repository, gh config, git credentials, SSH keys or host
-      environment). `npx tsx evals/maintainer/probe-isolation.ts` builds that container
-      and checks 14 publish and read paths without a model call: all held on 2026-10-13.
-      Grade inputs are restored to the base before grading. On 2026-10-13 the 3 smoke
-      tasks gave dry fail, reference pass, broken fail and tamper fail (12/12). Network
-      egress from the container is not filtered (the model API needs it).
+      Partial: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md))
+      needs no credential and the snapshot has no remote and no `.claude/`, but the
+      "cannot publish" half does not hold for an agent yet: the paid `claude` agent's
+      container reached the unauthenticated Docker Desktop engine API
+      (`host.docker.internal:2375`), the shared test Postgres and the internet, its code
+      would be graded on the host, and the operator's model credential is readable in it
+      ([#453](https://github.com/gymcoach-app/gymcoach/issues/453)). That agent is
+      therefore refused unconditionally until
+      `npx tsx evals/maintainer/probe-isolation.ts` exits 0 (on 2026-10-13: 14 of 17
+      checks held, the 3 network checks failed). The four self-check agents apply only
+      this repo's own patches. On 2026-10-13 the 3 smoke tasks gave dry fail, reference
+      pass, broken fail and tamper fail (12/12); grade inputs are restored to the base,
+      and a static check rejects application code importing a test framework (without
+      it, the chai cheat passed 2 of the 3 tasks).
 
 Acceptance: the runner reproduces a known defect, rejects an intentionally
 incomplete fix, accepts a correct fix, and verifies preserved behavior. Include
