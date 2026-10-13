@@ -60,8 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-merge-only paths for external PRs.
 - A git guard for agent sessions: a Claude Code PreToolUse hook
   (`automation/hooks/guard-git.cjs`) refuses HEAD-moving or tree-clobbering
-  git commands from subagents in a checkout they do not own, any session's
-  in another session's worktree, and untagged stash commands for everyone.
+  git commands from subagents in a checkout they do not own, from any
+  session in another session's worktree, and untagged stash commands for everyone.
   The operator's and orchestrator's own sessions keep the main checkout;
   `GYMCOACH_GIT_GUARD=off` disables it, and `--self-test` checks it (#448).
 
@@ -104,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `formatWeight` reuses one `Intl.NumberFormat` per configuration instead of
   building one per call, and local runs cap Vitest at half the cores (CI keeps
   the default). Under load about 20, the slowest test went from a 5.2 s timeout
-  to 2.9 s (#447).
+  to 3.0 to 4.0 s over three runs (#447).
 
 ### Changed
 

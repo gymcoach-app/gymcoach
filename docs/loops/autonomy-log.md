@@ -3205,7 +3205,9 @@ refuses HEAD-moving git commands from subagents in checkouts they do not own. #4
 `.claude/settings.json` and every agent session's Bash calls, so the loop asked first; the
 operator confirmed ("Merge it") and it merged through the gate on its ready record (head
 `d16a427`), the first PR to go through the review-record rule end to end: a needs-changes
-record stopped it, and the same reviewer's later ready record retracted the stop.
+record on head `61a7125` refused it; the fixup push to `d16a427` voided that record (the gate
+counts only records for the approved head, which is L29 made mechanical), and the ready
+record on `d16a427` let it through.
 
 **What shipped.**
 - **Baseline (#439, #443).** Versioned Zod records under `automation/records/`, rebuilt
@@ -3235,8 +3237,8 @@ record stopped it, and the same reviewer's later ready record retracted the stop
   E2E 23; a second fresh worktree reused the container and passed integration.
 - **Unit tier under load (#447, L42).** Profiled instead of raising timeouts:
   `formatWeight` built an `Intl.NumberFormat` per call. One formatter per configuration and
-  a local worker cap (half the cores) took the slowest test from a 5.2 s timeout to 2.9 s at
-  load about 20.
+  a local worker cap (half the cores) took the slowest test from a 5.2 s timeout to 3.0 to 4.0 s
+  (three runs) at load about 20.
 - **CI Postgres (#445, closes #381).** 30 of 115 CI attempts over the last 100 runs (26%)
   had died at the ECR mirror's `toomanyrequests`; 37 of 37 failed pull logs said so. The
   image is now pinned by digest and restored from the Actions cache; on PR #445's own run,
@@ -3262,7 +3264,8 @@ review before merge, and every one of them changed the code.
   keeps Vitest's default.
 - **#445** (one round): each pull is bounded to 5 minutes; L2 says how to clear a cache entry
   that does not match the pin.
-- **#449** (two rounds, both posted in the record format it introduces): one lens's later
+- **#449** (two rounds; the first and the last review were posted as records, the delta
+  review in between was not): one lens's later
   ready record could clear another lens's blocking record, and a test asserted it; then an
   edited needs-changes record was dropped as invalid, erasing its stop. Fixed: latest record
   per reviewer, all ready; an edited or broken record refuses the merge (L44).
@@ -3292,7 +3295,8 @@ Docker validation; #443: one timeout, the unit tier then green with two workers)
 the L42 class #447 fixed. CI ran all five jobs on every merged head.
 
 **One metric.** 11 PRs merged (8 loop-authored, 3 operator: #438, #440, #444), 0 abandoned,
-0 reverted. Review-driven fixup rounds: 13 across the 8 merged loop PRs (3 of them on #448). Token spend
+0 reverted. Review-driven fixup rounds: 12 across the 8 merged loop PRs (#439, #442, #449
+and #448 two each; #443, #441, #447, #445 one each). Token spend
 for this batch was not extracted; the baseline's medians above cover runs up to #439.
 
 **Lessons.** L42 (#447). New: L43 (a proof from the authoring folder cannot see a clash

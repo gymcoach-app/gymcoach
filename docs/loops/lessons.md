@@ -746,7 +746,8 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 
 ### L44 - Review a control through the control, and ask whether one actor can clear another's stop
 - **Trigger:** 2026-10-13, #449 (structured review records required by the merge gate). Its
-  reviews were posted in the record format the PR introduced. The first record
+  first and last reviews were posted in the record format the PR introduced (the delta
+  review between them was not). The first record
   (needs-changes) found a major: the gate took the latest record for a head and base, so a
   later ready record from one lens cleared an earlier blocking record from another lens,
   and a test asserted that override. The delta review found the next hole of the same

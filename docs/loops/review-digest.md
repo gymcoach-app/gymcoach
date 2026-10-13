@@ -850,8 +850,8 @@ Merged: **#438** (your roadmap and overview), **#439** (run records and the base
 **#443** (usage and estimated cost from local transcripts), **#442** (SHA-pinned merge gate),
 **#449** (structured review records required by the gate), **#441** (`verify.sh --full`
 starts and migrates the test DB), **#447** (unit tier under load, L42), **#445** (CI Postgres
-from a digest-pinned cached image, closes #381), and your launch videos **#440** and
-**#444**, and **#448** (git guard hook, merged on your confirmation). In this PR: L43, L44, roadmap
+from a digest-pinned cached image, closes #381), **#448** (git guard hook, merged on your
+confirmation), and your launch videos **#440** and **#444**. In this PR: L43, L44, roadmap
 status line.
 
 **Read first:**

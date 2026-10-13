@@ -5,8 +5,8 @@ delivered: run-record schemas, a baseline from public GitHub data (#439) and age
 usage recovered from local transcripts (#443). Milestone 2 is partly delivered: a
 SHA-pinned merge gate for every merge (#442) that requires structured review evidence
 for the exact head and base (#449), and a self-bootstrapping test database (#441).
-Milestone 4 is partly delivered: structured review records (#449) and one recurring
-mechanical lesson converted into code (L42, #447). Milestones 3, 5 and 6 and the
+Milestone 4 is partly delivered: structured review records (#449) and recurring
+mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hook). Milestones 3, 5 and 6 and the
 product LLM track are proposed, not implemented. A PreToolUse hook keeps subagents
 from moving HEAD in checkouts they do not own (#448, merged on the operator's
 confirmation). Baseline
