@@ -10,8 +10,10 @@ import path from 'node:path';
 // timeout (lesson L42). Measured on 12 cores at load ~20: the slowest
 // EditableSetsTable test went from 5.2 s (timed out) to 2.9 s; at idle the
 // whole tier costs about 14% more wall time. VITEST_MAX_WORKERS still wins.
-const maxWorkers =
-  process.env.VITEST_MAX_WORKERS ?? Math.max(2, Math.floor(os.availableParallelism() / 2));
+// CI runners are dedicated (4 vCPU), so they keep Vitest's default.
+const maxWorkers = process.env.CI
+  ? undefined
+  : (process.env.VITEST_MAX_WORKERS ?? Math.max(2, Math.floor(os.availableParallelism() / 2)));
 
 export default defineConfig({
   // plugin-react transforms JSX/TSX in test files regardless of the

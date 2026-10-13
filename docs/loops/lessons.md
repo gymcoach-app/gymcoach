@@ -692,5 +692,6 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   about 20 the slowest `EditableSetsTable` test took 2.9 s instead of timing out; at idle the
   tier takes about 14% longer.
 - **Status:** graduated -> formatter cache in `lib/units.ts` with a cache-key test, worker cap
-  in `vitest.config.ts` (this PR). Do not set `VITEST_MAX_WORKERS` for the integration tier
-  (L33).
+  in `vitest.config.ts` (this PR; CI runners keep Vitest's default). Never let a
+  `VITEST_MAX_WORKERS` above 1 reach the integration tier: it overrides
+  `fileParallelism: false` and files truncate each other's tables (L33).
