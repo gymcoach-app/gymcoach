@@ -9,7 +9,8 @@
 //                       GYMCOACH_SESSION_TOKEN_BUDGET is set and the session's
 //                       finished subagents already spent more than it
 //   SubagentStart       mark the subagent as running
-//   SubagentStop        mark it as finished
+//   SubagentStop        mark it as finished (no lock: it only removes its own
+//                       entry, which is atomic and idempotent)
 //   SessionEnd          forget the session's state
 //
 // Only the Agent tool is ever refused: the session keeps every other tool, so
@@ -20,14 +21,26 @@
 // returns long before). Several Agent calls in one turn reach PreToolUse
 // before any SubagentStart, so an accepted call leaves a short-lived
 // reservation that SubagentStart converts into a running entry. Entries live
-// under ${GYMCOACH_DISPATCH_STATE_DIR:-${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents}/<session key>/;
-// a running entry older than GYMCOACH_SUBAGENT_STALE_HOURS (default 12) is
-// ignored, so a session that crashed before SubagentStop cannot block later
-// dispatches forever.
+// under ${GYMCOACH_DISPATCH_STATE_DIR:-${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents}/<session key>/.
 //
-// Budget: tokens the session's finished subagents were billed for at full
-// or write rates (input + output + cache writes; cache reads, billed at a
-// tenth, are not counted), read from the run-time usage ledger (#451). An
+// Liveness: SubagentStop does not always fire. On Claude Code 2.1.296 a
+// background subagent stopped with TaskStop produced no SubagentStop (probe in
+// a throwaway repo), and a crash can skip it too. So a running entry counts
+// only while its subagent looks alive: its transcript (derived from the
+// session's transcript path: <dir>/<session id>/subagents/agent-<id>.jsonl,
+// since SubagentStart carries no agent_transcript_path) was written within the
+// last GYMCOACH_SUBAGENT_IDLE_MINUTES (default 15). An entry whose transcript
+// is unknown counts for GYMCOACH_SUBAGENT_STALE_HOURS (default 2) after its
+// start. A subagent that runs one silent command longer than the idle window
+// stops counting early: the limit is then briefly loose, never stuck.
+//
+// Budget: a TOKEN budget, not a cost budget: tokens the session's finished
+// subagents were billed for at full or write rates (input + output + cache
+// writes, each counted once; cache reads, billed at a tenth of input, are not
+// counted), read from the run-time usage ledger (#451). The ledger read is
+// cached per session by the ledger's size and mtime. With the ledger off
+// (GYMCOACH_USAGE_LEDGER=off) the budget cannot be measured: the hook says so
+// once on stderr and lets dispatches through. An
 // unrecorded count is unknown, not zero; when part of the spend is unknown
 // the known part still counts, and the refusal says so. Subagents already
 // running when the budget is crossed are not stopped: the overrun is bounded
@@ -50,6 +63,7 @@ const DEFAULT_MAX = 3;
 const RESERVATION_MS = 120 * 1000;
 const LOCK_WAIT_MS = 3000;
 const LOCK_STALE_MS = 15 * 1000;
+const SPIN_MS = 20;
 const AGENT_TOOLS = ['Agent', 'Task'];
 
 function stateRoot(env) {
@@ -80,11 +94,40 @@ function tokenBudget(env) {
 
 function staleMs(env) {
   const h = Number(env.GYMCOACH_SUBAGENT_STALE_HOURS);
-  return (Number.isFinite(h) && h > 0 ? h : 12) * 3600 * 1000;
+  return (Number.isFinite(h) && h > 0 ? h : 2) * 3600 * 1000;
+}
+
+function idleMs(env) {
+  const m = Number(env.GYMCOACH_SUBAGENT_IDLE_MINUTES);
+  return (Number.isFinite(m) && m > 0 ? m : 15) * 60 * 1000;
+}
+
+// Where Claude Code keeps a subagent's transcript, from the session's
+// transcript path (checked on 2.1.296). null when it cannot be derived.
+function agentTranscript(input) {
+  if (typeof input.transcript_path !== 'string' || typeof input.agent_id !== 'string') return null;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(input.agent_id)) return null;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(input.session_id))) return null;
+  return path.join(
+    path.dirname(input.transcript_path),
+    input.session_id,
+    'subagents',
+    'agent-' + input.agent_id + '.jsonl',
+  );
+}
+
+function spin() {
+  const until = Date.now() + SPIN_MS;
+  while (Date.now() < until) {
+    // brief spin: hooks are short-lived and Atomics.wait is not on old Node
+  }
 }
 
 // A tiny cross-process lock: mkdir is atomic. A lock older than
 // LOCK_STALE_MS belongs to a hook that died and is taken over.
+// Every path through the loop checks the deadline, so a lock that cannot be
+// taken or cleared ends in 'lock timeout' (and the caller fails open), never
+// in a spin. A .lock that is not a directory is debris: it is removed.
 function withLock(dir, fn) {
   fs.mkdirSync(dir, { recursive: true });
   const lock = path.join(dir, '.lock');
@@ -95,19 +138,16 @@ function withLock(dir, fn) {
       break;
     } catch (e) {
       if (!e || e.code !== 'EEXIST') throw e;
-      try {
-        if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) {
-          fs.rmdirSync(lock);
-          continue;
-        }
-      } catch {
-        continue;
-      }
-      if (Date.now() > deadline) throw new Error('lock timeout');
-      const until = Date.now() + 20;
-      while (Date.now() < until) {
-        // brief spin: hooks are short-lived and Atomics.wait is not on old Node
-      }
+    }
+    if (Date.now() > deadline) throw new Error('lock timeout');
+    try {
+      const st = fs.statSync(lock);
+      if (!st.isDirectory()) fs.unlinkSync(lock);
+      else if (Date.now() - st.mtimeMs > LOCK_STALE_MS) fs.rmdirSync(lock);
+      else spin();
+    } catch {
+      // gone in between, or not removable: wait and try again
+      spin();
     }
   }
   try {
@@ -124,16 +164,42 @@ function withLock(dir, fn) {
 function entries(dir) {
   try {
     return fs.readdirSync(dir).filter(function (f) {
-      return f !== '.lock';
+      return f.charAt(0) !== '.';
     });
   } catch {
     return [];
   }
 }
 
+// An entry is { t: start time, transcript: path or null }; a bare number (the
+// first version of this hook) reads as a start time with no transcript.
+function readEntry(dir, name) {
+  const raw = fs.readFileSync(path.join(dir, name), 'utf8');
+  const n = Number(raw);
+  if (Number.isFinite(n)) return { t: n, transcript: null };
+  const j = JSON.parse(raw);
+  return {
+    t: Number.isFinite(Number(j.t)) ? Number(j.t) : 0,
+    transcript: typeof j.transcript === 'string' ? j.transcript : null,
+  };
+}
+
 function startedAt(dir, name) {
-  const t = Number(fs.readFileSync(path.join(dir, name), 'utf8'));
-  return Number.isFinite(t) ? t : 0;
+  return readEntry(dir, name).t;
+}
+
+// Whether a running entry still counts at `now` (see Liveness above).
+function alive(entry, env, now) {
+  if (entry.transcript) {
+    let last = entry.t;
+    try {
+      last = fs.statSync(entry.transcript).mtimeMs;
+    } catch {
+      // not written yet: the start time stands in for the last write
+    }
+    return now - last < idleMs(env);
+  }
+  return now - entry.t < staleMs(env);
 }
 
 // Live running entries and reservations of one session, as names.
@@ -141,21 +207,48 @@ function census(dir, env, now) {
   const running = [];
   const pending = [];
   entries(dir).forEach(function (f) {
-    let t = 0;
+    let e;
     try {
-      t = startedAt(dir, f);
+      e = readEntry(dir, f);
     } catch {
       return;
     }
-    if (f.indexOf('running-') === 0 && now - t < staleMs(env)) running.push(f);
-    if (f.indexOf('pending-') === 0 && now - t < RESERVATION_MS) pending.push(f);
+    if (f.indexOf('running-') === 0 && alive(e, env, now)) running.push(f);
+    if (f.indexOf('pending-') === 0 && now - e.t < RESERVATION_MS) pending.push(f);
   });
   return { running: running, pending: pending };
 }
 
 const SPENT_KINDS = ['input', 'output', 'cacheCreation5m', 'cacheCreation1h'];
 
-// Tokens billed at full or write rates by this session's finished subagents.
+// Tokens billed at full or write rates by this session's finished subagents,
+// cached in <dir>/.spend-cache.json by the ledger's size and mtime.
+function cachedSpend(dir, ledgerFile, sessionKey) {
+  let st;
+  try {
+    st = fs.statSync(ledgerFile);
+  } catch {
+    return { known: 0, unknownParts: 0, agents: 0 };
+  }
+  const cacheFile = path.join(dir, '.spend-cache.json');
+  try {
+    const c = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    if (c.size === st.size && c.mtimeMs === st.mtimeMs && c.key === sessionKey) return c.spend;
+  } catch {
+    // no cache yet
+  }
+  const spend = sessionSpend(ledgerFile, sessionKey);
+  try {
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({ size: st.size, mtimeMs: st.mtimeMs, key: sessionKey, spend: spend }),
+    );
+  } catch {
+    // a cache is an optimisation only
+  }
+  return spend;
+}
+
 function sessionSpend(ledgerFile, sessionKey) {
   let known = 0;
   let unknownParts = 0;
@@ -210,12 +303,26 @@ function handle(input, env, now) {
               ' subagent(s) running or starting (limit ' +
               max +
               ', GYMCOACH_MAX_SUBAGENTS). Do not retry now: wait for a running ' +
-              "subagent's completion notification, then dispatch again. Heavy " +
-              'local work is also capped machine-wide (scripts/heavy-slot.sh).',
+              "subagent's completion notification, then dispatch again. A subagent " +
+              'stopped without a completion (TaskStop, crash) stops counting once its ' +
+              'transcript has been idle for ' +
+              idleMs(env) / 60000 +
+              ' minutes (GYMCOACH_SUBAGENT_IDLE_MINUTES); the operator can also raise ' +
+              'or disable the limit (GYMCOACH_MAX_SUBAGENTS=N|off). Heavy local work ' +
+              'is also capped machine-wide (scripts/heavy-slot.sh).',
           };
       }
-      if (budget !== null) {
-        const spend = sessionSpend(usage.ledgerPath(env), usage.hash(input.session_id));
+      if (budget !== null && String(env.GYMCOACH_USAGE_LEDGER || '').toLowerCase() === 'off') {
+        const marker = path.join(dir, '.budget-unmeasured');
+        if (!fs.existsSync(marker)) {
+          fs.writeFileSync(marker, String(at));
+          process.stderr.write(
+            'dispatch-limit: GYMCOACH_SESSION_TOKEN_BUDGET is set but the usage ledger is off ' +
+              '(GYMCOACH_USAGE_LEDGER=off): the budget cannot be measured and is not enforced\n',
+          );
+        }
+      } else if (budget !== null) {
+        const spend = cachedSpend(dir, usage.ledgerPath(env), usage.hash(input.session_id));
         if (spend.known > budget)
           return {
             deny:
@@ -251,25 +358,36 @@ function handle(input, env, now) {
           })[0];
         fs.unlinkSync(path.join(dir, oldest.f));
       }
-      fs.writeFileSync(path.join(dir, 'running-' + usage.hash(input.agent_id)), String(at));
+      fs.writeFileSync(
+        path.join(dir, 'running-' + usage.hash(input.agent_id)),
+        JSON.stringify({ t: at, transcript: agentTranscript(input) }),
+      );
       return { allow: true };
     });
   }
 
   if (event === 'SubagentStop') {
+    // No lock: removing this agent's own entry is atomic and idempotent, so a
+    // busy or broken lock can never leave a finished subagent counted.
     if (typeof input.agent_id !== 'string') return { allow: true };
-    return withLock(dir, function () {
-      try {
-        fs.unlinkSync(path.join(dir, 'running-' + usage.hash(input.agent_id)));
-      } catch {
-        // a stop without a start (hook added mid-session): nothing to clear
-      }
-      return { allow: true };
-    });
+    try {
+      fs.unlinkSync(path.join(dir, 'running-' + usage.hash(input.agent_id)));
+    } catch {
+      // a stop without a start (hook added mid-session): nothing to clear
+    }
+    return { allow: true };
   }
 
   if (event === 'SessionEnd') {
-    entries(dir).forEach(function (f) {
+    let all = [];
+    try {
+      all = fs.readdirSync(dir).filter(function (f) {
+        return f !== '.lock';
+      });
+    } catch {
+      all = [];
+    }
+    all.forEach(function (f) {
       try {
         fs.unlinkSync(path.join(dir, f));
       } catch {
@@ -312,6 +430,16 @@ function main() {
   });
 }
 
-module.exports = { handle, census, sessionSpend, maxSubagents, tokenBudget, stateRoot, sessionDir };
+module.exports = {
+  handle,
+  census,
+  sessionSpend,
+  maxSubagents,
+  tokenBudget,
+  stateRoot,
+  sessionDir,
+  withLock,
+  agentTranscript,
+};
 
 if (require.main === module) main();

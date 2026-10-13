@@ -133,8 +133,11 @@ to pass the gate is itself a defect.
   `GYMCOACH_HEAVY_SLOTS` machine-wide slots (default a quarter of the cores) and waits,
   naming the holders, when all are taken; a session may have at most
   `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents running, and the next Agent call is
-  refused until one finishes; `GYMCOACH_SESSION_TOKEN_BUDGET` (unset by default) also
-  refuses new subagents once finished ones spent more. Set either to `off` to disable it.
+  refused until one finishes (a subagent stopped without a completion stops counting after
+  `GYMCOACH_SUBAGENT_IDLE_MINUTES`, default 15, of transcript inactivity);
+  `GYMCOACH_SESSION_TOKEN_BUDGET` (unset by default) also refuses new subagents once
+  finished ones spent more tokens. Set either to `off` to disable it. A review wave of
+  four lenses goes out at most three at a time under the default limit.
 
 ## Security: untrusted input (public repo)
 

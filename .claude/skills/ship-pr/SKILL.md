@@ -139,7 +139,10 @@ changes on.
 
    Severities are `blocking`, `major`, `minor`, `nit`; a `ready` verdict cannot carry a
    blocking or major finding (the schema rejects it), and a file not read in full is
-   listed, never implied (lesson L26). Several lenses may each post a record; for the exact
+   listed, never implied (lesson L26). Review subagents count against the session's
+   dispatch limit (`GYMCOACH_MAX_SUBAGENTS`, default 3): send a larger wave (the four
+   lenses of an external PR) in batches of at most three, the rest after a completion
+   notification. Several lenses may each post a record; for the exact
    head and base the gate takes the latest record of each reviewer (kind, model and lens
    set) and needs every one ready, so one lens never clears another's stop. To retract a
    stop, the same reviewer (same lens set) posts a later ready record. Never edit a posted

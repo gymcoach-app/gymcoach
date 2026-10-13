@@ -16,6 +16,7 @@ import { ledgerLineSchema } from '@/automation/ledger/schema';
 
 const require = createRequire(import.meta.url);
 const hook = require('./record-usage.cjs') as {
+  settled: (previousSize: number, size: number, responses: number) => boolean;
   summarize: (
     lines: string[],
     kind: 'main' | 'subagent',
@@ -190,6 +191,45 @@ describe('record-usage hook process', () => {
     expect(code).toBe(0);
     const line = JSON.parse(readFileSync(ledger, 'utf8').trim());
     expect(line.responses).toBe(3);
+  });
+
+  it('waits for the last response of a multi-turn subagent written after SubagentStop', async () => {
+    // A first read already sees a response, but more records land later: the
+    // hook must wait until the transcript stops growing, not only when it is empty.
+    const all = subagentTranscript();
+    const assistants = all
+      .map((l, i) => (l.includes('"assistant"') ? i : -1))
+      .filter((i) => i >= 0);
+    const cut = assistants[1]!;
+    const f = transcriptFile(all.slice(0, cut));
+    const ledger = join(tmp(), 'ledger.jsonl');
+    const child = spawn(process.execPath, [SCRIPT], {
+      env: { ...process.env, GYMCOACH_USAGE_LEDGER_PATH: ledger, GYMCOACH_USAGE_LEDGER: '' },
+    });
+    child.stdin.end(
+      JSON.stringify({
+        hook_event_name: 'SubagentStop',
+        session_id: SESSION_ID,
+        agent_id: 'late2',
+        agent_type: 'general-purpose',
+        agent_transcript_path: f,
+        transcript_path: '/nonexistent/parent.jsonl',
+        cwd: WT,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 60));
+    appendFileSync(f, all.slice(cut).join('\n') + '\n');
+    const code = await new Promise<number | null>((r) => child.on('exit', r));
+    expect(code).toBe(0);
+    const line = JSON.parse(readFileSync(ledger, 'utf8').trim());
+    expect(line.responses).toBe(3);
+  });
+
+  it('settles only after two equal sizes with at least one response', () => {
+    expect(hook.settled(-1, 100, 3)).toBe(false);
+    expect(hook.settled(80, 100, 3)).toBe(false);
+    expect(hook.settled(100, 100, 0)).toBe(false);
+    expect(hook.settled(100, 100, 1)).toBe(true);
   });
 
   it('appends exactly one schema-valid agent line on SubagentStop, with no text or path', () => {

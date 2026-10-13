@@ -146,7 +146,10 @@ reverted forward, re-shipped as PR #279).
   `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents at once, and the next Agent call is
   refused until a completion notification arrives (`automation/hooks/dispatch-limit.cjs`).
   Dispatch at most three ticks, and treat a dispatch refusal as "wait", never as a reason
-  to retry in a loop. `GYMCOACH_SESSION_TOKEN_BUDGET` bounds a run's subagent spend.
+  to retry in a loop. A review wave larger than the limit (the four lenses of an external
+  PR's pass 2) goes out in batches of at most three: dispatch three, then the fourth after
+  a completion notification; or the operator raises `GYMCOACH_MAX_SUBAGENTS` for that
+  session. `GYMCOACH_SESSION_TOKEN_BUDGET` bounds a run's subagent token spend.
 - **If a commit still lands on `main`, revert forward** (a revert commit restoring `main`'s
   content), never `git push --force` shared history (it is denied anyway), then re-ship the
   work through a proper PR.

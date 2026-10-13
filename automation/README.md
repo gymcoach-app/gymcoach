@@ -300,11 +300,13 @@ failing write), so a session line can be missing; usage outside Claude Code, and
 before this hook, is not recorded; attribution is as conservative as the
 transcript scan.
 
-Flush race (fixed in the milestone 2 limits PR): `SubagentStop` fires a few tens
-of milliseconds before Claude Code writes the subagent's last records, so a
+Flush race (mitigated in the milestone 2 limits PR): `SubagentStop` fires a few
+tens of milliseconds before Claude Code writes the subagent's last records, so a
 first read often saw no response at all; 3 of the first 4 live `agent` lines had
-`responses: 0`. An `agent` line that finds no response now re-reads the
-transcript for up to 2 s before it is written.
+`responses: 0`. An `agent` line is now written only once the transcript holds at
+least one response and has stopped growing (two sizes 150 ms apart are equal), or
+after 2 s, whichever comes first. A write that lands more than 2 s after the
+hook starts would still be missed; none was seen.
 
 ## Local limits: heavy-work slots and subagent dispatch (milestone 2)
 
@@ -322,7 +324,10 @@ plus Docker pushed the load average to ~20: Playwright pages crashed with
   prints each holder's pid, start time and label. Lock order: heavy slot first,
   then the `--full` test-infra lock, and long-lived children get `8>&- 9>&-`, so
   the two locks cannot deadlock and a zombie next-server (L12) holds neither.
-  `GYMCOACH_HEAVY_SLOTS=off` skips it for one run. Self-test:
+  `GYMCOACH_HEAVY_SLOTS=off` skips it for one run. Every child of `verify.sh`, default
+  tier included, gets `8>&-`, so an orphaned worker cannot keep a slot. Only
+  `verify.sh` takes a slot: `scripts/container-gate.sh`, `container-run.sh` and
+  `container-integration.sh` runs (inside Docker) take none. Self-test:
   `scripts/heavy-slot.test.sh` (run by the default gate).
 - **Subagent dispatch limit** (`hooks/dispatch-limit.cjs`, wired in
   `.claude/settings.json` on `PreToolUse` for the Agent tool, `SubagentStart`,
@@ -336,12 +341,25 @@ plus Docker pushed the load average to ~20: Playwright pages crashed with
   `GYMCOACH_SESSION_TOKEN_BUDGET` set, a new subagent is also refused once the
   session's finished subagents spent more tokens than the budget at full or write
   rates (input, output, cache writes, from the run-time ledger; cache reads not
-  counted). Subagents already running finish: the in-flight overrun is bounded by
-  the concurrency limit. Only the Agent tool is ever refused; the hook fails open
-  on any error. State lives in
-  `${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents/<session key>/` and a
-  running entry older than `GYMCOACH_SUBAGENT_STALE_HOURS` (default 12) is
-  ignored. `GYMCOACH_MAX_SUBAGENTS=off` disables the concurrency limit.
+  counted). It is a token budget, not a cost budget: cache reads, often the
+  largest share of an agent's tokens, are left out, and cache writes count once.
+  With the ledger off (`GYMCOACH_USAGE_LEDGER=off`) the budget cannot be measured:
+  the hook says so once on stderr and does not enforce it. The ledger read is cached
+  by the ledger's size and mtime. Subagents already running finish: the in-flight
+  overrun is bounded by the concurrency limit. Only the Agent tool is ever refused;
+  the hook fails open on any error. State lives in
+  `${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents/<session key>/`.
+  `SubagentStop` does not always fire: a background subagent stopped with
+  TaskStop produced none on Claude Code 2.1.296 (probe in a throwaway repo), and
+  a crash can skip it. So a running entry counts only while its subagent looks
+  alive: its transcript (`<session transcript dir>/<session id>/subagents/agent-<id>.jsonl`)
+  was written within `GYMCOACH_SUBAGENT_IDLE_MINUTES` (default 15); an entry whose
+  transcript cannot be derived counts for `GYMCOACH_SUBAGENT_STALE_HOURS` (default
+  2). A subagent running one silent command longer than the idle window stops
+  counting early, so the limit can be briefly loose, never stuck. `SubagentStop`
+  removes its own entry without the lock, so a busy lock never leaves a finished
+  subagent counted. The refusal names these recovery paths.
+  `GYMCOACH_MAX_SUBAGENTS=off` disables the concurrency limit.
 
 Checked live on Claude Code 2.1.296 in a throwaway repository (trivial "reply ok"
 subagents on Haiku): with a limit of 3, four parallel Agent calls in one message

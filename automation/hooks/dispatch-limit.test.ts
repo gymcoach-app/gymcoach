@@ -15,6 +15,8 @@ const hook = require('./dispatch-limit.cjs') as {
   ) => { known: number; unknownParts: number; agents: number };
   maxSubagents: (env: Record<string, string>) => number | null;
   sessionDir: (env: Record<string, string>, sessionId: string) => string;
+  withLock: <T>(dir: string, fn: () => T) => T;
+  agentTranscript: (input: Record<string, unknown>) => string | null;
 };
 const usage = require('./record-usage.cjs') as { hash: (v: string) => string };
 
@@ -95,6 +97,58 @@ describe('dispatch limit: concurrency', () => {
     expect(hook.handle(pre('r'), e, t + 122_000 + 121_000).deny).toBeDefined();
     // A running entry older than the stale bound no longer counts.
     expect(hook.handle(pre('r'), e, t + 3_700_000 + 121_000).allow).toBe(true);
+  });
+
+  it('derives the subagent transcript from the session transcript path', () => {
+    expect(
+      hook.agentTranscript({
+        transcript_path: '/p/proj/sess-1.jsonl',
+        session_id: 'sess-1',
+        agent_id: 'abc123',
+      }),
+    ).toBe('/p/proj/sess-1/subagents/agent-abc123.jsonl');
+    expect(hook.agentTranscript({ session_id: 'sess-1', agent_id: 'abc' })).toBeNull();
+    expect(
+      hook.agentTranscript({ transcript_path: '/p/x.jsonl', session_id: 's', agent_id: '../x' }),
+    ).toBeNull();
+  });
+
+  it('stops counting a subagent whose transcript went idle (TaskStop, no SubagentStop)', () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '1' });
+    const root = tmp();
+    const transcript = join(root, SESSION, 'subagents', 'agent-idle1.jsonl');
+    mkdirSync(join(root, SESSION, 'subagents'), { recursive: true });
+    writeFileSync(transcript, '{}\n');
+    const now = Date.now();
+    // Started 25 minutes ago.
+    hook.handle(
+      { ...start('idle1'), transcript_path: join(root, `${SESSION}.jsonl`) },
+      e,
+      now - 25 * 60_000,
+    );
+    // Written a minute ago: alive, so a second subagent is refused, with a
+    // recovery hint.
+    const recent = new Date(now - 60_000);
+    utimesSync(transcript, recent, recent);
+    const refused = hook.handle(pre('next'), e, now);
+    expect(refused.deny).toMatch(/idle for 15 minutes/);
+    expect(refused.deny).toMatch(/GYMCOACH_MAX_SUBAGENTS=N\|off/);
+    // Idle for 20 minutes: no longer counted, although SubagentStop never came.
+    const idle = new Date(now - 20 * 60_000);
+    utimesSync(transcript, idle, idle);
+    expect(hook.handle(pre('next'), e, now).allow).toBe(true);
+  });
+
+  it('clears a finished subagent on SubagentStop even while the lock is held', () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '1' });
+    const t = 4_000_000;
+    hook.handle(start('busy'), e, t);
+    const dir = hook.sessionDir(e, SESSION);
+    mkdirSync(join(dir, '.lock'));
+    const began = Date.now();
+    expect(hook.handle(stop('busy'), e, t + 1).allow).toBe(true);
+    expect(Date.now() - began).toBeLessThan(1000);
+    expect(readdirSync(dir).filter((f) => f.startsWith('running-'))).toHaveLength(0);
   });
 
   it('never refuses another tool, and is off with GYMCOACH_MAX_SUBAGENTS=off', () => {
@@ -207,6 +261,26 @@ describe('dispatch limit: the hook process', () => {
     const res = run(pre('a'), { ...e, GYMCOACH_DISPATCH_STATE_DIR: join(blocked, 'sub') });
     expect(res.status).toBe(0);
     expect(res.stderr).toMatch(/dispatch-limit: skipped/);
+  });
+
+  it('removes a .lock that is a regular file instead of spinning on it', () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '5' });
+    const dir = hook.sessionDir(e, SESSION);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '.lock'), 'debris');
+    const began = Date.now();
+    expect(hook.withLock(dir, () => 'ran')).toBe('ran');
+    expect(Date.now() - began).toBeLessThan(1000);
+  });
+
+  it('warns once when a budget is set but the ledger is off, and lets dispatches through', () => {
+    const e = env({ GYMCOACH_SESSION_TOKEN_BUDGET: '1', GYMCOACH_USAGE_LEDGER: 'off' });
+    const first = run(pre('w1'), e);
+    expect(first.status).toBe(0);
+    expect(first.stderr).toMatch(/budget cannot be measured/);
+    const second = run(pre('w2'), e);
+    expect(second.status).toBe(0);
+    expect(second.stderr).toBe('');
   });
 
   it('takes over a lock left by a hook that died, and fails open on a live one', () => {

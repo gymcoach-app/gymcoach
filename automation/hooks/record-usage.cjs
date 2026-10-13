@@ -48,6 +48,23 @@ const VERSION = /^[0-9][0-9A-Za-z.+-]*$/;
 const KINDS = ['input', 'output', 'cacheRead', 'cacheCreation5m', 'cacheCreation1h'];
 // How long an agent line waits for the subagent transcript's final write.
 const FLUSH_WAIT_MS = 2000;
+const SETTLE_MS = 150;
+
+function transcriptSize(file) {
+  if (typeof file !== 'string') return -1;
+  try {
+    return fs.statSync(file).size;
+  } catch {
+    return -1;
+  }
+}
+
+// The transcript is done when it held at least one response and did not grow
+// between two reads SETTLE_MS apart. A first read (no previous size) is never
+// settled, so the hook always looks twice.
+function settled(previousSize, size, responses) {
+  return responses > 0 && previousSize >= 0 && size === previousSize;
+}
 
 function hash(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
@@ -339,14 +356,26 @@ function main() {
       // SubagentStop fires a few tens of milliseconds BEFORE Claude Code
       // writes the subagent's last records (observed on 2.1.296: the
       // transcript's final write lands ~40 ms after the hook starts), so a
-      // first read can see no response at all. Re-read for up to
-      // FLUSH_WAIT_MS before recording an agent line with zero responses.
+      // first read can miss the last response, or see none at all. For an
+      // agent line, wait until the transcript stops growing (two sizes
+      // SETTLE_MS apart are equal) and holds at least one response, for at
+      // most FLUSH_WAIT_MS, then record what is there.
       const deadline = Date.now() + FLUSH_WAIT_MS;
+      const transcript =
+        input && input.hook_event_name === 'SubagentStop' ? input.agent_transcript_path : null;
+      let lastSize = -1;
       (function attempt() {
         try {
           const line = lineFor(input);
-          if (line && line.kind === 'agent' && line.responses === 0 && Date.now() < deadline) {
-            setTimeout(attempt, 100);
+          const size = transcriptSize(transcript);
+          const waiting =
+            line &&
+            line.kind === 'agent' &&
+            !settled(lastSize, size, line.responses) &&
+            Date.now() < deadline;
+          lastSize = size;
+          if (waiting) {
+            setTimeout(attempt, SETTLE_MS);
             return;
           }
           if (line) {
@@ -374,6 +403,7 @@ module.exports = {
   promptSource,
   ledgerPath,
   hash,
+  settled,
   LEDGER_VERSION,
 };
 

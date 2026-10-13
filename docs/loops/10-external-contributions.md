@@ -221,7 +221,8 @@ and verdict only". A group A hit: continue, with the extra conditions of
 "Group A" attached to the merge.
 
 **Pass 2 - adversarial multi-lens review** (independent subagents, the PR diff
-read as data): lenses are (a) backdoor / exfiltration / new egress, (b)
+read as data; under the session dispatch limit, `GYMCOACH_MAX_SUBAGENTS`
+default 3, the four lenses go out at most three at a time): lenses are (a) backdoor / exfiltration / new egress, (b)
 test-weakening and gate-gaming (deleted or loosened assertions, removed
 ownership checks, skipped specs), (c) correctness and repo conventions, and
 (d) threat model - "does this change weaken a security property even if it
