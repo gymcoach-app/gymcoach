@@ -60,8 +60,9 @@ commit on an existing docs branch.
 
 ## Procedure
 
-1. **Start clean** on `main` (`git switch main && git pull --ff-only`), branch
-   `docs/<slug>`.
+1. **Start clean in your own worktree:** `git fetch origin && git worktree add -b
+   docs/<slug> <scratch-path> origin/main` (or branch from `origin/main` inside your Agent
+   isolation worktree); never switch the main checkout (lessons L15/L38).
 2. **Gather** the merged work since the last write-up. Map each item to a CHANGELOG
    group and decide if it warrants a playbook/README change. **Verify each claim against
    the code or the merged diff** - never document a feature that is not actually there

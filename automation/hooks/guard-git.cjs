@@ -4,14 +4,21 @@
 // move HEAD or clobber the tree of a checkout the agent does not own, and the
 // shared-stash commands that can take another session's entry.
 //
-// "Own" checkout: the linked worktree that contains the session's cwd (the
-// `cwd` field of the hook input). A command is refused when its effective
-// directory (after `cd`, `pushd`, `git -C`) resolves to:
-//   - a primary checkout (a directory whose `.git` is a directory), such as
-//     the main checkout every session and the operator share; or
-//   - a linked worktree other than the one the session's cwd is in.
+// Who is checked: Claude Code puts `agent_id` and `agent_type` in the hook
+// input of a SUBAGENT's tool call and leaves them out for the main session
+// (checked live on Claude Code 2.1.296). Every incident behind L15 and L38 was
+// a subagent working in a checkout it did not own, so:
+//   - a subagent may not move HEAD or clobber files in a primary checkout (a
+//     directory whose `.git` is a directory, such as the main checkout every
+//     session and the operator share), nor in a linked worktree other than
+//     the one its cwd is in; nor remove another worktree or delete or force
+//     a branch;
+//   - the main session (the operator's, or the orchestrator's) may do so in a
+//     primary checkout, but not in another session's linked worktree;
+//   - nobody may pop, drop or take an untagged entry of the shared stash.
+// "Own" checkout: the worktree that contains the `cwd` of the hook input.
 // Everything else is allowed, including read-only git, fetch, merge, commit,
-// push, `git worktree add`, and `git checkout -- <path>`.
+// push, `git worktree add -b`, and restoring a single file.
 //
 // Failure policy: an internal error in this script allows the command (exit
 // 0) so a broken guard cannot brick every Bash call; a git command this
@@ -29,15 +36,76 @@ var fs = require('fs');
 var path = require('path');
 var os = require('os');
 
-var GUARDED = { checkout: true, switch: true, reset: true, clean: true };
-var SAFE_STASH = { list: true, show: true, apply: true, create: true, store: true, branch: false };
+var GUARDED = {
+  checkout: true,
+  switch: true,
+  reset: true,
+  clean: true,
+  restore: true,
+  rebase: true,
+  'cherry-pick': true,
+  am: true,
+  revert: true,
+  'update-ref': true,
+  'symbolic-ref': true,
+  'read-tree': true,
+};
+var SAFE_STASH = { list: true, show: true, create: true, store: true };
+var SHELLS = { bash: true, sh: true, zsh: true, dash: true, ksh: true };
+// Shell words that only open or close a compound command: the command that
+// follows them still runs.
+var KEYWORDS = {
+  if: true,
+  then: true,
+  else: true,
+  elif: true,
+  fi: true,
+  do: true,
+  done: true,
+  while: true,
+  until: true,
+  '{': true,
+  '}': true,
+  '!': true,
+};
+// Wrappers that run the command after their own options: name -> options that
+// take a value (as separate words).
+var WRAPPERS = {
+  env: { '-u': true, '--unset': true, '-C': true, '--chdir': true, '-S': true },
+  command: {},
+  time: { '-f': true, '-o': true },
+  nohup: {},
+  exec: { '-a': true },
+  sudo: { '-u': true, '-g': true, '-C': true, '-h': true, '-p': true, '-U': true, '-D': true },
+  nice: { '-n': true, '--adjustment': true },
+  ionice: { '-c': true, '-n': true, '-p': true },
+  stdbuf: { '-i': true, '-o': true, '-e': true },
+  timeout: { '-s': true, '--signal': true, '-k': true, '--kill-after': true },
+  xargs: {
+    '-I': true,
+    '-n': true,
+    '-L': true,
+    '-P': true,
+    '-d': true,
+    '-a': true,
+    '-E': true,
+    '-s': true,
+    '--max-args': true,
+    '--max-procs': true,
+    '--delimiter': true,
+    '--arg-file': true,
+  },
+};
+// Wrappers that take one positional argument before the command.
+var WRAPPER_POSITIONAL = { timeout: 1 };
+var GIT_ENV = /^(GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR)=/;
 
 // --- Tokenizer -------------------------------------------------------------
 
 // Splits a shell command into tokens. Operators (&&, ||, ;, |, &, newline,
 // parentheses, `$(`) become separate operator tokens. Returns null when the
 // quoting is unbalanced.
-function tokenize(input) {
+function tokenize(input, lenient) {
   var tokens = [];
   var cur = '';
   var has = false; // a word is in progress (even an empty quoted one)
@@ -65,7 +133,10 @@ function tokenize(input) {
     }
     if (c === "'") {
       var end = input.indexOf("'", i + 1);
-      if (end < 0) return null;
+      if (end < 0) {
+        if (!lenient) return null;
+        end = input.length;
+      }
       cur += input.slice(i + 1, end);
       has = true;
       i = end + 1;
@@ -90,7 +161,7 @@ function tokenize(input) {
         buf += d;
         j++;
       }
-      if (!closed) return null;
+      if (!closed && !lenient) return null;
       cur += buf;
       has = true;
       i = j + 1;
@@ -160,7 +231,7 @@ function tokenize(input) {
       // The rest of this line is still commands; the body starts after it.
       var nl = input.indexOf('\n', i);
       var lineRest = nl < 0 ? input.slice(i) : input.slice(i, nl);
-      var restTokens = tokenize(lineRest);
+      var restTokens = tokenize(lineRest, lenient);
       if (restTokens === null) return null;
       for (var r = 0; r < restTokens.length; r++) tokens.push(restTokens[r]);
       if (nl < 0) return tokens;
@@ -177,7 +248,10 @@ function tokenize(input) {
         if (eol < 0) break;
         pos = eol + 1;
       }
-      if (!found) return null;
+      if (!found) {
+        if (!lenient) return null;
+        return tokens;
+      }
       i = pos;
       continue;
     }
@@ -202,6 +276,26 @@ function tokenize(input) {
   return tokens;
 }
 
+// For `bash -c script`, `sh -ec script`, `bash -l -c script`: the script word,
+// or null when the shell is not given a -c script.
+function shellScript(rest) {
+  var hasC = false;
+  for (var i = 1; i < rest.length; i++) {
+    var v = rest[i].v;
+    if (v === '--') return null;
+    if (/^-[A-Za-z]+$/.test(v)) {
+      if (v.indexOf('c') >= 0) hasC = true;
+      continue;
+    }
+    if (/^--[a-z-]+$/.test(v) || /^[+-]o$/.test(v)) {
+      if (/^[+-]o$/.test(v)) i++;
+      continue;
+    }
+    return hasC ? rest[i] : null;
+  }
+  return null;
+}
+
 // Groups tokens into simple commands, each with the directory in effect.
 // Returns null if a directory change could not be resolved statically and a
 // later git command depends on it (signalled by dir === null).
@@ -210,28 +304,37 @@ function commandsOf(tokens, cwd, home) {
   var stack = [];
   var dir = cwd;
   var words = [];
+  var exportedGitEnv = false; // `export GIT_DIR=...` earlier in the command
   function flush() {
     if (words.length) handle(words);
     words = [];
   }
   function handle(ws) {
     var k = 0;
-    // Skip env assignments and wrappers.
+    var gitEnv = exportedGitEnv;
+    var viaXargs = false;
+    // Skip shell keywords, env assignments and wrappers with their options.
     while (k < ws.length) {
       var w = ws[k].v;
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
+      if (KEYWORDS[w]) {
         k++;
         continue;
       }
-      if (
-        w === 'env' ||
-        w === 'command' ||
-        w === 'time' ||
-        w === 'nohup' ||
-        w === 'sudo' ||
-        w === 'exec'
-      ) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
+        if (GIT_ENV.test(w)) gitEnv = true;
         k++;
+        continue;
+      }
+      var wrapper = WRAPPERS[path.basename(w)];
+      if (wrapper) {
+        var wname = path.basename(w);
+        if (wname === 'xargs') viaXargs = true;
+        k++;
+        while (k < ws.length && ws[k].v.charAt(0) === '-' && ws[k].v !== '-') {
+          if (wrapper[ws[k].v]) k++;
+          k++;
+        }
+        if (WRAPPER_POSITIONAL[wname]) k += WRAPPER_POSITIONAL[wname];
         continue;
       }
       break;
@@ -239,6 +342,10 @@ function commandsOf(tokens, cwd, home) {
     var rest = ws.slice(k);
     if (!rest.length) return;
     var name = path.basename(rest[0].v);
+    if (name === 'export' || name === 'declare' || name === 'typeset') {
+      for (var e = 1; e < rest.length; e++) if (GIT_ENV.test(rest[e].v)) exportedGitEnv = true;
+      return;
+    }
     if (name === 'cd' || name === 'pushd') {
       var arg = rest[1];
       if (!arg) dir = home;
@@ -253,25 +360,23 @@ function commandsOf(tokens, cwd, home) {
       else dir = dir === null ? null : path.resolve(dir, arg.v);
       return;
     }
-    if (
-      (name === 'bash' || name === 'sh' || name === 'zsh') &&
-      rest[1] &&
-      rest[1].v === '-c' &&
-      rest[2]
-    ) {
-      var inner = tokenize(rest[2].v);
+    var script = SHELLS[name] ? shellScript(rest) : null;
+    if (script) {
+      var inner = tokenize(script.v);
       if (inner === null) {
-        out.push({ unparsable: true, text: rest[2].v, dir: dir });
+        out.push({ unparsable: true, text: script.v, dir: dir });
         return;
       }
       var nested = commandsOf(inner, dir === null ? cwd : dir, home);
       for (var n = 0; n < nested.length; n++) {
         if (dir === null) nested[n].dir = null;
+        if (gitEnv) nested[n].gitEnv = true;
         out.push(nested[n]);
       }
       return;
     }
-    if (name === 'git') out.push({ argv: rest.slice(1), dir: dir });
+    if (name === 'git')
+      out.push({ argv: rest.slice(1), dir: dir, gitEnv: gitEnv, viaXargs: viaXargs });
   }
   for (var i = 0; i < tokens.length; i++) {
     var tk = tokens[i];
@@ -336,41 +441,149 @@ function parseGit(argv) {
   };
 }
 
-// Returns a reason string when the subcommand moves HEAD or clobbers the tree
-// (location-dependent), or { stash: reason } for the shared stash stack
-// (refused everywhere), or null when harmless.
-function classify(sub, args) {
+// Message options of `git stash push`/`git stash`: -m <msg>, -m<msg>,
+// --message <msg>, --message=<msg>.
+function hasMessage(args) {
+  for (var i = 0; i < args.length; i++) {
+    var a = args[i];
+    if ((a === '-m' || a === '--message') && i + 1 < args.length) return true;
+    if (/^-m.+/.test(a) || /^--message=.+/.test(a)) return true;
+  }
+  return false;
+}
+
+var PATH_WIDE = /^(\.|\.\/|\*|:\/|:\(top\)|:\(glob\).*|:\/\*)$/;
+
+// Returns { reason, scope } when the command needs a location check, where
+// scope is 'head' (moves HEAD or rewrites refs or files: refused outside the
+// session's own checkout) or 'subagent' (only refused for subagents outside
+// their own worktree); or { stash: reason } for the shared stash stack
+// (refused everywhere); or null when harmless. ctx.isPath(p) tells whether a
+// word names an existing file or directory in the target checkout.
+function classify(sub, args, ctx) {
+  ctx = ctx || {};
+  var isPath =
+    ctx.isPath ||
+    function () {
+      return false;
+    };
   if (sub === 'stash') {
     var action = args[0];
-    if (
-      action === undefined ||
-      (action.charAt(0) === '-' && action !== '-m' && action !== '--message')
-    ) {
-      if (args.indexOf('-m') >= 0 || args.indexOf('--message') >= 0) return null;
-      return { stash: 'a bare `git stash`' };
+    if (action === undefined || action.charAt(0) === '-') {
+      return hasMessage(args) ? null : { stash: 'a `git stash` without a message' };
     }
-    if (action === 'push' || action === 'save') {
-      if (action === 'push' && (args.indexOf('-m') >= 0 || args.indexOf('--message') >= 0))
-        return null;
-      if (action === 'save' && args.length > 1) return null;
-      return { stash: '`git stash ' + action + '` without a message' };
+    if (action === 'push') {
+      return hasMessage(args.slice(1)) ? null : { stash: '`git stash push` without a message' };
     }
-    if (action === '-m' || action === '--message') return null;
-    if (action === 'pop' || action === 'drop' || action === 'clear') {
+    if (action === 'save') {
+      var msg = args.slice(1).filter(function (a) {
+        return a.charAt(0) !== '-';
+      });
+      return msg.length ? null : { stash: '`git stash save` without a message' };
+    }
+    if (action === 'apply') {
+      var ref = args.slice(1).filter(function (a) {
+        return a.charAt(0) !== '-';
+      })[0];
+      return ref && /^[0-9a-f]{4,40}$/.test(ref)
+        ? null
+        : { stash: '`git stash apply` without an explicit stash commit sha' };
+    }
+    if (action === 'pop' || action === 'drop' || action === 'clear' || action === 'branch') {
       return { stash: '`git stash ' + action + '`' };
     }
     if (SAFE_STASH[action]) return null;
     return null;
   }
+  if (sub === 'worktree') {
+    if (args[0] === 'remove' || args[0] === 'move') {
+      var wt = args.slice(1).filter(function (a) {
+        return a.charAt(0) !== '-';
+      })[0];
+      return { reason: '`git worktree ' + args[0] + '`', scope: 'worktree', path: wt || null };
+    }
+    return null;
+  }
+  if (sub === 'branch') {
+    var destructive = args.some(function (a) {
+      return /^-[a-zA-Z]*[DdfMmC]/.test(a) || /^--(delete|force|move|copy)$/.test(a);
+    });
+    return destructive
+      ? {
+          reason: '`git branch ' + args.join(' ') + '` deletes, forces or renames a branch',
+          scope: 'subagent',
+        }
+      : null;
+  }
   if (!GUARDED[sub]) return null;
   if (args.indexOf('-h') >= 0 || args.indexOf('--help') >= 0) return null;
+  var head = function (r) {
+    return { reason: r, scope: 'head' };
+  };
   if (sub === 'checkout') {
     if (args.length === 0) return null;
-    // Pathspec mode: `git checkout [<tree-ish>] -- <paths>` only touches files.
-    if (args.indexOf('--') >= 0 && args.indexOf('-b') < 0 && args.indexOf('-B') < 0) return null;
-    return '`git checkout` moves HEAD (use `git restore <path>` or `git checkout -- <path>` for files)';
+    if (args.indexOf('-b') >= 0 || args.indexOf('-B') >= 0)
+      return head('`git checkout -b` moves HEAD');
+    var dd = args.indexOf('--');
+    var before = (dd >= 0 ? args.slice(0, dd) : args).filter(function (a) {
+      return a.charAt(0) !== '-';
+    });
+    var paths = dd >= 0 ? args.slice(dd + 1) : [];
+    if (dd < 0) {
+      // Without `--`, a lone word that names a file is a path restore; `.` too.
+      if (
+        before.length &&
+        before.every(function (a) {
+          return PATH_WIDE.test(a) || isPath(a);
+        })
+      ) {
+        paths = before;
+        before = [];
+      } else {
+        return head('`git checkout` moves HEAD');
+      }
+    }
+    if (
+      before.length ||
+      paths.some(function (p) {
+        return PATH_WIDE.test(p);
+      })
+    ) {
+      return head(
+        '`git checkout ' +
+          args.join(' ') +
+          '` overwrites files' +
+          (before.length ? ' from another commit' : ' across the whole tree'),
+      );
+    }
+    return null; // a single path restored from the index: local, small
   }
-  if (sub === 'switch') return '`git switch` moves HEAD';
+  if (sub === 'restore') {
+    var staged = args.indexOf('--staged') >= 0 || args.indexOf('-S') >= 0;
+    var worktreeToo = args.indexOf('--worktree') >= 0 || args.indexOf('-W') >= 0;
+    if (staged && !worktreeToo) return null;
+    var source = args.some(function (a) {
+      return a === '-s' || /^--source(=|$)/.test(a) || /^-s.+/.test(a);
+    });
+    var rpaths = args.filter(function (a) {
+      return a.charAt(0) !== '-';
+    });
+    if (
+      source ||
+      rpaths.some(function (p) {
+        return PATH_WIDE.test(p);
+      })
+    ) {
+      return head(
+        '`git restore ' +
+          args.join(' ') +
+          '` overwrites files' +
+          (source ? ' from another commit' : ' across the whole tree'),
+      );
+    }
+    return null;
+  }
+  if (sub === 'switch') return head('`git switch` moves HEAD');
   if (sub === 'reset') {
     var flags = args.filter(function (a) {
       return a.charAt(0) === '-';
@@ -382,18 +595,47 @@ function classify(sub, args) {
     var moving = flags.some(function (f) {
       return f === '--hard' || f === '--keep' || f === '--merge' || f === '--soft';
     });
-    if (moving) return '`git reset ' + flags.join(' ') + '` moves the branch or clobbers the tree';
+    if (moving)
+      return head('`git reset ' + flags.join(' ') + '` moves the branch or clobbers the tree');
     if (dashdash >= 0) return null; // `git reset [HEAD] -- <paths>` unstages files
     if (positional.length === 0) return null;
-    return '`git reset <commit>` moves the branch (use `git restore --staged <path>` to unstage)';
+    // `git reset HEAD a.ts b.ts` or `git reset a.ts`: paths after an optional commit.
+    var maybePaths = isPath(positional[0]) ? positional : positional.slice(1);
+    if (maybePaths.length && maybePaths.every(isPath)) return null;
+    return head(
+      '`git reset <commit>` moves the branch (use `git restore --staged <path>` to unstage)',
+    );
   }
   if (sub === 'clean') {
     var force = args.some(function (a) {
       return a === '--force' || /^-[a-zA-Z]*f/.test(a);
     });
-    return force ? '`git clean -f` deletes untracked files' : null;
+    return force ? head('`git clean -f` deletes untracked files') : null;
   }
-  return null;
+  if (sub === 'read-tree') {
+    var updates = args.some(function (a) {
+      return a === '-u' || a === '--reset' || /^-[a-zA-Z]*u/.test(a);
+    });
+    return updates ? head('`git read-tree -u` rewrites the index and the files') : null;
+  }
+  if (sub === 'symbolic-ref' || sub === 'update-ref') {
+    var nonFlag = args.filter(function (a) {
+      return a.charAt(0) !== '-';
+    });
+    var readOnly =
+      sub === 'symbolic-ref'
+        ? nonFlag.length < 2 && args.indexOf('-d') < 0 && args.indexOf('--delete') < 0
+        : false;
+    return readOnly ? null : head('`git ' + sub + '` rewrites a ref');
+  }
+  // rebase, cherry-pick, am, revert: rewrite the current branch and the files.
+  if (
+    args.some(function (a) {
+      return a === '--show-current-patch';
+    })
+  )
+    return null;
+  return head('`git ' + sub + '` rewrites the current branch');
 }
 
 // --- Checkout ownership ----------------------------------------------------
@@ -434,28 +676,33 @@ function statOrNull(p) {
 // --- Decision --------------------------------------------------------------
 
 var ADVICE =
-  'Work in your own worktree instead: `git worktree add <scratch-path> <ref>` (or the Agent ' +
-  'isolation worktree), and to read a PR use `git show <sha>:<path>`, `git diff`, or ' +
-  '`bash automation/review/snapshot.sh <pr>` (lessons L15, L38).';
+  'Work in your own worktree instead: `git fetch origin && git worktree add -b <branch> ' +
+  '<scratch-path> origin/main` (or the Agent isolation worktree), and to read a PR use ' +
+  '`git show <sha>:<path>`, `git diff`, or `bash automation/review/snapshot.sh <pr>` ' +
+  '(lessons L15, L38).';
 
 function decide(input, opts) {
   opts = opts || {};
   var top = opts.findTop || findTop;
+  var pathExists = opts.pathExists || exists;
   var home = opts.home || os.homedir();
   var command =
     input && input.tool_input && typeof input.tool_input.command === 'string'
       ? input.tool_input.command
       : '';
   var cwd = input && typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
+  var subagent = !!(input && (input.agent_id || input.agent_type));
   if (!/\bgit\b/.test(command)) return { allow: true };
 
   var tokens = tokenize(command);
+  var unbalanced = false;
   if (tokens === null) {
-    return {
-      deny:
-        'the command has unbalanced quotes around a git call, so the guard cannot check it. ' +
-        ADVICE,
-    };
+    // Unbalanced quotes (often an apostrophe in prose): read leniently and
+    // refuse only if that reading finds a git call that needs a check.
+    tokens = tokenize(command, true);
+    unbalanced = true;
+    if (tokens === null)
+      return { deny: 'the command could not be parsed around a git call. ' + ADVICE };
   }
   var cmds = commandsOf(tokens, cwd, home);
   var own = top(cwd);
@@ -468,9 +715,26 @@ function decide(input, opts) {
       continue;
     }
     var g = parseGit(c.argv);
-    var verdict = classify(g.sub, g.args);
+    var base = c.dir;
+    if (base !== null) for (var k = 0; k < g.dirs.length; k++) base = path.resolve(base, g.dirs[k]);
+    var verdict = classify(g.sub, g.args, {
+      isPath: function (p) {
+        return base !== null && p.charAt(0) !== '-' && pathExists(path.resolve(base, p));
+      },
+    });
+    if (
+      c.viaXargs &&
+      (GUARDED[g.sub] || g.sub === 'stash' || g.sub === 'branch' || g.sub === 'worktree')
+    ) {
+      // xargs appends arguments only known at run time.
+      verdict = {
+        reason: '`xargs git ' + g.sub + '` (arguments only known at run time)',
+        scope: 'head',
+      };
+      c.dir = null;
+    }
     if (!verdict) continue;
-    if (typeof verdict === 'object' && verdict.stash) {
+    if (verdict.stash) {
       return {
         deny:
           verdict.stash +
@@ -479,29 +743,65 @@ function decide(input, opts) {
           '`git stash apply <sha>`.',
       };
     }
-    if (c.dir === null || g.unknownTarget) {
+    if (unbalanced) {
       return {
-        deny: verdict + ', and the guard cannot tell which checkout it would run in. ' + ADVICE,
+        deny:
+          'the command has unbalanced quotes around ' +
+          verdict.reason +
+          ', so the guard cannot check it. ' +
+          ADVICE,
       };
     }
-    var target = c.dir;
-    for (var k = 0; k < g.dirs.length; k++) target = path.resolve(target, g.dirs[k]);
+    if (verdict.scope === 'subagent') {
+      if (subagent) {
+        return {
+          deny:
+            verdict.reason + '; a subagent leaves branch cleanup to the orchestrator. ' + ADVICE,
+        };
+      }
+      continue;
+    }
+    if (c.dir === null || g.unknownTarget || c.gitEnv) {
+      return {
+        deny:
+          verdict.reason + ', and the guard cannot tell which checkout it would run in. ' + ADVICE,
+      };
+    }
+    var target = base;
+    if (verdict.scope === 'worktree') {
+      if (!subagent) continue;
+      if (!verdict.path) {
+        return { deny: verdict.reason + ' without a path. ' + ADVICE };
+      }
+      var wt = top(path.resolve(c.dir, verdict.path));
+      if (wt && own && wt.top === own.top) continue;
+      return {
+        deny:
+          verdict.reason +
+          ' on ' +
+          path.resolve(c.dir, verdict.path) +
+          ", which is not this subagent's own worktree; the orchestrator removes worktrees. " +
+          ADVICE,
+      };
+    }
     var t = top(target);
     if (!t) continue; // not a repository: git will fail on its own
     if (t.kind === 'primary') {
+      if (!subagent) continue; // the main session owns the primary checkout
       return {
         deny:
-          verdict +
+          verdict.reason +
           ' in ' +
           t.top +
-          ', a primary checkout shared by every session and the operator. ' +
+          ', a primary checkout shared by every session and the operator; a subagent never ' +
+          'changes it. ' +
           ADVICE,
       };
     }
     if (!own || own.top !== t.top) {
       return {
         deny:
-          verdict +
+          verdict.reason +
           ' in the worktree ' +
           t.top +
           ', which is not the worktree this session works in' +

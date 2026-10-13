@@ -129,9 +129,9 @@ remain attributable after a model or skill upgrade.
       Partial: reviewers get a read-only detached worktree at the PR head
       ([`automation/review/snapshot.sh`](../../automation/review/snapshot.sh)), and a
       PreToolUse hook ([`automation/hooks/guard-git.cjs`](../../automation/hooks/guard-git.cjs),
-      tests in [`guard-git.test.ts`](../../automation/hooks/guard-git.test.ts)) refuses
-      HEAD-moving git commands outside the session's own worktree; checked live in a fresh
-      `claude -p` session. Workers still share one test database (serialized by the `flock`),
+      tests in [`guard-git.test.ts`](../../automation/hooks/guard-git.test.ts)) refuses a
+      subagent's HEAD-moving git commands outside its own worktree (the main session keeps
+      the main checkout); checked live with `claude -p` and a real subagent. Workers still share one test database (serialized by the `flock`),
       and allocation is the orchestrator's, not a controller's.
 - [ ] Use task leases with heartbeat, expiry, and a generation token so a resumed
       stale worker cannot publish after another worker has claimed the task.
