@@ -11,6 +11,7 @@ import {
 } from './merge';
 
 const SHA = 'c'.repeat(40);
+const BASE = 'd'.repeat(40);
 
 describe('merge CLI argument parsing', () => {
   it('parses a dry run and a full merge', () => {
@@ -66,6 +67,7 @@ describe('mergeable state polling', () => {
     merged: false,
     draft: false,
     baseRef: 'main',
+    baseSha: BASE,
     headSha: SHA,
     mergeableState,
   });
@@ -103,7 +105,7 @@ describe('head branch deletion eligibility', () => {
     state: 'open',
     merged: false,
     draft: false,
-    base: { ref: 'main' },
+    base: { ref: 'main', sha: BASE },
     head: { sha: SHA, ref: 'feat/thing', repo },
     mergeable_state: 'clean',
   });
@@ -127,6 +129,7 @@ describe('head branch deletion eligibility', () => {
       merged: false,
       draft: false,
       baseRef: 'main',
+      baseSha: BASE,
       headSha: SHA,
       mergeableState: 'clean',
     });

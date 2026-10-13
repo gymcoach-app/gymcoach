@@ -16,3 +16,8 @@ export const CI_APP_ID = 15368;
 
 export const REPO = 'gymcoach-app/gymcoach';
 export const BASE_BRANCH = 'main';
+
+// Accounts whose PR comments may carry a review record the gate counts
+// (automation/review/). Anyone can post a comment that looks like a record;
+// only these authors are trusted. The loop posts from JulienAu.
+export const MAINTAINERS = ['JulienAu', 'Julien-Au'] as const;

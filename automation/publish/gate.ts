@@ -7,6 +7,16 @@
 // nothing missing, pending or failed; an empty check list is never success.
 // The expected app is pinned (CI_APP_ID) and all required checks must come
 // from one check suite, so no other app or workflow can stand in for CI.
+//
+// It also needs review evidence bound to the same commits: a structured review
+// record (automation/review/) posted by a maintainer account whose head SHA is
+// the approved SHA and whose base SHA is the PR's current base. The latest such
+// record decides, and it must be ready with no blocking or major finding. A
+// fixup push or a rebase therefore leaves no matching record until a fresh
+// review is posted.
+
+import type { ReviewEvidence } from '@/automation/review/comment';
+import { STOPPING_SEVERITIES } from '@/automation/review/schema';
 
 export const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -16,6 +26,10 @@ export interface PullState {
   merged: boolean;
   draft: boolean;
   baseRef: string;
+  // The base commit GitHub holds for the PR (pulls API base.sha). It moves when
+  // the head is pushed or the PR is rebased, not when the base branch merely
+  // advances.
+  baseSha: string;
   headSha: string;
   // GitHub's mergeable_state: clean, unstable, blocked, behind, dirty,
   // unknown, has_hooks, draft. Null while GitHub is still computing it.
@@ -52,6 +66,9 @@ export interface GateInput {
   // The app expected to post every required check (checks.ts CI_APP_ID).
   ciAppId: number;
   baseBranch: string;
+  // Valid review records from maintainer comments, oldest first
+  // (automation/review/comment.ts parseReviewComments).
+  reviews: ReviewEvidence[];
 }
 
 export type RefusalCode =
@@ -69,7 +86,11 @@ export type RefusalCode =
   | 'check-missing'
   | 'check-pending'
   | 'check-not-success'
-  | 'not-clean';
+  | 'not-clean'
+  | 'no-review'
+  | 'review-for-other-head'
+  | 'review-for-other-base'
+  | 'review-not-ready';
 
 export interface Refusal {
   code: RefusalCode;
@@ -81,12 +102,20 @@ export interface PassedCheck {
   checkRunId: number;
 }
 
+export interface PassedReview {
+  commentId: number;
+  author: string;
+  reviewer: string;
+  lenses: string[];
+}
+
 export type GateDecision =
   | {
       mergeable: true;
       sha: string;
       checks: PassedCheck[];
       requiredChecksSource: 'repository' | 'unreadable';
+      review: PassedReview;
     }
   | { mergeable: false; refusals: Refusal[] };
 
@@ -195,6 +224,8 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     }
   }
 
+  const review = evaluateReviews(input, refuse);
+
   if (pull.mergeableState !== 'clean') {
     refuse(
       'not-clean',
@@ -202,11 +233,59 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     );
   }
 
-  if (refusals.length) return { mergeable: false, refusals };
+  if (refusals.length || !review) return { mergeable: false, refusals };
   return {
     mergeable: true,
     sha: approvedSha,
     checks: passed,
     requiredChecksSource: input.requiredChecks ? 'repository' : 'unreadable',
+    review,
+  };
+}
+
+// The review evidence for (approved head, current base). Records for another
+// head or base are stale, never a fallback: the latest record for the exact
+// pair decides, so a later needs-changes record overrides an earlier ready one.
+function evaluateReviews(
+  input: GateInput,
+  refuse: (code: RefusalCode, detail: string) => void,
+): PassedReview | null {
+  const { pull, approvedSha, reviews } = input;
+  if (reviews.length === 0) {
+    refuse('no-review', `no review record on PR #${pull.number}`);
+    return null;
+  }
+  const forHead = reviews.filter((r) => r.review.headSha === approvedSha);
+  if (forHead.length === 0) {
+    const heads = [...new Set(reviews.map((r) => r.review.headSha.slice(0, 12)))];
+    refuse(
+      'review-for-other-head',
+      `review records cover head(s) [${heads.join(', ')}], not ${approvedSha}`,
+    );
+    return null;
+  }
+  const matching = forHead.filter((r) => r.review.baseSha === pull.baseSha);
+  if (matching.length === 0) {
+    const bases = [...new Set(forHead.map((r) => r.review.baseSha.slice(0, 12)))];
+    refuse(
+      'review-for-other-base',
+      `the review of ${approvedSha.slice(0, 12)} was made on base(s) [${bases.join(', ')}], the PR's base is now ${pull.baseSha}`,
+    );
+    return null;
+  }
+  const latest = matching[matching.length - 1]!;
+  const stopping = latest.review.findings.filter((f) => STOPPING_SEVERITIES.includes(f.severity));
+  if (latest.review.verdict !== 'ready' || stopping.length > 0) {
+    refuse(
+      'review-not-ready',
+      `the latest review record (comment ${latest.commentId}) says ${latest.review.verdict} with ${stopping.length} blocking or major finding(s)`,
+    );
+    return null;
+  }
+  return {
+    commentId: latest.commentId,
+    author: latest.author,
+    reviewer: latest.review.reviewer.model ?? latest.review.reviewer.kind,
+    lenses: latest.review.lenses,
   };
 }

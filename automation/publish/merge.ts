@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { BASE_BRANCH, CI_APP_ID, REPO, REQUIRED_CHECKS } from '@/automation/publish/checks';
+import {
+  BASE_BRANCH,
+  CI_APP_ID,
+  MAINTAINERS,
+  REPO,
+  REQUIRED_CHECKS,
+} from '@/automation/publish/checks';
 import {
   type CheckRun,
   FULL_SHA,
@@ -8,10 +14,15 @@ import {
   type RequiredCheck,
   evaluateMergeGate,
 } from '@/automation/publish/gate';
+import {
+  type IssueComment,
+  type ParsedReviews,
+  parseReviewComments,
+} from '@/automation/review/comment';
 
 // Pinned merge for every PR, loop-authored or external (roadmap milestone 2).
-// Fetches the live PR, its check runs for the approved SHA and the repository's
-// required checks, runs the gate, and only then calls the merge endpoint with
+// Fetches the live PR, its check runs for the approved SHA, the repository's
+// required checks and the review records posted on the PR, runs the gate, and only then calls the merge endpoint with
 // `sha=<approved>`, so GitHub itself also refuses if the head moved.
 //
 //   npx tsx automation/publish/merge.ts <pr> --sha <approved-40-hex>        # dry run
@@ -87,7 +98,7 @@ export function parseArgs(argv: string[]): Args {
 
 export class GhError extends Error {}
 
-function gh<T>(args: string[]): T {
+export function gh<T>(args: string[]): T {
   let out: string;
   try {
     out = execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', ...args], {
@@ -108,7 +119,7 @@ export interface RawPull {
   state: string;
   merged: boolean;
   draft: boolean;
-  base: { ref: string };
+  base: { ref: string; sha: string };
   head: { sha: string; ref: string; repo: { full_name: string } | null };
   mergeable_state: string | null;
 }
@@ -152,6 +163,7 @@ export function toLivePull(raw: RawPull): LivePull {
       merged: raw.merged,
       draft: raw.draft,
       baseRef: raw.base.ref,
+      baseSha: raw.base.sha,
       headSha: raw.head.sha,
       mergeableState: raw.mergeable_state,
     },
@@ -215,8 +227,30 @@ export function fetchRequiredChecks(): RequiredCheck[] | null {
   }
 }
 
-function print(decision: GateDecision) {
+interface RawComment {
+  id: number;
+  user: { login: string } | null;
+  body: string | null;
+}
+
+export function fetchIssueComments(pr: number): IssueComment[] {
+  const comments: IssueComment[] = [];
+  for (let page = 1; ; page += 1) {
+    const raw = gh<RawComment[]>([`repos/${REPO}/issues/${pr}/comments?per_page=100&page=${page}`]);
+    for (const c of raw) {
+      comments.push({ id: c.id, author: c.user?.login ?? null, body: c.body ?? '' });
+    }
+    if (raw.length < 100) return comments;
+  }
+}
+
+function print(decision: GateDecision, reviews: ParsedReviews) {
   console.log(JSON.stringify(decision, null, 2));
+  // A maintainer comment with the marker that did not parse is worth seeing:
+  // it is ignored by the gate, which may be why a review seems missing.
+  for (const bad of reviews.invalid) {
+    console.log(`Ignored review comment ${bad.commentId}: ${bad.reason}`);
+  }
 }
 
 // The merge call always carries the approved SHA: GitHub refuses the merge if
@@ -231,6 +265,7 @@ export function mergeRequestArgs(args: Args, sha: string): string[] {
 async function run(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const live = await fetchSettledPull(args.pr);
+  const reviews = parseReviewComments(fetchIssueComments(args.pr), args.pr, MAINTAINERS);
   const decision = evaluateMergeGate({
     pull: live.pull,
     approvedSha: args.sha,
@@ -241,8 +276,9 @@ async function run(argv: string[]): Promise<number> {
     requiredChecks: fetchRequiredChecks(),
     ciAppId: CI_APP_ID,
     baseBranch: BASE_BRANCH,
+    reviews: reviews.records,
   });
-  print(decision);
+  print(decision, reviews);
   if (!decision.mergeable) return 1;
   if (!args.merge) {
     console.log('Dry run: pass --merge to merge.');

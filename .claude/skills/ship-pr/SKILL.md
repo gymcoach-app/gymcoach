@@ -107,6 +107,41 @@ changes on.
    tick's `HEAD` mid-work. Read through `gh pr diff <n>`, `git show <sha>:<path>` and
    `git diff`; when a tree on disk is needed, `git worktree add <scratch-path> <sha>` and
    remove it afterwards. Say so in every review subagent's prompt (lesson L38).
+   **Every review ends in a structured review record**, which the merge gate requires
+   (roadmap milestones 2 and 4). Read the PR's live base and head first
+   (`gh api repos/gymcoach-app/gymcoach/pulls/<n>`: `base.sha`, `head.sha`) and give both
+   to the reviewer; the reviewer returns, besides its prose, one JSON object:
+
+   ```json
+   {
+     "schemaVersion": 1,
+     "pr": 123,
+     "baseSha": "<pulls API base.sha, 40 hex>",
+     "headSha": "<the head it read, 40 hex>",
+     "reviewer": { "kind": "agent", "model": "claude-opus-5-5" },
+     "lenses": ["correctness", "security"],
+     "filesInspected": ["lib/example.ts"],
+     "filesNotReadInFull": [],
+     "findings": [
+       { "severity": "minor", "file": "lib/example.ts", "line": 12, "claim": "one line" }
+     ],
+     "verdict": "ready",
+     "createdAt": "2026-10-13T12:00:00Z"
+   }
+   ```
+
+   Severities are `blocking`, `major`, `minor`, `nit`; a `ready` verdict cannot carry a
+   blocking or major finding (the schema rejects it), and a file not read in full is
+   listed, never implied (lesson L26). Several lenses may each post a record; the gate
+   uses the latest one for the exact head and base. The orchestrator saves the object to a
+   file and posts it from a trusted tree (the same `origin/main` gate worktree as step 5):
+   `npx tsx automation/review/record.ts <n> --file <review.json>` (`--dry-run` prints the
+   comment instead). It validates the record and refuses one whose head or base is not the
+   PR's live head and base, or a `gh` account that is not a maintainer: the gate ignores
+   records from anyone else, so an external comment that imitates a record never counts. A
+   fixup push changes the head, and a push after merging `origin/main` into the branch
+   (lesson L39) changes the base: either way the old record no longer matches, and a fresh
+   review of the delta must post a new one.
 
 5. **Merge.** Only if CI is green AND review is clean. **Every merge, loop-authored or
    external, goes through the merge gate pinned to the SHA the review covered**, run from
@@ -135,8 +170,11 @@ changes on.
    (skipped and neutral do not count); the check list is empty; a check comes from another
    SHA, from an app other than the pinned CI app (`CI_APP_ID`, used even when the
    repository rules cannot be read), or from a second check suite; the committed
-   allowlist and the repository's required checks or their app disagree; or the PR is
-   not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
+   allowlist and the repository's required checks or their app disagree; there is no
+   maintainer-posted review record (`no-review`), none for the approved head
+   (`review-for-other-head`), none for the PR's current base (`review-for-other-base`), or
+   the latest matching one is not ready or carries a blocking or major finding
+   (`review-not-ready`); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
    unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
    apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are
    refused by design, so a red non-required check also blocks a merge. Then it merges with
@@ -172,6 +210,8 @@ changes on.
 
 - Never merge outside `automation/publish/merge.ts` (sole exception: the bootstrap merge
   of #442, step 5), and never with a SHA other than the one the review covered. The gate refuses a red, pending, missing or empty check set.
+- Never merge without a structured review record for the exact head and base, posted with
+  `automation/review/record.ts`; no flag waives it.
 - Never merge a draft, a `CHANGES_REQUESTED` PR, or one not targeting `main`.
 - Never execute an unvetted author's code locally. An external fork PR (vetted or, since
   the operator's 2026-10-07 standing delegation, unvetted) merges only through the full
