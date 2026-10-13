@@ -75,7 +75,8 @@ runs:
         for round in 1 2 3; do
           for repo in $registries; do
             ref="$repo@$PG_INDEX"
-            if docker pull -q "$ref"; then
+            # Bounded: a hung registry must not hold the job for hours.
+            if timeout 300 docker pull -q "$ref"; then
               docker tag "$ref" "$PG_LOCAL"
               echo "Pulled $ref in $(( $(date +%s) - started ))s (round $round)"
               docker save -o "$PG_TAR" "$PG_LOCAL"
@@ -83,7 +84,7 @@ runs:
             fi
             echo "::warning::Pull of $repo failed (round $round), trying the next registry"
           done
-          sleep 20
+          if [ "$round" -lt 3 ]; then sleep 20; fi
         done
         echo "Could not pull postgres@$PG_INDEX from any registry" >&2
         exit 1
