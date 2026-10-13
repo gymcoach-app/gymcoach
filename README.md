@@ -92,8 +92,11 @@ lifters find it.**
 GymCoach is also an experiment in **autonomous software development**. Claude Code
 agents maintain a real application through documented loops: select an issue,
 implement it on a branch, run the checks, open a PR, review it independently, and
-merge eligible changes after green CI. A human owns the product direction and the
-decisions reserved by the [autonomy charter](docs/loops/07-autonomy.md).
+merge eligible changes after green CI. Agents also choose what to build: research on
+competing apps and what their users ask for seeded the roadmap, and an
+[ideation loop](docs/loops/08-ideation-loop.md) files new feature issues whenever the
+backlog runs dry. A human sets the overall goal and the
+[autonomy charter](docs/loops/07-autonomy.md), and keeps the decisions it reserves.
 
 The feedback comes from running software: unit and integration tests, Playwright
 E2E tests, a production Docker smoke test, and independent reviews. Runs leave a

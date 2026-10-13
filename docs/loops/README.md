@@ -3,7 +3,9 @@
 GymCoach is a self-hosted workout tracker and an experiment in autonomous software
 maintenance. Claude Code agents develop the application through a pipeline of
 reusable skills, software checks, independent reviews, and bounded shipping work.
-A human maintains the product direction and the authority boundaries.
+Agents also decide what to build: product ideas come from agent research on competing
+apps and their users' requests, and from the [ideation loop](08-ideation-loop.md). A
+human sets the overall goal and the authority boundaries.
 
 The experiment asks two questions: can agents maintain a useful application over
 time, and can changes to their working methods make that maintenance more reliable?
@@ -29,7 +31,8 @@ flowchart LR
 ```
 
 1. **Choose useful work.** Triage examines issues and code health. When there is
-   no actionable backlog, bounded ideation can propose product improvements.
+   no actionable backlog, bounded ideation files product improvements, grounded in
+   the captured competitor research and an optional small web check.
    External requests follow the contribution trust policy before adoption.
 2. **Implement one task.** The implementation skill creates a task branch, makes
    a focused change, adds appropriate tests, and runs the local verification gate.
