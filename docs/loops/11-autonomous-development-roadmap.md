@@ -8,8 +8,10 @@ for the exact head and base (#449), and a self-bootstrapping test database (#441
 Milestone 4 is partly delivered: structured review records (#449) and recurring
 mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hook).
 Milestone 3 has started: a 3-task smoke suite and a replay runner in
-`evals/maintainer/`, validated with reference, broken and tamper fixes; the
-paid agent is disabled until its container isolation holds (#453). Milestones 5 and 6 and the product LLM track are proposed, not
+`evals/maintainer/`, validated with reference, broken and tamper fixes; its
+containment (egress proxy, containerised grading, tamper hardening, #453) is in
+place and proven without a model call; the paid agent stays hard-disabled until
+the operator accepts the credential risk and sets a budget. Milestones 5 and 6 and the product LLM track are proposed, not
 implemented. A PreToolUse hook keeps subagents
 from moving HEAD in checkouts they do not own (#448, merged on the operator's
 confirmation). Baseline
@@ -250,39 +252,46 @@ changes within the charter.
       interruption recovery, untrusted instructions, and review/merge races.
 - [ ] Run baseline and candidate configurations in equivalent disposable
       environments. Pin dependencies and record infrastructure failures separately.
-- [ ] Use independent acceptance tests and outcome checks. Keep grading code and
+      Partial: every replay runs in disposable containers from images pinned by digest,
+      with a throwaway database per run, the installed dependencies used only when the
+      base pins the same lockfile, and infrastructure failures recorded as
+      `infra-error` ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts));
+      no model configuration has been run yet (the paid agent is hard-disabled).
+- [x] Use independent acceptance tests and outcome checks. Keep grading code and
       reserved fixtures outside the worker's writable and readable task environment.
-      Partial: hidden tests come from the fix commit and are copied in only after the
-      agent finished ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts)); the
-      filesystem is not sandboxed, so an agent could read the live checkout by
-      absolute path ([README](../../evals/maintainer/README.md#how-a-replay-is-isolated)).
-- [ ] Remove answer leakage from future Git history, lesson files, solution PRs,
+      Evidence: hidden tests come from the fix commit and are written into a separate
+      grading tree built from the untouched snapshot after the agent finished; grade
+      inputs never come from the agent; the agent's container sees only the snapshot
+      (no `evals/`, no live checkout), and grading runs in containers
+      ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts),
+      [#453](https://github.com/gymcoach-app/gymcoach/issues/453));
+      `probe-isolation.ts` shows the live checkout unreadable from the agent container.
+- [x] Remove answer leakage from future Git history, lesson files, solution PRs,
       and network access during historical replay. Disclose any remaining contamination.
-      Partial: snapshots are an archive of the base tree with a fresh history and no
-      remote, the unit grader runs without network, and each task lists its leakage;
-      the agent's own network and filesystem are not cut (disclosed in the
-      [README](../../evals/maintainer/README.md#how-a-replay-is-isolated)).
+      Evidence: snapshots are an archive of the base tree with a fresh history and no
+      remote; the agent's only network path is an egress proxy that allows the
+      Anthropic API alone, and grading has no network (unit) or only a throwaway
+      database (integration); each task lists its leakage. Remaining contamination,
+      disclosed in the [README](../../evals/maintainer/README.md#residual-risks): the
+      repository is public, so a model's training data may include later commits.
 - [ ] Separate development, validation, and reserved test tasks by issue or failure
       family. Do not tune on the reserved set or repeatedly use it to select candidates.
       Partial: the task schema carries the split; only `dev` tasks exist so far.
 - [ ] Repeat trials. Publish trial counts, variability, task-level outcomes, cost
       per successful task, interventions, and policy violations.
-- [ ] Provide a documented replay command that requires no production credentials
+- [x] Provide a documented replay command that requires no production credentials
       and cannot publish to the real repository.
-      Partial: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md))
-      needs no credential and the snapshot has no remote and no `.claude/`, but the
-      "cannot publish" half does not hold for an agent yet: the paid `claude` agent's
-      container reached the unauthenticated Docker Desktop engine API
-      (`host.docker.internal:2375`), the shared test Postgres and the internet, its code
-      would be graded on the host, and the operator's model credential is readable in it
-      ([#453](https://github.com/gymcoach-app/gymcoach/issues/453)). That agent is
-      therefore refused unconditionally until
-      `npx tsx evals/maintainer/probe-isolation.ts` exits 0 (on 2026-10-13: 14 of 17
-      checks held, the 3 network checks failed). The four self-check agents apply only
-      this repo's own patches. On 2026-10-13 the 3 smoke tasks gave dry fail, reference
-      pass, broken fail and tamper fail (12/12); grade inputs are restored to the base,
-      and a static check rejects application code importing a test framework (without
-      it, the chai cheat passed 2 of the 3 tasks).
+      Evidence: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md))
+      needs no credential for the self-checks; the snapshot has no remote and no
+      `.claude/`; the agent container reaches only the Anthropic API through the egress
+      proxy, and `npx tsx evals/maintainer/probe-isolation.ts` exits 0 on 2026-10-13
+      (37 checks: no gh token, git credentials, SSH keys, live checkout, Docker API, host
+      Postgres or direct internet from the agent or grading containers;
+      [#453](https://github.com/gymcoach-app/gymcoach/issues/453)). The paid agent stays
+      hard-disabled (`PAID_AGENT_ENABLED = false`) until the operator accepts the residual
+      credential risk and sets a budget. On 2026-10-13 the 3 smoke tasks, fully
+      containerised, gave dry fail, reference pass, broken fail and tamper fail (12/12);
+      with the static tamper check disabled, the tamper agent passed cardio.
 
 Acceptance: the runner reproduces a known defect, rejects an intentionally
 incomplete fix, accepts a correct fix, and verifies preserved behavior. Include

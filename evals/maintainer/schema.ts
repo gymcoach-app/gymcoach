@@ -88,9 +88,9 @@ export const evalTaskSchema = z
 export type EvalTask = z.infer<typeof evalTaskSchema>;
 
 // dry, reference, broken and tamper are harness self-checks that run no model:
-// tamper applies the broken fix and then tries to cheat the grader (a vi.mock of
-// the module under test in a setup file, a weakened preserved test); it must
-// still fail.
+// tamper applies the broken fix and then tries to cheat the grader (grade-input
+// edits, assertions disabled from application code and from an ignored path, a
+// symlink); it must still fail.
 export const agents = ['dry', 'reference', 'broken', 'tamper', 'claude'] as const;
 export type AgentKind = (typeof agents)[number];
 
@@ -152,15 +152,16 @@ export const evalResultSchema = z
       .object({
         node: z.string(),
         dependenciesMatchBase: z.boolean().nullable(),
-        // null when no agent ran (the harness self-checks).
-        networkBlockedForAgent: z.boolean().nullable(),
+        // The contained agent's only network path: the egress proxy that allows
+        // the Anthropic API alone. null when no agent ran (the self-checks).
+        agentNetwork: z.enum(['egress-proxy-only']).nullable(),
         // The paid agent ran in a container with only the workspace mounted.
         agentContained: z.boolean().nullable(),
-        // true when every grading run used a fresh network namespace (unit tier,
-        // unshare -rn). It says nothing about the filesystem: grading runs on the
-        // host as the operator, which is acceptable only for the self-check
-        // agents, whose changes are this repo's own historical patches.
-        networkBlockedForGrader: z.boolean(),
+        // Every grading step (prisma generate, migrate, vitest) ran in a
+        // container: no network for the unit tier, an --internal network shared
+        // only with a throwaway Postgres for the integration tier. Nothing an
+        // agent wrote runs on the host.
+        gradedInContainer: z.literal(true),
       })
       .strict(),
   })

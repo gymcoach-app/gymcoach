@@ -63,9 +63,9 @@ describe('evalResultSchema', () => {
     environment: {
       node: 'v22.17.1',
       dependenciesMatchBase: true,
-      networkBlockedForAgent: null,
+      agentNetwork: null,
       agentContained: null,
-      networkBlockedForGrader: true,
+      gradedInContainer: true,
     },
   };
 

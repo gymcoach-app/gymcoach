@@ -1,25 +1,49 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import {
-  CONTAINER_HOME,
+  EGRESS_ALLOWLIST,
+  NODE_IMAGE,
+  PAID_AGENT_ENABLED,
+  POSTGRES_IMAGE,
   SNAPSHOT_EXCLUDES,
   UsageError,
+  addedLines,
+  agentEnv,
   assertOutsideRepo,
   claudeRunAllowed,
   containerArgs,
   decideOutcome,
+  diffTrees,
   evalSettings,
+  gitBlobId,
+  gradeEnv,
   groupByTier,
   isGradeInput,
   parseArgs,
-  planGradeInputRestore,
+  planGrade,
   sameDependencies,
   summariseVitestReport,
   tamperViolations,
   PAID_AGENT_DISABLED_REASON,
+  type Change,
+  type TreeEntry,
 } from './runner';
 import { evalTaskSchema, type TestRun } from './schema';
+
+// A changed regular file for the tamper check.
+const ch = (
+  file: string,
+  content: string | null,
+  over: Partial<Change> = {},
+): Change & { content: string | null } => ({
+  file,
+  status: content === null ? 'deleted' : 'modified',
+  kind: content === null ? null : 'file',
+  content,
+  ...over,
+});
 
 const run = (over: Partial<TestRun> = {}): TestRun => ({
   tier: 'unit',
@@ -51,25 +75,45 @@ describe('parseArgs', () => {
 });
 
 describe('claudeRunAllowed', () => {
+  const paid = { agent: 'claude' as const, budgetUsd: 2, acceptCredentialRisk: true };
+  const approved = { EVAL_BUDGET_APPROVED: '1' };
+
   it('lets the free agents run', () => {
-    expect(claudeRunAllowed({ agent: 'dry', budgetUsd: null }, {})).toEqual({ allowed: true });
+    expect(
+      claudeRunAllowed({ agent: 'dry', budgetUsd: null, acceptCredentialRisk: false }, {}),
+    ).toEqual({ allowed: true });
   });
 
-  it('needs both a budget and the operator approval for a paid run', () => {
-    expect(
-      claudeRunAllowed({ agent: 'claude', budgetUsd: null }, { EVAL_BUDGET_APPROVED: '1' }).allowed,
-    ).toBe(false);
-    expect(claudeRunAllowed({ agent: 'claude', budgetUsd: 2 }, {}).allowed).toBe(false);
-    expect(
-      claudeRunAllowed({ agent: 'claude', budgetUsd: 2 }, { EVAL_BUDGET_APPROVED: 'yes' }).allowed,
-    ).toBe(false);
+  it('needs a budget, the operator approval and the credential-risk acknowledgement', () => {
+    expect(claudeRunAllowed({ ...paid, budgetUsd: null }, approved, true).allowed).toBe(false);
+    expect(claudeRunAllowed(paid, {}, true).allowed).toBe(false);
+    expect(claudeRunAllowed(paid, { EVAL_BUDGET_APPROVED: 'yes' }, true).allowed).toBe(false);
+    expect(claudeRunAllowed({ ...paid, acceptCredentialRisk: false }, approved, true)).toEqual({
+      allowed: false,
+      reason: expect.stringContaining('--i-accept-credential-risk'),
+    });
+    // With every precondition and the switch on, it would run.
+    expect(claudeRunAllowed(paid, approved, true)).toEqual({ allowed: true });
   });
 
-  it('refuses the paid agent even with a budget and the approval (issue #453)', () => {
+  it('stays hard-disabled until the operator flips PAID_AGENT_ENABLED in a reviewed PR', () => {
+    expect(PAID_AGENT_ENABLED).toBe(false);
+    expect(claudeRunAllowed(paid, approved)).toEqual({
+      allowed: false,
+      reason: PAID_AGENT_DISABLED_REASON,
+    });
+    expect(PAID_AGENT_DISABLED_REASON).toContain('PAID_AGENT_ENABLED');
+  });
+
+  it('parses the acknowledgement flag only once', () => {
     expect(
-      claudeRunAllowed({ agent: 'claude', budgetUsd: 2 }, { EVAL_BUDGET_APPROVED: '1' }),
-    ).toEqual({ allowed: false, reason: PAID_AGENT_DISABLED_REASON });
-    expect(PAID_AGENT_DISABLED_REASON).toContain('#453');
+      parseArgs(['--task', 'dev-x', '--agent', 'claude', '--i-accept-credential-risk'])
+        .acceptCredentialRisk,
+    ).toBe(true);
+    expect(parseArgs(['--task', 'dev-x']).acceptCredentialRisk).toBe(false);
+    expect(() =>
+      parseArgs(['--task', 'dev-x', '--i-accept-credential-risk', '--i-accept-credential-risk']),
+    ).toThrow(/twice/);
   });
 });
 
@@ -80,7 +124,7 @@ describe('tamperViolations', () => {
     const cheat =
       "export const x = 1;\nimport { chai } from 'vitest';\n" +
       'chai.Assertion.prototype.assert = function () {};\n';
-    expect(tamperViolations([{ file: 'lib/a.ts', content: cheat }], task)).toHaveLength(1);
+    expect(tamperViolations([ch('lib/a.ts', cheat)], task).length).toBeGreaterThanOrEqual(1);
     for (const content of [
       "import 'chai';",
       "const c = require('chai');",
@@ -88,14 +132,47 @@ describe('tamperViolations', () => {
       "const v = await import('vitest');",
       "import { defineConfig } from 'vitest/config';",
     ])
-      expect(tamperViolations([{ file: 'lib/b.ts', content }], task)).toHaveLength(1);
+      expect(tamperViolations([ch('lib/b.ts', content)], task).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each([
+    [
+      'createRequire',
+      "import { createRequire } from 'node:module';\ncreateRequire(import.meta.url)('chai');",
+    ],
+    ['createRequire from a re-export', "mod.createRequire(here)('ch' + 'ai');"],
+    ['getBuiltinModule', "process.getBuiltinModule('mod' + 'ule');"],
+    ['an aliased require', 'const r = require;\nr(name);'],
+    ['a non-literal require', 'const m = require(name);'],
+    ['a template require', 'const m = require(`ch${"ai"}`);'],
+    ['a non-literal dynamic import', 'const m = await import(name);'],
+    ['module internals', "const Module = require('module');\nModule._load('x');"],
+    ['a node_modules path', "import x from '../node_modules/chai/index.js';"],
+    ['matcher state', "globalThis[Symbol.for('$$jest-matchers-object')] = {};"],
+    ['a patched built-in', 'Object.is = () => true;'],
+    ['a patched prototype', 'Array.prototype.includes = () => true;'],
+    ['defineProperty on a built-in', "Object.defineProperty(JSON, 'stringify', { value: 1 });"],
+    ['a global assignment', 'globalThis.expect = () => ({});'],
+    ['an exit hook', "process.on('exit', () => {});"],
+    ['an exit override', 'process.exit = () => {};'],
+    ['an output stream patch', 'process.stdout.write = () => true;'],
+    ['eval', 'eval(code);'],
+  ])('rejects %s in application code', (_, content) => {
+    expect(tamperViolations([ch('lib/b.ts', content)], task).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rejects a symlink or any non-regular file the agent created', () => {
+    expect(
+      tamperViolations([ch('lib/link.ts', null, { status: 'added', kind: 'symlink' })], task),
+    ).toEqual([expect.stringContaining('symlink')]);
+    expect(
+      tamperViolations([ch('lib/fifo', null, { status: 'modified', kind: 'other' })], task),
+    ).toEqual([expect.stringContaining('other')]);
   });
 
   it('rejects any edit to the generated Prisma client', () => {
-    expect(
-      tamperViolations([{ file: 'prisma/generated/client.ts', content: 'x' }], task),
-    ).toHaveLength(1);
-    expect(tamperViolations([{ file: 'prisma/generated/old.ts', content: null }], task)).toEqual([
+    expect(tamperViolations([ch('prisma/generated/client.ts', 'x')], task)).toHaveLength(1);
+    expect(tamperViolations([ch('prisma/generated/old.ts', null)], task)).toEqual([
       expect.stringContaining('generated Prisma client'),
     ]);
   });
@@ -104,16 +181,86 @@ describe('tamperViolations', () => {
     expect(
       tamperViolations(
         [
-          { file: 'lib/a.ts', content: "import { z } from 'zod';\n// mentions vitest in prose\n" },
-          { file: 'lib/a.test.ts', content: "import { it } from 'vitest';" },
-          { file: 'tests/integration/x.test.ts', content: "import { it } from 'vitest';" },
-          { file: 'vitest.setup.ts', content: "import { vi } from 'vitest';" },
-          { file: 'lib/gone.ts', content: null },
-          { file: 'lib/vitest-like.ts', content: "import x from 'vitest-ish';" },
+          ch('lib/a.ts', "import { z } from 'zod';\n// mentions vitest in prose\n"),
+          ch('lib/c.ts', "const fs = require('fs');\nconst x = await import('./y');"),
+          ch('lib/d.ts', 'if (Object.is(a, b) && x.y === 1) return;'),
+          ch('lib/a.test.ts', "import { it } from 'vitest';"),
+          ch('tests/integration/x.test.ts', "import { it } from 'vitest';"),
+          ch('vitest.setup.ts', "import { vi } from 'vitest';"),
+          ch('lib/gone.ts', null),
+          ch('lib/vitest-like.ts', "import x from 'vitest-ish';"),
         ],
         task,
       ),
     ).toEqual([]);
+  });
+
+  // Needs the base and fix commits: present in a full clone (local gate), absent
+  // from CI's shallow checkout, where the replays are not run either.
+  const tasksDir = path.join(__dirname, 'tasks');
+  const committed = readdirSync(tasksDir).map((id) =>
+    evalTaskSchema.parse(JSON.parse(readFileSync(path.join(tasksDir, id, 'task.json'), 'utf8'))),
+  );
+  const hasCommit = (sha: string) => {
+    try {
+      execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], {
+        cwd: __dirname,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const historyAvailable = committed.every(
+    (t) => hasCommit(t.snapshot.baseSha) && hasCommit(t.snapshot.fixSha),
+  );
+
+  it.runIf(historyAvailable)('accepts the reference fixes of the committed tasks', () => {
+    for (const t of committed) {
+      for (const file of t.reference.paths) {
+        const show = (sha: string) =>
+          execFileSync('git', ['show', `${sha}:${file}`], { cwd: __dirname }).toString();
+        const content = addedLines(show(t.snapshot.baseSha), show(t.snapshot.fixSha));
+        expect(tamperViolations([ch(file, content)], t)).toEqual([]);
+      }
+    }
+  });
+});
+
+describe('addedLines', () => {
+  it('returns only the lines the agent added, counting duplicates', () => {
+    expect(addedLines('a\nb\nrequire(x)\n', 'a\nb\nrequire(x)\nnew\n')).toBe('new');
+    expect(addedLines('a\n', 'a\na\n')).toBe('a');
+    expect(addedLines('', 'x\ny')).toBe('x\ny');
+  });
+});
+
+describe('gitBlobId and diffTrees', () => {
+  it('computes git blob ids in-process', () => {
+    expect(gitBlobId(Buffer.from('hello\n'))).toBe('ce013625030ba8dba906f756967f9e9ca394464a');
+  });
+
+  it('reports added, modified, kind-changed and deleted paths', () => {
+    const f = (blob: string): TreeEntry => ({ kind: 'file', blob });
+    const before = new Map([
+      ['a.ts', f('1')],
+      ['b.ts', f('2')],
+      ['c.ts', f('3')],
+      ['d.ts', f('4')],
+    ]);
+    const after = new Map<string, TreeEntry>([
+      ['a.ts', f('1')],
+      ['b.ts', f('9')],
+      ['c.ts', { kind: 'symlink', blob: null }],
+      ['coverage/cheat.ts', f('5')],
+    ]);
+    expect(diffTrees(before, after)).toEqual([
+      { file: 'b.ts', status: 'modified', kind: 'file' },
+      { file: 'c.ts', status: 'modified', kind: 'symlink' },
+      { file: 'coverage/cheat.ts', status: 'added', kind: 'file' },
+      { file: 'd.ts', status: 'deleted', kind: null },
+    ]);
   });
 });
 
@@ -284,94 +431,89 @@ describe('isGradeInput', () => {
   });
 });
 
-describe('planGradeInputRestore', () => {
-  const base = new Map([
-    ['lib/cardio.ts', 'b-src'],
-    ['lib/cardio.test.ts', 'b-hidden-old'],
-    ['lib/import/track.test.ts', 'b-preserved'],
-    ['vitest.setup.ts', 'b-setup'],
-    ['evals/maintainer/runner.test.ts', 'b-evals'],
-  ]);
-
-  it('puts back a weakened preserved test and an edited setup file, not the agent code', () => {
-    const work = new Map<string, string | null>([
-      ['lib/cardio.ts', 'agent-fix'],
-      ['lib/cardio.test.ts', 'b-hidden-old'],
-      ['lib/import/track.test.ts', 'weakened'],
-      ['vitest.setup.ts', 'with-vi-mock'],
-    ]);
-    expect(planGradeInputRestore(task, base, work)).toEqual({
-      restore: ['lib/import/track.test.ts', 'vitest.setup.ts'],
-      remove: [],
+describe('planGrade', () => {
+  it('takes only regular application files from the agent, never grade inputs', () => {
+    const changes: Change[] = [
+      { file: 'lib/cardio.ts', status: 'modified', kind: 'file' },
+      { file: 'lib/cardio.tamper.ts', status: 'added', kind: 'file' },
+      { file: 'lib/old.ts', status: 'deleted', kind: null },
+      { file: 'lib/import/track.test.ts', status: 'modified', kind: 'file' },
+      { file: 'vitest.setup.ts', status: 'modified', kind: 'file' },
+      { file: 'tests/integration/cheat.ts', status: 'added', kind: 'file' },
+      { file: 'evals/x.json', status: 'added', kind: 'file' },
+      { file: 'lib/link.ts', status: 'added', kind: 'symlink' },
+      { file: 'prisma/generated/client.ts', status: 'modified', kind: 'file' },
+      { file: 'coverage/quiet.ts', status: 'added', kind: 'file' },
+    ];
+    expect(planGrade(changes, task)).toEqual({
+      write: ['lib/cardio.ts', 'lib/cardio.tamper.ts', 'coverage/quiet.ts'],
+      remove: ['lib/old.ts'],
+      ignored: [
+        'lib/import/track.test.ts',
+        'vitest.setup.ts',
+        'tests/integration/cheat.ts',
+        'evals/x.json',
+      ],
     });
-  });
-
-  it('restores a deleted grade input and removes an added one', () => {
-    const work = new Map<string, string | null>([
-      ['lib/import/track.test.ts', null],
-      ['vitest.setup.ts', 'b-setup'],
-      ['vitest.workspace.ts', 'added'],
-      ['tests/integration/cheat.ts', 'added'],
-      ['lib/cardio.tamper.ts', 'added'],
-    ]);
-    expect(planGradeInputRestore(task, base, work)).toEqual({
-      restore: ['lib/import/track.test.ts'],
-      remove: ['tests/integration/cheat.ts', 'vitest.workspace.ts'],
-    });
-  });
-
-  it('leaves hidden tests to the fix-commit copy and stripped paths stripped', () => {
-    const work = new Map<string, string | null>([
-      ['lib/cardio.test.ts', 'agent-edit'],
-      ['lib/import/track.test.ts', 'b-preserved'],
-      ['vitest.setup.ts', 'b-setup'],
-    ]);
-    expect(planGradeInputRestore(task, base, work)).toEqual({ restore: [], remove: [] });
   });
 });
 
-describe('the snapshot and the contained agent', () => {
-  it('strips the project .claude directory from the snapshot', () => {
+describe('the snapshot and the containers', () => {
+  it('strips the project .claude directory and the eval suite from the snapshot', () => {
     expect(SNAPSHOT_EXCLUDES).toContain('.claude');
     expect(SNAPSHOT_EXCLUDES).toContain('evals');
   });
 
+  it('pins every image by digest', () => {
+    expect(NODE_IMAGE).toMatch(/^node@sha256:[0-9a-f]{64}$/);
+    expect(POSTGRES_IMAGE).toMatch(/^postgres@sha256:[0-9a-f]{64}$/);
+  });
+
   const spec = {
-    name: 'gymcoach-eval-abcd',
-    image: 'node:22-bookworm',
-    workspace: '/tmp/ws',
-    nodeModules: '/home/u/repo/node_modules',
-    viteCacheInNodeModules: true,
-    claudeBinary: '/home/u/.local/share/claude/versions/1',
-    home: '/tmp/home',
+    name: 'gymcoach-eval-agent-abcd',
+    image: NODE_IMAGE,
+    network: 'gymcoach-eval-agent-net-1',
+    mounts: [
+      { host: '/tmp/ws', target: '/work', readOnly: false },
+      { host: '/home/u/repo/node_modules', target: '/work/node_modules', readOnly: true },
+    ],
+    tmpfs: ['/tmp:rw,exec,size=1g'],
+    env: agentEnv('gymcoach-eval-proxy-1'),
     uid: 1000,
     gid: 1000,
+    workdir: '/work',
     command: ['claude', '-p', 'x'],
   };
 
-  it('mounts only the workspace read-write, the install and binary read-only, and a fresh HOME', () => {
+  it('hardens every container and passes only the listed mounts, network and variables', () => {
     const args = containerArgs(spec);
-    const mounts = args.flatMap((a, i) => (args[i - 1] === '-v' ? [a] : []));
-    expect(mounts).toEqual([
-      '/tmp/ws:/work:rw',
-      '/home/u/repo/node_modules:/work/node_modules:ro',
-      '/home/u/.local/share/claude/versions/1:/usr/local/bin/claude:ro',
-      `/tmp/home:${CONTAINER_HOME}:rw`,
-    ]);
+    expect(args.join(' ')).toContain('--network gymcoach-eval-agent-net-1');
     expect(args).toContain('--read-only');
     expect(args.join(' ')).toContain('--cap-drop ALL');
     expect(args).toContain('no-new-privileges');
-    expect(args.slice(-4)).toEqual(['node:22-bookworm', 'claude', '-p', 'x']);
+    expect(args).not.toContain('--privileged');
+    const mounts = args.flatMap((a, i) => (args[i - 1] === '-v' ? [a] : []));
+    expect(mounts).toEqual(['/tmp/ws:/work:rw', '/home/u/repo/node_modules:/work/node_modules:ro']);
+    expect(mounts.some((m) => m.includes('docker.sock'))).toBe(false);
+    expect(args.slice(-4)).toEqual([NODE_IMAGE, 'claude', '-p', 'x']);
+    expect(args).not.toContain('--env-file');
   });
 
-  it('passes no host environment except the listed variables', () => {
-    const args = containerArgs(spec);
-    const env = args.flatMap((a, i) => (args[i - 1] === '-e' ? [a.split('=')[0]] : []));
-    expect(env.sort()).toEqual(
-      ['CI', 'DISABLE_AUTOUPDATER', 'DISABLE_TELEMETRY', 'GIT_TERMINAL_PROMPT', 'HOME'].sort(),
-    );
-    expect(args).not.toContain('--env-file');
-    expect(args.some((a) => /GH_TOKEN|GITHUB_TOKEN|ANTHROPIC_API_KEY/.test(a))).toBe(false);
+  it('routes the agent through the proxy and turns off non-essential traffic', () => {
+    const env = agentEnv('p');
+    expect(env.HTTPS_PROXY).toBe('http://p:3128');
+    expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
+    expect(Object.keys(env).some((k) => /TOKEN|API_KEY|DATABASE_URL/.test(k))).toBe(false);
+    expect(EGRESS_ALLOWLIST).toEqual(['api.anthropic.com']);
+  });
+
+  it('gives grading containers no credential and one worker for the integration tier', () => {
+    expect(gradeEnv(null)).not.toHaveProperty('DATABASE_URL');
+    expect(gradeEnv(null)).not.toHaveProperty('HTTPS_PROXY');
+    expect(gradeEnv('postgresql://u:p@db:5432/x')).toMatchObject({
+      DATABASE_URL: 'postgresql://u:p@db:5432/x',
+      VITEST_MAX_WORKERS: '1',
+    });
   });
 
   it('denies every publishing and fetching path in the eval settings', () => {
