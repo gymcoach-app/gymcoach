@@ -851,7 +851,7 @@ Merged: **#438** (your roadmap and overview), **#439** (run records and the base
 **#449** (structured review records required by the gate), **#441** (`verify.sh --full`
 starts and migrates the test DB), **#447** (unit tier under load, L42), **#445** (CI Postgres
 from a digest-pinned cached image, closes #381), and your launch videos **#440** and
-**#444**. Open and waiting on you: **#448** (git guard hook). In this PR: L43, L44, roadmap
+**#444**, and **#448** (git guard hook, merged on your confirmation). In this PR: L43, L44, roadmap
 status line.
 
 **Read first:**
@@ -872,12 +872,13 @@ status line.
    guard in `scripts/test-db.sh` and its cases in `scripts/test-db.test.sh`: it is what
    stops the step from migrating anything but `localhost:5434/gymcoach_test`. Note the
    pinned compose project `gymcoach-test`, shared by every checkout on the machine.
-4. **#448 - decide it.** `gh pr diff 448`. It adds a PreToolUse hook to
+4. **#448 - merged on your "Merge it".** `gh pr diff 448`. It adds a PreToolUse hook to
    `.claude/settings.json` that runs before every Bash call of every agent session in this
    project. Subagents are refused HEAD-moving git in checkouts they do not own; the main
    session is refused only in another session's worktree; untagged stash commands are
-   refused for everyone; `GYMCOACH_GIT_GUARD=off` at launch disables it. Merge it, or say
-   what to change.
+   refused for everyone; `GYMCOACH_GIT_GUARD=off` at launch disables it. Run
+   `node automation/hooks/guard-git.cjs --self-test` if a Claude Code upgrade seems to
+   change hook inputs.
 
 **Process:** L43 (prove a shared-state change from a second checkout, now in
 `implement-issue` and `ship-pr`), L44 (review a control through the control and ask whether

@@ -7,8 +7,9 @@ SHA-pinned merge gate for every merge (#442) that requires structured review evi
 for the exact head and base (#449), and a self-bootstrapping test database (#441).
 Milestone 4 is partly delivered: structured review records (#449) and one recurring
 mechanical lesson converted into code (L42, #447). Milestones 3, 5 and 6 and the
-product LLM track are proposed, not implemented. A PreToolUse hook that keeps
-sessions off checkouts they do not own (PR #448) is open, not shipped. Baseline
+product LLM track are proposed, not implemented. A PreToolUse hook keeps subagents
+from moving HEAD in checkouts they do not own (#448, merged on the operator's
+confirmation). Baseline
 inspection: 2026-10-13, commit `dd0fcf7`. Update milestone status with
 implementation PRs and validation evidence as work lands.
 

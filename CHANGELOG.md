@@ -58,6 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reviewer must be ready, so one lens cannot clear another's stop, and an
   edited record refuses the merge (#449). `automation/**` joined the
   human-merge-only paths for external PRs.
+- A git guard for agent sessions: a Claude Code PreToolUse hook
+  (`automation/hooks/guard-git.cjs`) refuses HEAD-moving or tree-clobbering
+  git commands from subagents in a checkout they do not own, any session's
+  in another session's worktree, and untagged stash commands for everyone.
+  The operator's and orchestrator's own sessions keep the main checkout;
+  `GYMCOACH_GIT_GUARD=off` disables it, and `--self-test` checks it (#448).
 
 ### Fixed
 

@@ -3200,10 +3200,12 @@ first slices the same day. Merged, in order: **#438** (roadmap, operator-authore
 (M1 run records and baseline), **#440** (launch video v2, operator), **#442** (M2 merge
 gate), **#443** (M1 usage from transcripts), **#444** (launch video v3, operator), **#441**
 (M2 test database bootstrap), **#447** (L42, unit tier under load), **#445** (closes #381,
-CI Postgres image), **#449** (M2/M4 review records). Open: **#448**, a PreToolUse hook that
-refuses HEAD-moving git commands from subagents in checkouts they do not own; its latest
-review record is ready (head `d16a427`) and it waits on the operator's confirmation, since
-it changes `.claude/settings.json` (group B) and every agent session's Bash calls.
+CI Postgres image), **#449** (M2/M4 review records), and **#448**, a PreToolUse hook that
+refuses HEAD-moving git commands from subagents in checkouts they do not own. #448 changes
+`.claude/settings.json` and every agent session's Bash calls, so the loop asked first; the
+operator confirmed ("Merge it") and it merged through the gate on its ready record (head
+`d16a427`), the first PR to go through the review-record rule end to end: a needs-changes
+record stopped it, and the same reviewer's later ready record retracted the stop.
 
 **What shipped.**
 - **Baseline (#439, #443).** Versioned Zod records under `automation/records/`, rebuilt
@@ -3264,7 +3266,7 @@ review before merge, and every one of them changed the code.
   ready record could clear another lens's blocking record, and a test asserted it; then an
   edited needs-changes record was dropped as invalid, erasing its stop. Fixed: latest record
   per reviewer, all ready; an edited or broken record refuses the merge (L44).
-- **#448** (three rounds, open): round one found the hook blocked the operator's own session
+- **#448** (three rounds, merged): round one found the hook blocked the operator's own session
   and three skills; round two found that reading `agent_type` as "subagent" would lock out a
   main session started with `claude --agent`, and that the documented gate cleanup was
   refused. It now keys on `agent_id` only.
@@ -3289,8 +3291,8 @@ the load flake on the way (#441: unit timeouts at load 33 on its first push, bef
 Docker validation; #443: one timeout, the unit tier then green with two workers); both are
 the L42 class #447 fixed. CI ran all five jobs on every merged head.
 
-**One metric.** 10 PRs merged (7 loop-authored, 3 operator: #438, #440, #444), 0 abandoned,
-0 reverted, 1 open (#448). Review-driven fixup rounds: 10 across the 7 merged loop PRs, plus 3 on the open #448. Token spend
+**One metric.** 11 PRs merged (8 loop-authored, 3 operator: #438, #440, #444), 0 abandoned,
+0 reverted. Review-driven fixup rounds: 13 across the 8 merged loop PRs (3 of them on #448). Token spend
 for this batch was not extracted; the baseline's medians above cover runs up to #439.
 
 **Lessons.** L42 (#447). New: L43 (a proof from the authoring folder cannot see a clash
