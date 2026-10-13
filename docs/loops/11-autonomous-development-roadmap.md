@@ -133,18 +133,21 @@ remain attributable after a model or skill upgrade.
       `protect-main` ruleset blocks deletion and force-push, requires a PR (0
       approvals) and requires the five CI checks from GitHub Actions, with
       `strict_required_status_checks_policy: false` (a PR need not be up to date with
-      `main`); classic branch protection is not set. The policy is still read from the
-      candidate checkout, and changing the ruleset is a maintainer decision.
+      `main`); classic branch protection is not set. The `ship-pr` skill runs the gate
+      from a detached worktree of freshly fetched `origin/main`, not from the
+      candidate's checkout, and `automation/**` is a human-merge-only path for external
+      PRs; the trusted copy is still the last merged `main`, by procedure rather than a
+      separate trusted host. Changing the ruleset is a maintainer decision.
 - [ ] Require a complete allowlisted set of successful CI checks and independent
       review evidence for the exact head SHA. Empty, missing, pending, or unrelated
       checks never count as success. Bind reviews to the base as well as the head.
       Partial, CI half delivered: the merge gate
       ([`gate.ts`](../../automation/publish/gate.ts), tests in
       [`gate.test.ts`](../../automation/publish/gate.test.ts)) requires every
-      allowlisted check, from the expected CI app, to have succeeded on the exact SHA;
-      empty, missing, pending, skipped, neutral, foreign-app and other-SHA checks
-      refuse the merge, and so does an allowlist that disagrees with the repository's
-      required checks. Review evidence is not yet bound to the SHA or the base.
+      allowlisted check, from the pinned CI app and a single check suite, to have
+      succeeded on the exact SHA; empty, missing, pending, skipped, neutral,
+      foreign-app, second-suite and other-SHA checks refuse the merge, and so does an
+      allowlist or app that disagrees with the repository's required checks. Review evidence is not yet bound to the SHA or the base.
 - [ ] Pin every merge to the approved head, including maintainer-authored PRs.
       When the base changes, validate the new combined result before merging, through
       a merge queue or an equivalent serialized integration check.

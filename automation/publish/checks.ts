@@ -9,5 +9,10 @@ export const REQUIRED_CHECKS = [
   'End to end (Playwright)',
 ] as const;
 
+// The GitHub App that runs ci.yml (GitHub Actions). Pinned so the gate fails
+// closed when the repository rules cannot be read or leave the app open: a
+// same-named check from any other app never counts.
+export const CI_APP_ID = 15368;
+
 export const REPO = 'gymcoach-app/gymcoach';
 export const BASE_BRANCH = 'main';

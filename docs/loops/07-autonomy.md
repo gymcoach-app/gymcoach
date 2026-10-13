@@ -107,7 +107,7 @@ operator gives you in-session.
   the loop, either tier, only when every pass is clean, the egress/backdoor and
   threat-model lenses are both clean, and a rollback tag is pushed before the merge;
   **group B** (paths that steer the loop or the build and supply chain - `.github/**`,
-  `scripts/**`, `.claude/**`, `CLAUDE.md`, `docs/loops/**`, container, ignore and env
+  `scripts/**`, `.claude/**`, `automation/**`, `CLAUDE.md`, `docs/loops/**`, container, ignore and env
   files, `middleware.ts`, dependency manifests, executable configs, `.coderabbit.yaml`)
   stays human-merge only.
 - **The execution gate.** CI is the only executor of unvetted code. Never run

@@ -5,6 +5,8 @@
 // The gate fails closed. A merge needs, for the exact approved SHA, a
 // successful run of every allowlisted check from the expected CI app, with
 // nothing missing, pending or failed; an empty check list is never success.
+// The expected app is pinned (CI_APP_ID) and all required checks must come
+// from one check suite, so no other app or workflow can stand in for CI.
 
 export const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -27,6 +29,9 @@ export interface CheckRun {
   status: string; // queued | in_progress | completed | ...
   conclusion: string | null; // success | failure | neutral | skipped | ...
   appId: number | null;
+  // The check suite the run belongs to. A CI rerun stays in the same suite; a
+  // same-named job from another workflow or event lands in another one.
+  suiteId: number | null;
 }
 
 export interface RequiredCheck {
@@ -41,9 +46,11 @@ export interface GateInput {
   // The committed allowlist (automation/publish/checks.ts).
   allowlist: readonly string[];
   // The repository's required status checks for the base branch, or null when
-  // they could not be read (the allowlist then stands alone, and the decision
-  // says so).
+  // they could not be read (the allowlist and the pinned app then stand alone,
+  // and the decision says so).
   requiredChecks: RequiredCheck[] | null;
+  // The app expected to post every required check (checks.ts CI_APP_ID).
+  ciAppId: number;
   baseBranch: string;
 }
 
@@ -54,6 +61,8 @@ export type RefusalCode =
   | 'wrong-base'
   | 'head-moved'
   | 'allowlist-mismatch'
+  | 'required-app-mismatch'
+  | 'check-suite-mismatch'
   | 'no-checks'
   | 'check-wrong-sha'
   | 'check-foreign-app'
@@ -105,7 +114,7 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
 
   // The repository's rules and the committed allowlist must name the same
   // checks: a drift either way means one of them is stale.
-  let expectedApp = new Map<string, number | null>();
+  const { ciAppId } = input;
   if (input.requiredChecks) {
     const required = new Set(input.requiredChecks.map((c) => c.context));
     const listed = new Set(allowlist);
@@ -117,7 +126,17 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
         `required by the repository but not allowlisted: [${onlyRequired.join(', ')}]; allowlisted but not required: [${onlyListed.join(', ')}]`,
       );
     }
-    expectedApp = new Map(input.requiredChecks.map((c) => [c.context, c.integrationId]));
+    // A rule naming another app means the pinned CI app is stale or the rules
+    // were changed: refuse rather than guess. A rule with no app (any app may
+    // post it) falls back to the pinned app, which is stricter.
+    for (const c of input.requiredChecks) {
+      if (c.integrationId != null && c.integrationId !== ciAppId) {
+        refuse(
+          'required-app-mismatch',
+          `the repository requires "${c.context}" from app ${c.integrationId}, the gate pins app ${ciAppId}`,
+        );
+      }
+    }
   }
 
   if (allowlist.length === 0) refuse('no-checks', 'the allowlist is empty');
@@ -131,16 +150,30 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     }
   }
 
+  // Every required check from the CI app must sit in one check suite. Reruns
+  // stay in their suite, so a second suite means another workflow or event
+  // posted a same-named check, whose later run could shadow a real failure.
+  const suites = new Set(
+    input.checkRuns
+      .filter((r) => r.headSha === approvedSha && r.appId === ciAppId && allowlist.includes(r.name))
+      .map((r) => r.suiteId),
+  );
+  if (suites.size > 1 || suites.has(null)) {
+    refuse(
+      'check-suite-mismatch',
+      `required checks span ${suites.size} check suites [${[...suites].map((s) => s ?? 'unknown').join(', ')}], expected one`,
+    );
+  }
+
   const passed: PassedCheck[] = [];
   for (const name of allowlist) {
-    const app = expectedApp.get(name) ?? null;
     const named = input.checkRuns.filter((r) => r.name === name && r.headSha === approvedSha);
-    const fromApp = app == null ? named : named.filter((r) => r.appId === app);
+    const fromApp = named.filter((r) => r.appId === ciAppId);
     // A same-named check from another app could impersonate CI: fail closed.
-    for (const foreign of named.filter((r) => app != null && r.appId !== app)) {
+    for (const foreign of named.filter((r) => r.appId !== ciAppId)) {
       refuse(
         'check-foreign-app',
-        `check "${name}" (${foreign.id}) comes from app ${foreign.appId}, expected ${app}`,
+        `check "${name}" (${foreign.id}) comes from app ${foreign.appId ?? 'unknown'}, expected ${ciAppId}`,
       );
     }
     if (fromApp.length === 0) {

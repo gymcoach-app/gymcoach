@@ -33,7 +33,8 @@ changes on.
      auto-merge is permitted ONLY after that policy's full sequence - mechanical
      hard-block path gate (group B = verdict only; group A = see below), no file overlap with another PR handled this run, multi-lens
      adversarial review with structured verdicts, green CI on the SHA recorded before
-     review, then the pinned merge of step 5 (`--method merge` for stacked fork PRs).
+     review, then the pinned merge of step 5 with `--method merge` (a merge commit, the
+     default for every vetted fork PR, stacked or not).
      Local gate runs and fixups are permitted at this tier only.
    - Anyone else: do NOT execute their code locally (CI is the only executor - no
      `verify.sh`, no `npm ci` on their branch, even in a worktree). Run the read-only
@@ -108,32 +109,50 @@ changes on.
    remove it afterwards. Say so in every review subagent's prompt (lesson L38).
 
 5. **Merge.** Only if CI is green AND review is clean. **Every merge, loop-authored or
-   external, goes through the merge gate pinned to the SHA the review covered:**
+   external, goes through the merge gate pinned to the SHA the review covered**, run from
+   a trusted tree: a detached worktree of freshly fetched `origin/main`, never the
+   candidate's own checkout (whose `automation/publish/` is the code under review):
 
    ```bash
+   git -C <main-checkout> fetch origin
+   git -C <main-checkout> worktree add --detach <scratch>/gate origin/main
+   ln -s <main-checkout>/node_modules <scratch>/gate/node_modules
+   cd <scratch>/gate
    npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha>            # dry run
    npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
      --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"]
+   git -C <main-checkout> worktree remove --force <scratch>/gate
    ```
 
-   The gate refuses (exit 1, reasons printed) when the head moved from the reviewed SHA,
+   Methods: `--method squash` for loop-authored PRs; `--method merge` (a merge commit) for
+   every vetted-contributor fork PR, which keeps a stack's later PRs to their own delta.
+   The gate refuses (exit 1, reasons printed) when the head moved from the reviewed SHA;
    any of the five CI checks is missing, pending, or not `success` on that exact SHA
-   (skipped and neutral do not count), the check list is empty, a check comes from
-   another SHA or another app, the committed allowlist and the repository's required
-   checks disagree, or the PR is not an open, non-draft, `clean` PR into `main`. Then it
-   merges with `sha=<reviewed>`, so GitHub also rejects a push that lands in between. Use
-   `--method merge` for a stack of vetted-contributor fork PRs (merge commits). A refusal
-   is a stop, not something to retry around: a moved head needs a fresh review of the
-   delta, a red or pending check needs step 3. Never fall back to `gh pr merge` or a bare
-   merge API call. Delete a loop branch afterwards by hand, never on a fork. Confirm it
-   merged (`gh pr view <n> --json state,mergedAt`). In a stack, never merge the second PR before
-   the first has its own green CI on its own pinned SHA, even when the second's green CI
-   covered a superset tree (lesson L32).
-   **If the merge call errors** (network, timeout), check the PR state before anything
-   else: it may have landed. Never re-run a merge without that check. Then clean up by
-   hand: `git push origin --delete <branch>` and `git worktree remove <path>`. (The old
-   `gh pr merge --delete-branch` exited 1 *after* a successful merge when the branch was
-   checked out in a worktree.)
+   (skipped and neutral do not count); the check list is empty; a check comes from another
+   SHA, from an app other than the pinned CI app (`CI_APP_ID`, used even when the
+   repository rules cannot be read), or from a second check suite; the committed
+   allowlist and the repository's required checks or their app disagree; or the PR is
+   not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
+   unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
+   apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are
+   refused by design, so a red non-required check also blocks a merge. Then it merges with
+   `sha=<reviewed>`, so GitHub also rejects a push that lands in between, and deletes the
+   head branch when it lives in this repository (never a fork's; `--keep-branch` keeps it,
+   for example when it is the base of a stacked PR). A refusal is a stop, not something to
+   retry around: a moved head needs a fresh review of the delta, a red or pending check
+   needs step 3. Never fall back to `gh pr merge` or a bare merge API call, except the
+   one bootstrap merge of the PR that adds this CLI (origin/main has no gate yet). Confirm
+   it merged (`gh pr view <n> --json state,mergedAt`). In a stack, never merge the second
+   PR before the first has its own green CI on its own pinned SHA, even when the second's
+   green CI covered a superset tree (lesson L32).
+   **Exit codes**: 0 merged (or mergeable in a dry run), 1 refused, 2 usage error, 3 a `gh`
+   or network error. On 3 the merge may or may not have landed: check the PR state before
+   anything else, and never re-run a merge without that check. Remove the tick's worktree
+   with `git worktree remove <path>` after the merge.
+   **Residual limit:** the trusted copy is whatever `origin/main` holds, so the gate is only
+   as good as the last merged change to `automation/`; that is why `automation/**` is a
+   group B path (human-merge only for external PRs). The gate also runs with the caller's
+   own `gh` token: it constrains an agent that follows this skill, not one that bypasses it.
 
 6. **Report.** PR -> merged (with the merge commit), or skipped/blocked with the reason.
 

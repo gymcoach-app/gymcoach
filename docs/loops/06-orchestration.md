@@ -132,5 +132,7 @@ shared-infra `flock` for the test Postgres and dev port (L16), which serialized 
 worktrees only decide *where*), `git worktree add ../gymcoach-wt-<n>` per tick, `npm ci` +
 `npm rebuild bcrypt` + `prisma migrate deploy` in each (L4), let the ticks stop at the PR
 (L3), and ship them one at a time. Clean up with `git worktree remove` after the merge -
-and note that `gh pr merge --delete-branch` exits 1 after a successful merge while the
-branch is still checked out in a worktree (see the `ship-pr` skill, step 5).
+and merge through the pinned merge gate (`automation/publish/merge.ts`, see the `ship-pr`
+skill, step 5), which deletes a same-repo head branch on the remote after the merge. The
+old `gh pr merge --delete-branch` exited 1 after a successful merge while the branch was
+still checked out in a worktree; the gate's remote deletion does not have that problem.

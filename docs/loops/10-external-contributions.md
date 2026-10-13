@@ -44,7 +44,8 @@ now split in two groups (see "Hard-block paths"):
   clean, and only after a rollback tag (`autonomy-baseline-<date>[suffix]`)
   is pushed at the pre-merge `main`.
 - **Group B - paths that steer the loop itself or the build and supply
-  chain** (CI, scripts, `.claude/`, the charter and this policy, container
+  chain** (CI, scripts, `.claude/`, the maintenance runtime `automation/`
+  that holds the merge gate, the charter and this policy, container
   and ignore files, env files, middleware, dependency manifests and
   lockfiles, executable configs, `.coderabbit.yaml`). Still human-merge only.
 
@@ -185,6 +186,9 @@ An external PR touching any of these is never merged by the loop, whatever the
 review outcome. The loop may still review it and comment; a human clicks merge.
 
 - `.github/**` (workflows, CI), `scripts/**`, `.claude/**`
+- `automation/**` - the maintenance runtime, including the merge gate
+  (`automation/publish/**`) that decides every merge: a PR weakening it would
+  grade its own merge
 - `CLAUDE.md`, `docs/loops/**` - a PR editing the charter or this policy is a
   persistent prompt-injection attempt, not a contribution
 - `Dockerfile*`, `docker-compose*`, `.dockerignore`, `.gitignore`

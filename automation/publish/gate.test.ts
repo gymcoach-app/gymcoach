@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { REQUIRED_CHECKS } from './checks';
+import { CI_APP_ID, REQUIRED_CHECKS } from './checks';
 import { type CheckRun, type GateInput, type RefusalCode, evaluateMergeGate } from './gate';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
-const CI_APP = 15368;
+const CI_APP = CI_APP_ID;
+const SUITE = 7000;
 
 function green(name: string, id: number, over: Partial<CheckRun> = {}): CheckRun {
   return {
@@ -14,6 +15,7 @@ function green(name: string, id: number, over: Partial<CheckRun> = {}): CheckRun
     status: 'completed',
     conclusion: 'success',
     appId: CI_APP,
+    suiteId: SUITE,
     ...over,
   };
 }
@@ -33,6 +35,7 @@ function input(over: Partial<GateInput> = {}): GateInput {
     checkRuns: REQUIRED_CHECKS.map((name, i) => green(name, 100 + i)),
     allowlist: REQUIRED_CHECKS,
     requiredChecks: REQUIRED_CHECKS.map((context) => ({ context, integrationId: CI_APP })),
+    ciAppId: CI_APP,
     baseBranch: 'main',
     ...over,
   };
@@ -61,8 +64,9 @@ describe('merge gate', () => {
     expect(codes({ pull: { ...pull, headSha: OTHER } })).toContain('head-moved');
   });
 
-  it('refuses a short or malformed approved SHA', () => {
+  it('refuses a short, malformed or uppercase approved SHA', () => {
     expect(codes({ approvedSha: 'aaaaaaa' })).toContain('approved-sha-invalid');
+    expect(codes({ approvedSha: 'A'.repeat(40) })).toContain('approved-sha-invalid');
   });
 
   it('refuses a closed, merged, draft or wrong-base PR', () => {
@@ -131,9 +135,56 @@ describe('merge gate', () => {
     expect(codes({ requiredChecks: extra })).toContain('allowlist-mismatch');
   });
 
-  it('falls back to the allowlist alone when the rules are unreadable, and says so', () => {
+  it('falls back to the allowlist and the pinned app when the rules are unreadable', () => {
     const decision = evaluateMergeGate(input({ requiredChecks: null }));
     expect(decision).toMatchObject({ mergeable: true, requiredChecksSource: 'unreadable' });
+    // Unreadable rules never open the app check: a same-named run from another
+    // app is still refused.
+    const impostor = green(REQUIRED_CHECKS[0], 900, { appId: 999 });
+    expect(codes({ requiredChecks: null, checkRuns: [...input().checkRuns, impostor] })).toContain(
+      'check-foreign-app',
+    );
+  });
+
+  it('uses the pinned app when a required check names no app', () => {
+    const openRule = input().requiredChecks!.map((c) => ({ ...c, integrationId: null }));
+    expect(evaluateMergeGate(input({ requiredChecks: openRule })).mergeable).toBe(true);
+    const onlyImpostor = input().checkRuns.map((r, i) => (i === 0 ? { ...r, appId: 999 } : r));
+    const result = codes({ requiredChecks: openRule, checkRuns: onlyImpostor });
+    expect(result).toContain('check-foreign-app');
+    expect(result).toContain('check-missing');
+  });
+
+  it('refuses when the repository requires a check from another app than the pinned one', () => {
+    const otherApp = input().requiredChecks!.map((c, i) =>
+      i === 0 ? { ...c, integrationId: 4242 } : c,
+    );
+    expect(codes({ requiredChecks: otherApp })).toContain('required-app-mismatch');
+  });
+
+  it('ignores a higher-id run from a foreign app instead of letting it decide', () => {
+    const failed = input().checkRuns.map((r, i) => (i === 0 ? { ...r, conclusion: 'failure' } : r));
+    const foreignGreen = green(REQUIRED_CHECKS[0], 99999, { appId: 999, suiteId: 8000 });
+    const result = codes({ checkRuns: [...failed, foreignGreen] });
+    expect(result).toContain('check-not-success');
+    expect(result).toContain('check-foreign-app');
+  });
+
+  it('refuses required checks spread over two check suites', () => {
+    // Another workflow posts a later green run with the CI job's name: it must
+    // not shadow the real (failed) CI run.
+    const failed = input().checkRuns.map((r, i) => (i === 0 ? { ...r, conclusion: 'failure' } : r));
+    const shadow = green(REQUIRED_CHECKS[0], 99999, { suiteId: 8000 });
+    expect(codes({ checkRuns: [...failed, shadow] })).toContain('check-suite-mismatch');
+    const unknownSuite = input().checkRuns.map((r, i) => (i === 1 ? { ...r, suiteId: null } : r));
+    expect(codes({ checkRuns: unknownSuite })).toContain('check-suite-mismatch');
+  });
+
+  it('accepts a rerun inside the same check suite', () => {
+    const failedFirst = green(REQUIRED_CHECKS[3], 60, { conclusion: 'failure' });
+    expect(
+      evaluateMergeGate(input({ checkRuns: [failedFirst, ...input().checkRuns] })).mergeable,
+    ).toBe(true);
   });
 
   it('refuses an empty allowlist', () => {
