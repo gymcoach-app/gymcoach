@@ -235,6 +235,10 @@ evaluations; report the limitations of a small sample.
       and verification. Retrieve relevant lessons on demand; archive superseded guidance.
 - [ ] Convert recurring mechanical lessons into scripts or tests. Resolve conflicts
       between skills and historical prose, including worktree lifecycle and permission modes.
+      Partial: L42 (unit-tier timeouts under machine load, recurring since #219) became a
+      formatter cache in [`lib/units.ts`](../../lib/units.ts) with a cache-key test and a
+      worker cap in [`vitest.config.ts`](../../vitest.config.ts), with before/after timings
+      in [L42](lessons.md); the other lessons are not yet reviewed for this.
 
 Acceptance: a reviewer catches a seeded defect without the author's explanation;
 fixups invalidate or refresh the relevant review evidence; a task retrieves the

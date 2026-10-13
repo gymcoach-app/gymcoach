@@ -685,3 +685,29 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   at the root rather than by moving worktrees out of the checkout or skipping lint there.
 - **Status:** graduated -> `"root": true` in `.eslintrc.json` (this write-up's PR; a
   maintainer-tier change to a group B path, which the loop may make for its own work).
+
+### L42 - The unit tier timed out on heavy jsdom UI tests whenever other agents loaded the machine
+- **Trigger:** 2026-10-13. While three dev ticks, CI watchers and a Docker test database ran in
+  parallel (load average 16 to 30 on 12 cores), `bash scripts/verify.sh` failed its unit step
+  in at least five runs this session: 3 to 13 tests hit the 5 s per-test timeout, always led by
+  `components/session/editable-sets-table.test.tsx`, each file green when run alone. The same
+  class had been patched case by case before (#219: `delay: null` plus a 15 s timeout on one
+  readiness test). Reproduced on demand with 12 CPU busy loops: the slowest
+  `EditableSetsTable` test took 5.2 s and failed.
+- **Cause, measured with a CPU profile of that file:** React rendering (the weight picker
+  renders about 88 option buttons) and Testing Library's accessible-name computation over
+  them dominate; `formatWeight` rebuilt an `Intl.NumberFormat` on every call through
+  `Number#toLocaleString(locale, options)`, which made the file 30% slower than needed
+  (tests 5.2 to 5.9 s before, 3.6 to 3.9 s after, same load). On top of that, Vitest's default
+  pool (cores minus one) piles more workers onto CPUs that other agents already use.
+- **Lesson:** a flaky timeout under load is a performance defect with a cause, not a reason to
+  raise the timeout. Profile the slow file, fix the hot path in the product code, and size
+  the worker pool for a shared machine. `formatWeight` now reuses one formatter per
+  configuration (also used by the live equipment-weight preview), and `vitest.config.ts`
+  caps workers at half the cores (`VITEST_MAX_WORKERS` still overrides). With both, at load
+  about 20 the slowest `EditableSetsTable` test took 2.9 s instead of timing out; at idle the
+  tier takes about 14% longer.
+- **Status:** graduated -> formatter cache in `lib/units.ts` with a cache-key test, worker cap
+  in `vitest.config.ts` (this PR; CI runners keep Vitest's default). Never let a
+  `VITEST_MAX_WORKERS` above 1 reach the integration tier: it overrides
+  `fileParallelism: false` and files truncate each other's tables (L33).
