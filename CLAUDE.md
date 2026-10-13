@@ -35,11 +35,13 @@ can catch its own regressions locally.
 
 **`--full` bootstraps the test database itself.** Inside its lock, `verify.sh`
 runs `scripts/test-db.sh`: it starts the test Postgres on :5434 with
-`docker compose -f docker-compose.test.yml up -d` when Docker is available,
-waits until it accepts connections, and applies `prisma migrate deploy` to it. A
-guard refuses any database URL other than `localhost:5434/gymcoach_test`, so the
-step can never migrate a dev or production database (self-tested by
-`scripts/test-db.test.sh` in the default gate). If Docker is unavailable and
+`docker compose -f docker-compose.test.yml up -d` when Docker is available (a
+fixed compose project, `gymcoach-test`, so every checkout and worktree shares the
+same container), waits until it accepts TCP connections, and applies
+`prisma migrate deploy` to it. The migration URL is a hard-coded test URL,
+validated by a guard (`localhost:5434/gymcoach_test`, no query override) and set
+inline only for that command, so the step never migrates a dev or production
+database (guard self-tested by `scripts/test-db.test.sh` in the default gate). If Docker is unavailable and
 nothing listens on :5434, the gate stops with instructions (on this WSL box,
 start Docker Desktop first). History: lessons L4 and L23, where a fresh or
 restarted container (tmpfs data) failed the integration tier with

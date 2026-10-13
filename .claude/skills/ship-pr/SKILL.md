@@ -192,8 +192,9 @@ changes on.
   `scripts/container-integration.sh` (internal-only network, throwaway Postgres), never
   on the host (lesson L33).
 - Reproducing the gate in a fresh checkout/worktree: `npm ci` first (worktrees do not share
-  `node_modules`), `npm rebuild bcrypt` if its native binding is missing, and
-  `prisma migrate deploy` on :5434 before the integration/E2E tiers (lesson L4).
+  `node_modules`) and `npm rebuild bcrypt` if its native binding is missing (lesson L4).
+  The test database on :5434 is started and migrated by `verify.sh --full` itself
+  (`scripts/test-db.sh`, which retired the manual `prisma migrate deploy`).
 - At most 3 fix attempts per PR; then stop and hand off.
 - Per run, ship at most the PRs you were given (or cap "ship the ready PRs" at a small
   batch so a bad change cannot cascade). One merge at a time; re-check the next PR's CI

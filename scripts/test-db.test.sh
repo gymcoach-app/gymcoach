@@ -27,9 +27,14 @@ expect refuse 'postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach'
 expect refuse 'postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test_other'
 expect refuse 'postgresql://u:p@localhost:5434/gymcoach_test@evil.example.com:5432/prod'
 expect refuse ''
+expect refuse 'postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test?host=/tmp/evil'
+expect refuse 'postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test?schema=public&host=db.example.com'
+expect refuse $'postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test\npostgresql://x:y@prod:5432/prod'
+expect refuse 'postgresql://gymcoach_test:gymcoach_test@LOCALHOST:5434/gymcoach_test'
+expect refuse 'postgresql://gymcoach_test:gymcoach_test@[::1]:5434/gymcoach_test'
 
 if [ "$failures" -gt 0 ]; then
   echo "test-db guard self-test: $failures failure(s)"
   exit 1
 fi
-echo "test-db guard self-test: 10 cases passed"
+echo "test-db guard self-test: $(grep -c "^expect " "${BASH_SOURCE[0]}") cases passed"

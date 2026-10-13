@@ -10,6 +10,10 @@
 #     npm run test
 #   docker compose -f docker-compose.test.yml down
 
+# A fixed project name, so every checkout and worktree addresses the same
+# fixed-name container instead of deriving a project from its directory.
+name: gymcoach-test
+
 services:
   test-db:
     image: postgres:16-alpine
