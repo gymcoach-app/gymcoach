@@ -155,13 +155,20 @@ remain attributable after a model or skill upgrade.
       [`ship-pr` skill](../../.claude/skills/ship-pr/SKILL.md) goes through the gate
       with `sha=<reviewed head>`, loop-authored PRs included. A base update is not yet
       revalidated mechanically (lesson L39 is still a procedure).
-- [ ] Bootstrap the test database and migrations automatically; retire procedural
+- [x] Bootstrap the test database and migrations automatically; retire procedural
       workarounds once the scripts enforce their intent.
-      Partial: [`scripts/test-db.sh`](../../scripts/test-db.sh) starts, waits for and
-      migrates the test Postgres inside the `verify.sh --full` lock, behind a guard
-      self-tested by [`scripts/test-db.test.sh`](../../scripts/test-db.test.sh); the
-      manual step is retired from `CLAUDE.md` and `implement-issue`. Still to show: a
-      `--full` run from a wiped container on a host with Docker running.
+      Evidence (PR #441): [`scripts/test-db.sh`](../../scripts/test-db.sh) starts, waits
+      for (TCP readiness) and migrates the test Postgres inside the `verify.sh --full`
+      lock, under one pinned compose project shared by every checkout, behind a URL
+      guard self-tested by [`scripts/test-db.test.sh`](../../scripts/test-db.test.sh)
+      (15 cases). Validated on 2026-10-13 with Docker running: `verify.sh --full` from
+      a wiped container applied 28 migrations and passed unit (1376), integration (372)
+      and E2E (23); a second fresh worktree reused the same container ("No pending
+      migrations") and passed integration (372); a container left by another compose
+      project was replaced and migrated. The manual step is retired from `CLAUDE.md`,
+      `implement-issue` and `ship-pr`. Two earlier `--full` runs failed only at E2E with
+      `ERR_INSUFFICIENT_RESOURCES` while the host ran several agents at once (load ~20),
+      which is a concurrency-limit problem for the items above, not a bootstrap one.
 
 Acceptance: simulate a crash immediately after PR creation, lease expiry with a
 stale worker, concurrent task claims, budget exhaustion, absent CI checks, a push
