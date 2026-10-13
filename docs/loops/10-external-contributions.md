@@ -239,7 +239,10 @@ standing remit: independent lenses converge on the real findings when they are
 asked the concrete question, and produce four different lists of nits when they
 are not (**L27**). Unanimity is
 necessary but never treated as proof - review reduces risk, it does not
-certify absence of malice.
+certify absence of malice. Each lens's verdict is also posted as a
+machine-readable review record bound to the PR's base and head SHA
+(`automation/review/record.ts`, template in the ship-pr skill, step 4); the
+merge gate in pass 3 refuses without one for the exact head and base.
 
 **Pass 3 - CI on the pinned SHA**: full green CI on exactly the SHA recorded
 in pass 1. If the head moved since pass 1, start over. Every merge the loop
@@ -250,7 +253,13 @@ vetted-contributor fork PR (a merge commit, stacked or not), and
 `--method squash` for an unvetted external PR (as for #420 and #425). The gate
 makes a push race between review and merge fail closed: it
 refuses a moved head or an incomplete check set on that SHA, and the merge call
-carries `sha=<sha>`, so GitHub refuses it too if the head has moved. If `main`
+carries `sha=<sha>`, so GitHub refuses it too if the head has moved. It also
+refuses unless, for that head and the PR's current base, the latest review record
+of every reviewer (kind, model and lens set), posted by a maintainer account
+(matched by numeric user id), is ready with no blocking or major finding, so one
+lens cannot clear another lens's stop (unanimity): a
+fixup push or a rebase leaves the old record stale, and a comment by anyone
+else that imitates a record is ignored. If `main`
 moved under the PR in a way that touches the same files, re-run pass 2 on the
 new merge result.
 

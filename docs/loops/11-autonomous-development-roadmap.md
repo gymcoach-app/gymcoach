@@ -156,16 +156,27 @@ remain attributable after a model or skill upgrade.
       candidate's checkout, and `automation/**` is a human-merge-only path for external
       PRs; the trusted copy is still the last merged `main`, by procedure rather than a
       separate trusted host. Changing the ruleset is a maintainer decision.
-- [ ] Require a complete allowlisted set of successful CI checks and independent
+- [x] Require a complete allowlisted set of successful CI checks and independent
       review evidence for the exact head SHA. Empty, missing, pending, or unrelated
       checks never count as success. Bind reviews to the base as well as the head.
-      Partial, CI half delivered: the merge gate
+      Evidence: the merge gate
       ([`gate.ts`](../../automation/publish/gate.ts), tests in
       [`gate.test.ts`](../../automation/publish/gate.test.ts)) requires every
       allowlisted check, from the pinned CI app and a single check suite, to have
       succeeded on the exact SHA; empty, missing, pending, skipped, neutral,
       foreign-app, second-suite and other-SHA checks refuse the merge, and so does an
-      allowlist or app that disagrees with the repository's required checks. Review evidence is not yet bound to the SHA or the base.
+      allowlist or app that disagrees with the repository's required checks. It also
+      requires a structured review record ([`automation/review/`](../../automation/review/),
+      tests in [`comment.test.ts`](../../automation/review/comment.test.ts) and
+      [`record.test.ts`](../../automation/review/record.test.ts)) posted by a maintainer
+      account (pinned numeric user ids) for the approved head and the PR's current base
+      SHA; the latest record of every reviewer (kind, model and lens set) must be ready
+      with no blocking or major finding, so one lens cannot clear another's stop.
+      "Base" is GitHub's `base.sha` for the PR: it moves with a push or a rebase, not
+      when `main` merely advances, which is the next item's job. Caveat: the gate
+      proves review evidence for the exact commits exists, not that the review was
+      independent; the loop posts its records from the same account that authors its
+      PRs, so independence still rests on procedure (a separate reviewer agent).
 - [ ] Pin every merge to the approved head, including maintainer-authored PRs.
       When the base changes, validate the new combined result before merging, through
       a merge queue or an equivalent serialized integration check.
@@ -232,6 +243,12 @@ evaluations; report the limitations of a small sample.
 
 - [ ] Produce structured review results: base/head SHA, scope inspected, unread
       scope, severity, reproducible evidence, and verdict. Missing coverage is explicit.
+      Partial: the review record ([`schema.ts`](../../automation/review/schema.ts))
+      carries base and head SHA, lenses, files inspected, files not read in full,
+      findings with severity, file, line and claim, and the verdict; a ready verdict
+      cannot carry a blocking or major finding, and a fixup or rebase makes the record
+      stale for the merge gate. Reproducible evidence per finding (a command or test
+      that shows the defect) is not a field yet.
 - [ ] Keep reviewer context independent of the author's conversation. Supply the
       requirement, relevant code, diff, and verification evidence.
 - [ ] For changed user flows, run an independent browser check against a seeded

@@ -1,11 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { CI_APP_ID, REQUIRED_CHECKS } from './checks';
 import { type CheckRun, type GateInput, type RefusalCode, evaluateMergeGate } from './gate';
+import type { ReviewEvidence } from '../review/comment';
+import type { StructuredReview } from '../review/schema';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
 const CI_APP = CI_APP_ID;
 const SUITE = 7000;
+const BASE = 'c'.repeat(40);
+
+function evidence(over: Partial<StructuredReview> = {}, commentId = 900): ReviewEvidence {
+  return {
+    commentId,
+    author: 'JulienAu',
+    review: {
+      schemaVersion: 1,
+      pr: 42,
+      baseSha: BASE,
+      headSha: SHA,
+      reviewer: { kind: 'agent', model: 'claude-opus-5-5' },
+      lenses: ['correctness'],
+      filesInspected: ['lib/a.ts'],
+      filesNotReadInFull: [],
+      findings: [],
+      verdict: 'ready',
+      createdAt: '2026-10-13T12:00:00Z',
+      ...over,
+    },
+  };
+}
 
 function green(name: string, id: number, over: Partial<CheckRun> = {}): CheckRun {
   return {
@@ -28,6 +52,7 @@ function input(over: Partial<GateInput> = {}): GateInput {
       merged: false,
       draft: false,
       baseRef: 'main',
+      baseSha: BASE,
       headSha: SHA,
       mergeableState: 'clean',
     },
@@ -37,6 +62,8 @@ function input(over: Partial<GateInput> = {}): GateInput {
     requiredChecks: REQUIRED_CHECKS.map((context) => ({ context, integrationId: CI_APP })),
     ciAppId: CI_APP,
     baseBranch: 'main',
+    reviews: [evidence()],
+    invalidReviews: [],
     ...over,
   };
 }
@@ -197,4 +224,129 @@ describe('merge gate', () => {
       expect(codes({ pull: { ...pull, mergeableState } })).toContain('not-clean');
     },
   );
+
+  describe('review evidence', () => {
+    it('names the review record that allowed the merge', () => {
+      const decision = evaluateMergeGate(input());
+      expect(decision).toMatchObject({
+        mergeable: true,
+        reviews: [{ commentId: 900, author: 'JulienAu', reviewer: 'claude-opus-5-5' }],
+      });
+    });
+
+    it('refuses a PR with no review record', () => {
+      expect(codes({ reviews: [] })).toEqual(['no-review']);
+    });
+
+    it('refuses when the only review is of another head (a fixup was pushed)', () => {
+      expect(codes({ reviews: [evidence({ headSha: OTHER })] })).toEqual(['review-for-other-head']);
+    });
+
+    it('refuses when the review was made on another base (the PR was rebased)', () => {
+      expect(codes({ reviews: [evidence({ baseSha: OTHER })] })).toEqual(['review-for-other-base']);
+    });
+
+    it('refuses a needs-changes verdict', () => {
+      expect(
+        codes({
+          reviews: [
+            evidence({
+              verdict: 'needs-changes',
+              findings: [{ severity: 'minor', file: 'lib/a.ts', line: 3, claim: 'x' }],
+            }),
+          ],
+        }),
+      ).toEqual(['review-not-ready']);
+    });
+
+    it('refuses a ready verdict that still carries a major finding', () => {
+      // The schema rejects this shape; the gate must not rely on that alone.
+      expect(
+        codes({
+          reviews: [
+            evidence({ findings: [{ severity: 'major', file: null, line: null, claim: 'x' }] }),
+          ],
+        }),
+      ).toEqual(['review-not-ready']);
+    });
+
+    it('lets a reviewer replace its own earlier verdict on the same commits', () => {
+      const ready = evidence({}, 900);
+      const later = evidence({ verdict: 'needs-changes' }, 901);
+      expect(codes({ reviews: [ready, later] })).toEqual(['review-not-ready']);
+      // Same reviewer and lens set: the later ready record retracts the stop.
+      expect(evaluateMergeGate(input({ reviews: [later, evidence({}, 902)] })).mergeable).toBe(
+        true,
+      );
+    });
+
+    it('refuses when a maintainer review comment was edited or did not parse', () => {
+      // An edit must not erase a stop by turning the record invalid.
+      expect(
+        codes({
+          invalidReviews: [{ commentId: 950, reason: 'the comment was edited after posting' }],
+        }),
+      ).toEqual(['review-comment-invalid']);
+    });
+
+    it('keeps reviewer identities apart even when a lens contains a separator', () => {
+      const comma = evidence({ lenses: ['a,b'], verdict: 'needs-changes', findings: [] }, 960);
+      const split = evidence({ lenses: ['a', 'b'] }, 961);
+      expect(codes({ reviews: [comma, split] })).toEqual(['review-not-ready']);
+    });
+
+    it('never lets one lens override another lens that stopped the merge', () => {
+      const security = (over: Partial<StructuredReview>, id: number) =>
+        evidence({ lenses: ['security', 'egress'], ...over }, id);
+      const stop = security(
+        {
+          verdict: 'needs-changes',
+          findings: [{ severity: 'blocking', file: 'lib/a.ts', line: 1, claim: 'leak' }],
+        },
+        900,
+      );
+      // A later ready record from the correctness lens does not clear it.
+      expect(codes({ reviews: [stop, evidence({}, 901)] })).toEqual(['review-not-ready']);
+      // Both lenses ready: mergeable, with one entry per reviewer.
+      const both = evaluateMergeGate(input({ reviews: [security({}, 902), evidence({}, 903)] }));
+      expect(both.mergeable).toBe(true);
+      if (both.mergeable) expect(both.reviews.map((r) => r.commentId)).toEqual([902, 903]);
+      // The security lens re-reviews and says ready: the stop is retracted.
+      expect(
+        evaluateMergeGate(input({ reviews: [stop, evidence({}, 901), security({}, 904)] }))
+          .mergeable,
+      ).toBe(true);
+    });
+
+    it('orders records by comment id itself, whatever the caller passed', () => {
+      const ready = evidence({}, 902);
+      const earlierStop = evidence({ verdict: 'needs-changes' }, 901);
+      // Passed newest first: the gate still treats 902 as the latest word.
+      expect(evaluateMergeGate(input({ reviews: [ready, earlierStop] })).mergeable).toBe(true);
+      const laterStop = evidence({ verdict: 'needs-changes' }, 903);
+      expect(codes({ reviews: [laterStop, ready] })).toEqual(['review-not-ready']);
+    });
+
+    it('never falls back to a ready review of an older head', () => {
+      const old = evidence({ headSha: OTHER }, 900);
+      const current = evidence({ verdict: 'needs-changes' }, 901);
+      expect(codes({ reviews: [old, current] })).toEqual(['review-not-ready']);
+    });
+
+    it('accepts minor and nit findings on a ready verdict', () => {
+      const decision = evaluateMergeGate(
+        input({
+          reviews: [
+            evidence({
+              findings: [
+                { severity: 'minor', file: 'lib/a.ts', line: 1, claim: 'x' },
+                { severity: 'nit', file: null, line: null, claim: 'y' },
+              ],
+            }),
+          ],
+        }),
+      );
+      expect(decision.mergeable).toBe(true);
+    });
+  });
 });

@@ -64,7 +64,14 @@ Claude Code sessions in this project, not humans or other tools.
   SHA, and every allowlisted CI check, from the pinned CI app and one check suite,
   succeeded on that exact SHA (latest rerun in that suite decides). Empty, missing,
   pending, skipped, neutral, foreign-app, second-suite and other-SHA checks refuse
-  the merge.
+  the merge. It also needs a review record (below) for that head and the PR's current
+  base SHA. For that pair, the latest record of each reviewer (kind, model and lens set)
+  counts, and every one must be ready with no blocking or major finding: one lens never
+  overrides another lens's stop, only the same reviewer can retract its own verdict with
+  a later record (`no-review`, `review-for-other-head`, `review-for-other-base`,
+  `review-not-ready`). A maintainer comment with the review marker that was edited after
+  posting or does not parse refuses the merge (`review-comment-invalid`): an edit must not
+  erase a stop. Post a fresh record and delete the broken comment.
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
   disagrees with the repository's required status checks; when the rules cannot be
@@ -83,8 +90,39 @@ Claude Code sessions in this project, not humans or other tools.
     --title "feat: ... (#123)" --message "Closes #120"
   ```
 
-Limits: the gate checks CI, not review evidence; the review binding is still a
-procedure. Closing and reopening a PR, or opening a second PR at the same head SHA,
+## Review records (milestones 2 and 4)
+
+- `review/schema.ts` - one structured review of one PR at one base and head SHA:
+  reviewer, lenses, files inspected, files not read in full, findings (blocking, major,
+  minor, nit, with file, line and claim) and the verdict. A `ready` verdict cannot carry
+  a blocking or major finding.
+- `review/comment.ts` - the record travels as a PR comment: a short summary, the marker
+  `<!-- gymcoach-review v1 -->` and one fenced JSON block. Only comments authored by a
+  maintainer account (`MAINTAINERS` in `publish/checks.ts`, matched on the numeric user
+  id, never the login, which a renamed account frees for reuse) count; anyone can post a
+  look-alike, so the author decides, not the content. An edited record is refused (post
+  a new one instead). Malformed maintainer records are reported and ignored, never
+  counted. Not checked: `performed_via_github_app` (an app acting with a maintainer's
+  own user token posts as that maintainer).
+- `review/record.ts` - posts a record after validating it and checking that its head
+  and base are the PR's live head and base and that `gh` is a maintainer account.
+  `--dry-run` prints the comment. Exit codes as for `merge.ts`.
+
+  ```bash
+  npx tsx automation/review/record.ts 123 --file review.json
+  ```
+
+A fixup push changes the head and a push after merging `main` into the branch changes
+the base, so the previous record stops matching and a fresh review must post a new
+one. "Base" is GitHub's `base.sha`: it does not move when `main` advances without a
+push, so a base that moved under a reviewed PR is not yet revalidated mechanically
+(lesson L39 remains a procedure). Records are only as trustworthy as the maintainer
+account that posts them: the gate proves a record exists for the right commits, not
+that the review was independent, since the loop posts records from the same account that
+authors its PRs. `record.ts` sends the comment body on stdin, so a large record never
+hits the argument size limit.
+
+Limits: closing and reopening a PR, or opening a second PR at the same head SHA,
 starts a second check suite, and the gate then refuses that SHA for good (fail
 closed, `check-suite-mismatch`); the remedy is a new commit, a review of it, and a
 new gate run. The trusted copy is whatever `origin/main` holds, which is why

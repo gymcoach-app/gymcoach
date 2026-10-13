@@ -7,6 +7,16 @@
 // nothing missing, pending or failed; an empty check list is never success.
 // The expected app is pinned (CI_APP_ID) and all required checks must come
 // from one check suite, so no other app or workflow can stand in for CI.
+//
+// It also needs review evidence bound to the same commits: a structured review
+// record (automation/review/) posted by a maintainer account whose head SHA is
+// the approved SHA and whose base SHA is the PR's current base. The latest such
+// record decides, and it must be ready with no blocking or major finding. A
+// fixup push or a rebase therefore leaves no matching record until a fresh
+// review is posted.
+
+import type { ReviewEvidence } from '@/automation/review/comment';
+import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';
 
 export const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -16,6 +26,10 @@ export interface PullState {
   merged: boolean;
   draft: boolean;
   baseRef: string;
+  // The base commit GitHub holds for the PR (pulls API base.sha). It moves when
+  // the head is pushed or the PR is rebased, not when the base branch merely
+  // advances.
+  baseSha: string;
   headSha: string;
   // GitHub's mergeable_state: clean, unstable, blocked, behind, dirty,
   // unknown, has_hooks, draft. Null while GitHub is still computing it.
@@ -52,6 +66,13 @@ export interface GateInput {
   // The app expected to post every required check (checks.ts CI_APP_ID).
   ciAppId: number;
   baseBranch: string;
+  // Valid review records from maintainer comments, oldest first
+  // (automation/review/comment.ts parseReviewComments).
+  reviews: ReviewEvidence[];
+  // Maintainer comments carrying the review marker that did not parse or were
+  // edited after posting. Any one refuses the merge: dropping it silently
+  // would let an edit erase a stop.
+  invalidReviews: { commentId: number; reason: string }[];
 }
 
 export type RefusalCode =
@@ -69,7 +90,12 @@ export type RefusalCode =
   | 'check-missing'
   | 'check-pending'
   | 'check-not-success'
-  | 'not-clean';
+  | 'not-clean'
+  | 'no-review'
+  | 'review-for-other-head'
+  | 'review-for-other-base'
+  | 'review-not-ready'
+  | 'review-comment-invalid';
 
 export interface Refusal {
   code: RefusalCode;
@@ -81,12 +107,34 @@ export interface PassedCheck {
   checkRunId: number;
 }
 
+export interface PassedReview {
+  commentId: number;
+  author: string;
+  reviewer: string;
+  lenses: string[];
+}
+
+// A reviewer's identity for the gate: who reviewed (kind and model) and what
+// they looked for (the lens set). A later record with the same identity
+// replaces the earlier one (an explicit retraction or a re-review); a record
+// with a different identity is another reviewer whose verdict also counts.
+export function reviewerIdentity(review: StructuredReview): string {
+  // JSON keeps the parts unambiguous whatever characters they contain.
+  return JSON.stringify([
+    review.reviewer.kind,
+    review.reviewer.model ?? null,
+    [...new Set(review.lenses)].sort(),
+  ]);
+}
+
 export type GateDecision =
   | {
       mergeable: true;
       sha: string;
       checks: PassedCheck[];
       requiredChecksSource: 'repository' | 'unreadable';
+      // One entry per reviewer identity, all ready.
+      reviews: PassedReview[];
     }
   | { mergeable: false; refusals: Refusal[] };
 
@@ -195,6 +243,11 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     }
   }
 
+  const reviews = evaluateReviews(input, refuse);
+  for (const bad of input.invalidReviews) {
+    refuse('review-comment-invalid', `review comment ${bad.commentId}: ${bad.reason}`);
+  }
+
   if (pull.mergeableState !== 'clean') {
     refuse(
       'not-clean',
@@ -202,11 +255,71 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     );
   }
 
-  if (refusals.length) return { mergeable: false, refusals };
+  if (refusals.length || !reviews) return { mergeable: false, refusals };
   return {
     mergeable: true,
     sha: approvedSha,
     checks: passed,
     requiredChecksSource: input.requiredChecks ? 'repository' : 'unreadable',
+    reviews,
   };
+}
+
+// The review evidence for (approved head, current base). Records for another
+// head or base are stale, never a fallback. For the exact pair, the latest
+// record of each reviewer identity counts, and every one of them must be ready
+// with no blocking or major finding: one lens cannot override another lens's
+// stop (multi-lens unanimity, docs/loops/10), only the same reviewer can
+// retract its own verdict with a later record.
+function evaluateReviews(
+  input: GateInput,
+  refuse: (code: RefusalCode, detail: string) => void,
+): PassedReview[] | null {
+  const { pull, approvedSha } = input;
+  // Oldest first by comment id, whatever order the caller passed.
+  const reviews = [...input.reviews].sort((a, b) => a.commentId - b.commentId);
+  if (reviews.length === 0) {
+    refuse('no-review', `no review record on PR #${pull.number}`);
+    return null;
+  }
+  const forHead = reviews.filter((r) => r.review.headSha === approvedSha);
+  if (forHead.length === 0) {
+    const heads = [...new Set(reviews.map((r) => r.review.headSha.slice(0, 12)))];
+    refuse(
+      'review-for-other-head',
+      `review records cover head(s) [${heads.join(', ')}], not ${approvedSha}`,
+    );
+    return null;
+  }
+  const matching = forHead.filter((r) => r.review.baseSha === pull.baseSha);
+  if (matching.length === 0) {
+    const bases = [...new Set(forHead.map((r) => r.review.baseSha.slice(0, 12)))];
+    refuse(
+      'review-for-other-base',
+      `the review of ${approvedSha.slice(0, 12)} was made on base(s) [${bases.join(', ')}], the PR's base is now ${pull.baseSha}`,
+    );
+    return null;
+  }
+  const latestByReviewer = new Map<string, ReviewEvidence>();
+  for (const r of matching) latestByReviewer.set(reviewerIdentity(r.review), r);
+  const passed: PassedReview[] = [];
+  let stopped = false;
+  for (const [identity, r] of latestByReviewer) {
+    const stopping = r.review.findings.filter((f) => STOPPING_SEVERITIES.includes(f.severity));
+    if (r.review.verdict !== 'ready' || stopping.length > 0) {
+      refuse(
+        'review-not-ready',
+        `reviewer ${identity} (comment ${r.commentId}) says ${r.review.verdict} with ${stopping.length} blocking or major finding(s)`,
+      );
+      stopped = true;
+      continue;
+    }
+    passed.push({
+      commentId: r.commentId,
+      author: r.author,
+      reviewer: r.review.reviewer.model ?? r.review.reviewer.kind,
+      lenses: r.review.lenses,
+    });
+  }
+  return stopped ? null : passed;
 }
