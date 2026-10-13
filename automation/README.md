@@ -46,3 +46,38 @@ the PR within the window; a fix PR closed unmerged does not count. Revert and
 follow-up rates are reported over runs whose window has closed, with observing
 runs apart. CI: skipped and neutral checks are not decisive, and a running check
 leaves the head's CI outcome unknown.
+
+## Agent usage (milestone 1)
+
+- `usage/build.ts` - pure parser and linker: Claude Code session transcript lines
+  in, per-run usage records out (`usage/schema.ts`, usage schema version 1).
+- `usage/prices.ts` - dated API list prices per model, used only for an
+  API-equivalent cost estimate; a model or speed without a verified price keeps the
+  cost unknown.
+- `usage/enrich.ts` - writes `usage.jsonl` (one record per run, keyed by `runId`)
+  and `usage-meta.json` next to a baseline's `runs.jsonl`, and re-renders
+  `report.md`. `render.ts` reads them when present.
+
+  ```bash
+  npx tsx automation/usage/enrich.ts --dir docs/loops/baseline/2026-10-13 \
+    --transcripts ~/.claude/projects/<project-slug>
+  ```
+
+Attribution, never guessed: a subagent session counts toward a run when it worked
+on exactly one branch other than `main`, a detached HEAD or a fresh
+`worktree-agent-*` branch, and that branch is the PR's head branch; or when its task
+prompt names exactly one PR (`pull/<n>/head`, else `PR #<n>`) in the baseline.
+Conflicting, ambiguous or missing evidence leaves it unattributed. Orchestrating
+(main) sessions span many runs: their usage is totalled apart and only their link
+count is recorded per run. Each API response is counted once, at its final usage,
+even when logged per streamed block or in two transcripts. Skill version is known
+only for a skill invoked through the Skill tool (`<skill>@<commit>` of its
+`SKILL.md` at session start).
+
+Privacy: transcripts are read in memory. The outputs hold token counts, estimated
+cost, durations, counts, model ids and skill versions, never prompts, tool output,
+paths, branch names or session ids.
+
+Limits: only transcripts the operator retained on this machine are visible (from
+2026-09-11 here); work outside Claude Code is invisible; summed session time is not
+human-attended time; the estimate is not an amount billed.

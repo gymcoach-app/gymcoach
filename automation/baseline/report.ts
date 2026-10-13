@@ -1,5 +1,6 @@
-import type { Measurement, RunBundle } from '@/automation/records/schema';
-import { authorClasses } from '@/automation/records/schema';
+import type { Measurement, Observation, RunBundle } from '@/automation/records/schema';
+import { authorClasses, unknown } from '@/automation/records/schema';
+import type { UsageMeta, UsageRecord } from '@/automation/usage/schema';
 
 // Renders the concise Markdown report for a set of run bundles. Every rate
 // states its denominator, and unknown measurements are counted as unknown,
@@ -19,7 +20,7 @@ export interface UsageSummary {
   reasons: string[];
 }
 
-export function summarizeMeasurements(values: Measurement[]): UsageSummary {
+export function summarizeMeasurements(values: (Measurement | Observation)[]): UsageSummary {
   const reasons = new Set<string>();
   let known = 0;
   for (const value of values) {
@@ -45,7 +46,18 @@ function usageLine(label: string, summary: UsageSummary, total: number): string 
   return `| ${label} | ${summary.known} of ${total} | ${summary.unknown} of ${total}${reasons} |`;
 }
 
-export function renderReport(bundles: RunBundle[], meta: ReportMeta): string {
+// Agent usage recovered from session transcripts (automation/usage), keyed by
+// runId. Without it, the report shows the run records' own usage fields.
+export interface UsageInput {
+  records: UsageRecord[];
+  meta: UsageMeta;
+}
+
+export function renderReport(
+  bundles: RunBundle[],
+  meta: ReportMeta,
+  usageInput?: UsageInput,
+): string {
   const total = bundles.length;
   const by = <K extends string>(key: (b: RunBundle) => K) => {
     const out = new Map<K, number>();
@@ -123,43 +135,47 @@ export function renderReport(bundles: RunBundle[], meta: ReportMeta): string {
     '- Local subagent reviews left no per-SHA record and are unknown for every run.',
     `- Median time from PR creation to merge: ${hours(median(openTimes))} over ${openTimes.length} merged runs.`,
     '',
-    '## Usage and cost',
-    '',
-    '| Measurement | Known | Unknown |',
-    '| --- | --- | --- |',
-    usageLine(
-      'Input tokens',
-      usage((b) => b.run.usage.inputTokens),
-      total,
-    ),
-    usageLine(
-      'Output tokens',
-      usage((b) => b.run.usage.outputTokens),
-      total,
-    ),
-    usageLine(
-      'Cost (USD)',
-      usage((b) => b.run.usage.costUsd),
-      total,
-    ),
-    usageLine(
-      'Agent duration',
-      usage((b) => b.run.usage.agentDuration),
-      total,
-    ),
-    usageLine(
-      'Human interventions',
-      usage((b) => b.run.humanInterventions),
-      total,
-    ),
-    usageLine(
-      'Agent attempts',
-      usage((b) => b.run.attempts.agentAttempts),
-      total,
-    ),
-    '',
-    'No cost per successful task is reported: the cost of every run is unknown.',
-    '',
+    ...(usageInput
+      ? usageSection(bundles, usageInput)
+      : [
+          '## Usage and cost',
+          '',
+          '| Measurement | Known | Unknown |',
+          '| --- | --- | --- |',
+          usageLine(
+            'Input tokens',
+            usage((b) => b.run.usage.inputTokens),
+            total,
+          ),
+          usageLine(
+            'Output tokens',
+            usage((b) => b.run.usage.outputTokens),
+            total,
+          ),
+          usageLine(
+            'Cost (USD)',
+            usage((b) => b.run.usage.costUsd),
+            total,
+          ),
+          usageLine(
+            'Agent duration',
+            usage((b) => b.run.usage.agentDuration),
+            total,
+          ),
+          usageLine(
+            'Human interventions',
+            usage((b) => b.run.humanInterventions),
+            total,
+          ),
+          usageLine(
+            'Agent attempts',
+            usage((b) => b.run.attempts.agentAttempts),
+            total,
+          ),
+          '',
+          'No cost per successful task is reported: the cost of every run is unknown.',
+          '',
+        ]),
     '## Limits',
     '',
     '- One run per PR: work that never reached a PR (abandoned before opening) is invisible here.',
@@ -168,6 +184,12 @@ export function renderReport(bundles: RunBundle[], meta: ReportMeta): string {
     '- `loop` means the maintainer account plus a Claude Co-Authored-By trailer. It shows Claude wrote the commits, not that the run was unattended; human prompting is not recorded.',
     '- Follow-up and revert links are reference heuristics within the window, not a causal analysis.',
     '- Vetted status uses the grant date in `docs/loops/10-external-contributions.md`.',
+    ...(usageInput
+      ? [
+          '- Usage comes from local session transcripts. A subagent counts toward a run only when it worked on exactly one non-default branch that is the PR head branch, or its task prompt names exactly one PR; conflicting or missing evidence leaves it unattributed. Orchestrating sessions span many runs and are reported apart. Transcripts the operator did not retain, and work outside Claude Code, are invisible.',
+          '- Estimated cost applies API list prices to recorded tokens. It is an API-equivalent estimate, not an amount billed.',
+        ]
+      : []),
     ...(openRuns.length
       ? [
           `- PRs open at collection time are included at their head of that moment, with no merge outcome, and their CI may still change: ${openRuns.length}${prList(openRuns)}. A collection can include the PR that adds it.`,
@@ -176,4 +198,122 @@ export function renderReport(bundles: RunBundle[], meta: ReportMeta): string {
     '',
   ];
   return lines.join('\n');
+}
+
+function int(value: number): string {
+  return Math.round(value).toLocaleString('en-US');
+}
+
+function usd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+function usageSection(bundles: RunBundle[], { records, meta }: UsageInput): string[] {
+  const total = bundles.length;
+  const byRun = new Map(records.map((r) => [r.runId, r]));
+  const missing = unknown('no usage record for this run');
+  const pick = (f: (r: UsageRecord) => Measurement | Observation) =>
+    summarizeMeasurements(
+      bundles.map((b) => {
+        const r = byRun.get(b.run.runId);
+        return r ? f(r) : missing;
+      }),
+    );
+  const known = (m: Measurement): number | null => (m.status === 'known' ? m.value : null);
+  const withUsage = bundles.flatMap((b) => {
+    const r = byRun.get(b.run.runId);
+    return r && r.tokens.output.status === 'known' ? [{ b, r }] : [];
+  });
+  const sum = (f: (r: UsageRecord) => Measurement) =>
+    withUsage.reduce((acc, { r }) => acc + (known(f(r)) ?? 0), 0);
+  const costed = withUsage.filter(({ r }) => r.estimatedCostUsd.status === 'known');
+  const mergedCosts = costed
+    .filter(({ b }) => b.outcome.outcome === 'merged')
+    .map(({ r }) => known(r.estimatedCostUsd)!);
+  const tokensOf = (t: UsageMeta['orchestration']['tokens']) =>
+    t.input + t.output + t.cacheRead + t.cacheCreation5m + t.cacheCreation1h;
+  const costText = (m: Measurement) => (m.status === 'known' ? usd(m.value) : 'unknown');
+  const o = meta.orchestration;
+  const u = meta.unattributedSubagents;
+  return [
+    '## Usage and cost',
+    '',
+    `Agent usage from local Claude Code session transcripts (\`automation/usage/enrich.ts\`, generated ${meta.generatedAt}). Transcripts cover ${meta.transcriptCoverage.from ?? 'nothing'} to ${meta.transcriptCoverage.to ?? 'nothing'}: ${meta.sessionsScanned.main} orchestrating sessions and ${meta.sessionsScanned.subagent} subagent sessions, ${meta.subagentsAttributed} of them attributed to a run and ${meta.subagentsUnattributed} not.`,
+    '',
+    '| Measurement | Known | Unknown |',
+    '| --- | --- | --- |',
+    usageLine(
+      'Input tokens',
+      pick((r) => r.tokens.input),
+      total,
+    ),
+    usageLine(
+      'Output tokens',
+      pick((r) => r.tokens.output),
+      total,
+    ),
+    usageLine(
+      'Cache read tokens',
+      pick((r) => r.tokens.cacheRead),
+      total,
+    ),
+    usageLine(
+      'Cache write tokens (5 min)',
+      pick((r) => r.tokens.cacheCreation5m),
+      total,
+    ),
+    usageLine(
+      'Cache write tokens (1 h)',
+      pick((r) => r.tokens.cacheCreation1h),
+      total,
+    ),
+    usageLine(
+      'Estimated cost (USD)',
+      pick((r) => r.estimatedCostUsd),
+      total,
+    ),
+    usageLine(
+      'Agent duration',
+      pick((r) => r.agentDuration),
+      total,
+    ),
+    usageLine(
+      'Subagent sessions',
+      pick((r) => r.subagentSessions),
+      total,
+    ),
+    usageLine(
+      'Orchestrating sessions linked',
+      pick((r) => r.orchestratorSessionsLinked),
+      total,
+    ),
+    usageLine(
+      'Model',
+      pick((r) => r.models),
+      total,
+    ),
+    usageLine(
+      'Skill version',
+      pick((r) => r.skillVersion),
+      total,
+    ),
+    usageLine(
+      'Human interventions',
+      summarizeMeasurements(bundles.map((b) => b.run.humanInterventions)),
+      total,
+    ),
+    usageLine(
+      'Agent attempts',
+      summarizeMeasurements(bundles.map((b) => b.run.attempts.agentAttempts)),
+      total,
+    ),
+    '',
+    `- Runs with known usage: ${withUsage.length} of ${total}${withUsage.length ? ` (${withUsage.map(({ b }) => `#${b.run.prNumber}`).join(', ')})` : ''}. Their attributed subagents used ${int(sum((r) => r.tokens.input))} input, ${int(sum((r) => r.tokens.output))} output, ${int(sum((r) => r.tokens.cacheRead))} cache read and ${int(sum((r) => r.tokens.cacheCreation5m) + sum((r) => r.tokens.cacheCreation1h))} cache write tokens over ${(sum((r) => r.agentDuration) / 3600).toFixed(1)} h of summed session time.`,
+    costed.length
+      ? `- Estimated cost (API list prices) of attributed subagent work: ${usd(costed.reduce((acc, { r }) => acc + known(r.estimatedCostUsd)!, 0))} over ${costed.length} runs with a known estimate; median ${mergedCosts.length ? usd(median(mergedCosts)!) : 'n/a'} over ${mergedCosts.length} merged runs. Not extrapolated to the ${total - costed.length} runs whose cost is unknown, and not a cost per successful task across the baseline.`
+      : '- No run has a known cost estimate, so no cost per successful task is reported.',
+    `- Not attributed to any run: ${o.sessions} orchestrating sessions (${int(tokensOf(o.tokens))} tokens, estimated ${costText(o.estimatedCostUsd)}) and ${u.sessions} subagent sessions (${int(tokensOf(u.tokens))} tokens, estimated ${costText(u.estimatedCostUsd)}). ${meta.duplicateResponses} API responses logged in more than one transcript were counted once.`,
+    `- Prices: ${meta.priceTable.source}, checked ${meta.priceTable.checkedAt}.`,
+    '',
+  ];
 }

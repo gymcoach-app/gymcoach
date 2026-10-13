@@ -81,12 +81,21 @@ grading code, or reserved evaluation data that determine its own acceptance.
       runner/model configuration, skill version, verification evidence, and outcome.
       Partial: reconstructed after the fact from GitHub per PR head
       ([`automation/baseline/`](../../automation/baseline/)); the model comes from
-      commit trailers, and skill version and in-session attempts are unknown until
-      the runner records them at run time.
+      commit trailers, and in-session attempts are unknown until the runner records
+      them at run time. Models and skill version of the attributed subagent sessions
+      are recovered from local transcripts by
+      [`automation/usage/`](../../automation/usage/) (models for 34 of 79 runs, skill
+      version for 3: only skills invoked through the Skill tool are identifiable).
 - [ ] Record token usage, estimated cost, duration, cache usage where available,
       and human interventions. Mark unavailable values as unknown, never zero.
-      Partial: the schema and report keep them unknown with a reason; nothing
-      records them yet.
+      Partial: [`automation/usage/`](../../automation/usage/) recovers tokens by kind
+      (including cache reads and writes), an API-list-price cost estimate and summed
+      session time from local Claude Code transcripts, for subagent sessions
+      attributable to a PR by head branch or a single PR reference (34 of 79 runs in
+      [`baseline/2026-10-13/usage.jsonl`](baseline/2026-10-13/usage.jsonl), tested in
+      [`automation/usage/build.test.ts`](../../automation/usage/build.test.ts)).
+      Orchestrating sessions and unattributable subagents are totalled apart; human
+      interventions stay unknown; runs before the retained transcripts stay unknown.
 - [ ] Link post-merge regressions, reverts, and follow-up fixes to the originating
       run using a declared observation window. Count aborted and failed runs too.
       Partial: reverts and fix follow-ups (bug issues and fix PRs that cite the PR)
@@ -95,8 +104,9 @@ grading code, or reserved evaluation data that determine its own acceptance.
       before a PR opened is invisible.
 - [x] Capture a baseline using the current workflow before optimizing it.
       Evidence: [`baseline/2026-10-13/report.md`](baseline/2026-10-13/report.md)
-      (79 PR runs since 2026-08-14). Limits: PR outcomes and CI evidence only;
-      cost, tokens, agent duration and interventions are unknown for every run.
+      (79 PR runs since 2026-08-14). Limits: reconstructed after the fact; agent usage
+      is known only where transcripts were retained and attributable (34 runs);
+      human interventions are unknown for every run.
 
 Store task state and artifacts outside mutable worker checkouts. Export sanitized
 JSON/JSONL and a concise report; keep credentials, personal training data, and raw
