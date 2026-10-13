@@ -130,8 +130,6 @@ describe('git guard: allowed commands', () => {
       'git diff origin/main...HEAD',
       'git show abc:path/to/file.ts',
       'git fetch -q origin',
-      'git pull -q',
-      'git merge --no-edit origin/main',
       'git commit -q -m "fix: x"',
       'git push -q origin HEAD',
       'git worktree add --detach /tmp/x origin/main',
@@ -157,6 +155,20 @@ describe('git guard: allowed commands', () => {
       'grep -n "git checkout" docs/loops/lessons.md',
     ]) {
       allowed(cmd, MAIN);
+    }
+  });
+
+  it('keeps a subagent from pulling, merging or amending in a primary checkout', () => {
+    for (const cmd of [
+      'git pull -q',
+      'git pull --rebase origin main',
+      'git merge --no-edit origin/main',
+      'git commit --amend --no-edit',
+    ]) {
+      expect(denied(cmd, MAIN)).toContain('primary checkout');
+      // Its own worktree is its own business, and the main session is free.
+      allowed(cmd, WT_A);
+      allowed(cmd, MAIN, 'main');
     }
   });
 
@@ -372,6 +384,82 @@ describe('git guard: shapes that used to slip past', () => {
   });
 });
 
+describe('git guard: review round 3 (#448)', () => {
+  it('treats agent_type alone as the main session (claude --agent sets it)', () => {
+    const res = guard.decide(
+      {
+        cwd: MAIN,
+        tool_input: { command: 'git switch main' },
+        agent_type: 'orchestrator',
+      } as never,
+      { findTop, home: '/home/u', pathExists },
+    );
+    expect(res).toEqual({ allow: true });
+  });
+
+  it('lets the main session run the ship-pr gate cleanup after `cd -`', () => {
+    const cleanup = `cd - && git -C ${MAIN} worktree remove --force ${SCRATCH}`;
+    allowed(cleanup, SCRATCH, 'main');
+    allowed(`git -C ${MAIN} worktree remove --force ${SCRATCH}`, SCRATCH, 'main');
+    // A subagent still may not remove a worktree that is not its own.
+    expect(denied(cleanup, WT_A)).toContain('worktree remove');
+  });
+
+  it('resolves an absolute git -C even when the shell directory is unknown', () => {
+    expect(denied(`cd - && git -C ${MAIN} switch main`, WT_A)).toContain('primary checkout');
+    allowed(`cd - && git -C ${WT_A} switch -c x`, WT_A);
+    // A relative -C after `cd -` still has no known base.
+    expect(denied('cd - && git -C sub switch main', WT_A)).toContain('cannot tell');
+  });
+
+  it('skips cd options instead of taking them as the path', () => {
+    expect(denied(`cd -- ${MAIN} && git switch main`, WT_A)).toContain('primary checkout');
+    expect(denied(`cd -P ${MAIN} && git switch main`, WT_A)).toContain('primary checkout');
+    expect(denied(`cd -L -- ${WT_B} && git reset --hard`, WT_A)).toContain(WT_B);
+  });
+
+  it('applies env -C / env --chdir / sudo -D to the command', () => {
+    expect(denied(`env -C ${MAIN} git switch main`, WT_A)).toContain('primary checkout');
+    expect(denied(`env --chdir=${MAIN} git switch main`, WT_A)).toContain('primary checkout');
+    expect(denied(`sudo -D ${MAIN} git switch main`, WT_A)).toContain('primary checkout');
+    // Into another session's worktree: refused like `git -C` would be.
+    expect(denied(`env -C ${WT_B} git switch -c x`, WT_A)).toContain(WT_B);
+    // The chdir is per command: the next command runs where the shell is.
+    allowed(`env -C ${MAIN} true && git switch -c x`, WT_A);
+  });
+
+  it('refuses a git subcommand only known at run time outside the own worktree', () => {
+    for (const cmd of ['git $x main', 'git $(echo switch) main', 'git `echo switch` main']) {
+      expect(denied(cmd, MAIN), cmd).toContain('only known at run time');
+      allowed(cmd, WT_A);
+      allowed(cmd, MAIN, 'main');
+    }
+    // The substitution's own git call is still checked.
+    expect(denied('echo $(git checkout main)', MAIN)).toContain('primary checkout');
+    allowed('git log $(git rev-parse HEAD)', MAIN);
+  });
+
+  it('sees git spelled with quotes or a backslash', () => {
+    expect(denied('g""it switch main', MAIN)).toContain('primary checkout');
+    expect(denied('g\\it switch main', MAIN)).toContain('primary checkout');
+  });
+
+  it('guards the other tree-clobbering forms outside the own checkout', () => {
+    for (const cmd of [
+      'git checkout-index -a -f',
+      'git apply -R fix.patch',
+      'git worktree add --force /tmp/w main',
+      'git worktree add -B feat/x /tmp/w origin/main',
+      'git submodule update --force',
+    ]) {
+      expect(denied(cmd, MAIN), cmd).toContain('primary checkout');
+      allowed(cmd, WT_A);
+    }
+    allowed('git apply fix.patch', MAIN);
+    allowed('git checkout-index -a', MAIN);
+  });
+});
+
 describe('git guard: the hook process', () => {
   const script = join(__dirname, 'guard-git.cjs');
   function hook(input: unknown, env: Record<string, string> = {}) {
@@ -406,5 +494,11 @@ describe('git guard: the hook process', () => {
     const bad = hook('{not json');
     expect(bad.status).toBe(0);
     expect(bad.stderr).toContain('command allowed');
+  });
+
+  it('passes its self-test (the session-start canary of the decision logic)', () => {
+    const res = spawnSync(process.execPath, [script, '--self-test'], { encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('subagent refused, main session allowed (ok)');
   });
 });

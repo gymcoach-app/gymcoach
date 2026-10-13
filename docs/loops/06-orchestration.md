@@ -131,6 +131,14 @@ reverted forward, re-shipped as PR #279).
   starts its branch with `git fetch origin && git worktree add -b <branch> <path> origin/main`
   (or its Agent isolation worktree). The operator can turn the guard off for one session by
   starting Claude Code with `GYMCOACH_GIT_GUARD=off`.
+- **Session-start canary.** The guard recognises a subagent by `agent_id` in its hook input
+  (Claude Code 2.1.296 or later); if a version stopped sending it, subagents would pass as
+  the main session and the guard would fail open for them. At the start of a loop run the
+  orchestrator runs `node automation/hooks/guard-git.cjs --self-test` (decision logic), then
+  spawns one non-isolated subagent that runs `git -C <main-checkout> reset --soft HEAD` (a
+  no-op if it ever runs) and must report `Blocked by the git guard`. If it is not blocked,
+  do not run non-isolated subagents in that session: use Agent worktree isolation only,
+  and report it.
 - **If a commit still lands on `main`, revert forward** (a revert commit restoring `main`'s
   content), never `git push --force` shared history (it is denied anyway), then re-ship the
   work through a proper PR.

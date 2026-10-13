@@ -4,10 +4,16 @@
 // move HEAD or clobber the tree of a checkout the agent does not own, and the
 // shared-stash commands that can take another session's entry.
 //
-// Who is checked: Claude Code puts `agent_id` and `agent_type` in the hook
-// input of a SUBAGENT's tool call and leaves them out for the main session
-// (checked live on Claude Code 2.1.296). Every incident behind L15 and L38 was
-// a subagent working in a checkout it did not own, so:
+// Who is checked: Claude Code puts `agent_id` in the hook input of a
+// SUBAGENT's tool call and leaves it out for the main session (checked live on
+// Claude Code 2.1.296, the minimum version this guard assumes). `agent_type`
+// is NOT used: Claude Code also sets it for a main session started with
+// `claude --agent`. If a Claude Code version ever omits `agent_id` for a
+// subagent, that subagent passes as a main session (fail open): the
+// orchestrator's session-start canary (`--self-test` below, and the subagent
+// probe in docs/loops/06-orchestration.md) is how that is caught. Every
+// incident behind L15 and L38 was a subagent working in a checkout it did not
+// own, so:
 //   - a subagent may not move HEAD or clobber files in a primary checkout (a
 //     directory whose `.git` is a directory, such as the main checkout every
 //     session and the operator share), nor in a linked worktree other than
@@ -17,8 +23,9 @@
 //     primary checkout, but not in another session's linked worktree;
 //   - nobody may pop, drop or take an untagged entry of the shared stash.
 // "Own" checkout: the worktree that contains the `cwd` of the hook input.
-// Everything else is allowed, including read-only git, fetch, merge, commit,
-// push, `git worktree add -b`, and restoring a single file.
+// A subagent may also not pull, merge or amend a commit in a primary checkout.
+// Everything else is allowed, including read-only git, fetch, commit, push,
+// `git worktree add -b`, and restoring a single file.
 //
 // Failure policy: an internal error in this script allows the command (exit
 // 0) so a broken guard cannot brick every Bash call; a git command this
@@ -169,7 +176,7 @@ function tokenize(input, lenient) {
     }
     if (c === '$' && input[i + 1] === '(') {
       push();
-      tokens.push({ t: 'op', v: '(' });
+      tokens.push({ t: 'op', v: '(', sub: true });
       i += 2;
       continue;
     }
@@ -313,6 +320,13 @@ function commandsOf(tokens, cwd, home) {
     var k = 0;
     var gitEnv = exportedGitEnv;
     var viaXargs = false;
+    // A wrapper's own chdir option (`env -C <dir>`, `sudo -D <dir>`) applies
+    // to this command only.
+    var cmdDir = dir;
+    function chdirTo(word) {
+      if (word.dyn) cmdDir = null;
+      else cmdDir = cmdDir === null ? null : path.resolve(cmdDir, word.v);
+    }
     // Skip shell keywords, env assignments and wrappers with their options.
     while (k < ws.length) {
       var w = ws[k].v;
@@ -331,7 +345,18 @@ function commandsOf(tokens, cwd, home) {
         if (wname === 'xargs') viaXargs = true;
         k++;
         while (k < ws.length && ws[k].v.charAt(0) === '-' && ws[k].v !== '-') {
-          if (wrapper[ws[k].v]) k++;
+          var opt = ws[k].v;
+          var chdirOpt =
+            (wname === 'env' && (opt === '-C' || opt === '--chdir')) ||
+            (wname === 'sudo' && (opt === '-D' || opt === '--chdir'));
+          var chdirEq = /^--chdir=/.test(opt) && (wname === 'env' || wname === 'sudo');
+          if (chdirEq) chdirTo({ v: opt.slice('--chdir='.length), dyn: ws[k].dyn });
+          else if (wname === 'env' && /^-C.+/.test(opt))
+            chdirTo({ v: opt.slice(2), dyn: ws[k].dyn });
+          if (wrapper[opt]) {
+            k++;
+            if (chdirOpt && k < ws.length) chdirTo(ws[k]);
+          }
           k++;
         }
         if (WRAPPER_POSITIONAL[wname]) k += WRAPPER_POSITIONAL[wname];
@@ -347,7 +372,11 @@ function commandsOf(tokens, cwd, home) {
       return;
     }
     if (name === 'cd' || name === 'pushd') {
-      var arg = rest[1];
+      // Skip `cd -P`, `cd -L`, `cd -e`, `cd -@` and the `--` end of options.
+      var ai = 1;
+      while (ai < rest.length && /^-[PLe@]+$/.test(rest[ai].v)) ai++;
+      if (ai < rest.length && rest[ai].v === '--') ai++;
+      var arg = rest[ai];
       if (!arg) dir = home;
       else if (
         arg.dyn ||
@@ -367,16 +396,16 @@ function commandsOf(tokens, cwd, home) {
         out.push({ unparsable: true, text: script.v, dir: dir });
         return;
       }
-      var nested = commandsOf(inner, dir === null ? cwd : dir, home);
+      var nested = commandsOf(inner, cmdDir === null ? cwd : cmdDir, home);
       for (var n = 0; n < nested.length; n++) {
-        if (dir === null) nested[n].dir = null;
+        if (cmdDir === null) nested[n].dir = null;
         if (gitEnv) nested[n].gitEnv = true;
         out.push(nested[n]);
       }
       return;
     }
     if (name === 'git')
-      out.push({ argv: rest.slice(1), dir: dir, gitEnv: gitEnv, viaXargs: viaXargs });
+      out.push({ argv: rest.slice(1), dir: cmdDir, gitEnv: gitEnv, viaXargs: viaXargs });
   }
   for (var i = 0; i < tokens.length; i++) {
     var tk = tokens[i];
@@ -384,10 +413,24 @@ function commandsOf(tokens, cwd, home) {
       words.push(tk);
       continue;
     }
+    if (tk.v === '(' && tk.sub) {
+      // `$(...)` inside a command: the substitution's own commands are checked
+      // on their own, and the outer command keeps a word only known at run
+      // time in its place (so `git $(echo switch) main` stays one git call).
+      words.push({ t: 'w', v: '$(...)', dyn: true });
+      stack.push({ dir: dir, words: words });
+      words = [];
+      continue;
+    }
     flush();
-    if (tk.v === '(') stack.push(dir);
-    else if (tk.v === ')') dir = stack.length ? stack.pop() : dir;
-    else if (tk.v === '|' || tk.v === '&') {
+    if (tk.v === '(') stack.push({ dir: dir, words: null });
+    else if (tk.v === ')') {
+      var frame = stack.length ? stack.pop() : null;
+      if (frame) {
+        dir = frame.dir;
+        if (frame.words) words = frame.words;
+      }
+    } else if (tk.v === '|' || tk.v === '&') {
       // A pipeline member or background job runs in a subshell for cd purposes
       // only when grouped; keep dir as is (conservative).
     }
@@ -425,7 +468,7 @@ function parseGit(argv) {
       i += w.v.indexOf('=') >= 0 ? 1 : 2;
       continue;
     }
-    if (w.v.charAt(0) === '-') {
+    if (w.v.charAt(0) === '-' && !w.dyn) {
       i++;
       continue;
     }
@@ -433,6 +476,7 @@ function parseGit(argv) {
   }
   return {
     sub: i < argv.length ? argv[i].v : null,
+    subDyn: i < argv.length && !!argv[i].dyn,
     args: argv.slice(i + 1).map(function (a) {
       return a.v;
     }),
@@ -502,6 +546,18 @@ function classify(sub, args, ctx) {
       })[0];
       return { reason: '`git worktree ' + args[0] + '`', scope: 'worktree', path: wt || null };
     }
+    if (args[0] === 'add') {
+      var forced = args.some(function (a) {
+        return a === '--force' || a === '-B' || /^-[a-zA-Z]*f/.test(a);
+      });
+      return forced
+        ? {
+            reason:
+              '`git worktree add --force/-B` resets a branch or reuses one checked out elsewhere',
+            scope: 'head',
+          }
+        : null;
+    }
     return null;
   }
   if (sub === 'branch') {
@@ -515,8 +571,45 @@ function classify(sub, args, ctx) {
         }
       : null;
   }
-  if (!GUARDED[sub]) return null;
   if (args.indexOf('-h') >= 0 || args.indexOf('--help') >= 0) return null;
+  if (sub === 'worktree' || sub === 'stash' || sub === 'branch') return null;
+  if (sub === 'pull' || sub === 'merge') {
+    if (sub === 'merge' && args.length === 0) return null;
+    return {
+      reason: '`git ' + sub + '` changes the current branch and the files',
+      scope: 'subagent-primary',
+    };
+  }
+  if (sub === 'commit') {
+    return args.indexOf('--amend') >= 0
+      ? { reason: '`git commit --amend` rewrites the current commit', scope: 'subagent-primary' }
+      : null;
+  }
+  if (sub === 'checkout-index') {
+    var ciForce = args.some(function (a) {
+      return a === '--force' || /^-[a-zA-Z]*f/.test(a);
+    });
+    return ciForce ? { reason: '`git checkout-index -f` overwrites files', scope: 'head' } : null;
+  }
+  if (sub === 'apply') {
+    var reverse = args.some(function (a) {
+      return a === '--reverse' || /^-[a-zA-Z]*R/.test(a);
+    });
+    return reverse
+      ? { reason: '`git apply -R` reverts changes in the files', scope: 'head' }
+      : null;
+  }
+  if (sub === 'submodule') {
+    var smForce =
+      args[0] === 'update' &&
+      args.some(function (a) {
+        return a === '--force' || /^-[a-zA-Z]*f/.test(a);
+      });
+    return smForce
+      ? { reason: '`git submodule update --force` overwrites submodule files', scope: 'head' }
+      : null;
+  }
+  if (!GUARDED[sub]) return null;
   var head = function (r) {
     return { reason: r, scope: 'head' };
   };
@@ -691,8 +784,11 @@ function decide(input, opts) {
       ? input.tool_input.command
       : '';
   var cwd = input && typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
-  var subagent = !!(input && (input.agent_id || input.agent_type));
-  if (!/\bgit\b/.test(command)) return { allow: true };
+  // agent_id only: agent_type is also set for a main session run with --agent.
+  var subagent = !!(input && input.agent_id);
+  // Prefilter on the command with quotes and backslashes removed, so `g""it`
+  // or `g\it` still reaches the parser.
+  if (!/\bgit\b/.test(command.replace(/["'\\]/g, ''))) return { allow: true };
 
   var tokens = tokenize(command);
   var unbalanced = false;
@@ -715,8 +811,13 @@ function decide(input, opts) {
       continue;
     }
     var g = parseGit(c.argv);
+    // An absolute `git -C /abs` names its target even when the shell
+    // directory is unknown (after `cd -`); a relative one needs it.
     var base = c.dir;
-    if (base !== null) for (var k = 0; k < g.dirs.length; k++) base = path.resolve(base, g.dirs[k]);
+    for (var k = 0; k < g.dirs.length; k++) {
+      if (path.isAbsolute(g.dirs[k])) base = path.resolve(g.dirs[k]);
+      else base = base === null ? null : path.resolve(base, g.dirs[k]);
+    }
     var verdict = classify(g.sub, g.args, {
       isPath: function (p) {
         return base !== null && p.charAt(0) !== '-' && pathExists(path.resolve(base, p));
@@ -732,6 +833,9 @@ function decide(input, opts) {
         scope: 'head',
       };
       c.dir = null;
+    }
+    if (g.subDyn) {
+      verdict = { reason: 'a git subcommand only known at run time', scope: 'head' };
     }
     if (!verdict) continue;
     if (verdict.stash) {
@@ -761,7 +865,11 @@ function decide(input, opts) {
       }
       continue;
     }
-    if (c.dir === null || g.unknownTarget || c.gitEnv) {
+    // A main session may remove or move any worktree, and need not know where
+    // the shell is (the documented gate cleanup runs after `cd -`).
+    if (verdict.scope === 'worktree' && !subagent) continue;
+    if (verdict.scope === 'subagent-primary' && !subagent) continue;
+    if (base === null || g.unknownTarget || c.gitEnv) {
       return {
         deny:
           verdict.reason + ', and the guard cannot tell which checkout it would run in. ' + ADVICE,
@@ -769,23 +877,37 @@ function decide(input, opts) {
     }
     var target = base;
     if (verdict.scope === 'worktree') {
-      if (!subagent) continue;
       if (!verdict.path) {
         return { deny: verdict.reason + ' without a path. ' + ADVICE };
       }
-      var wt = top(path.resolve(c.dir, verdict.path));
+      var wt = top(path.resolve(base, verdict.path));
       if (wt && own && wt.top === own.top) continue;
       return {
         deny:
           verdict.reason +
           ' on ' +
-          path.resolve(c.dir, verdict.path) +
+          path.resolve(base, verdict.path) +
           ", which is not this subagent's own worktree; the orchestrator removes worktrees. " +
           ADVICE,
       };
     }
     var t = top(target);
     if (!t) continue; // not a repository: git will fail on its own
+    if (verdict.scope === 'subagent-primary') {
+      // Only a subagent reaches this point: refused in a primary checkout,
+      // allowed in its own worktree and in another one (that is
+      // the orchestrator's call to integrate).
+      if (t.kind !== 'primary') continue;
+      return {
+        deny:
+          verdict.reason +
+          ' in ' +
+          t.top +
+          ', a primary checkout shared by every session and the operator; a subagent never ' +
+          'changes it. ' +
+          ADVICE,
+      };
+    }
     if (t.kind === 'primary') {
       if (!subagent) continue; // the main session owns the primary checkout
       return {
@@ -814,7 +936,37 @@ function decide(input, opts) {
   return { allow: true };
 }
 
+// `node guard-git.cjs --self-test`: checks the decision logic on synthetic
+// input (a subagent's `git reset --soft HEAD` in a primary checkout must be
+// refused; the same call from the main session must pass). It does not prove
+// Claude Code still sends `agent_id`; the subagent probe in
+// docs/loops/06-orchestration.md does.
+function selfTest() {
+  var fake = function (dir) {
+    return dir === '/canary' || dir.indexOf('/canary/') === 0
+      ? { top: '/canary', kind: 'primary' }
+      : null;
+  };
+  var cmd = { command: 'git reset --soft HEAD' };
+  var sub = decide({ cwd: '/canary', tool_input: cmd, agent_id: 'canary' }, { findTop: fake });
+  var mainSession = decide(
+    { cwd: '/canary', tool_input: cmd, agent_type: 'orchestrator' },
+    { findTop: fake },
+  );
+  var ok = !!sub.deny && !!mainSession.allow;
+  process.stdout.write(
+    'git guard self-test: subagent ' +
+      (sub.deny ? 'refused' : 'ALLOWED') +
+      ', main session ' +
+      (mainSession.allow ? 'allowed' : 'REFUSED') +
+      (ok ? ' (ok)' : ' (FAILED)') +
+      '\n',
+  );
+  process.exit(ok ? 0 : 1);
+}
+
 function main() {
+  if (process.argv[2] === '--self-test') return selfTest();
   if ((process.env.GYMCOACH_GIT_GUARD || '').toLowerCase() === 'off') process.exit(0);
   var raw = '';
   process.stdin.setEncoding('utf8');

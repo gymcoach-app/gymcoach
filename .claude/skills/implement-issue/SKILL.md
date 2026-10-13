@@ -46,10 +46,13 @@ for repo conventions; this skill assumes them.
 
 2. **Start clean, in your own worktree.** Never branch in the main checkout (the git guard
    refuses a subagent's `git switch` there, lessons L15/L38). If you run in an Agent
-   isolation worktree, branch there: `git fetch origin && git switch -c
+   isolation worktree (preferred), branch there: `git fetch origin && git switch -c
    fix/issue-<n>-<short-slug> origin/main` (use `feat/` for enhancements). Otherwise create
    one: `git fetch origin && git worktree add -b fix/issue-<n>-<short-slug> <scratch-path>
-   origin/main`, and work only inside it.
+   origin/main`, and work only inside it, prefixing commands with `cd <scratch-path> &&`.
+   Limit: without isolation your shell returns to the main checkout between calls, so the
+   guard treats that scratch worktree as another session's and refuses rebase,
+   `reset --soft` and path-wide restores there; commits, merges and pushes still work.
 
 3. **Implement.** Make the smallest change that satisfies the issue. Follow
    `CLAUDE.md`: TypeScript strict, Zod for API inputs, reuse `components/ui`

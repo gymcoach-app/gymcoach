@@ -155,15 +155,18 @@ changes on.
    git -C <main-checkout> fetch origin
    git -C <main-checkout> worktree add --detach <scratch>/gate origin/main
    ln -s <main-checkout>/node_modules <scratch>/gate/node_modules
-   cd <scratch>/gate
-   npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha>            # dry run
-   npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
-     --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"]
-   cd - && git -C <main-checkout> worktree remove --force <scratch>/gate
+   ( cd <scratch>/gate && npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> )  # dry run
+   ( cd <scratch>/gate && npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
+     --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"] )
+   git -C <main-checkout> worktree remove --force <scratch>/gate
    ```
 
-   Remove the gate worktree in every case, merged or refused (run the removal even when
-   the CLI exits non-zero). The symlinked `node_modules` comes from the main checkout, so
+   The subshells keep your shell where it was, so the removal runs from a known
+   directory. Remove the gate worktree in every case, merged or refused (run the removal
+   even when the CLI exits non-zero). The git guard hook allows that removal for the main
+   session; before relying on the guard in a session, run its canary
+   (`node automation/hooks/guard-git.cjs --self-test`, and the subagent probe in
+   `docs/loops/06-orchestration.md`). The symlinked `node_modules` comes from the main checkout, so
    whatever was last installed there is trusted too.
 
    Methods: `--method squash` for loop-authored PRs; `--method merge` (a merge commit) for

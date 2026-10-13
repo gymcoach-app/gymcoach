@@ -61,8 +61,11 @@ commit on an existing docs branch.
 ## Procedure
 
 1. **Start clean in your own worktree:** `git fetch origin && git worktree add -b
-   docs/<slug> <scratch-path> origin/main` (or branch from `origin/main` inside your Agent
-   isolation worktree); never switch the main checkout (lessons L15/L38).
+   docs/<slug> <scratch-path> origin/main` (or, preferred, branch from `origin/main` inside
+   your Agent isolation worktree); never switch the main checkout (lessons L15/L38). Without
+   isolation your shell returns to the main checkout between calls, so the git guard treats
+   a scratch worktree as another session's: prefix commands with `cd <scratch-path> &&`, and
+   expect rebase, `reset --soft` and path-wide restores to be refused there.
 2. **Gather** the merged work since the last write-up. Map each item to a CHANGELOG
    group and decide if it warrants a playbook/README change. **Verify each claim against
    the code or the merged diff** - never document a feature that is not actually there
