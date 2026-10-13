@@ -5,7 +5,8 @@ import type { StructuredReview } from './schema';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
-const MAINTAINERS = ['JulienAu'];
+const MAINTAINERS = [{ login: 'JulienAu', id: 16043912 }];
+const ME = { login: 'JulienAu', id: 16043912 };
 
 const live: PullState = {
   number: 7,
@@ -54,12 +55,12 @@ describe('record CLI', () => {
   });
 
   it('posts a record that matches the live head and base', () => {
-    expect(checkRecord(review, 7, live, 'JulienAu', MAINTAINERS)).toEqual([]);
+    expect(checkRecord(review, 7, live, ME, MAINTAINERS)).toEqual([]);
   });
 
   it('refuses a record for another head, another base or another PR', () => {
     const codes = (r: StructuredReview, pr = 7) =>
-      checkRecord(r, pr, live, 'JulienAu', MAINTAINERS).map((x) => x.code);
+      checkRecord(r, pr, live, ME, MAINTAINERS).map((x) => x.code);
     expect(codes({ ...review, headSha: 'c'.repeat(40) })).toEqual(['head-mismatch']);
     expect(codes({ ...review, baseSha: 'c'.repeat(40) })).toEqual(['base-mismatch']);
     expect(codes(review, 8)).toEqual(['wrong-pr']);
@@ -67,12 +68,10 @@ describe('record CLI', () => {
 
   it('refuses a closed PR and a non-maintainer gh account', () => {
     expect(
-      checkRecord(review, 7, { ...live, state: 'closed' }, 'JulienAu', MAINTAINERS).map(
-        (x) => x.code,
-      ),
+      checkRecord(review, 7, { ...live, state: 'closed' }, ME, MAINTAINERS).map((x) => x.code),
     ).toEqual(['pr-not-open']);
-    expect(checkRecord(review, 7, live, 'someone', MAINTAINERS).map((x) => x.code)).toEqual([
-      'not-maintainer',
-    ]);
+    expect(
+      checkRecord(review, 7, live, { login: 'someone', id: 999 }, MAINTAINERS).map((x) => x.code),
+    ).toEqual(['not-maintainer']);
   });
 });

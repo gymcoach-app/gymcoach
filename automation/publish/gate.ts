@@ -16,7 +16,7 @@
 // review is posted.
 
 import type { ReviewEvidence } from '@/automation/review/comment';
-import { STOPPING_SEVERITIES } from '@/automation/review/schema';
+import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';
 
 export const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -109,13 +109,26 @@ export interface PassedReview {
   lenses: string[];
 }
 
+// A reviewer's identity for the gate: who reviewed (kind and model) and what
+// they looked for (the lens set). A later record with the same identity
+// replaces the earlier one (an explicit retraction or a re-review); a record
+// with a different identity is another reviewer whose verdict also counts.
+export function reviewerIdentity(review: StructuredReview): string {
+  return [
+    review.reviewer.kind,
+    review.reviewer.model ?? '-',
+    [...new Set(review.lenses)].sort().join(','),
+  ].join('|');
+}
+
 export type GateDecision =
   | {
       mergeable: true;
       sha: string;
       checks: PassedCheck[];
       requiredChecksSource: 'repository' | 'unreadable';
-      review: PassedReview;
+      // One entry per reviewer identity, all ready.
+      reviews: PassedReview[];
     }
   | { mergeable: false; refusals: Refusal[] };
 
@@ -224,7 +237,7 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     }
   }
 
-  const review = evaluateReviews(input, refuse);
+  const reviews = evaluateReviews(input, refuse);
 
   if (pull.mergeableState !== 'clean') {
     refuse(
@@ -233,24 +246,29 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     );
   }
 
-  if (refusals.length || !review) return { mergeable: false, refusals };
+  if (refusals.length || !reviews) return { mergeable: false, refusals };
   return {
     mergeable: true,
     sha: approvedSha,
     checks: passed,
     requiredChecksSource: input.requiredChecks ? 'repository' : 'unreadable',
-    review,
+    reviews,
   };
 }
 
 // The review evidence for (approved head, current base). Records for another
-// head or base are stale, never a fallback: the latest record for the exact
-// pair decides, so a later needs-changes record overrides an earlier ready one.
+// head or base are stale, never a fallback. For the exact pair, the latest
+// record of each reviewer identity counts, and every one of them must be ready
+// with no blocking or major finding: one lens cannot override another lens's
+// stop (multi-lens unanimity, docs/loops/10), only the same reviewer can
+// retract its own verdict with a later record.
 function evaluateReviews(
   input: GateInput,
   refuse: (code: RefusalCode, detail: string) => void,
-): PassedReview | null {
-  const { pull, approvedSha, reviews } = input;
+): PassedReview[] | null {
+  const { pull, approvedSha } = input;
+  // Oldest first by comment id, whatever order the caller passed.
+  const reviews = [...input.reviews].sort((a, b) => a.commentId - b.commentId);
   if (reviews.length === 0) {
     refuse('no-review', `no review record on PR #${pull.number}`);
     return null;
@@ -273,19 +291,26 @@ function evaluateReviews(
     );
     return null;
   }
-  const latest = matching[matching.length - 1]!;
-  const stopping = latest.review.findings.filter((f) => STOPPING_SEVERITIES.includes(f.severity));
-  if (latest.review.verdict !== 'ready' || stopping.length > 0) {
-    refuse(
-      'review-not-ready',
-      `the latest review record (comment ${latest.commentId}) says ${latest.review.verdict} with ${stopping.length} blocking or major finding(s)`,
-    );
-    return null;
+  const latestByReviewer = new Map<string, ReviewEvidence>();
+  for (const r of matching) latestByReviewer.set(reviewerIdentity(r.review), r);
+  const passed: PassedReview[] = [];
+  let stopped = false;
+  for (const [identity, r] of latestByReviewer) {
+    const stopping = r.review.findings.filter((f) => STOPPING_SEVERITIES.includes(f.severity));
+    if (r.review.verdict !== 'ready' || stopping.length > 0) {
+      refuse(
+        'review-not-ready',
+        `reviewer ${identity} (comment ${r.commentId}) says ${r.review.verdict} with ${stopping.length} blocking or major finding(s)`,
+      );
+      stopped = true;
+      continue;
+    }
+    passed.push({
+      commentId: r.commentId,
+      author: r.author,
+      reviewer: r.review.reviewer.model ?? r.review.reviewer.kind,
+      lenses: r.review.lenses,
+    });
   }
-  return {
-    commentId: latest.commentId,
-    author: latest.author,
-    reviewer: latest.review.reviewer.model ?? latest.review.reviewer.kind,
-    lenses: latest.review.lenses,
-  };
+  return stopped ? null : passed;
 }

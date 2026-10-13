@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { MAINTAINERS, REPO } from '@/automation/publish/checks';
+import { MAINTAINERS, type Maintainer, REPO } from '@/automation/publish/checks';
 import type { PullState } from '@/automation/publish/gate';
 import { GhError, fetchPull, gh } from '@/automation/publish/merge';
 import { formatReviewComment } from '@/automation/review/comment';
@@ -59,13 +59,14 @@ export type RecordRefusal =
   | 'base-mismatch'
   | 'not-maintainer';
 
-// Pure: whether a validated record may be posted on the live PR by `login`.
+// Pure: whether a validated record may be posted on the live PR by the
+// authenticated gh account (matched by numeric user id, like the gate).
 export function checkRecord(
   review: StructuredReview,
   pr: number,
   live: PullState,
-  login: string,
-  maintainers: readonly string[],
+  account: { login: string; id: number },
+  maintainers: readonly Maintainer[],
 ): { code: RecordRefusal; detail: string }[] {
   const refusals: { code: RecordRefusal; detail: string }[] = [];
   if (review.pr !== pr) {
@@ -86,10 +87,10 @@ export function checkRecord(
       detail: `record base ${review.baseSha}, live base ${live.baseSha}`,
     });
   }
-  if (!maintainers.includes(login)) {
+  if (!maintainers.some((m) => m.id === account.id)) {
     refusals.push({
       code: 'not-maintainer',
-      detail: `gh is authenticated as ${login}; the gate only counts records from ${maintainers.join(', ')}`,
+      detail: `gh is authenticated as ${account.login}; the gate only counts records from ${maintainers.map((m) => m.login).join(', ')}`,
     });
   }
   return refusals;
@@ -111,8 +112,8 @@ function run(argv: string[]): number {
     return 1;
   }
   const live = fetchPull(args.pr).pull;
-  const login = gh<{ login: string }>(['user']).login;
-  const refusals = checkRecord(parsed.data, args.pr, live, login, MAINTAINERS);
+  const account = gh<{ login: string; id: number }>(['user']);
+  const refusals = checkRecord(parsed.data, args.pr, live, account, MAINTAINERS);
   for (const r of refusals) console.error(`${r.code}: ${r.detail}`);
   if (refusals.length) return 1;
   const body = formatReviewComment(parsed.data);
@@ -121,13 +122,11 @@ function run(argv: string[]): number {
     console.log('Dry run: not posted.');
     return 0;
   }
-  const posted = gh<{ id: number; html_url: string }>([
-    '-X',
-    'POST',
-    `repos/${REPO}/issues/${args.pr}/comments`,
-    '-f',
-    `body=${body}`,
-  ]);
+  // The body goes on stdin as JSON, never as one argv element.
+  const posted = gh<{ id: number; html_url: string }>(
+    ['-X', 'POST', `repos/${REPO}/issues/${args.pr}/comments`, '--input', '-'],
+    JSON.stringify({ body }),
+  );
   console.log(`Posted review record ${posted.id}: ${posted.html_url}`);
   return 0;
 }

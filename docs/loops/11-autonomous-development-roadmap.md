@@ -162,10 +162,14 @@ remain attributable after a model or skill upgrade.
       requires a structured review record ([`automation/review/`](../../automation/review/),
       tests in [`comment.test.ts`](../../automation/review/comment.test.ts) and
       [`record.test.ts`](../../automation/review/record.test.ts)) posted by a maintainer
-      account for the approved head and the PR's current base SHA, the latest of which
-      must be ready with no blocking or major finding. "Base" is GitHub's `base.sha`
-      for the PR: it moves with a push or a rebase, not when `main` merely advances,
-      which is the next item's job.
+      account (pinned numeric user ids) for the approved head and the PR's current base
+      SHA; the latest record of every reviewer (kind, model and lens set) must be ready
+      with no blocking or major finding, so one lens cannot clear another's stop.
+      "Base" is GitHub's `base.sha` for the PR: it moves with a push or a rebase, not
+      when `main` merely advances, which is the next item's job. Caveat: the gate
+      proves review evidence for the exact commits exists, not that the review was
+      independent; the loop posts its records from the same account that authors its
+      PRs, so independence still rests on procedure (a separate reviewer agent).
 - [ ] Pin every merge to the approved head, including maintainer-authored PRs.
       When the base changes, validate the new combined result before merging, through
       a merge queue or an equivalent serialized integration check.

@@ -13,8 +13,10 @@ the app never imports this directory and the Docker image does not ship it
   succeeded on that exact SHA (latest rerun in that suite decides). Empty, missing,
   pending, skipped, neutral, foreign-app, second-suite and other-SHA checks refuse
   the merge. It also needs a review record (below) for that head and the PR's current
-  base SHA; the latest matching record decides and must be ready with no blocking or
-  major finding (`no-review`, `review-for-other-head`, `review-for-other-base`,
+  base SHA. For that pair, the latest record of each reviewer (kind, model and lens set)
+  counts, and every one must be ready with no blocking or major finding: one lens never
+  overrides another lens's stop, only the same reviewer can retract its own verdict with
+  a later record (`no-review`, `review-for-other-head`, `review-for-other-base`,
   `review-not-ready`).
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
@@ -42,9 +44,12 @@ the app never imports this directory and the Docker image does not ship it
   a blocking or major finding.
 - `review/comment.ts` - the record travels as a PR comment: a short summary, the marker
   `<!-- gymcoach-review v1 -->` and one fenced JSON block. Only comments authored by a
-  maintainer account (`MAINTAINERS` in `publish/checks.ts`) count; anyone can post a
-  look-alike, so the author decides, not the content. Malformed maintainer records are
-  reported and ignored, never counted.
+  maintainer account (`MAINTAINERS` in `publish/checks.ts`, matched on the numeric user
+  id, never the login, which a renamed account frees for reuse) count; anyone can post a
+  look-alike, so the author decides, not the content. An edited record is refused (post
+  a new one instead). Malformed maintainer records are reported and ignored, never
+  counted. Not checked: `performed_via_github_app` (an app acting with a maintainer's
+  own user token posts as that maintainer).
 - `review/record.ts` - posts a record after validating it and checking that its head
   and base are the PR's live head and base and that `gh` is a maintainer account.
   `--dry-run` prints the comment. Exit codes as for `merge.ts`.
@@ -58,7 +63,10 @@ the base, so the previous record stops matching and a fresh review must post a n
 one. "Base" is GitHub's `base.sha`: it does not move when `main` advances without a
 push, so a base that moved under a reviewed PR is not yet revalidated mechanically
 (lesson L39 remains a procedure). Records are only as trustworthy as the maintainer
-account that posts them, and editing a posted comment changes the record it holds.
+account that posts them: the gate proves a record exists for the right commits, not
+that the review was independent, since the loop posts records from the same account that
+authors its PRs. `record.ts` sends the comment body on stdin, so a large record never
+hits the argument size limit.
 
 Limits: closing and reopening a PR, or opening a second PR at the same head SHA,
 starts a second check suite, and the gate then refuses that SHA for good (fail

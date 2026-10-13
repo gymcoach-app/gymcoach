@@ -132,8 +132,11 @@ changes on.
 
    Severities are `blocking`, `major`, `minor`, `nit`; a `ready` verdict cannot carry a
    blocking or major finding (the schema rejects it), and a file not read in full is
-   listed, never implied (lesson L26). Several lenses may each post a record; the gate
-   uses the latest one for the exact head and base. The orchestrator saves the object to a
+   listed, never implied (lesson L26). Several lenses may each post a record; for the exact
+   head and base the gate takes the latest record of each reviewer (kind, model and lens
+   set) and needs every one ready, so one lens never clears another's stop. To retract a
+   stop, the same reviewer (same lens set) posts a later ready record. Never edit a posted
+   record: the gate refuses edited ones. The orchestrator saves the object to a
    file and posts it from a trusted tree (the same `origin/main` gate worktree as step 5):
    `npx tsx automation/review/record.ts <n> --file <review.json>` (`--dry-run` prints the
    comment instead). It validates the record and refuses one whose head or base is not the

@@ -1,3 +1,4 @@
+import type { Maintainer } from '@/automation/publish/checks';
 import {
   STOPPING_SEVERITIES,
   type StructuredReview,
@@ -38,7 +39,11 @@ export function formatReviewComment(review: StructuredReview): string {
 export interface IssueComment {
   id: number;
   author: string | null;
+  // GitHub's numeric user id of the author; null for a deleted user.
+  authorId: number | null;
   body: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReviewEvidence {
@@ -57,20 +62,28 @@ export interface ParsedReviews {
 const FENCE = /```json\n([\s\S]*?)\n```/;
 
 // Reads the review records out of a PR's comments. A comment counts only when
-// its author is a maintainer, it carries exactly one marker, and the fenced
-// JSON right after the marker validates against the schema for this PR.
+// its author is a maintainer (by numeric user id), it was never edited, it
+// carries exactly one marker, and the fenced JSON right after the marker
+// validates against the schema for this PR. An edited comment is refused
+// rather than ranked: an edit would change a record in place while keeping the
+// position it earned when first posted; post a new record instead.
 export function parseReviewComments(
   comments: IssueComment[],
   pr: number,
-  maintainers: readonly string[],
+  maintainers: readonly Maintainer[],
 ): ParsedReviews {
   const records: ReviewEvidence[] = [];
   const invalid: ParsedReviews['invalid'] = [];
   const ordered = [...comments].sort((a, b) => a.id - b.id);
   for (const comment of ordered) {
-    if (!comment.author || !maintainers.includes(comment.author)) continue;
+    const maintainer = maintainers.find((m) => m.id === comment.authorId);
+    if (!maintainer) continue;
     const parts = comment.body.split(REVIEW_MARKER);
     if (parts.length === 1) continue;
+    if (comment.updatedAt !== comment.createdAt) {
+      invalid.push({ commentId: comment.id, reason: 'the comment was edited after posting' });
+      continue;
+    }
     if (parts.length > 2) {
       invalid.push({ commentId: comment.id, reason: 'more than one review marker' });
       continue;
@@ -102,7 +115,7 @@ export function parseReviewComments(
       });
       continue;
     }
-    records.push({ commentId: comment.id, author: comment.author, review: parsed.data });
+    records.push({ commentId: comment.id, author: maintainer.login, review: parsed.data });
   }
   return { records, invalid };
 }

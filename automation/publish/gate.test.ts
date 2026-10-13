@@ -229,7 +229,7 @@ describe('merge gate', () => {
       const decision = evaluateMergeGate(input());
       expect(decision).toMatchObject({
         mergeable: true,
-        review: { commentId: 900, author: 'JulienAu', reviewer: 'claude-opus-5-5' },
+        reviews: [{ commentId: 900, author: 'JulienAu', reviewer: 'claude-opus-5-5' }],
       });
     });
 
@@ -269,13 +269,46 @@ describe('merge gate', () => {
       ).toEqual(['review-not-ready']);
     });
 
-    it('lets the latest record for the exact head and base decide', () => {
+    it('lets a reviewer replace its own earlier verdict on the same commits', () => {
       const ready = evidence({}, 900);
       const later = evidence({ verdict: 'needs-changes' }, 901);
       expect(codes({ reviews: [ready, later] })).toEqual(['review-not-ready']);
+      // Same reviewer and lens set: the later ready record retracts the stop.
       expect(evaluateMergeGate(input({ reviews: [later, evidence({}, 902)] })).mergeable).toBe(
         true,
       );
+    });
+
+    it('never lets one lens override another lens that stopped the merge', () => {
+      const security = (over: Partial<StructuredReview>, id: number) =>
+        evidence({ lenses: ['security', 'egress'], ...over }, id);
+      const stop = security(
+        {
+          verdict: 'needs-changes',
+          findings: [{ severity: 'blocking', file: 'lib/a.ts', line: 1, claim: 'leak' }],
+        },
+        900,
+      );
+      // A later ready record from the correctness lens does not clear it.
+      expect(codes({ reviews: [stop, evidence({}, 901)] })).toEqual(['review-not-ready']);
+      // Both lenses ready: mergeable, with one entry per reviewer.
+      const both = evaluateMergeGate(input({ reviews: [security({}, 902), evidence({}, 903)] }));
+      expect(both.mergeable).toBe(true);
+      if (both.mergeable) expect(both.reviews.map((r) => r.commentId)).toEqual([902, 903]);
+      // The security lens re-reviews and says ready: the stop is retracted.
+      expect(
+        evaluateMergeGate(input({ reviews: [stop, evidence({}, 901), security({}, 904)] }))
+          .mergeable,
+      ).toBe(true);
+    });
+
+    it('orders records by comment id itself, whatever the caller passed', () => {
+      const ready = evidence({}, 902);
+      const earlierStop = evidence({ verdict: 'needs-changes' }, 901);
+      // Passed newest first: the gate still treats 902 as the latest word.
+      expect(evaluateMergeGate(input({ reviews: [ready, earlierStop] })).mergeable).toBe(true);
+      const laterStop = evidence({ verdict: 'needs-changes' }, 903);
+      expect(codes({ reviews: [laterStop, ready] })).toEqual(['review-not-ready']);
     });
 
     it('never falls back to a ready review of an older head', () => {

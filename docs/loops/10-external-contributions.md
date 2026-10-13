@@ -254,8 +254,10 @@ vetted-contributor fork PR (a merge commit, stacked or not), and
 makes a push race between review and merge fail closed: it
 refuses a moved head or an incomplete check set on that SHA, and the merge call
 carries `sha=<sha>`, so GitHub refuses it too if the head has moved. It also
-refuses unless the latest review record for that head and the PR's current base,
-posted by a maintainer account, is ready with no blocking or major finding: a
+refuses unless, for that head and the PR's current base, the latest review record
+of every reviewer (kind, model and lens set), posted by a maintainer account
+(matched by numeric user id), is ready with no blocking or major finding, so one
+lens cannot clear another lens's stop (unanimity): a
 fixup push or a rebase leaves the old record stale, and a comment by anyone
 else that imitates a record is ignored. If `main`
 moved under the PR in a way that touches the same files, re-run pass 2 on the

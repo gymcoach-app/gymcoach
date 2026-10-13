@@ -98,13 +98,17 @@ export function parseArgs(argv: string[]): Args {
 
 export class GhError extends Error {}
 
-export function gh<T>(args: string[]): T {
+// `input`, when given, is sent on stdin (use with `--input -`), so a large
+// request body never travels as one argv element (MAX_ARG_STRLEN).
+export function gh<T>(args: string[], input?: string): T {
   let out: string;
   try {
     out = execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', ...args], {
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(input === undefined
+        ? { stdio: ['ignore', 'pipe', 'pipe'] as const }
+        : { input, stdio: ['pipe', 'pipe', 'pipe'] as const }),
     });
   } catch (err) {
     const stderr = (err as { stderr?: string }).stderr ?? '';
@@ -227,21 +231,42 @@ export function fetchRequiredChecks(): RequiredCheck[] | null {
   }
 }
 
-interface RawComment {
+export interface RawComment {
   id: number;
-  user: { login: string } | null;
+  user: { login: string; id: number } | null;
   body: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const PAGE_SIZE = 100;
+
+// Pure: reads pages until one comes back short (fewer than pageSize items),
+// which GitHub's REST pagination uses as the last page.
+export function collectPages<T>(fetchPage: (page: number) => T[], pageSize = PAGE_SIZE): T[] {
+  const all: T[] = [];
+  for (let page = 1; ; page += 1) {
+    const items = fetchPage(page);
+    all.push(...items);
+    if (items.length < pageSize) return all;
+  }
+}
+
+export function toIssueComment(c: RawComment): IssueComment {
+  return {
+    id: c.id,
+    author: c.user?.login ?? null,
+    authorId: c.user?.id ?? null,
+    body: c.body ?? '',
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+  };
 }
 
 export function fetchIssueComments(pr: number): IssueComment[] {
-  const comments: IssueComment[] = [];
-  for (let page = 1; ; page += 1) {
-    const raw = gh<RawComment[]>([`repos/${REPO}/issues/${pr}/comments?per_page=100&page=${page}`]);
-    for (const c of raw) {
-      comments.push({ id: c.id, author: c.user?.login ?? null, body: c.body ?? '' });
-    }
-    if (raw.length < 100) return comments;
-  }
+  return collectPages((page) =>
+    gh<RawComment[]>([`repos/${REPO}/issues/${pr}/comments?per_page=${PAGE_SIZE}&page=${page}`]),
+  ).map(toIssueComment);
 }
 
 function print(decision: GateDecision, reviews: ParsedReviews) {

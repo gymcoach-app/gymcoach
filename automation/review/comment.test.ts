@@ -7,7 +7,10 @@ import {
 } from './comment';
 import { type StructuredReview, structuredReviewSchema } from './schema';
 
-const MAINTAINERS = ['JulienAu', 'Julien-Au'];
+const MAINTAINERS = [
+  { login: 'JulienAu', id: 16043912 },
+  { login: 'Julien-Au', id: 288004433 },
+];
 
 function review(over: Partial<StructuredReview> = {}): StructuredReview {
   return {
@@ -26,8 +29,16 @@ function review(over: Partial<StructuredReview> = {}): StructuredReview {
   };
 }
 
-function comment(id: number, body: string, author: string | null = 'JulienAu'): IssueComment {
-  return { id, author, body };
+const POSTED = '2026-10-13T12:00:00Z';
+
+function comment(
+  id: number,
+  body: string,
+  author: string | null = 'JulienAu',
+  authorId: number | null = 16043912,
+  updatedAt = POSTED,
+): IssueComment {
+  return { id, author, authorId, body, createdAt: POSTED, updatedAt };
 }
 
 describe('structured review schema', () => {
@@ -71,11 +82,34 @@ describe('review comments', () => {
   it('ignores a record posted by anyone but a maintainer', () => {
     const body = formatReviewComment(review());
     const parsed = parseReviewComments(
-      [comment(1, body, 'someone'), comment(2, body, null)],
+      [comment(1, body, 'someone', 999), comment(2, body, null, null)],
       7,
       MAINTAINERS,
     );
     expect(parsed).toEqual({ records: [], invalid: [] });
+  });
+
+  it('trusts the numeric user id, not the login', () => {
+    const body = formatReviewComment(review());
+    // A re-registered login with another id does not count...
+    const impostor = parseReviewComments([comment(1, body, 'JulienAu', 999)], 7, MAINTAINERS);
+    expect(impostor.records).toEqual([]);
+    // ...and a renamed maintainer account still does, under its pinned login.
+    const renamed = parseReviewComments([comment(2, body, 'renamed', 288004433)], 7, MAINTAINERS);
+    expect(renamed.records.map((r) => r.author)).toEqual(['Julien-Au']);
+  });
+
+  it('refuses an edited record instead of ranking it', () => {
+    const body = formatReviewComment(review());
+    const parsed = parseReviewComments(
+      [comment(1, body, 'JulienAu', 16043912, '2026-10-13T13:00:00Z')],
+      7,
+      MAINTAINERS,
+    );
+    expect(parsed.records).toEqual([]);
+    expect(parsed.invalid).toEqual([
+      { commentId: 1, reason: 'the comment was edited after posting' },
+    ]);
   });
 
   it('skips maintainer comments without the marker', () => {
