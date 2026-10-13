@@ -63,6 +63,7 @@ function input(over: Partial<GateInput> = {}): GateInput {
     ciAppId: CI_APP,
     baseBranch: 'main',
     reviews: [evidence()],
+    invalidReviews: [],
     ...over,
   };
 }
@@ -277,6 +278,21 @@ describe('merge gate', () => {
       expect(evaluateMergeGate(input({ reviews: [later, evidence({}, 902)] })).mergeable).toBe(
         true,
       );
+    });
+
+    it('refuses when a maintainer review comment was edited or did not parse', () => {
+      // An edit must not erase a stop by turning the record invalid.
+      expect(
+        codes({
+          invalidReviews: [{ commentId: 950, reason: 'the comment was edited after posting' }],
+        }),
+      ).toEqual(['review-comment-invalid']);
+    });
+
+    it('keeps reviewer identities apart even when a lens contains a separator', () => {
+      const comma = evidence({ lenses: ['a,b'], verdict: 'needs-changes', findings: [] }, 960);
+      const split = evidence({ lenses: ['a', 'b'] }, 961);
+      expect(codes({ reviews: [comma, split] })).toEqual(['review-not-ready']);
     });
 
     it('never lets one lens override another lens that stopped the merge', () => {

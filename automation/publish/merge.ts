@@ -271,10 +271,11 @@ export function fetchIssueComments(pr: number): IssueComment[] {
 
 function print(decision: GateDecision, reviews: ParsedReviews) {
   console.log(JSON.stringify(decision, null, 2));
-  // A maintainer comment with the marker that did not parse is worth seeing:
-  // it is ignored by the gate, which may be why a review seems missing.
+  // A maintainer comment with the marker that did not parse or was edited
+  // refuses the merge (review-comment-invalid); name it so it can be fixed by
+  // posting a fresh record and deleting the broken comment.
   for (const bad of reviews.invalid) {
-    console.log(`Ignored review comment ${bad.commentId}: ${bad.reason}`);
+    console.log(`Invalid review comment ${bad.commentId}: ${bad.reason}`);
   }
 }
 
@@ -302,6 +303,7 @@ async function run(argv: string[]): Promise<number> {
     ciAppId: CI_APP_ID,
     baseBranch: BASE_BRANCH,
     reviews: reviews.records,
+    invalidReviews: reviews.invalid,
   });
   print(decision, reviews);
   if (!decision.mergeable) return 1;

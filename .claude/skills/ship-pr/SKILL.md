@@ -177,7 +177,8 @@ changes on.
    maintainer-posted review record (`no-review`), none for the approved head
    (`review-for-other-head`), none for the PR's current base (`review-for-other-base`), or
    the latest matching one is not ready or carries a blocking or major finding
-   (`review-not-ready`); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
+   (`review-not-ready`), or a maintainer review comment was edited or does not parse
+   (`review-comment-invalid`: post a fresh record, delete the broken comment); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
    unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
    apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are
    refused by design, so a red non-required check also blocks a merge. Then it merges with

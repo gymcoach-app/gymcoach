@@ -17,7 +17,9 @@ the app never imports this directory and the Docker image does not ship it
   counts, and every one must be ready with no blocking or major finding: one lens never
   overrides another lens's stop, only the same reviewer can retract its own verdict with
   a later record (`no-review`, `review-for-other-head`, `review-for-other-base`,
-  `review-not-ready`).
+  `review-not-ready`). A maintainer comment with the review marker that was edited after
+  posting or does not parse refuses the merge (`review-comment-invalid`): an edit must not
+  erase a stop. Post a fresh record and delete the broken comment.
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
   disagrees with the repository's required status checks; when the rules cannot be

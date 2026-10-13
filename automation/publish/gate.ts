@@ -69,6 +69,10 @@ export interface GateInput {
   // Valid review records from maintainer comments, oldest first
   // (automation/review/comment.ts parseReviewComments).
   reviews: ReviewEvidence[];
+  // Maintainer comments carrying the review marker that did not parse or were
+  // edited after posting. Any one refuses the merge: dropping it silently
+  // would let an edit erase a stop.
+  invalidReviews: { commentId: number; reason: string }[];
 }
 
 export type RefusalCode =
@@ -90,7 +94,8 @@ export type RefusalCode =
   | 'no-review'
   | 'review-for-other-head'
   | 'review-for-other-base'
-  | 'review-not-ready';
+  | 'review-not-ready'
+  | 'review-comment-invalid';
 
 export interface Refusal {
   code: RefusalCode;
@@ -114,11 +119,12 @@ export interface PassedReview {
 // replaces the earlier one (an explicit retraction or a re-review); a record
 // with a different identity is another reviewer whose verdict also counts.
 export function reviewerIdentity(review: StructuredReview): string {
-  return [
+  // JSON keeps the parts unambiguous whatever characters they contain.
+  return JSON.stringify([
     review.reviewer.kind,
-    review.reviewer.model ?? '-',
-    [...new Set(review.lenses)].sort().join(','),
-  ].join('|');
+    review.reviewer.model ?? null,
+    [...new Set(review.lenses)].sort(),
+  ]);
 }
 
 export type GateDecision =
@@ -238,6 +244,9 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
   }
 
   const reviews = evaluateReviews(input, refuse);
+  for (const bad of input.invalidReviews) {
+    refuse('review-comment-invalid', `review comment ${bad.commentId}: ${bad.reason}`);
+  }
 
   if (pull.mergeableState !== 'clean') {
     refuse(
