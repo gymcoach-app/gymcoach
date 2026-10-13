@@ -40,7 +40,7 @@ changes on.
      `verify.sh`, no `npm ci` on their branch, even in a worktree). Run the read-only
      review of step 4 (diff as data) and post the structured verdict as a PR comment - no
      CI-fixing (step 3), no fixup commits. Under the operator's 2026-10-07 standing
-     delegation, merge it on the pinned SHA (same command as the vetted tier) only when
+     delegation, merge it on the pinned SHA (the step 5 command with `--method squash`) only when
      the same full sequence is clean - no group B path, every lens clean with no
      blocking/major/security finding, green CI on the recorded SHA - and the PR adds
      value; anything short of that, stop after the verdict, no merge.
@@ -52,8 +52,8 @@ changes on.
      ran on those paths and are clean, and a rollback tag
      `autonomy-baseline-<date>[suffix]` is pushed at the pre-merge `main` before the merge
      call. No local run, container included, and no fixup on the contributor's branch.
-     **Group B paths** (`.github/**`, `scripts/**`, `.claude/**`, `CLAUDE.md`,
-     `docs/loops/**`, container, ignore and env files, `middleware.ts`, dependency
+     **Group B paths** (`.github/**`, `scripts/**`, `.claude/**`, `automation/**`,
+     `CLAUDE.md`, `docs/loops/**`, container, ignore and env files, `middleware.ts`, dependency
      manifests and lockfiles, executable configs, `.coderabbit.yaml`): verdict only, a
      human merges. The lists in the policy file are authoritative.
    Also skip if: draft, `state != OPEN`, `reviewDecision == CHANGES_REQUESTED`, or not
@@ -121,8 +121,12 @@ changes on.
    npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha>            # dry run
    npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
      --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"]
-   git -C <main-checkout> worktree remove --force <scratch>/gate
+   cd - && git -C <main-checkout> worktree remove --force <scratch>/gate
    ```
+
+   Remove the gate worktree in every case, merged or refused (run the removal even when
+   the CLI exits non-zero). The symlinked `node_modules` comes from the main checkout, so
+   whatever was last installed there is trusted too.
 
    Methods: `--method squash` for loop-authored PRs; `--method merge` (a merge commit) for
    every vetted-contributor fork PR, which keeps a stack's later PRs to their own delta.
@@ -140,8 +144,16 @@ changes on.
    head branch when it lives in this repository (never a fork's; `--keep-branch` keeps it,
    for example when it is the base of a stacked PR). A refusal is a stop, not something to
    retry around: a moved head needs a fresh review of the delta, a red or pending check
-   needs step 3. Never fall back to `gh pr merge` or a bare merge API call, except the
-   one bootstrap merge of the PR that adds this CLI (origin/main has no gate yet). Confirm
+   needs step 3. A check suite refusal can also be a false refusal: closing and reopening
+   the PR, or a second PR at the same head SHA, starts a second check suite and the gate
+   refuses that SHA for good; the remedy is a new commit, a review of it, and a new gate
+   run. Never fall back to `gh pr merge` or a bare merge API call. **The one bootstrap
+   exception is PR #442 itself** (it adds this CLI, so `origin/main` has no gate to run
+   yet): first a dry run of #442's own gate from its worktree
+   (`npx tsx automation/publish/merge.ts 442 --sha <reviewed>`) must report it mergeable,
+   then the merge is the pinned call
+   `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/442/merge -f sha=<reviewed> -f merge_method=squash`.
+   No other PR qualifies, even if `merge.ts` is later missing from `main`. Confirm
    it merged (`gh pr view <n> --json state,mergedAt`). In a stack, never merge the second
    PR before the first has its own green CI on its own pinned SHA, even when the second's
    green CI covered a superset tree (lesson L32).
@@ -158,8 +170,8 @@ changes on.
 
 ## Guardrails
 
-- Never merge outside `automation/publish/merge.ts`, and never with a SHA other than the
-  one the review covered. The gate refuses a red, pending, missing or empty check set.
+- Never merge outside `automation/publish/merge.ts` (sole exception: the bootstrap merge
+  of #442, step 5), and never with a SHA other than the one the review covered. The gate refuses a red, pending, missing or empty check set.
 - Never merge a draft, a `CHANGES_REQUESTED` PR, or one not targeting `main`.
 - Never execute an unvetted author's code locally. An external fork PR (vetted or, since
   the operator's 2026-10-07 standing delegation, unvetted) merges only through the full

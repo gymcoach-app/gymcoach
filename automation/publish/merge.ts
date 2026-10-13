@@ -103,7 +103,7 @@ function gh<T>(args: string[]): T {
   return (out.trim() ? JSON.parse(out) : {}) as T;
 }
 
-interface RawPull {
+export interface RawPull {
   number: number;
   state: string;
   merged: boolean;
@@ -131,14 +131,20 @@ interface RawRule {
   parameters?: { required_status_checks?: { context: string; integration_id?: number }[] };
 }
 
-interface LivePull {
+export interface LivePull {
   pull: PullState;
   // The head branch, when it lives in this repository (null for a fork).
   sameRepoBranch: string | null;
 }
 
 export function fetchPull(pr: number): LivePull {
-  const raw = gh<RawPull>([`repos/${REPO}/pulls/${pr}`]);
+  return toLivePull(gh<RawPull>([`repos/${REPO}/pulls/${pr}`]));
+}
+
+// Pure mapping of the pulls API payload. The head branch is only deletable when
+// its repository is this one: a fork (even with the same ref name) or a deleted
+// fork (head.repo null) never qualifies.
+export function toLivePull(raw: RawPull): LivePull {
   return {
     pull: {
       number: raw.number,
@@ -280,7 +286,13 @@ async function main() {
       console.error(`${err.message}\nThe PR state is unknown: check it before any retry.`);
       process.exit(3);
     }
-    throw err;
+    // Anything else (an unexpected payload, a parse failure) is not a refusal:
+    // exit 3 with one line, never a stack trace read as exit 1.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `Unexpected error: ${message.split('\n')[0]}\nThe PR state is unknown: check it before any retry.`,
+    );
+    process.exit(3);
   }
 }
 

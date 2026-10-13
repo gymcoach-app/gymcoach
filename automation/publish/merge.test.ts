@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { PullState } from './gate';
-import { fetchSettledPull, mergeRequestArgs, parseArgs, UsageError } from './merge';
+import { REPO } from './checks';
+import {
+  fetchSettledPull,
+  mergeRequestArgs,
+  parseArgs,
+  type RawPull,
+  toLivePull,
+  UsageError,
+} from './merge';
 
 const SHA = 'c'.repeat(40);
 
@@ -86,5 +94,41 @@ describe('mergeable state polling', () => {
     );
     expect(live.pull.mergeableState).toBe('unknown');
     expect(reads).toBe(4);
+  });
+});
+
+describe('head branch deletion eligibility', () => {
+  const raw = (repo: { full_name: string } | null): RawPull => ({
+    number: 7,
+    state: 'open',
+    merged: false,
+    draft: false,
+    base: { ref: 'main' },
+    head: { sha: SHA, ref: 'feat/thing', repo },
+    mergeable_state: 'clean',
+  });
+
+  it('allows deleting the head branch of a same-repo PR', () => {
+    expect(toLivePull(raw({ full_name: REPO })).sameRepoBranch).toBe('feat/thing');
+  });
+
+  it('never deletes for a fork, even with the same ref name as a local branch', () => {
+    expect(toLivePull(raw({ full_name: 'someone/gymcoach' })).sameRepoBranch).toBeNull();
+  });
+
+  it('never deletes when the fork was deleted (head.repo null)', () => {
+    expect(toLivePull(raw(null)).sameRepoBranch).toBeNull();
+  });
+
+  it('maps the pull state fields', () => {
+    expect(toLivePull(raw({ full_name: REPO })).pull).toEqual({
+      number: 7,
+      state: 'open',
+      merged: false,
+      draft: false,
+      baseRef: 'main',
+      headSha: SHA,
+      mergeableState: 'clean',
+    });
   });
 });

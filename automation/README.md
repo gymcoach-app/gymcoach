@@ -22,8 +22,8 @@ the app never imports this directory and the Docker image does not ship it
   default; `--merge` calls the merge endpoint with `sha=<approved>`, then deletes a
   same-repo head branch (never a fork's; `--keep-branch` to keep it). Strict argument
   parsing; re-reads an unknown mergeable state up to 5 times. Exit codes: 0 merged or
-  mergeable, 1 refused, 2 usage error, 3 `gh` or network error (check the PR before
-  any retry).
+  mergeable, 1 refused, 2 usage error, 3 `gh`, network or any unexpected error (one
+  line, no stack; check the PR before any retry).
 
   ```bash
   npx tsx automation/publish/merge.ts 123 --sha <reviewed-40-hex-sha>
@@ -32,7 +32,10 @@ the app never imports this directory and the Docker image does not ship it
   ```
 
 Limits: the gate checks CI, not review evidence; the review binding is still a
-procedure. The trusted copy is whatever `origin/main` holds, which is why
+procedure. Closing and reopening a PR, or opening a second PR at the same head SHA,
+starts a second check suite, and the gate then refuses that SHA for good (fail
+closed, `check-suite-mismatch`); the remedy is a new commit, a review of it, and a
+new gate run. The trusted copy is whatever `origin/main` holds, which is why
 `automation/**` is a group B path in `docs/loops/10-external-contributions.md`. It runs with the caller's gh credentials, so it constrains the agent that
 follows the skill, not a determined one with the same token.
 
