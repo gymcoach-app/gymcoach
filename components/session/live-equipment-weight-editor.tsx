@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { fromDisplayWeight, roundWeight, toDisplayWeight } from '@/lib/units';
+import { formatWeight, fromDisplayWeight, roundWeight, toDisplayWeight } from '@/lib/units';
 
 export interface LiveEquipmentOption {
   id: string;
@@ -85,10 +85,7 @@ export function LiveEquipmentWeightEditor({
     ? t('preview', {
         weights: parsed.weightOptions
           .map((weight) =>
-            roundWeight(toDisplayWeight(weight, unit), 2).toLocaleString(locale, {
-              maximumFractionDigits: 2,
-              useGrouping: false,
-            }),
+            formatWeight(weight, unit, { decimals: 2, group: false, locale, withUnit: false }),
           )
           .join('; '),
         unit: unit.toLowerCase(),
