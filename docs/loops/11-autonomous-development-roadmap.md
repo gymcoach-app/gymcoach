@@ -100,6 +100,10 @@ grading code, or reserved evaluation data that determine its own acceptance.
       are recovered from local transcripts by
       [`automation/usage/`](../../automation/usage/) (models for 32 of 79 runs, skill
       version for 3: only skills invoked through the Skill tool are identifiable).
+      At run time, the usage hook
+      ([`automation/hooks/record-usage.cjs`](../../automation/hooks/record-usage.cjs))
+      now records each finished subagent's models, skills and Claude Code version in a
+      local ledger; attempts and verification evidence are still not recorded per run.
 - [ ] Record token usage, estimated cost, duration, cache usage where available,
       and human interventions. Mark unavailable values as unknown, never zero.
       Partial: [`automation/usage/`](../../automation/usage/) recovers tokens by kind
@@ -111,6 +115,18 @@ grading code, or reserved evaluation data that determine its own acceptance.
       [`automation/usage/build.test.ts`](../../automation/usage/build.test.ts)).
       Orchestrating sessions and unattributable subagents are totalled apart; human
       interventions stay unknown; runs before the retained transcripts stay unknown.
+      Run-time recording: a `SubagentStop`/`SessionEnd`/`UserPromptSubmit` hook
+      ([`automation/hooks/record-usage.cjs`](../../automation/hooks/record-usage.cjs),
+      tested in
+      [`automation/hooks/record-usage.test.ts`](../../automation/hooks/record-usage.test.ts),
+      checked live on Claude Code 2.1.296) appends one line per finished agent to a
+      local ledger, and [`automation/ledger/`](../../automation/ledger/) turns it into
+      the same per-run records (tested in
+      [`automation/ledger/attribute.test.ts`](../../automation/ledger/attribute.test.ts),
+      including parity with the transcript scan). Prompts are counted per session,
+      split into harness notifications and other prompts, but not attributed to a run,
+      so per-run human interventions stay unknown. No baseline has been regenerated
+      from the ledger yet: it starts empty when this lands.
 - [ ] Link post-merge regressions, reverts, and follow-up fixes to the originating
       run using a declared observation window. Count aborted and failed runs too.
       Partial: reverts and fix follow-ups (bug issues and fix PRs that cite the PR)

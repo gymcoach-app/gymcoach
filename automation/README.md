@@ -243,6 +243,63 @@ Per-run cost is a lower bound. Summed session time is not human-attended time:
 parallel subagents overlap and sessions include idle waits. The estimate is not an
 amount billed.
 
+## Run-time usage ledger (milestone 1)
+
+The transcript scan above only sees transcripts that are still on the machine.
+Since this change, every Claude Code session in this project also records usage
+**at run time**, through hooks wired in `.claude/settings.json`:
+
+- `hooks/record-usage.cjs` runs on `SubagentStop`, `SessionEnd` and
+  `UserPromptSubmit`, and appends at most one line per event to a ledger outside
+  the repository: `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`
+  (or `GYMCOACH_USAGE_LEDGER_PATH`). `GYMCOACH_USAGE_LEDGER=off` at launch
+  disables it.
+  - `agent` line, when a subagent finishes: its own transcript
+    (`agent_transcript_path` in the hook input) summarised with the same rules as
+    `usage/build.ts` (one entry per response id at its final usage, unknown never
+    0, `claude-*` model ids only), as token sums per model and speed, plus response
+    and dropped counts, first and last timestamps, skills invoked through the Skill
+    tool, PR numbers named in its task prompt, the Claude Code version, and
+    SHA-256 prefixes of the worktree branches it worked on. A fork's transcript
+    starts with a copy of its parent's turn; responses also present in the parent
+    transcript are left out and counted (`inheritedResponses`, null when the parent
+    could not be read).
+  - `session` line, when a session ends: the main session's own usage and the PR
+    numbers it linked.
+  - `prompt` line, when a prompt arrives: only whether it was a harness
+    notification (a background task finishing) or anything else.
+- `ledger/schema.ts` - the ledger line schema (version 1).
+- `ledger/attribute.ts` - pure: ledger lines in, the session summaries
+  `usage/build.ts` already attributes, so the ledger produces the same
+  `usage.jsonl` shape with the same rules (head branch, compared as hashes, or a
+  single PR reference). The latest line per agent or session wins.
+- `ledger/collect.ts` - writes `usage.jsonl` and `usage-meta.json` (with
+  `source: "ledger"`) for the runs of a baseline into a separate directory:
+
+  ```bash
+  npx tsx automation/ledger/collect.ts --dir docs/loops/baseline/<date> --out <dir>
+  ```
+
+Human interventions: a session's prompts are counted (`ledger.prompts` in the
+meta), split into harness notifications and other prompts. They are not
+attributed to a run, because one orchestrating session spans many runs, so the
+per-run human-interventions measure stays unknown. "Other" includes a scripted
+`claude -p` prompt, so it is an upper bound on operator prompts.
+
+Privacy: the hook reads transcripts and prompts in memory only. A line holds
+numbers, model ids, skill names, public PR numbers, random agent ids and 16-hex
+SHA-256 prefixes of the session id and of branch names; never prompt or message
+text, tool output, paths or branch names. It prints nothing on stdout.
+
+Failure policy: fail open. Any error ends the hook with exit 0 and no line, so a
+broken ledger never blocks an agent; the line is written with one append call.
+Checked live on Claude Code 2.1.296: one `agent` line per finished subagent; a
+ledger path that cannot be written left the agent's run unaffected. Limits: a
+`SessionEnd` hook can be cancelled when the CLI exits first (seen once, with a
+failing write), so a session line can be missing; usage outside Claude Code, and
+before this hook, is not recorded; attribution is as conservative as the
+transcript scan.
+
 ## Related: replayable evaluation tasks
 
 The maintainer's evaluation harness (roadmap milestone 3) lives in
