@@ -101,7 +101,8 @@ A first [baseline report](baseline/2026-10-13/report.md) counts PR outcomes, CI
 evidence, human and bot reviews, reverts and fix follow-ups from public GitHub data, using the versioned
 records in [`automation/`](../../automation/README.md). Agent tokens, an
 API-list-price cost estimate and session time are recovered from local Claude Code
-transcripts where a subagent session can be attributed to a PR (34 of 79 runs);
+transcripts where a subagent session can be attributed to a PR (32 of 79 runs, a
+lower bound per run);
 the rest, and human interventions, stay unknown. We do not yet publish an autonomy
 rate, cost per successful task, or
 benchmark improvement score. A merged PR and a green test suite alone do not establish that a new

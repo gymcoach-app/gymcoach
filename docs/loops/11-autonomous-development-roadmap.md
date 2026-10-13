@@ -84,14 +84,15 @@ grading code, or reserved evaluation data that determine its own acceptance.
       commit trailers, and in-session attempts are unknown until the runner records
       them at run time. Models and skill version of the attributed subagent sessions
       are recovered from local transcripts by
-      [`automation/usage/`](../../automation/usage/) (models for 34 of 79 runs, skill
+      [`automation/usage/`](../../automation/usage/) (models for 32 of 79 runs, skill
       version for 3: only skills invoked through the Skill tool are identifiable).
 - [ ] Record token usage, estimated cost, duration, cache usage where available,
       and human interventions. Mark unavailable values as unknown, never zero.
       Partial: [`automation/usage/`](../../automation/usage/) recovers tokens by kind
       (including cache reads and writes), an API-list-price cost estimate and summed
       session time from local Claude Code transcripts, for subagent sessions
-      attributable to a PR by head branch or a single PR reference (34 of 79 runs in
+      attributable to a PR by worktree head branch or a single PR reference (32 of 79
+      runs, a lower bound per run, in
       [`baseline/2026-10-13/usage.jsonl`](baseline/2026-10-13/usage.jsonl), tested in
       [`automation/usage/build.test.ts`](../../automation/usage/build.test.ts)).
       Orchestrating sessions and unattributable subagents are totalled apart; human
