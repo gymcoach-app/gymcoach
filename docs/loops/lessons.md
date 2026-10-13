@@ -37,6 +37,14 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   Reconfirmed during the first ideate batch: a "job was not acquired by Runner" failure (GitHub
   Actions infra, not a step in our workflow) was read as infra and re-run, not treated as a
   regression - exactly the L2 discipline.
+  Follow-up 2026-10-13 (#381): the "rate-limit-free" mirror was not. Over the last 100 CI runs
+  (115 attempts since 2026-09-22), 30 attempts (26%) died at the Postgres pull, and all 37
+  failed pull jobs whose logs were read said `toomanyrequests: Data limit exceeded` from
+  `public.ecr.aws`. The jobs now start Postgres through `.github/actions/start-postgres`:
+  the image is pinned by digest, restored from the Actions cache, and on a cache miss pulled
+  by digest from `mirror.gcr.io`, the ECR public mirror or Docker Hub in turn (same index
+  digest on all three), then saved to the cache. A choice of mirror is not a fix; removing
+  the per-run dependency on any one external registry is.
 
 ### L3 - The orchestrator owns CI-watch and merge; subagents stop at the PR
 - **Trigger:** background maintainer-tick agents repeatedly terminated early - they ended
@@ -597,7 +605,8 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   failure. Give the API a few seconds after a push before comparing heads. The mirror failure
   itself is tracked as #381.
 - **Status:** graduated -> the CI guardrail of the `ship-pr` skill and pass 3 of
-  `10-external-contributions.md`; the mirror is accepted risk until #381.
+  `10-external-contributions.md`; the mirror was accepted risk until #381, which moved the
+  pull behind the Actions cache with three registries (see L2's follow-up).
 
 ### L36 - Ask the fixup tick for a mutation check, and the verdict for the merge order
 - **Trigger:** same wave. The fixup ticks reverted their own fix and confirmed the new tests

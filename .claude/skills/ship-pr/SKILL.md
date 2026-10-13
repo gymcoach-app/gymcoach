@@ -183,8 +183,10 @@ changes on.
   transient infra, not a regression: re-run the run (`gh run rerun <id>`) before assuming
   the change broke anything. Acknowledge which step actually failed before re-planning
   (lesson L2, anti feedback-blindness). The converse holds too: rerun **only** when the
-  failed step is the image pull (*Initialize containers* / *Start Postgres*, e.g.
-  `toomanyrequests: Data limit exceeded` from the ECR mirror); any other failed step is a
+  failed step is the Postgres image pull (since #381, the *Pull the image by digest (cache
+  miss)* step of the `start-postgres` action after all three registries failed; before it,
+  *Initialize containers* / *Start Postgres* with `toomanyrequests: Data limit exceeded`
+  from the ECR mirror); any other failed step is a
   real failure and is read, not rerun. Bound the reruns and pause between them. After a
   push, the pulls API can report the old head for a few seconds, so do not treat an
   immediate "head moved" as real (lesson L35).
