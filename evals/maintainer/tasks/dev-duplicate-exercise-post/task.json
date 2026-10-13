@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-duplicate-exercise-post",
+  "family": "api-correctness",
+  "split": "dev",
+  "source": { "kind": "historical", "issue": 379, "pr": 425 },
+  "snapshot": {
+    "baseSha": "a4d5e0071fb8001f22f4f8b5e5bc71f124cefea4",
+    "fixSha": "648c4bdfd843ce751f5e6293fc819baf839156ec"
+  },
+  "statement": "Adding an exercise to a workout through POST /api/workouts/{id}/program-exercises accepts an exercise that the workout already contains. The in-session menu hides such exercises, but a double submit or a direct API call creates a second row for the same exercise, and the live session then shares one set pool between the two rows. Make the endpoint refuse an exercise already in that workout with HTTP 409 and write nothing. The same exercise must still be accepted in a different workout, and the existing ownership behaviour (another user's workout is not found) must not change. Keep the existing tests green.",
+  "reference": { "paths": ["app/api/workouts/[id]/program-exercises/route.ts"] },
+  "grader": {
+    "hidden": ["tests/integration/program-exercise-duplicate.test.ts"],
+    "preserved": [
+      "tests/integration/superset-route.test.ts",
+      "tests/integration/route-ownership.test.ts"
+    ]
+  },
+  "budget": { "maxTurns": 40, "maxWallSeconds": 1200 },
+  "leakage": [
+    "Issue 379 is open at the base and describes the defect; its text is not in the snapshot, and the statement re-derives it.",
+    "The fix came from an external contributor (PR 425); later PRs 426 and 427 extend it to other paths and are absent from the snapshot.",
+    "Lesson L37 (deliberate repeats in templates) postdates the base, so the snapshot cannot contain it."
+  ]
+}

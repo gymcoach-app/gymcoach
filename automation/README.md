@@ -242,3 +242,10 @@ its start are flagged possibly partial. Work outside Claude Code is invisible.
 Per-run cost is a lower bound. Summed session time is not human-attended time:
 parallel subagents overlap and sessions include idle waits. The estimate is not an
 amount billed.
+
+## Related: replayable evaluation tasks
+
+The maintainer's evaluation harness (roadmap milestone 3) lives in
+[`evals/maintainer/`](../evals/maintainer/README.md): versioned tasks replayed
+from frozen snapshots of this repository, hidden graders, and a runner that
+records pass, fail or infra-error per run.

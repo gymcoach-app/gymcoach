@@ -1,0 +1,14 @@
+--- a/lib/mcp/errors.ts
++++ b/lib/mcp/errors.ts
+@@ -26,6 +26,11 @@
+     return new Error('Server error.');
+   }
+ 
++  if (err instanceof Prisma.PrismaClientUnknownRequestError) {
++    console.error('[mcp] Prisma error:', err.name, err.message);
++    return new Error('Server error.');
++  }
++
+   return err instanceof Error ? err : new Error(String(err));
+ }
+ 

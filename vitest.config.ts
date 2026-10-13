@@ -26,8 +26,15 @@ export default defineConfig({
   },
   test: {
     // Logic tests live next to lib/ code, component tests under components/.
-    // automation/ holds the maintainer's run-record tooling, kept apart from the app.
-    include: ['lib/**/*.test.ts', 'components/**/*.test.{ts,tsx}', 'automation/**/*.test.ts'],
+    // automation/ holds the maintainer's run-record tooling and evals/ its replay
+    // harness, both kept apart from the app. Task graders under evals/*/tasks are
+    // not test files: they are fetched from the fix commit at grading time.
+    include: [
+      'lib/**/*.test.ts',
+      'components/**/*.test.{ts,tsx}',
+      'automation/**/*.test.ts',
+      'evals/**/*.test.ts',
+    ],
     // jsdom covers both: pure logic tests run fine in it too.
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],

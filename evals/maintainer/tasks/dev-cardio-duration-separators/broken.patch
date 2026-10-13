@@ -1,0 +1,11 @@
+--- a/lib/cardio.ts
++++ b/lib/cardio.ts
+@@ -58,7 +58,7 @@
+ //   "mm"       -> plain minutes (e.g. "45")
+ // Returns null for anything else (empty, negative, out of bounds).
+ export function parseDurationToSec(input: string): number | null {
+-  const trimmed = input.trim();
++  const trimmed = input.trim().replace(/\./g, ':');
+   if (!/^\d{1,3}(:[0-5]?\d){0,2}$/.test(trimmed)) return null;
+   const parts = trimmed.split(':').map((p) => parseInt(p, 10));
+   let seconds: number;

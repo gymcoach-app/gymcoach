@@ -6,8 +6,11 @@ usage recovered from local transcripts (#443). Milestone 2 is partly delivered: 
 SHA-pinned merge gate for every merge (#442) that requires structured review evidence
 for the exact head and base (#449), and a self-bootstrapping test database (#441).
 Milestone 4 is partly delivered: structured review records (#449) and recurring
-mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hook). Milestones 3, 5 and 6 and the
-product LLM track are proposed, not implemented. A PreToolUse hook keeps subagents
+mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hook).
+Milestone 3 has started: a 3-task smoke suite and a replay runner in
+`evals/maintainer/`, validated with reference and broken fixes; no paid agent
+run yet. Milestones 5 and 6 and the product LLM track are proposed, not
+implemented. A PreToolUse hook keeps subagents
 from moving HEAD in checkouts they do not own (#448, merged on the operator's
 confirmation). Baseline
 inspection: 2026-10-13, commit `dd0fcf7`. Update milestone status with
@@ -51,8 +54,9 @@ Keep the maintenance runtime separate from the workout application. A proposed
 layout is `automation/` for the controller, policies, runner adapters, and schemas;
 `evals/maintainer/` for task fixtures and graders; and this directory for public
 documentation. `automation/` now holds the run records, the baseline and usage
-tooling, the merge gate and the review records; the controller, policies, runner
-adapters and `evals/maintainer/` do not exist yet.
+tooling, the merge gate and the review records, and `evals/maintainer/` holds the
+first replay tasks and runner; the controller, policies and runner adapters do not
+exist yet.
 
 Use a small TypeScript controller with a Claude Agent SDK adapter. The existing
 Claude CLI can remain an adapter during migration. Start with SQLite for durable
@@ -224,20 +228,35 @@ changes within the charter.
 
 - [ ] Start with a small smoke suite, then grow to approximately 20-30 historical
       and synthetic tasks with frozen starting snapshots and explicit acceptance criteria.
+      Partial: a 3-task dev smoke suite with frozen snapshots and hidden graders
+      ([`evals/maintainer/tasks/`](../../evals/maintainer/tasks/)); growth to 20-30 tasks pending.
 - [ ] Include code corrections, UI behavior, migration handling, CI diagnosis,
       interruption recovery, untrusted instructions, and review/merge races.
 - [ ] Run baseline and candidate configurations in equivalent disposable
       environments. Pin dependencies and record infrastructure failures separately.
 - [ ] Use independent acceptance tests and outcome checks. Keep grading code and
       reserved fixtures outside the worker's writable and readable task environment.
+      Partial: hidden tests come from the fix commit and are copied in only after the
+      agent finished ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts)); the
+      filesystem is not sandboxed, so an agent could read the live checkout by
+      absolute path ([README](../../evals/maintainer/README.md#how-a-replay-is-isolated)).
 - [ ] Remove answer leakage from future Git history, lesson files, solution PRs,
       and network access during historical replay. Disclose any remaining contamination.
+      Partial: snapshots are an archive of the base tree with a fresh history and no
+      remote, the unit grader runs without network, and each task lists its leakage;
+      the agent's own network and filesystem are not cut (disclosed in the
+      [README](../../evals/maintainer/README.md#how-a-replay-is-isolated)).
 - [ ] Separate development, validation, and reserved test tasks by issue or failure
       family. Do not tune on the reserved set or repeatedly use it to select candidates.
+      Partial: the task schema carries the split; only `dev` tasks exist so far.
 - [ ] Repeat trials. Publish trial counts, variability, task-level outcomes, cost
       per successful task, interventions, and policy violations.
-- [ ] Provide a documented replay command that requires no production credentials
+- [x] Provide a documented replay command that requires no production credentials
       and cannot publish to the real repository.
+      Evidence: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md));
+      the snapshot has no remote, and the paid `claude` agent is refused without a budget
+      and `EVAL_BUDGET_APPROVED=1` and runs with `gh` logged out and a Bash allowlist.
+      On 2026-10-13 the 3 smoke tasks gave dry fail, reference pass, broken fail (9/9).
 
 Acceptance: the runner reproduces a known defect, rejects an intentionally
 incomplete fix, accepts a correct fix, and verifies preserved behavior. Include
