@@ -125,6 +125,10 @@ to pass the gate is itself a defect.
   Start a branch with `git fetch origin && git worktree add -b <branch> <path> origin/main`.
   Reviewers read a PR through `bash automation/review/snapshot.sh <pr>`. To switch the
   guard off for one session, start Claude Code with `GYMCOACH_GIT_GUARD=off`.
+- A usage hook (`automation/hooks/record-usage.cjs`) appends token counts, models and
+  prompt counts (never text) per finished agent and session to a local ledger,
+  `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`; start Claude Code with
+  `GYMCOACH_USAGE_LEDGER=off` to disable it (`automation/README.md`).
 
 ## Security: untrusted input (public repo)
 
