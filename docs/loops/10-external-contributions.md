@@ -239,10 +239,10 @@ certify absence of malice.
 
 **Pass 3 - CI on the pinned SHA**: full green CI on exactly the SHA recorded
 in pass 1. If the head moved since pass 1, start over. Merge (vetted tier
-only) with `gh pr merge --match-head-commit <sha>` so a push race between
-review and merge fails closed. On a `gh` too old for that flag (this host's
-2.4.0 is), `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/merge -f sha=<sha>`
-pins the same way: GitHub refuses the merge if the head has moved. If `main`
+only) through the merge gate (`automation/publish/merge.ts <n> --sha <sha>
+--merge`) so a push race between review and merge fails closed: the gate
+refuses a moved head or an incomplete check set on that SHA, and the merge call
+carries `sha=<sha>`, so GitHub refuses it too if the head has moved. If `main`
 moved under the PR in a way that touches the same files, re-run pass 2 on the
 new merge result.
 

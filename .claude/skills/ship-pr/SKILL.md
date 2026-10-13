@@ -33,9 +33,7 @@ changes on.
      auto-merge is permitted ONLY after that policy's full sequence - mechanical
      hard-block path gate (group B = verdict only; group A = see below), no file overlap with another PR handled this run, multi-lens
      adversarial review with structured verdicts, green CI on the SHA recorded before
-     review, then `gh pr merge --match-head-commit <sha>` (merge commit, not squash, for
-     stacked fork PRs; on a `gh` without that flag, such as this host's 2.4.0, the same pin
-     is `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/merge -f sha=<sha> -f merge_method=merge`).
+     review, then the pinned merge of step 5 (`--method merge` for stacked fork PRs).
      Local gate runs and fixups are permitted at this tier only.
    - Anyone else: do NOT execute their code locally (CI is the only executor - no
      `verify.sh`, no `npm ci` on their branch, even in a worktree). Run the read-only
@@ -109,27 +107,40 @@ changes on.
    `git diff`; when a tree on disk is needed, `git worktree add <scratch-path> <sha>` and
    remove it afterwards. Say so in every review subagent's prompt (lesson L38).
 
-5. **Merge.** Only if CI is green AND review is clean. Loop-authored PRs:
-   `gh pr merge <n> --squash --delete-branch`. Vetted-contributor fork PRs:
-   `gh pr merge <n> --merge --match-head-commit <sha-recorded-before-review>` (merge
-   commit for stacks, no `--delete-branch` on a fork, and the SHA pin makes a push race
-   between review and merge fail closed; without the flag, `gh api -X PUT
-   repos/<owner>/<repo>/pulls/<n>/merge -f sha=<sha> -f merge_method=merge` is the same pin,
-   and `gh api ... --jq` replaces a `jq` binary this host does not have). Confirm it merged
-   (`gh pr view <n> --json state,mergedAt`). In a stack, never merge the second PR before
+5. **Merge.** Only if CI is green AND review is clean. **Every merge, loop-authored or
+   external, goes through the merge gate pinned to the SHA the review covered:**
+
+   ```bash
+   npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha>            # dry run
+   npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
+     --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"]
+   ```
+
+   The gate refuses (exit 1, reasons printed) when the head moved from the reviewed SHA,
+   any of the five CI checks is missing, pending, or not `success` on that exact SHA
+   (skipped and neutral do not count), the check list is empty, a check comes from
+   another SHA or another app, the committed allowlist and the repository's required
+   checks disagree, or the PR is not an open, non-draft, `clean` PR into `main`. Then it
+   merges with `sha=<reviewed>`, so GitHub also rejects a push that lands in between. Use
+   `--method merge` for a stack of vetted-contributor fork PRs (merge commits). A refusal
+   is a stop, not something to retry around: a moved head needs a fresh review of the
+   delta, a red or pending check needs step 3. Never fall back to `gh pr merge` or a bare
+   merge API call. Delete a loop branch afterwards by hand, never on a fork. Confirm it
+   merged (`gh pr view <n> --json state,mergedAt`). In a stack, never merge the second PR before
    the first has its own green CI on its own pinned SHA, even when the second's green CI
    covered a superset tree (lesson L32).
-   **`--delete-branch` fails after a successful merge when the branch is checked out in a
-   worktree**: `gh` cannot delete a branch that some working tree still has checked out, so
-   it exits 1 *after* the merge landed - the PR is merged and the remote branch survives.
-   Never re-run the merge on that exit code. Confirm the merge, then clean up by hand:
-   `git push origin --delete <branch>` and `git worktree remove <path>`.
+   **If the merge call errors** (network, timeout), check the PR state before anything
+   else: it may have landed. Never re-run a merge without that check. Then clean up by
+   hand: `git push origin --delete <branch>` and `git worktree remove <path>`. (The old
+   `gh pr merge --delete-branch` exited 1 *after* a successful merge when the branch was
+   checked out in a worktree.)
 
 6. **Report.** PR -> merged (with the merge commit), or skipped/blocked with the reason.
 
 ## Guardrails
 
-- Never `gh pr merge` while any required check is red or pending.
+- Never merge outside `automation/publish/merge.ts`, and never with a SHA other than the
+  one the review covered. The gate refuses a red, pending, missing or empty check set.
 - Never merge a draft, a `CHANGES_REQUESTED` PR, or one not targeting `main`.
 - Never execute an unvetted author's code locally. An external fork PR (vetted or, since
   the operator's 2026-10-07 standing delegation, unvetted) merges only through the full

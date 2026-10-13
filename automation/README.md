@@ -5,6 +5,28 @@ the app never imports this directory and the Docker image does not ship it
 (`.dockerignore`). See the
 [implementation roadmap](../docs/loops/11-autonomous-development-roadmap.md).
 
+## Merge gate (milestone 2)
+
+- `publish/gate.ts` - pure decision: a PR may be merged at an approved SHA only when
+  it is open, not a draft, targets `main`, is `clean`, its head is still the approved
+  SHA, and every allowlisted CI check, from the expected CI app, succeeded on that
+  exact SHA (latest rerun decides). Empty, missing, pending, skipped, neutral,
+  foreign-app and other-SHA checks refuse the merge.
+- `publish/checks.ts` - the allowlist: the five jobs of `.github/workflows/ci.yml`.
+  The gate refuses when it disagrees with the repository's required status checks.
+- `publish/merge.ts` - the only way the maintainer merges (see the `ship-pr` skill).
+  Dry run by default; `--merge` calls the merge endpoint with `sha=<approved>`.
+
+  ```bash
+  npx tsx automation/publish/merge.ts 123 --sha <reviewed-40-hex-sha>
+  npx tsx automation/publish/merge.ts 123 --sha <sha> --merge --method squash \
+    --title "feat: ... (#123)" --message "Closes #120"
+  ```
+
+Limits: the gate checks CI, not review evidence; the review binding is still a
+procedure. It runs with the caller's gh credentials, so it constrains the agent that
+follows the skill, not a determined one with the same token.
+
 ## Run records (milestone 1)
 
 - `records/schema.ts` - versioned Zod schemas (schema version 1) for task, run,
