@@ -139,6 +139,17 @@ reverted forward, re-shipped as PR #279).
   no-op if it ever runs) and must report `Blocked by the git guard`. If it is not blocked,
   do not run non-isolated subagents in that session: use Agent worktree isolation only,
   and report it.
+- **Concurrency is capped, not only advised.** On 2026-10-13 three or four parallel ticks
+  plus Docker took the load average to ~20 and crashed local E2E. `verify.sh` now takes
+  one of `GYMCOACH_HEAVY_SLOTS` machine-wide slots (default a quarter of the cores) and
+  waits, naming the holders, when all are taken; a session may run at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents at once, and the next Agent call is
+  refused until a completion notification arrives (`automation/hooks/dispatch-limit.cjs`).
+  Dispatch at most three ticks, and treat a dispatch refusal as "wait", never as a reason
+  to retry in a loop. A review wave larger than the limit (the four lenses of an external
+  PR's pass 2) goes out in batches of at most three: dispatch three, then the fourth after
+  a completion notification; or the operator raises `GYMCOACH_MAX_SUBAGENTS` for that
+  session. `GYMCOACH_SESSION_TOKEN_BUDGET` bounds a run's subagent token spend.
 - **If a commit still lands on `main`, revert forward** (a revert commit restoring `main`'s
   content), never `git push --force` shared history (it is denied anyway), then re-ship the
   work through a proper PR.

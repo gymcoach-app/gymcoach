@@ -1,6 +1,13 @@
 import { createRequire } from 'node:module';
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -9,6 +16,12 @@ import { ledgerLineSchema } from '@/automation/ledger/schema';
 
 const require = createRequire(import.meta.url);
 const hook = require('./record-usage.cjs') as {
+  settleThenSummarize: (
+    readSize: () => number,
+    summarize: () => { kind: string; responses: number } | null,
+    opts: { deadline: number; now: () => number; schedule: (fn: () => void) => void },
+    done: (line: { kind: string; responses: number } | null) => void,
+  ) => void;
   summarize: (
     lines: string[],
     kind: 'main' | 'subagent',
@@ -156,6 +169,121 @@ function transcriptFile(lines: string[]): string {
 const SESSION_ID = '5f0e9a52-1111-2222-3333-444455556666';
 
 describe('record-usage hook process', () => {
+  it('waits for a subagent transcript that is written after SubagentStop fires', async () => {
+    // Claude Code 2.1.296 writes the subagent's last records ~40 ms after the
+    // hook starts; the hook must not record zero responses for it.
+    const all = subagentTranscript();
+    const firstAssistant = all.findIndex((l) => l.includes('"assistant"'));
+    const f = transcriptFile(all.slice(0, firstAssistant));
+    const ledger = join(tmp(), 'ledger.jsonl');
+    const child = spawn(process.execPath, [SCRIPT], {
+      env: { ...process.env, GYMCOACH_USAGE_LEDGER_PATH: ledger, GYMCOACH_USAGE_LEDGER: '' },
+    });
+    child.stdin.end(
+      JSON.stringify({
+        hook_event_name: 'SubagentStop',
+        session_id: SESSION_ID,
+        agent_id: 'late1',
+        agent_type: 'general-purpose',
+        agent_transcript_path: f,
+        transcript_path: '/nonexistent/parent.jsonl',
+        cwd: WT,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    appendFileSync(f, all.slice(firstAssistant).join('\n') + '\n');
+    const code = await new Promise<number | null>((r) => child.on('exit', r));
+    expect(code).toBe(0);
+    const line = JSON.parse(readFileSync(ledger, 'utf8').trim());
+    expect(line.responses).toBe(3);
+  });
+
+  it('waits for the last response of a multi-turn subagent written after SubagentStop', async () => {
+    // A first read already sees a response, but more records land later: the
+    // hook must wait until the transcript stops growing, not only when it is empty.
+    const all = subagentTranscript();
+    const assistants = all
+      .map((l, i) => (l.includes('"assistant"') ? i : -1))
+      .filter((i) => i >= 0);
+    const cut = assistants[1]!;
+    const f = transcriptFile(all.slice(0, cut));
+    const ledger = join(tmp(), 'ledger.jsonl');
+    const child = spawn(process.execPath, [SCRIPT], {
+      env: { ...process.env, GYMCOACH_USAGE_LEDGER_PATH: ledger, GYMCOACH_USAGE_LEDGER: '' },
+    });
+    child.stdin.end(
+      JSON.stringify({
+        hook_event_name: 'SubagentStop',
+        session_id: SESSION_ID,
+        agent_id: 'late2',
+        agent_type: 'general-purpose',
+        agent_transcript_path: f,
+        transcript_path: '/nonexistent/parent.jsonl',
+        cwd: WT,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 60));
+    appendFileSync(f, all.slice(cut).join('\n') + '\n');
+    const code = await new Promise<number | null>((r) => child.on('exit', r));
+    expect(code).toBe(0);
+    const line = JSON.parse(readFileSync(ledger, 'utf8').trim());
+    expect(line.responses).toBe(3);
+  });
+
+  // Drives the settle loop with a fake clock: each scheduled poll advances it
+  // 150 ms, like SETTLE_MS.
+  function drive(sizes: number[], responsesAt: (size: number) => number, deadline = 2000) {
+    let t = 0;
+    let i = 0;
+    let reads = 0;
+    let result: { kind: string; responses: number } | null | undefined;
+    const queue: (() => void)[] = [];
+    hook.settleThenSummarize(
+      () => sizes[Math.min(i++, sizes.length - 1)]!,
+      () => {
+        reads++;
+        const size = sizes[Math.min(i - 1, sizes.length - 1)]!;
+        return { kind: 'agent', responses: responsesAt(size) };
+      },
+      { deadline, now: () => t, schedule: (fn) => queue.push(fn) },
+      (line) => {
+        result = line;
+      },
+    );
+    while (result === undefined && queue.length) {
+      t += 150;
+      queue.shift()!();
+    }
+    return { result, reads, polls: i };
+  }
+
+  it('reads the transcript once, after the size settles', () => {
+    // Growing for three polls, then stable: one full read at the settled size.
+    const r = drive([10, 20, 30, 30], () => 2);
+    expect(r.result?.responses).toBe(2);
+    expect(r.reads).toBe(1);
+    expect(r.polls).toBe(4);
+  });
+
+  it('never settles on the first read alone', () => {
+    const r = drive([30, 30], () => 1);
+    expect(r.polls).toBe(2);
+    expect(r.reads).toBe(1);
+  });
+
+  it('keeps polling the size, not re-reading, while a settled transcript has no response', () => {
+    // Stable but empty until the deadline: one full read, then size polls only.
+    const r = drive([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5], () => 0);
+    expect(r.result?.responses).toBe(0);
+    expect(r.reads).toBe(1);
+  });
+
+  it('summarises again only when the size changes after an empty read', () => {
+    const r = drive([5, 5, 9, 9], (size) => (size === 9 ? 1 : 0));
+    expect(r.result?.responses).toBe(1);
+    expect(r.reads).toBe(2);
+  });
+
   it('appends exactly one schema-valid agent line on SubagentStop, with no text or path', () => {
     const r = run({
       hook_event_name: 'SubagentStop',

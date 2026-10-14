@@ -46,6 +46,52 @@ const MODEL_ID = /^claude-[a-z0-9.-]+$/;
 const SKILL_NAME = /^[a-z0-9][a-z0-9:-]*$/;
 const VERSION = /^[0-9][0-9A-Za-z.+-]*$/;
 const KINDS = ['input', 'output', 'cacheRead', 'cacheCreation5m', 'cacheCreation1h'];
+// How long an agent line waits for the subagent transcript's final write.
+const FLUSH_WAIT_MS = 2000;
+const SETTLE_MS = 150;
+
+function transcriptSize(file) {
+  if (typeof file !== 'string') return -1;
+  try {
+    return fs.statSync(file).size;
+  } catch {
+    return -1;
+  }
+}
+
+// Waits for the subagent transcript's last write, then summarises it once.
+// Only the file size is polled (a stat, every SETTLE_MS) until two reads agree;
+// the transcript is read in full only at that settled size, never again for
+// the same size. An agent line with no response keeps polling until the size
+// changes or the deadline passes, so a transcript that never settles costs one
+// full read, not one per poll. A first read (no previous size) is never
+// settled, so the hook always looks twice. Returns through done(line).
+function settleThenSummarize(readSize, summarize, opts, done) {
+  let lastSize = -1;
+  let first = true;
+  let summarizedAt = null;
+  let line = null;
+  (function step() {
+    const size = readSize();
+    const late = opts.now() >= opts.deadline;
+    const stable = !first && size === lastSize;
+    first = false;
+    lastSize = size;
+    if (!stable && !late) {
+      opts.schedule(step);
+      return;
+    }
+    if (summarizedAt !== size) {
+      line = summarize();
+      summarizedAt = size;
+    }
+    if (late || !line || line.kind !== 'agent' || line.responses > 0) {
+      done(line);
+      return;
+    }
+    opts.schedule(step);
+  })();
+}
 
 function hash(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
@@ -328,18 +374,65 @@ function main() {
       raw += d;
     });
     process.stdin.on('end', function () {
+      let input;
       try {
-        const line = lineFor(JSON.parse(raw));
-        if (line) {
-          const file = ledgerPath(process.env);
-          fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.appendFileSync(file, JSON.stringify(line) + '\n');
-        }
-      } catch (e) {
+        input = JSON.parse(raw);
+      } catch {
+        process.exit(0);
+      }
+      // SubagentStop fires a few tens of milliseconds BEFORE Claude Code
+      // writes the subagent's last records (observed on 2.1.296: the
+      // transcript's final write lands ~40 ms after the hook starts), so a
+      // first read can miss the last response, or see none at all. For an
+      // agent line, wait until the transcript stops growing (two sizes
+      // SETTLE_MS apart are equal) and holds at least one response, for at
+      // most FLUSH_WAIT_MS, then record what is there.
+      const fail = function (e) {
         // The error code only: a message could name a path.
         process.stderr.write('record-usage: skipped (' + ((e && e.code) || 'error') + ')\n');
+        process.exit(0);
+      };
+      const subagent = input && input.hook_event_name === 'SubagentStop';
+      const transcript = subagent ? input.agent_transcript_path : null;
+      try {
+        settleThenSummarize(
+          function () {
+            return transcriptSize(transcript);
+          },
+          function () {
+            return lineFor(input);
+          },
+          {
+            // Other events need no wait: their line is written at once.
+            deadline: subagent ? Date.now() + FLUSH_WAIT_MS : 0,
+            now: Date.now,
+            schedule: function (fn) {
+              setTimeout(function () {
+                try {
+                  fn();
+                } catch (e) {
+                  fail(e);
+                }
+              }, SETTLE_MS);
+            },
+          },
+          function (line) {
+            try {
+              if (line) {
+                const file = ledgerPath(process.env);
+                fs.mkdirSync(path.dirname(file), { recursive: true });
+                fs.appendFileSync(file, JSON.stringify(line) + '\n');
+              }
+            } catch (e) {
+              fail(e);
+              return;
+            }
+            process.exit(0);
+          },
+        );
+      } catch (e) {
+        fail(e);
       }
-      process.exit(0);
     });
   } catch {
     process.exit(0);
@@ -354,6 +447,7 @@ module.exports = {
   promptSource,
   ledgerPath,
   hash,
+  settleThenSummarize,
   LEDGER_VERSION,
 };
 
