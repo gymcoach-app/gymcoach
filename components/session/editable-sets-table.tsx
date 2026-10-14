@@ -482,7 +482,6 @@ export function EditableSetsTable({
       {gymId && selectedEquipment && canEditSelectedEquipment && (
         <LiveEquipmentWeightEditor
           open={weightEditorOpen}
-          gymId={gymId}
           equipment={selectedEquipment}
           unit={unit}
           onOpenChange={setWeightEditorOpen}

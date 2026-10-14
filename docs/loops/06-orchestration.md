@@ -117,7 +117,39 @@ reverted forward, re-shipped as PR #279).
 - **Reviewers write git state too (lesson L38).** A review subagent never runs `git
   checkout`/`git switch` in the main checkout or in another tick's worktree; on 2026-10-09
   two did, and one detached another tick's `HEAD` mid-work. It reads via `gh pr diff`,
-  `git show <sha>:<path>` and `git diff`, or adds its own `git worktree add` path.
+  `git show <sha>:<path>` and `git diff`, or takes a read-only snapshot with
+  `bash automation/review/snapshot.sh <pr>` (a detached worktree at the PR head under the
+  scratch dir; `--remove <dir>` deletes it).
+- **Enforced by a hook, not only by these rules.** `.claude/settings.json` runs
+  `automation/hooks/guard-git.cjs` before every Bash call. A **subagent** (its hook input
+  carries `agent_id`) is refused `git checkout <ref>`, `git switch`, `git reset --hard`/
+  `<commit>`, `git clean -f`, rebase-like commands and path-wide restores when their target
+  (after `cd`, `pushd` or `git -C`) is a primary checkout, such as the main checkout, or a
+  worktree other than its own, and it may not remove another worktree or delete a branch.
+  The **main session** keeps the main checkout but is refused in another session's worktree.
+  Everyone is refused the stash forms that act on the shared stack without a tag. A tick
+  starts its branch with `git fetch origin && git worktree add -b <branch> <path> origin/main`
+  (or its Agent isolation worktree). The operator can turn the guard off for one session by
+  starting Claude Code with `GYMCOACH_GIT_GUARD=off`.
+- **Session-start canary.** The guard recognises a subagent by `agent_id` in its hook input
+  (Claude Code 2.1.296 or later); if a version stopped sending it, subagents would pass as
+  the main session and the guard would fail open for them. At the start of a loop run the
+  orchestrator runs `node automation/hooks/guard-git.cjs --self-test` (decision logic), then
+  spawns one non-isolated subagent that runs `git -C <main-checkout> reset --soft HEAD` (a
+  no-op if it ever runs) and must report `Blocked by the git guard`. If it is not blocked,
+  do not run non-isolated subagents in that session: use Agent worktree isolation only,
+  and report it.
+- **Concurrency is capped, not only advised.** On 2026-10-13 three or four parallel ticks
+  plus Docker took the load average to ~20 and crashed local E2E. `verify.sh` now takes
+  one of `GYMCOACH_HEAVY_SLOTS` machine-wide slots (default a quarter of the cores) and
+  waits, naming the holders, when all are taken; a session may run at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents at once, and the next Agent call is
+  refused until a completion notification arrives (`automation/hooks/dispatch-limit.cjs`).
+  Dispatch at most three ticks, and treat a dispatch refusal as "wait", never as a reason
+  to retry in a loop. A review wave larger than the limit (the four lenses of an external
+  PR's pass 2) goes out in batches of at most three: dispatch three, then the fourth after
+  a completion notification; or the operator raises `GYMCOACH_MAX_SUBAGENTS` for that
+  session. `GYMCOACH_SESSION_TOKEN_BUDGET` bounds a run's subagent token spend.
 - **If a commit still lands on `main`, revert forward** (a revert commit restoring `main`'s
   content), never `git push --force` shared history (it is denied anyway), then re-ship the
   work through a proper PR.

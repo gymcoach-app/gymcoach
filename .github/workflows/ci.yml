@@ -27,20 +27,18 @@ jobs:
   integration:
     name: Integration tests (Postgres)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine
-        env:
-          POSTGRES_USER: gymcoach_test
-          POSTGRES_PASSWORD: gymcoach_test
-          POSTGRES_DB: gymcoach_test
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U gymcoach_test"
-          --health-interval 5s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v5
+      # Pinned Postgres from the Actions cache, no service container: a
+      # service image pull cannot be retried and the ECR public mirror failed
+      # about a quarter of attempts (issue #381).
+      - uses: ./.github/actions/start-postgres
+        with:
+          name: test-db
+          port: '5434'
+          user: gymcoach_test
+          password: gymcoach_test
+          db: gymcoach_test
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -85,36 +83,16 @@ jobs:
           tags: gymcoach:smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Create the smoke network
+        run: docker network create smoke
       - name: Start Postgres
-        run: |
-          docker network create smoke
-          # The ECR public mirror intermittently answers "toomanyrequests: Rate
-          # exceeded" (same transient the service-container jobs hit at
-          # "Initialize containers"); retry the pull with backoff instead of
-          # failing the whole job on the first 429.
-          for attempt in $(seq 1 5); do
-            if docker pull -q public.ecr.aws/docker/library/postgres:16-alpine; then
-              break
-            fi
-            if [ "$attempt" = "5" ]; then
-              echo "Could not pull the Postgres image after 5 attempts" >&2
-              exit 1
-            fi
-            echo "Pull attempt $attempt failed (rate limited?), retrying in 20s..."
-            sleep 20
-          done
-          docker run -d --name smoke-db --network smoke \
-            -e POSTGRES_USER=gymcoach -e POSTGRES_PASSWORD=gymcoach -e POSTGRES_DB=gymcoach \
-            public.ecr.aws/docker/library/postgres:16-alpine
-          for i in $(seq 1 30); do
-            if docker exec smoke-db pg_isready -U gymcoach -d gymcoach >/dev/null 2>&1; then
-              echo "Postgres is ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Postgres did not become ready in time" >&2
-          exit 1
+        uses: ./.github/actions/start-postgres
+        with:
+          name: smoke-db
+          network: smoke
+          user: gymcoach
+          password: gymcoach
+          db: gymcoach
       - name: Start the app (migrate deploy + server, same command as prod compose)
         run: |
           docker run -d --name smoke-app --network smoke -p 3000:3000 \
@@ -174,23 +152,21 @@ jobs:
   e2e:
     name: End to end (Playwright)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine
-        env:
-          POSTGRES_USER: gymcoach_test
-          POSTGRES_PASSWORD: gymcoach_test
-          POSTGRES_DB: gymcoach_test
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd "pg_isready -U gymcoach_test"
-          --health-interval 5s --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL: postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test
       JWT_SECRET: e2e-test-secret-at-least-32-characters
     steps:
       - uses: actions/checkout@v5
+      # Pinned Postgres from the Actions cache, no service container: a
+      # service image pull cannot be retried and the ECR public mirror failed
+      # about a quarter of attempts (issue #381).
+      - uses: ./.github/actions/start-postgres
+        with:
+          name: test-db
+          port: '5434'
+          user: gymcoach_test
+          password: gymcoach_test
+          db: gymcoach_test
       - uses: actions/setup-node@v5
         with:
           node-version: 22

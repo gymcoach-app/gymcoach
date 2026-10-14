@@ -1,0 +1,136 @@
+name: Start Postgres (pinned, cached)
+description: >-
+  Starts the CI Postgres from an image pinned by digest. The image comes from
+  the GitHub Actions cache when it is there; otherwise it is pulled by digest,
+  trying three registries that mirror the same official image, and saved to
+  the cache for later runs. Replaces the service containers whose pull from
+  the ECR public mirror failed with "toomanyrequests: Data limit exceeded" on
+  about a quarter of CI attempts (issue #381).
+
+inputs:
+  name:
+    description: Container name.
+    required: true
+  port:
+    description: Host port published to the container's 5432 (empty for none).
+    required: false
+    default: ''
+  network:
+    description: Docker network to attach the container to (empty for the default bridge).
+    required: false
+    default: ''
+  user:
+    description: POSTGRES_USER.
+    required: true
+  password:
+    description: POSTGRES_PASSWORD.
+    required: true
+  db:
+    description: POSTGRES_DB.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # postgres:16-alpine. INDEX is the multi-arch index digest, identical on
+    # Docker Hub, the ECR public mirror and mirror.gcr.io (checked 2026-10-13).
+    # IMAGE_ID is the linux/amd64 config digest, which `docker image inspect`
+    # reports as the image ID: a cached tarball is only used if it matches.
+    # To bump: `docker buildx imagetools inspect postgres:16-alpine` for INDEX,
+    # then the amd64 manifest's config digest for IMAGE_ID.
+    - name: Pin the image
+      shell: bash
+      run: |
+        {
+          echo "PG_INDEX=sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+          echo "PG_IMAGE_ID=sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542"
+          echo "PG_LOCAL=gymcoach-ci/postgres:16-alpine-pinned"
+          echo "PG_TAR=${RUNNER_TEMP}/postgres-image.tar"
+        } >> "$GITHUB_ENV"
+
+    - name: Restore the image from the cache
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/postgres-image.tar
+        key: ci-postgres-sha256-81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542
+
+    - name: Load the cached image
+      if: steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        started=$(date +%s)
+        docker load -q -i "$PG_TAR"
+        echo "Loaded from the cache in $(( $(date +%s) - started ))s"
+
+    - name: Pull the image by digest (cache miss)
+      id: pull
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        started=$(date +%s)
+        # Same content on every registry: the pull is by digest, so Docker
+        # verifies it whichever mirror answers.
+        registries="mirror.gcr.io/library/postgres public.ecr.aws/docker/library/postgres docker.io/library/postgres"
+        for round in 1 2 3; do
+          for repo in $registries; do
+            ref="$repo@$PG_INDEX"
+            # Bounded: a hung registry must not hold the job for hours.
+            if timeout 300 docker pull -q "$ref"; then
+              docker tag "$ref" "$PG_LOCAL"
+              echo "Pulled $ref in $(( $(date +%s) - started ))s (round $round)"
+              docker save -o "$PG_TAR" "$PG_LOCAL"
+              exit 0
+            fi
+            echo "::warning::Pull of $repo failed (round $round), trying the next registry"
+          done
+          if [ "$round" -lt 3 ]; then sleep 20; fi
+        done
+        echo "Could not pull postgres@$PG_INDEX from any registry" >&2
+        exit 1
+
+    - name: Save the image to the cache
+      if: steps.restore.outputs.cache-hit != 'true'
+      # Parallel jobs on a cold cache race to save the same key; losing that
+      # race is harmless.
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/postgres-image.tar
+        key: ci-postgres-sha256-81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542
+
+    - name: Verify and start Postgres
+      shell: bash
+      env:
+        PG_NAME: ${{ inputs.name }}
+        PG_PORT: ${{ inputs.port }}
+        PG_NETWORK: ${{ inputs.network }}
+        PG_USER: ${{ inputs.user }}
+        PG_PASSWORD: ${{ inputs.password }}
+        PG_DB: ${{ inputs.db }}
+      run: |
+        # The classic image store reports the amd64 config digest as the ID;
+        # the containerd image store reports the index digest. Either is the
+        # pinned content; anything else is refused.
+        actual=$(docker image inspect --format '{{.Id}}' "$PG_LOCAL")
+        if [ "$actual" != "$PG_IMAGE_ID" ] && [ "$actual" != "$PG_INDEX" ]; then
+          echo "Postgres image ID $actual does not match the pinned image" >&2
+          exit 1
+        fi
+        args=(run -d --name "$PG_NAME"
+          -e "POSTGRES_USER=$PG_USER" -e "POSTGRES_PASSWORD=$PG_PASSWORD" -e "POSTGRES_DB=$PG_DB")
+        if [ -n "$PG_NETWORK" ]; then args+=(--network "$PG_NETWORK"); fi
+        if [ -n "$PG_PORT" ]; then args+=(-p "$PG_PORT:5432"); fi
+        docker "${args[@]}" "$PG_LOCAL"
+        # Ready means accepting TCP: the image's temporary init server only
+        # listens on the Unix socket.
+        for i in $(seq 1 60); do
+          if docker exec "$PG_NAME" pg_isready -h 127.0.0.1 -U "$PG_USER" -d "$PG_DB" >/dev/null 2>&1; then
+            echo "Postgres is ready"
+            exit 0
+          fi
+          sleep 1
+        done
+        docker logs "$PG_NAME" >&2 || true
+        echo "Postgres did not become ready in time" >&2
+        exit 1

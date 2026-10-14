@@ -5,6 +5,73 @@ the app never imports this directory and the Docker image does not ship it
 (`.dockerignore`). See the
 [implementation roadmap](../docs/loops/11-autonomous-development-roadmap.md).
 
+## Git guard and review snapshots (milestone 2, lessons L15 and L38)
+
+- `hooks/guard-git.cjs` - a PreToolUse hook for the Bash tool, wired in
+  `.claude/settings.json`. It reads the hook JSON on stdin, parses the command (quotes,
+  `&&`/`;`/`|`, subshells, `$(...)`, `bash -c`, here-documents, `cd`/`pushd`, `git -C`)
+  and exits 2 with a reason when a git command would move `HEAD` or clobber the tree of a
+  checkout the session does not own. Claude Code puts `agent_id` in a subagent's hook
+  input and leaves it out for the main session (checked live on Claude Code 2.1.296, the
+  minimum version assumed). `agent_type` is not used: Claude Code also sets it for a main
+  session started with `claude --agent`. If a version ever omitted `agent_id` for a
+  subagent, the guard would treat it as a main session (fail open); the session-start
+  canary below catches that. The rules differ:
+  - "moves HEAD or clobbers": `git checkout <ref>` (including `-b`, `--detach`), `git switch`,
+    `git reset --hard|--keep|--merge|--soft` and `git reset <commit>`, `git clean -f`,
+    `rebase`, `cherry-pick`, `am`, `revert`, `update-ref`, `symbolic-ref <name> <ref>`,
+    `read-tree -u`, and path-wide or sourced restores (`git checkout -- .`,
+    `git checkout <commit> -- <path>`, `git restore .`, `git restore --source=...`);
+    plus `git checkout-index -f`, `git apply -R`, `git worktree add --force|-B` and
+    `git submodule update --force`, and a git subcommand only known at run time
+    (`git $x`, `git $(...)`);
+  - a **subagent** is refused those in a **primary checkout** (its `.git` is a directory,
+    such as the main checkout) and in a **linked worktree other than the one containing its
+    cwd**; it is also refused `git worktree remove|move` of another worktree,
+    `git branch -D|-d|-f|-M|-m|-C` (the orchestrator cleans up), and `git pull`, `git merge`
+    and `git commit --amend` in a primary checkout;
+  - the **main session** (operator or orchestrator) may do them in a primary checkout, but
+    not in another session's linked worktree;
+  - refused for everyone, because the stash stack is shared by every worktree: `git stash`,
+    `git stash push|save` without a message, `pop`, `drop`, `clear`, `branch`, and `apply`
+    without an explicit stash commit sha;
+  - allowed: read-only git, `fetch`, `commit`, `push`, `worktree add -b` (and, outside a
+    primary checkout or for the main session, `pull` and `merge`),
+    restoring a single file (`git checkout -- <file>`, `git restore <file>`),
+    `git reset [HEAD] [--] <paths>`, tagged stash pushes, `git stash apply <sha>`.
+  The parser follows shell keywords and groups (`if`/`then`, `do`/`done`, `{ }`, `!`),
+  wrappers (`env`, `command`, `time`, `timeout`, `nice`, `xargs`, `sudo`, `stdbuf`; the
+  chdir of `env -C`/`--chdir` and `sudo -D` is applied), `cd` options (`cd -P`, `cd --`),
+  an absolute `git -C /path` even after `cd -`, git spelled with quotes or a backslash, any
+  `-c` flag cluster of a shell (`bash -lc`, `sh -ec`), and treats `GIT_DIR=`/`GIT_WORK_TREE=`
+  (also exported) as an unknown target. Unbalanced quotes alone (an apostrophe in prose) are
+  not refused; a guarded git command next to them is. A guarded command whose target it
+  cannot resolve (`cd "$DIR"`, `cd -` followed by a relative path, `--work-tree`,
+  `xargs git checkout`) is refused; a main session's `git worktree remove|move` is allowed
+  wherever its shell is (the merge-gate cleanup). Session-start canary:
+  `node automation/hooks/guard-git.cjs --self-test` checks the decision logic, and the
+  subagent probe in `docs/loops/06-orchestration.md` checks that Claude Code still sends
+  `agent_id`. A bug in
+  the guard itself allows the command, so a broken guard cannot block every Bash call. It
+  runs on old Node too (no modern syntax) and takes about 30 ms. The operator turns it off
+  for one session by starting Claude Code with `GYMCOACH_GIT_GUARD=off`; an assignment
+  inside the command has no effect.
+- `review/snapshot.sh <pr> [dir]` - fetches the PR head into `refs/remotes/pr/<pr>`, adds
+  a detached worktree at that SHA (default `${TMPDIR:-/tmp}/gymcoach-review/pr-<n>-<sha12>`),
+  makes it read-only and prints its path; `--remove <dir>` deletes it, and refuses any path
+  outside `${TMPDIR:-/tmp}/gymcoach-review/` or a worktree that is not detached. For reading
+  only: never start `claude`, `npm` or `eslint` inside a snapshot of a fork PR (its
+  `.claude/settings.json` hooks and configs would run); external code still runs only in CI.
+  If a snapshot directory is deleted by hand, `git worktree prune` drops the stale entry.
+
+Limits: "own" means the worktree containing the session's current directory, so a session
+that `cd`s into another worktree in one call and runs a checkout in the next is treated as
+its owner; a git call hidden in a variable, `eval`, an alias (`git co`), a script file, a
+here-document fed to a shell, backticks or `"$(...)"` inside double quotes is not
+inspected; `merge` and `pull` are not guarded; `git branch -D` by the main session is
+allowed (git itself refuses to delete a branch checked out in a worktree); the hook guards
+Claude Code sessions in this project, not humans or other tools.
+
 ## Merge gate (milestone 2)
 
 - `publish/gate.ts` - pure decision: a PR may be merged at an approved SHA only when
@@ -12,7 +79,14 @@ the app never imports this directory and the Docker image does not ship it
   SHA, and every allowlisted CI check, from the pinned CI app and one check suite,
   succeeded on that exact SHA (latest rerun in that suite decides). Empty, missing,
   pending, skipped, neutral, foreign-app, second-suite and other-SHA checks refuse
-  the merge.
+  the merge. It also needs a review record (below) for that head and the PR's current
+  base SHA. For that pair, the latest record of each reviewer (kind, model and lens set)
+  counts, and every one must be ready with no blocking or major finding: one lens never
+  overrides another lens's stop, only the same reviewer can retract its own verdict with
+  a later record (`no-review`, `review-for-other-head`, `review-for-other-base`,
+  `review-not-ready`). A maintainer comment with the review marker that was edited after
+  posting or does not parse refuses the merge (`review-comment-invalid`): an edit must not
+  erase a stop. Post a fresh record and delete the broken comment.
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
   disagrees with the repository's required status checks; when the rules cannot be
@@ -31,8 +105,39 @@ the app never imports this directory and the Docker image does not ship it
     --title "feat: ... (#123)" --message "Closes #120"
   ```
 
-Limits: the gate checks CI, not review evidence; the review binding is still a
-procedure. Closing and reopening a PR, or opening a second PR at the same head SHA,
+## Review records (milestones 2 and 4)
+
+- `review/schema.ts` - one structured review of one PR at one base and head SHA:
+  reviewer, lenses, files inspected, files not read in full, findings (blocking, major,
+  minor, nit, with file, line and claim) and the verdict. A `ready` verdict cannot carry
+  a blocking or major finding.
+- `review/comment.ts` - the record travels as a PR comment: a short summary, the marker
+  `<!-- gymcoach-review v1 -->` and one fenced JSON block. Only comments authored by a
+  maintainer account (`MAINTAINERS` in `publish/checks.ts`, matched on the numeric user
+  id, never the login, which a renamed account frees for reuse) count; anyone can post a
+  look-alike, so the author decides, not the content. An edited record is refused (post
+  a new one instead). Malformed maintainer records are reported and ignored, never
+  counted. Not checked: `performed_via_github_app` (an app acting with a maintainer's
+  own user token posts as that maintainer).
+- `review/record.ts` - posts a record after validating it and checking that its head
+  and base are the PR's live head and base and that `gh` is a maintainer account.
+  `--dry-run` prints the comment. Exit codes as for `merge.ts`.
+
+  ```bash
+  npx tsx automation/review/record.ts 123 --file review.json
+  ```
+
+A fixup push changes the head and a push after merging `main` into the branch changes
+the base, so the previous record stops matching and a fresh review must post a new
+one. "Base" is GitHub's `base.sha`: it does not move when `main` advances without a
+push, so a base that moved under a reviewed PR is not yet revalidated mechanically
+(lesson L39 remains a procedure). Records are only as trustworthy as the maintainer
+account that posts them: the gate proves a record exists for the right commits, not
+that the review was independent, since the loop posts records from the same account that
+authors its PRs. `record.ts` sends the comment body on stdin, so a large record never
+hits the argument size limit.
+
+Limits: closing and reopening a PR, or opening a second PR at the same head SHA,
 starts a second check suite, and the gate then refuses that SHA for good (fail
 closed, `check-suite-mismatch`); the remedy is a new commit, a review of it, and a
 new gate run. The trusted copy is whatever `origin/main` holds, which is why
@@ -137,3 +242,148 @@ its start are flagged possibly partial. Work outside Claude Code is invisible.
 Per-run cost is a lower bound. Summed session time is not human-attended time:
 parallel subagents overlap and sessions include idle waits. The estimate is not an
 amount billed.
+
+## Run-time usage ledger (milestone 1)
+
+The transcript scan above only sees transcripts that are still on the machine.
+Since this change, every Claude Code session in this project also records usage
+**at run time**, through hooks wired in `.claude/settings.json`:
+
+- `hooks/record-usage.cjs` runs on `SubagentStop`, `SessionEnd` and
+  `UserPromptSubmit`, and appends at most one line per event to a ledger outside
+  the repository: `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`
+  (or `GYMCOACH_USAGE_LEDGER_PATH`). `GYMCOACH_USAGE_LEDGER=off` at launch
+  disables it.
+  - `agent` line, when a subagent finishes: its own transcript
+    (`agent_transcript_path` in the hook input) summarised with the same rules as
+    `usage/build.ts` (one entry per response id at its final usage, unknown never
+    0, `claude-*` model ids only), as token sums per model and speed, plus response
+    and dropped counts, first and last timestamps, skills invoked through the Skill
+    tool, PR numbers named in its task prompt, the Claude Code version, and
+    SHA-256 prefixes of the worktree branches it worked on. A fork's transcript
+    starts with a copy of its parent's turn; responses also present in the parent
+    transcript are left out and counted (`inheritedResponses`, null when the parent
+    could not be read).
+  - `session` line, when a session ends: the main session's own usage and the PR
+    numbers it linked.
+  - `prompt` line, when a prompt arrives: only whether it was a harness
+    notification (a background task finishing) or anything else.
+- `ledger/schema.ts` - the ledger line schema (version 1).
+- `ledger/attribute.ts` - pure: ledger lines in, the session summaries
+  `usage/build.ts` already attributes, so the ledger produces the same
+  `usage.jsonl` shape with the same rules (head branch, compared as hashes, or a
+  single PR reference). The latest line per agent or session wins.
+- `ledger/collect.ts` - writes `usage.jsonl` and `usage-meta.json` (with
+  `source: "ledger"`) for the runs of a baseline into a separate directory:
+
+  ```bash
+  npx tsx automation/ledger/collect.ts --dir docs/loops/baseline/<date> --out <dir>
+  ```
+
+Human interventions: a session's prompts are counted (`ledger.prompts` in the
+meta), split into harness notifications and other prompts. They are not
+attributed to a run, because one orchestrating session spans many runs, so the
+per-run human-interventions measure stays unknown. "Other" includes a scripted
+`claude -p` prompt, so it is an upper bound on operator prompts.
+
+Privacy: the hook reads transcripts and prompts in memory only. A line holds
+numbers, model ids, skill names, public PR numbers, random agent ids and 16-hex
+SHA-256 prefixes of the session id and of branch names; never prompt or message
+text, tool output, paths or branch names. It prints nothing on stdout.
+
+Failure policy: fail open. Any error ends the hook with exit 0 and no line, so a
+broken ledger never blocks an agent; the line is written with one append call.
+Checked live on Claude Code 2.1.296: one `agent` line per finished subagent; a
+ledger path that cannot be written left the agent's run unaffected. Limits: a
+`SessionEnd` hook can be cancelled when the CLI exits first (seen once, with a
+failing write), so a session line can be missing; usage outside Claude Code, and
+before this hook, is not recorded; attribution is as conservative as the
+transcript scan.
+
+Flush race (mitigated in the milestone 2 limits PR): `SubagentStop` fires a few
+tens of milliseconds before Claude Code writes the subagent's last records, so a
+first read often saw no response at all; 3 of the first 4 live `agent` lines had
+`responses: 0`. An `agent` line is now written only once the transcript holds at
+least one response and has stopped growing (two sizes 150 ms apart are equal), or
+after 2 s, whichever comes first. A write that lands more than 2 s after the
+hook starts would still be missed; none was seen.
+
+## Local limits: heavy-work slots and subagent dispatch (milestone 2)
+
+Two machine-level limits replace "be careful when running ticks in parallel".
+Both were motivated by one session (2026-10-13) where three or four dev ticks
+plus Docker pushed the load average to ~20: Playwright pages crashed with
+`ERR_INSUFFICIENT_RESOURCES` and jsdom tests crossed their timeouts (L42).
+
+- **Heavy-work slots** (`scripts/heavy-slot.sh`, sourced by `scripts/verify.sh`).
+  A `verify.sh` run takes one of N machine-wide slots before it lints, tests and
+  builds: N = `GYMCOACH_HEAVY_SLOTS`, default max(1, cores / 4). A slot is a
+  `flock` on `${TMPDIR:-/tmp}/gymcoach-heavy/slot-<i>`, so the kernel releases it
+  when the run dies; there is no stale-lock cleanup to get wrong. A run that finds
+  every slot taken waits (up to `GYMCOACH_HEAVY_WAIT` seconds, default 3600) and
+  prints each holder's pid, start time and label. Lock order: heavy slot first,
+  then the `--full` test-infra lock, and long-lived children get `8>&- 9>&-`, so
+  the two locks cannot deadlock and a zombie next-server (L12) holds neither.
+  `GYMCOACH_HEAVY_SLOTS=off` skips it for one run. Every child of `verify.sh`, default
+  tier included, gets `8>&-`, so an orphaned worker cannot keep a slot. Only
+  `verify.sh` takes a slot: `scripts/container-gate.sh`, `container-run.sh` and
+  `container-integration.sh` runs (inside Docker) take none. Self-test:
+  `scripts/heavy-slot.test.sh` (run by the default gate).
+- **Subagent dispatch limit** (`hooks/dispatch-limit.cjs`, wired in
+  `.claude/settings.json` on `PreToolUse` for the Agent tool, `SubagentStart`,
+  `SubagentStop` and `SessionEnd`). A session may have at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents running or starting; the next
+  Agent call is refused with a reason that tells the model to wait for a
+  completion notification. Running means between `SubagentStart` and
+  `SubagentStop` (subagents run in the background by default, so the Agent call
+  itself returns at once); an accepted call leaves a two-minute reservation so
+  several Agent calls in one turn cannot overshoot. With
+  `GYMCOACH_SESSION_TOKEN_BUDGET` set, a new subagent is also refused once the
+  session's finished subagents spent more tokens than the budget at full or write
+  rates (input, output, cache writes, from the run-time ledger; cache reads not
+  counted). It is a token budget, not a cost budget: cache reads, often the
+  largest share of an agent's tokens, are left out, and cache writes count once.
+  With the ledger off (`GYMCOACH_USAGE_LEDGER=off`) the budget cannot be measured:
+  the hook says so once on stderr and does not enforce it. The ledger read is cached
+  by the ledger's size and mtime. Subagents already running finish: the in-flight
+  overrun is bounded by the concurrency limit. Only the Agent tool is ever refused;
+  the hook fails open on any error. State lives in
+  `${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents/<session key>/`.
+  `SubagentStop` does not always fire: a background subagent stopped with
+  TaskStop produced none on Claude Code 2.1.296 (probe in a throwaway repo), and
+  a crash can skip it. So a running entry counts only while its subagent looks
+  alive: its transcript (`<session transcript dir>/<session id>/subagents/agent-<id>.jsonl`)
+  was written within `GYMCOACH_SUBAGENT_IDLE_MINUTES` (default 60: real subagent
+  transcripts here stay silent for up to 46 minutes during one long tool call, such as
+  a wait on a heavy-work slot or the `--full` lock); an entry whose transcript cannot
+  be derived counts for `GYMCOACH_SUBAGENT_STALE_HOURS` (default 2). A subagent running
+  one silent command longer than the idle window stops counting early, so the limit can
+  be loose, never stuck. The long default has a cost: a subagent that crashed or was
+  stopped without a `SubagentStop` keeps its place until its transcript has been silent
+  for 60 minutes, so the session can run one subagent fewer for up to an hour (lower
+  `GYMCOACH_SUBAGENT_IDLE_MINUTES` for that session, or wait). A `SubagentStart` that hits the 3 s state-lock timeout fails
+  open and writes no running entry, so that subagent is never counted (fails loose). `SubagentStop`
+  removes its own entry without the lock, so a busy lock never leaves a finished
+  subagent counted. The refusal names these recovery paths.
+  `GYMCOACH_MAX_SUBAGENTS=off` disables the concurrency limit.
+
+Checked live on Claude Code 2.1.296 in a throwaway repository (trivial "reply ok"
+subagents on Haiku): with a limit of 3, four parallel Agent calls in one message
+gave three accepted and the fourth refused with the hook's reason, and a fifth
+call after the first three finished was accepted; with a budget of 1 token, the
+first subagent ran and the second was refused ("finished subagents used 62
+tokens"). Limits: the slots cover `verify.sh` only (a bare `npm run build` or
+Playwright run outside it takes no slot); the dispatch limit is per session, not
+machine-wide, so two orchestrating sessions get three subagents each; the token
+budget sees only finished subagents and only what the ledger recorded, and is checked
+against recorded spend, so it can lag by one agent (the usage line of the last finished
+subagent may reach the ledger about 2 s after its `SubagentStop`: the 2 s cap plus one
+150 ms poll and a read); turn,
+retry and wall-time budgets are not enforced yet.
+
+## Related: replayable evaluation tasks
+
+The maintainer's evaluation harness (roadmap milestone 3) lives in
+[`evals/maintainer/`](../evals/maintainer/README.md): versioned tasks replayed
+from frozen snapshots of this repository, hidden graders, and a runner that
+records pass, fail or infra-error per run.

@@ -57,6 +57,22 @@ describe('units', () => {
     expect(formatWeight(20, 'KG', { decimals: 1, withUnit: false })).toBe('20');
   });
 
+  it('keeps each locale and option set apart when formatters are reused', () => {
+    // The formatter cache must key on every option: interleaved calls with
+    // different locales, decimals, fixed and grouping settings never leak.
+    for (let round = 0; round < 2; round++) {
+      expect(formatWeight(1234.56, 'KG', { decimals: 2, locale: 'fr-FR' })).toBe('1 234,56 kg');
+      expect(formatWeight(1234.56, 'KG', { decimals: 2, locale: 'en-US' })).toBe('1,234.56 kg');
+      expect(formatWeight(1234.56, 'KG', { decimals: 2, locale: 'en-US', group: false })).toBe(
+        '1234.56 kg',
+      );
+      expect(formatWeight(1234.5, 'KG', { decimals: 2, locale: 'en-US', fixed: true })).toBe(
+        '1,234.50 kg',
+      );
+      expect(formatWeight(1234.5, 'KG', { decimals: 0, locale: 'en-US' })).toBe('1,235 kg');
+    }
+  });
+
   it('uses clean plate jumps for the lb increment', () => {
     expect(displayIncrement(2.5, 'KG')).toBe(2.5);
     expect(displayIncrement(1, 'KG')).toBe(1);

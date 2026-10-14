@@ -114,6 +114,30 @@ export const usageMetaSchema = z
     orchestration: unattributedSchema,
     unattributedSubagents: unattributedSchema,
     priceTable: z.object({ checkedAt: z.string().min(1), source: z.string().min(1) }).strict(),
+    // Where the sessions came from: the transcript scan (#443, the default
+    // when absent) or the run-time ledger written by the usage hook.
+    source: z.enum(['transcripts', 'ledger']).optional(),
+    // Ledger-only details.
+    ledger: z
+      .object({
+        // Lines that did not parse; not counted.
+        invalidLines: z.number().int().nonnegative(),
+        // Earlier lines for an agent or session that stopped again later.
+        supersededLines: z.number().int().nonnegative(),
+        // Forks whose parent transcript could not be read: their copied turn
+        // may be counted twice.
+        forksWithUncheckedParent: z.number().int().nonnegative(),
+        // Prompts per main session, never attributed to a run.
+        prompts: z
+          .object({
+            sessions: z.number().int().nonnegative(),
+            other: z.number().int().nonnegative(),
+            notifications: z.number().int().nonnegative(),
+          })
+          .strict(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type UsageMeta = z.infer<typeof usageMetaSchema>;

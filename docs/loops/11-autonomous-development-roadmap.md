@@ -1,9 +1,25 @@
 # Autonomous development implementation roadmap
 
-Status: in progress. Milestone 1 is partly delivered (run-record schemas and a
-first baseline from public GitHub data); the other milestones are proposed, not
-implemented. Baseline inspection: 2026-10-13, commit `dd0fcf7`. Update milestone
-status with implementation PRs and validation evidence as work lands.
+Status: in progress (updated 2026-10-14, through #457). Milestone 1 is partly
+delivered: run-record schemas, a baseline from public GitHub data (#439), agent
+usage recovered from local transcripts (#443) and a run-time usage ledger written
+by Claude Code hooks (#451). Milestone 2 is partly delivered: a SHA-pinned merge
+gate for every merge (#442) that requires structured review evidence for the exact
+head and base (#449), a self-bootstrapping test database (#441), machine-wide
+heavy-work slots and a per-session subagent limit with an optional token budget
+(#454, #456). Milestone 4 is partly delivered: structured review records (#449) and
+recurring mechanical lessons converted into code (L42 in #447; L15 and L38 in the
+#448 hook). Milestone 3 has started: a 3-task smoke suite and a replay runner in
+`evals/maintainer/` (#452), validated with reference, broken and tamper fixes. Its
+network and grading containment (egress proxy, containerised grading, #453) is in
+place and checked by an isolation probe without a model call (#455); tamper
+detection is a tripwire canary, not a guarantee, with two known bypasses (#468).
+The paid agent stays hard-disabled until #468 is closed or accepted and the
+operator accepts the credential risk and sets a budget. A public evidence page
+(`evidence.md`, #457) starts the public-evidence section. Milestones 5 and 6 and
+the product LLM track are proposed, not implemented. Baseline inspection:
+2026-10-13, commit `dd0fcf7`. Update milestone status with
+implementation PRs and validation evidence as work lands.
 
 The objective is to make GymCoach's autonomous maintenance reproducible,
 measurable, and capable of testing improvements to its own working methods.
@@ -42,7 +58,10 @@ The next iteration should address these concrete gaps:
 Keep the maintenance runtime separate from the workout application. A proposed
 layout is `automation/` for the controller, policies, runner adapters, and schemas;
 `evals/maintainer/` for task fixtures and graders; and this directory for public
-documentation. These paths do not exist as delivered capabilities yet.
+documentation. `automation/` now holds the run records, the baseline and usage
+tooling, the merge gate and the review records, and `evals/maintainer/` holds the
+first replay tasks and runner; the controller, policies and runner adapters do not
+exist yet.
 
 Use a small TypeScript controller with a Claude Agent SDK adapter. The existing
 Claude CLI can remain an adapter during migration. Start with SQLite for durable
@@ -86,6 +105,10 @@ grading code, or reserved evaluation data that determine its own acceptance.
       are recovered from local transcripts by
       [`automation/usage/`](../../automation/usage/) (models for 32 of 79 runs, skill
       version for 3: only skills invoked through the Skill tool are identifiable).
+      At run time, the usage hook
+      ([`automation/hooks/record-usage.cjs`](../../automation/hooks/record-usage.cjs))
+      now records each finished subagent's models, skills and Claude Code version in a
+      local ledger; attempts and verification evidence are still not recorded per run.
 - [ ] Record token usage, estimated cost, duration, cache usage where available,
       and human interventions. Mark unavailable values as unknown, never zero.
       Partial: [`automation/usage/`](../../automation/usage/) recovers tokens by kind
@@ -97,6 +120,20 @@ grading code, or reserved evaluation data that determine its own acceptance.
       [`automation/usage/build.test.ts`](../../automation/usage/build.test.ts)).
       Orchestrating sessions and unattributable subagents are totalled apart; human
       interventions stay unknown; runs before the retained transcripts stay unknown.
+      Run-time recording: a `SubagentStop`/`SessionEnd`/`UserPromptSubmit` hook
+      ([`automation/hooks/record-usage.cjs`](../../automation/hooks/record-usage.cjs),
+      tested in
+      [`automation/hooks/record-usage.test.ts`](../../automation/hooks/record-usage.test.ts),
+      checked live on Claude Code 2.1.296) appends one line per finished agent to a
+      local ledger, and [`automation/ledger/`](../../automation/ledger/) turns it into
+      the same per-run records (tested in
+      [`automation/ledger/attribute.test.ts`](../../automation/ledger/attribute.test.ts),
+      including parity with the transcript scan). Prompts are counted per session,
+      split into harness notifications and other prompts, but not attributed to a run,
+      so per-run human interventions stay unknown. No baseline has been regenerated
+      from the ledger yet. It started empty when #451 merged; by 2026-10-14 noon
+      (UTC) this machine's ledger held 33 finished-subagent lines, a first per-PR
+      tally of which is in the 2026-10-14 autonomy-log entry.
 - [ ] Link post-merge regressions, reverts, and follow-up fixes to the originating
       run using a declared observation window. Count aborted and failed runs too.
       Partial: reverts and fix follow-ups (bug issues and fix PRs that cite the PR)
@@ -106,7 +143,7 @@ grading code, or reserved evaluation data that determine its own acceptance.
 - [x] Capture a baseline using the current workflow before optimizing it.
       Evidence: [`baseline/2026-10-13/report.md`](baseline/2026-10-13/report.md)
       (79 PR runs since 2026-08-14). Limits: reconstructed after the fact; agent usage
-      is known only where transcripts were retained and attributable (34 runs);
+      is known only where transcripts were retained and attributable (32 runs);
       human interventions are unknown for every run.
 
 Store task state and artifacts outside mutable worker checkouts. Export sanitized
@@ -126,6 +163,13 @@ remain attributable after a model or skill upgrade.
       reviewing, ready, merged, observing, completed, blocked, and failed.
 - [ ] Allocate a worktree and disposable test environment per worker. Give each
       reviewer a read-only snapshot or its own isolated environment.
+      Partial: reviewers get a read-only detached worktree at the PR head
+      ([`automation/review/snapshot.sh`](../../automation/review/snapshot.sh)), and a
+      PreToolUse hook ([`automation/hooks/guard-git.cjs`](../../automation/hooks/guard-git.cjs),
+      tests in [`guard-git.test.ts`](../../automation/hooks/guard-git.test.ts)) refuses a
+      subagent's HEAD-moving git commands outside its own worktree (the main session keeps
+      the main checkout); checked live with `claude -p` and a real subagent. Workers still share one test database (serialized by the `flock`),
+      and allocation is the orchestrator's, not a controller's.
 - [ ] Use task leases with heartbeat, expiry, and a generation token so a resumed
       stale worker cannot publish after another worker has claimed the task.
 - [ ] Reconcile external actions after crashes. Use stable operation IDs and
@@ -133,6 +177,15 @@ remain attributable after a model or skill upgrade.
 - [ ] Enforce total duration, spending, turns, retries, and concurrency limits,
       including delegated work. Define a bounded in-flight overrun allowance and
       stop dispatching before the remaining budget is exhausted.
+      Partial: concurrency and spending are enforced locally. Heavy local work takes
+      one of N machine-wide slots ([`scripts/heavy-slot.sh`](../../scripts/heavy-slot.sh),
+      self-test [`scripts/heavy-slot.test.sh`](../../scripts/heavy-slot.test.sh)), and a
+      session's Agent calls are refused beyond a concurrency limit or once its finished
+      subagents exceed a token budget, the in-flight overrun bounded by the concurrency
+      limit ([`automation/hooks/dispatch-limit.cjs`](../../automation/hooks/dispatch-limit.cjs),
+      tests and a live check in [`automation/README.md`](../../automation/README.md)).
+      Turn, retry and wall-time budgets, and a machine-wide (cross-session) dispatch
+      limit, are not enforced yet.
 - [ ] Keep deployment credentials and unrestricted GitHub tokens out of worker
       environments. Restrict filesystem access and network destinations. Use scoped
       publishing operations rather than arbitrary shell access with a merge token.
@@ -149,16 +202,27 @@ remain attributable after a model or skill upgrade.
       candidate's checkout, and `automation/**` is a human-merge-only path for external
       PRs; the trusted copy is still the last merged `main`, by procedure rather than a
       separate trusted host. Changing the ruleset is a maintainer decision.
-- [ ] Require a complete allowlisted set of successful CI checks and independent
+- [x] Require a complete allowlisted set of successful CI checks and independent
       review evidence for the exact head SHA. Empty, missing, pending, or unrelated
       checks never count as success. Bind reviews to the base as well as the head.
-      Partial, CI half delivered: the merge gate
+      Evidence: the merge gate
       ([`gate.ts`](../../automation/publish/gate.ts), tests in
       [`gate.test.ts`](../../automation/publish/gate.test.ts)) requires every
       allowlisted check, from the pinned CI app and a single check suite, to have
       succeeded on the exact SHA; empty, missing, pending, skipped, neutral,
       foreign-app, second-suite and other-SHA checks refuse the merge, and so does an
-      allowlist or app that disagrees with the repository's required checks. Review evidence is not yet bound to the SHA or the base.
+      allowlist or app that disagrees with the repository's required checks. It also
+      requires a structured review record ([`automation/review/`](../../automation/review/),
+      tests in [`comment.test.ts`](../../automation/review/comment.test.ts) and
+      [`record.test.ts`](../../automation/review/record.test.ts)) posted by a maintainer
+      account (pinned numeric user ids) for the approved head and the PR's current base
+      SHA; the latest record of every reviewer (kind, model and lens set) must be ready
+      with no blocking or major finding, so one lens cannot clear another's stop.
+      "Base" is GitHub's `base.sha` for the PR: it moves with a push or a rebase, not
+      when `main` merely advances, which is the next item's job. Caveat: the gate
+      proves review evidence for the exact commits exists, not that the review was
+      independent; the loop posts its records from the same account that authors its
+      PRs, so independence still rests on procedure (a separate reviewer agent).
 - [ ] Pin every merge to the approved head, including maintainer-authored PRs.
       When the base changes, validate the new combined result before merging, through
       a merge queue or an equivalent serialized integration check.
@@ -196,20 +260,75 @@ changes within the charter.
 
 - [ ] Start with a small smoke suite, then grow to approximately 20-30 historical
       and synthetic tasks with frozen starting snapshots and explicit acceptance criteria.
+      Partial: a 3-task dev smoke suite with frozen snapshots and hidden graders
+      ([`evals/maintainer/tasks/`](../../evals/maintainer/tasks/)); growth to 20-30 tasks pending.
 - [ ] Include code corrections, UI behavior, migration handling, CI diagnosis,
       interruption recovery, untrusted instructions, and review/merge races.
 - [ ] Run baseline and candidate configurations in equivalent disposable
       environments. Pin dependencies and record infrastructure failures separately.
-- [ ] Use independent acceptance tests and outcome checks. Keep grading code and
+      Partial: every replay runs in disposable containers from images pinned by digest,
+      with a throwaway database per run, the installed dependencies used only when the
+      base pins the same lockfile, and infrastructure failures recorded as
+      `infra-error` ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts));
+      no model configuration has been run yet (the paid agent is hard-disabled).
+- [x] Use independent acceptance tests and outcome checks. Keep grading code and
       reserved fixtures outside the worker's writable and readable task environment.
-- [ ] Remove answer leakage from future Git history, lesson files, solution PRs,
+      Evidence: hidden tests come from the fix commit and are written into a separate
+      grading tree built from the untouched snapshot after the agent finished; the
+      agent's changes reach it only through an allowlist of application source files
+      (by extension, under the source roots; no config at any depth, dotfile,
+      `node_modules`, `__mocks__` or `__snapshots__` segment, test file or `prisma/`
+      change is ever copied, lesson L45); in-process tampering by allowed application
+      code is caught, not prevented, by a grader-owned canary in every vitest run, a
+      tripwire rather than a guarantee: it records the assertion, `expect`,
+      matcher-registry and listed test-global functions and a fixed list of built-in
+      members before any application code loads, and any change to them, however
+      selective, makes the run `canary-failed`. Not covered: code special-casing the
+      hidden tests' own inputs; built-ins outside the list (two known bypasses, a
+      caller-selective built-in and hooks reached through `globalThis`, are open in
+      [#468](https://github.com/gymcoach-app/gymcoach/issues/468)); a change undone
+      between two checks; every grading run gets its own fresh copy of the
+      grading tree, checked right before it runs against the hashes of every
+      protected file computed from the base and the fix commit's hidden tests before
+      any agent-influenced step, and mounted read-only, with its own throwaway
+      database, so agent code running in one test process cannot change what another
+      run reads; the graded Prisma schema and client are the base's byte for byte
+      (`prisma generate` runs only on the base snapshot, before any agent), so a task
+      that changes the schema is not supported yet; the tools run as node scripts
+      with an empty `NODE_OPTIONS`, never through `npx`; the agent's container sees only the snapshot
+      (no `evals/`, no live checkout), and grading runs in containers
+      ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts),
+      [#453](https://github.com/gymcoach-app/gymcoach/issues/453));
+      `probe-isolation.ts` shows the live checkout unreadable from the agent container.
+- [x] Remove answer leakage from future Git history, lesson files, solution PRs,
       and network access during historical replay. Disclose any remaining contamination.
+      Evidence: snapshots are an archive of the base tree with a fresh history and no
+      remote; the agent's only network path is an egress proxy that allows the
+      Anthropic API alone, and grading has no network (unit) or only a throwaway
+      database (integration); each task lists its leakage. Remaining contamination,
+      disclosed in the [README](../../evals/maintainer/README.md#residual-risks): the
+      repository is public, so a model's training data may include later commits.
 - [ ] Separate development, validation, and reserved test tasks by issue or failure
       family. Do not tune on the reserved set or repeatedly use it to select candidates.
+      Partial: the task schema carries the split; only `dev` tasks exist so far.
 - [ ] Repeat trials. Publish trial counts, variability, task-level outcomes, cost
       per successful task, interventions, and policy violations.
-- [ ] Provide a documented replay command that requires no production credentials
+- [x] Provide a documented replay command that requires no production credentials
       and cannot publish to the real repository.
+      Evidence: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md))
+      needs no credential for the self-checks; the snapshot has no remote and no
+      `.claude/`; the agent container reaches only the Anthropic API through the egress
+      proxy, and `npx tsx evals/maintainer/probe-isolation.ts` exits 0 on 2026-10-14
+      (62 to 66 checks depending on the host's addresses: no gh token, git credentials, SSH keys, live checkout, Docker API, host
+      Postgres (dialled by the host's real address, not only its name), DNS or direct
+      internet from the agent or grading containers;
+      [#453](https://github.com/gymcoach-app/gymcoach/issues/453)). The paid agent stays
+      hard-disabled (`PAID_AGENT_ENABLED = false`) until the known canary bypasses
+      ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)) are closed or accepted
+      by the operator, and the operator accepts the residual credential risk and sets a
+      budget; a paid result is then audited by a diff review of the agent's patch. On 2026-10-13 the 3 smoke tasks, fully
+      containerised, gave dry fail, reference pass, broken fail and tamper fail (12/12);
+      with the static tamper check disabled, the tamper agent passed cardio.
 
 Acceptance: the runner reproduces a known defect, rejects an intentionally
 incomplete fix, accepts a correct fix, and verifies preserved behavior. Include
@@ -225,6 +344,12 @@ evaluations; report the limitations of a small sample.
 
 - [ ] Produce structured review results: base/head SHA, scope inspected, unread
       scope, severity, reproducible evidence, and verdict. Missing coverage is explicit.
+      Partial: the review record ([`schema.ts`](../../automation/review/schema.ts))
+      carries base and head SHA, lenses, files inspected, files not read in full,
+      findings with severity, file, line and claim, and the verdict; a ready verdict
+      cannot carry a blocking or major finding, and a fixup or rebase makes the record
+      stale for the merge gate. Reproducible evidence per finding (a command or test
+      that shows the defect) is not a field yet.
 - [ ] Keep reviewer context independent of the author's conversation. Supply the
       requirement, relevant code, diff, and verification evidence.
 - [ ] For changed user flows, run an independent browser check against a seeded
@@ -235,6 +360,11 @@ evaluations; report the limitations of a small sample.
       and verification. Retrieve relevant lessons on demand; archive superseded guidance.
 - [ ] Convert recurring mechanical lessons into scripts or tests. Resolve conflicts
       between skills and historical prose, including worktree lifecycle and permission modes.
+      Partial: L42 (unit-tier timeouts under machine load, recurring since #219) became a
+      formatter cache in [`lib/units.ts`](../../lib/units.ts) with a cache-key test and a
+      worker cap in [`vitest.config.ts`](../../vitest.config.ts), with before/after timings
+      in [L42](lessons.md). L15 and L38 (shared-checkout incidents) became the git guard
+      hook above. The other lessons are not yet reviewed for this.
 
 Acceptance: a reviewer catches a seeded defect without the author's explanation;
 fixups invalidate or refresh the relevant review evidence; a task retrieves the
@@ -320,6 +450,10 @@ the charter for changes to permissions or the MCP security surface.
 
 - [ ] Publish sanitized aggregate results with definitions, sample sizes, versions,
       and links to reproducible runs. Distinguish unattended completion from assisted work.
+      Partial: [`evidence.md`](evidence.md) (#457) publishes the 2026-10-13 baseline
+      with its denominators, the controls now in code, verifiable review catches and
+      reproduction commands. No unattended-versus-assisted split yet: human
+      interventions are not recorded per run.
 - [ ] Add a short demonstration of issue, implementation, browser verification,
       review, and eligible merge using a controlled example.
 - [ ] Keep the root README concise and this overview accurate as milestones ship.

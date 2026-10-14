@@ -50,6 +50,31 @@ interface FormatOptions {
   group?: boolean;
 }
 
+// `Number#toLocaleString(locale, options)` builds a new Intl.NumberFormat on
+// every call, which is costly in lists that format dozens of weights per render
+// (the weight picker formats every option). One formatter per distinct
+// configuration is reused instead; the output is identical.
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+function numberFormat(
+  locale: string,
+  minimumFractionDigits: number,
+  maximumFractionDigits: number,
+  useGrouping: boolean,
+): Intl.NumberFormat {
+  const key = `${locale}|${minimumFractionDigits}|${maximumFractionDigits}|${useGrouping}`;
+  let format = numberFormats.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat(locale, {
+      minimumFractionDigits,
+      maximumFractionDigits,
+      useGrouping,
+    });
+    numberFormats.set(key, format);
+  }
+  return format;
+}
+
 // Format a stored kg value for display in the user's unit, e.g. "70 kg" or
 // "154.3 lb". Options preserve the exact look of each call site.
 export function formatWeight(
@@ -65,11 +90,7 @@ export function formatWeight(
     group = true,
   } = opts;
   const display = roundWeight(toDisplayWeight(kg, unit), decimals);
-  const str = display.toLocaleString(locale, {
-    minimumFractionDigits: fixed ? decimals : 0,
-    maximumFractionDigits: decimals,
-    useGrouping: group,
-  });
+  const str = numberFormat(locale, fixed ? decimals : 0, decimals, group).format(display);
   return withUnit ? `${str} ${unitLabel(unit)}` : str;
 }
 

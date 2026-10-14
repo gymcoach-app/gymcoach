@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { fromDisplayWeight, roundWeight, toDisplayWeight } from '@/lib/units';
+import { formatWeight, fromDisplayWeight, roundWeight, toDisplayWeight } from '@/lib/units';
 
 export interface LiveEquipmentOption {
   id: string;
@@ -21,7 +21,6 @@ export interface LiveEquipmentOption {
 
 interface Props {
   open: boolean;
-  gymId: string;
   equipment: LiveEquipmentOption;
   unit: WeightUnit;
   onOpenChange: (open: boolean) => void;
@@ -41,14 +40,7 @@ export type WeightListResult =
   | { ok: false; problem: 'invalid'; token: string }
   | { ok: false; problem: 'outOfRange'; token: string };
 
-export function LiveEquipmentWeightEditor({
-  open,
-  gymId,
-  equipment,
-  unit,
-  onOpenChange,
-  onSaved,
-}: Props) {
+export function LiveEquipmentWeightEditor({ open, equipment, unit, onOpenChange, onSaved }: Props) {
   const t = useTranslations('session.editableSets.weightEditor');
   const locale = useLocale();
   const [value, setValue] = useState('');
@@ -85,10 +77,7 @@ export function LiveEquipmentWeightEditor({
     ? t('preview', {
         weights: parsed.weightOptions
           .map((weight) =>
-            roundWeight(toDisplayWeight(weight, unit), 2).toLocaleString(locale, {
-              maximumFractionDigits: 2,
-              useGrouping: false,
-            }),
+            formatWeight(weight, unit, { decimals: 2, group: false, locale, withUnit: false }),
           )
           .join('; '),
         unit: unit.toLowerCase(),
@@ -101,23 +90,17 @@ export function LiveEquipmentWeightEditor({
 
     setSaving(true);
     try {
-      const url = '/api/gyms/' + encodeURIComponent(gymId) + '/equipment';
-      // The session holds this equipment as it was when the page loaded, and
-      // the save endpoint needs its name and type. Re-read them first, so
-      // saving weights cannot revert a rename or a type change made since.
-      const current = await fetchCurrentEquipment(url, equipment.id);
+      // The item's weights are a sub-resource, so this save carries nothing
+      // else: name, type and every exercise's availability stay as the server
+      // holds them, and no re-read is needed to protect them (#380).
+      const url = '/api/gym-equipment/' + encodeURIComponent(equipment.id) + '/weights';
       const response = await fetch(url, {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          equipmentId: equipment.id,
-          name: current.name,
-          equipmentType: current.equipmentType,
-          weightOptions,
-        }),
+        body: JSON.stringify({ weightOptions }),
       });
       if (!response.ok) throw new Error('save failed');
-      onSaved({ ...equipment, ...current, weightOptions });
+      onSaved({ ...equipment, weightOptions });
       onOpenChange(false);
       toast.success(t('saved'));
     } catch {
@@ -167,24 +150,6 @@ export function LiveEquipmentWeightEditor({
       </DialogContent>
     </Dialog>
   );
-}
-
-async function fetchCurrentEquipment(
-  url: string,
-  equipmentId: string,
-): Promise<{ name: string; equipmentType: EquipmentType }> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('read failed');
-  const body: unknown = await response.json();
-  const list =
-    body && typeof body === 'object' && 'equipment' in body && Array.isArray(body.equipment)
-      ? (body.equipment as Array<{ id?: unknown; name?: unknown; equipmentType?: unknown }>)
-      : [];
-  const current = list.find((item) => item?.id === equipmentId);
-  if (!current || typeof current.name !== 'string' || typeof current.equipmentType !== 'string') {
-    throw new Error('equipment not found');
-  }
-  return { name: current.name, equipmentType: current.equipmentType as EquipmentType };
 }
 
 // Reads a typed list of weights in the display unit and returns it in kg, or

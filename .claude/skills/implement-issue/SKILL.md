@@ -44,9 +44,15 @@ for repo conventions; this skill assumes them.
    `docs/loops/10-external-contributions.md`, STOP, label the issue `needs-maintainer`,
    and report - the blast radius attaches to the change, not to who authors the code.
 
-2. **Start clean.** Ensure the working tree is clean (`git status`). Sync main:
-   `git switch main && git pull --ff-only`. Create a branch:
-   `git switch -c fix/issue-<n>-<short-slug>` (use `feat/` for enhancements).
+2. **Start clean, in your own worktree.** Never branch in the main checkout (the git guard
+   refuses a subagent's `git switch` there, lessons L15/L38). If you run in an Agent
+   isolation worktree (preferred), branch there: `git fetch origin && git switch -c
+   fix/issue-<n>-<short-slug> origin/main` (use `feat/` for enhancements). Otherwise create
+   one: `git fetch origin && git worktree add -b fix/issue-<n>-<short-slug> <scratch-path>
+   origin/main`, and work only inside it, prefixing commands with `cd <scratch-path> &&`.
+   Limit: without isolation your shell returns to the main checkout between calls, so the
+   guard treats that scratch worktree as another session's and refuses rebase,
+   `reset --soft` and path-wide restores there; commits, merges and pushes still work.
 
 3. **Implement.** Make the smallest change that satisfies the issue. Follow
    `CLAUDE.md`: TypeScript strict, Zod for API inputs, reuse `components/ui`
@@ -65,6 +71,10 @@ for repo conventions; this skill assumes them.
    the suite that holds its cross-user test. The ratchet runs in the integration tier, so
    the default `verify.sh` does not catch a missing entry; CI does, one cycle later (#436,
    lesson L40).
+   **A change to state shared across checkouts** (a Docker container or compose project, a
+   port, a lock file, a cache directory, the test database) is proven from a second
+   checkout too, e.g. a fresh `git worktree add` of your branch: runs from the authoring
+   folder cannot show a clash between folders (#441, lesson L43).
 
 5. **Green-gate (self-verify).** Run `bash scripts/verify.sh`. (In a fresh checkout or git
    worktree, first `npm ci` - worktrees do not share `node_modules` - then `npm rebuild
@@ -104,8 +114,8 @@ for repo conventions; this skill assumes them.
 8. **Report.** Output the PR URL and a one-line summary. **Stop at the PR - do NOT watch CI
    or merge.** The shipping half (`ship-pr`, run by the maintainer/orchestrator) owns the
    CI-watch and squash-merge; blocking on CI here is what made early background runs
-   terminate before merging (lesson L3). Return to `main` (`git switch main`) so the next
-   run starts clean.
+   terminate before merging (lesson L3). Leave the worktree in place for the orchestrator,
+   which removes it after the merge; never switch the main checkout.
 
 ## Stop conditions (do not burn tokens)
 

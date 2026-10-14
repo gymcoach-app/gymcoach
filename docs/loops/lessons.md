@@ -37,6 +37,17 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   Reconfirmed during the first ideate batch: a "job was not acquired by Runner" failure (GitHub
   Actions infra, not a step in our workflow) was read as infra and re-run, not treated as a
   regression - exactly the L2 discipline.
+  Follow-up 2026-10-13 (#381): the "rate-limit-free" mirror was not. Over the last 100 CI runs
+  (115 attempts since 2026-09-22), 30 attempts (26%) died at the Postgres pull, and all 37
+  failed pull jobs whose logs were read said `toomanyrequests: Data limit exceeded` from
+  `public.ecr.aws`. The jobs now start Postgres through `.github/actions/start-postgres`:
+  the image is pinned by digest, restored from the Actions cache, and on a cache miss pulled
+  by digest from `mirror.gcr.io`, the ECR public mirror or Docker Hub in turn (same index
+  digest on all three), then saved to the cache. A choice of mirror is not a fix; removing
+  the per-run dependency on any one external registry is. A cache entry whose image ID does
+  not match the pin fails closed with no fallback pull; clear it with
+  `gh api -X DELETE "repos/gymcoach-app/gymcoach/actions/caches?key=<key>"` (gh 2.4.0 has no
+  `gh cache`) and re-run.
 
 ### L3 - The orchestrator owns CI-watch and merge; subagents stop at the PR
 - **Trigger:** background maintainer-tick agents repeatedly terminated early - they ended
@@ -249,6 +260,13 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   conflicts, three green first-pass CI runs, no `main` breach, with the L16 `flock`
   serializing the three `--full` gates unprompted. Now written into `06-orchestration.md` as
   the confirmed parallel-dev pattern rather than a contingency.
+  **Enforced 2026-10-13:** the main checkout is now off limits for HEAD-moving git commands
+  from any subagent (PreToolUse hook `automation/hooks/guard-git.cjs`, see L38; Claude Code
+  marks a subagent's hook input with `agent_id`): a subagent that needs a branch works in its
+  own worktree; the operator's and orchestrator's main session keeps the main checkout.
+  This covers L15 only partly: the hook restricts subagents, so two MAIN sessions sharing the
+  primary checkout (two operator or orchestrator sessions at once) are not prevented from
+  racing on `HEAD`; that case still relies on the one-orchestrator-per-checkout rule.
 
 ### L16 - Isolated worktrees are not enough: the shared test Postgres (:5434) and dev port (:3031) also need a lock
 - **Trigger:** 2026-07-22 batch. Two loop sessions ran `bash scripts/verify.sh --full` at the
@@ -597,7 +615,8 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   failure. Give the API a few seconds after a push before comparing heads. The mirror failure
   itself is tracked as #381.
 - **Status:** graduated -> the CI guardrail of the `ship-pr` skill and pass 3 of
-  `10-external-contributions.md`; the mirror is accepted risk until #381.
+  `10-external-contributions.md`; the mirror was accepted risk until #381, which moved the
+  pull behind the Actions cache with three registries (see L2's follow-up).
 
 ### L36 - Ask the fixup tick for a mutation check, and the verdict for the merge order
 - **Trigger:** same wave. The fixup ticks reverted their own fix and confirmed the new tests
@@ -636,7 +655,16 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   `git worktree add <scratch-path> <sha>` and removes it afterwards. The orchestrator says so
   in every review prompt.
 - **Status:** graduated -> step 4 of the `ship-pr` skill and "Concurrent ticks" in
-  `06-orchestration.md`.
+  `06-orchestration.md`. **Enforced since 2026-10-13:** it recurred on 2026-10-13 (a
+  reviewer's `git checkout --detach` hijacked a dev tick's worktree), so prose was not
+  enough. A PreToolUse hook (`automation/hooks/guard-git.cjs`, wired in
+  `.claude/settings.json`) now refuses a subagent's `git checkout <ref>`, `git switch`,
+  `git reset --hard`/`<commit>`, `git clean -f`, rebase-like commands and path-wide restores
+  whenever the target, after `cd`/`pushd`/`git -C`, is a primary checkout or a worktree other
+  than its own (the main session only in another session's worktree), plus the stash forms
+  that can take another session's entry, for everyone. Every incident came from a subagent;
+  the hook input tells them apart (`agent_id`, checked live). Reviewers read through
+  `bash automation/review/snapshot.sh <pr>` (a read-only detached worktree at the PR head).
 
 ### L39 - A merge that changes a shared type or schema invalidates a sibling PR's green CI
 - **Trigger:** 2026-10-13, #435 -> #436. Both PRs were open at once. #435 (favourite
@@ -676,3 +704,128 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   at the root rather than by moving worktrees out of the checkout or skipping lint there.
 - **Status:** graduated -> `"root": true` in `.eslintrc.json` (this write-up's PR; a
   maintainer-tier change to a group B path, which the loop may make for its own work).
+
+### L42 - The unit tier timed out on heavy jsdom UI tests whenever other agents loaded the machine
+- **Trigger:** 2026-10-13. While three dev ticks, CI watchers and a Docker test database ran in
+  parallel (load average 16 to 30 on 12 cores), `bash scripts/verify.sh` failed its unit step
+  in at least five runs this session: 3 to 13 tests hit the 5 s per-test timeout, always led by
+  `components/session/editable-sets-table.test.tsx`, each file green when run alone. The same
+  class had been patched case by case before (#219: `delay: null` plus a 15 s timeout on one
+  readiness test). Reproduced on demand with 12 CPU busy loops: the slowest
+  `EditableSetsTable` test took 5.2 s and failed.
+- **Cause, measured with a CPU profile of that file:** React rendering (the weight picker
+  renders about 88 option buttons) and Testing Library's accessible-name computation over
+  them dominate; `formatWeight` rebuilt an `Intl.NumberFormat` on every call through
+  `Number#toLocaleString(locale, options)`, which made the file 30% slower than needed
+  (tests 5.2 to 5.9 s before, 3.6 to 3.9 s after, same load). On top of that, Vitest's default
+  pool (cores minus one) piles more workers onto CPUs that other agents already use.
+- **Lesson:** a flaky timeout under load is a performance defect with a cause, not a reason to
+  raise the timeout. Profile the slow file, fix the hot path in the product code, and size
+  the worker pool for a shared machine. `formatWeight` now reuses one formatter per
+  configuration (also used by the live equipment-weight preview), and `vitest.config.ts`
+  caps workers at half the cores (`VITEST_MAX_WORKERS` still overrides). With both, at load
+  about 20 the slowest `EditableSetsTable` test took 2.9 s instead of timing out; at idle the
+  tier takes about 14% longer.
+- **Status:** graduated -> formatter cache in `lib/units.ts` with a cache-key test, worker cap
+  in `vitest.config.ts` (this PR; CI runners keep Vitest's default). Never let a
+  `VITEST_MAX_WORKERS` above 1 reach the integration tier: it overrides
+  `fileParallelism: false` and files truncate each other's tables (L33).
+
+### L43 - A proof run from the authoring folder cannot see a clash between folders
+- **Trigger:** 2026-10-13, #441. `verify.sh --full` began starting the test Postgres itself
+  with `docker compose -f docker-compose.test.yml up -d`. The author ran it green twice from
+  the same worktree. The review found what those runs could not: compose derives its project
+  name from the checkout's directory, while the container name is fixed, so a second worktree
+  (every dev tick has its own) would fail on a container already owned by another project.
+  The fix pinned one compose project (`gymcoach-test`) shared by every checkout and replaces
+  a container left by an older directory-derived project; the validation then included a
+  second fresh worktree reusing the container ("No pending migrations", integration green).
+- **Lesson:** when a change touches state shared across checkouts (a Docker container or
+  compose project, a port, a lock file, a cache directory, the test database), its proof
+  includes a run from a second checkout. Repeating the run from the authoring folder adds
+  confidence, not coverage.
+- **Status:** graduated -> step 4 ("Test") of the `implement-issue` skill and step 4 of the
+  `ship-pr` skill (the reviewer asks for the second-checkout run).
+
+### L44 - Review a control through the control, and ask whether one actor can clear another's stop
+- **Trigger:** 2026-10-13, #449 (structured review records required by the merge gate). Its
+  first and last reviews were posted in the record format the PR introduced (the delta
+  review between them was not). The first record
+  (needs-changes) found a major: the gate took the latest record for a head and base, so a
+  later ready record from one lens cleared an earlier blocking record from another lens,
+  and a test asserted that override. The delta review found the next hole of the same
+  shape: an edited maintainer record was dropped as invalid, so editing a needs-changes
+  record erased its stop. Both were fixed (latest record per reviewer, all must be ready;
+  an edited or broken record refuses the merge; maintainers pinned by numeric user id). The
+  same shape came up on #448: reading `agent_type` as "subagent" would have locked the
+  operator's own `claude --agent` session out.
+- **Lesson:** a change to a gate, a review format or a guard is reviewed by using it on
+  itself (post the PR's own records with the PR's tool, dry-run its gate against itself),
+  and the review asks one adversarial question first: can one record, lens, edit or account
+  undo another's refusal, or can the guard refuse the operator it serves? Plain correctness
+  review of a control misses these, because each piece works as written.
+- **Status:** graduated -> step 4 of the `ship-pr` skill (a review of review, merge or guard
+  machinery asks that question and is posted through the machinery when it exists).
+
+### L45 - Screen with allowlists, not denylists
+- **Trigger:** 2026-10-13/14, #455 (eval containment). Four review rounds each found a new
+  bypass of a denylist screen of what the agent under evaluation must not change: a Prisma
+  generator opened on the same line as a closing brace, expected hashes taken after
+  `prisma generate`, a generator hidden behind a lone carriage return ending a comment, and
+  a project `.npmrc` whose `node-options` npm copies into `NODE_OPTIONS` under `npx`. Each
+  fix closed one spelling and the next review found another. A fifth review then beat the
+  first allowlist twice from inside it: a nested `lib/quiet/package.json` "imports" map
+  aliasing `vitest`, and `expect.extend` on the vitest global from `messages/en`, which the
+  base setup imports.
+- **Lesson:** screen with allowlists, not denylists. Name what an untrusted actor may change
+  (here: regular files under the application source roots, no dotfile, no `node_modules`
+  segment, no test file, nothing under `prisma/`), take everything else from a trusted base,
+  and stop running tools through layers that read untrusted config (call node scripts
+  directly with an explicit environment). A denylist reviewer keeps finding the next
+  spelling; an allowlist closes the file-level class. Name file types too, not only
+  directories: "anything under lib/" still admitted a config. And where the untrusted code
+  runs inside the judge's own process, no allowlist of files helps: detect tampering with
+  a judge-owned canary. A canary that only probes behaviour is itself a list of cheats in
+  disguise: the next review beat it with matchers lenient only for strings, spies or test
+  callers. Record the judge's own functions by identity before any untrusted code loads,
+  and fail on any change, whatever the new function does. Even that is a tripwire, not a
+  proof: the sixth review beat it with a built-in left out of the hand-picked record, made
+  to misbehave only for callers at hidden-test paths (the probes ran from elsewhere), and
+  with test hooks reached through `globalThis`, which the lexical hook rule did not match.
+  When the judge shares a process with the judged, say which checks exist, list the known
+  gaps and keep a human diff review on the result (when to stop hardening: L46).
+- **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
+  graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
+  empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses. Round 5:
+  source-file extensions and config names at any depth in the allowlist, and the harness
+  canary (`canaryFiles`), proven by the `tamper-inprocess` self-check. Round 6: the canary
+  records function identities before the base setup and checks them around every test,
+  proven by the `tamper-selective` self-check, which passes the round-5 canary. The two
+  round-6 bypasses are documented residual risks, tracked in #468; the paid agent stays
+  disabled until they are closed or accepted.
+
+### L46 - Cap an adversarial hardening race; narrow the claim and file the rest
+- **Trigger:** 2026-10-13/14, #455. Six reviews of the eval containment in a row were
+  needs-changes, each with a new way for agent code to pass an incomplete fix (L45). Each
+  fixup took one dev round plus a review; the PR stayed open about 19 hours, and the
+  subagents whose prompts named it used an estimated $106 at API list prices, from the
+  usage ledger (a lower bound: the orchestrating session is not counted). The sixth review
+  confirmed the round-5 cheats were caught and found two more. The orchestrator had said
+  before that round that it would be the last; it kept that: no seventh hardening round.
+  The docs and the code comment an operator reads before enabling the paid agent were
+  narrowed to "a tripwire, not a guarantee", both bypasses were listed abstractly and
+  filed as #468, and the risky capability (the paid agent) stayed off behind that issue.
+  Two more short reviews then checked only that no claim exceeded the code: the first
+  still found two overclaims (one sentence in the README, the `PAID_AGENT_ENABLED`
+  comment), the second was ready.
+- **Lesson:** when the same security or validity control draws a new blocking or major bypass
+  in three consecutive reviews, stop treating the next fix as the last one. State the round
+  budget before the next round (at most two more), and when it is spent: (1) narrow every
+  claim to what is implemented, including code comments at the decision point; (2) list
+  the known bypasses as residual risks without exploit code; (3) file one follow-up
+  issue that names the structural fix; (4) keep the capability the control protects
+  disabled, or behind an explicit operator acceptance, until that issue closes. A
+  needs-changes review of a docs-narrowing round is about claims, not new bypasses.
+- **Status:** graduated -> `ship-pr` step 4 ("A hardening race has a budget"). Applied in
+  #455 / #468.
+

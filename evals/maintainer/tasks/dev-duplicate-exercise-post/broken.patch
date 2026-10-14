@@ -1,0 +1,17 @@
+--- a/app/api/workouts/[id]/program-exercises/route.ts
++++ b/app/api/workouts/[id]/program-exercises/route.ts
+@@ -33,6 +33,14 @@
+       throw new ApiError(400, 'Invalid exercise.');
+     }
+ 
++    const duplicate = await db.programExercise.findFirst({
++      where: { exerciseId: data.exerciseId },
++      select: { id: true },
++    });
++    if (duplicate) {
++      throw new ApiError(409, 'That exercise is already in this workout.');
++    }
++
+     const last = await db.programExercise.findFirst({
+       where: { workoutId: params.id },
+       orderBy: { order: 'desc' },

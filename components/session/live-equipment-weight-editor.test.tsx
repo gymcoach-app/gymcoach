@@ -22,24 +22,12 @@ const equipment: LiveEquipmentOption = {
 
 const json = { 'Content-Type': 'application/json' };
 
-// The editor re-reads the equipment (GET) before it saves (POST) on the same
-// gym equipment endpoint.
-function stubEquipmentApi({
-  current = { id: equipment.id, name: equipment.name, equipmentType: equipment.equipmentType },
-  readStatus = 200,
-  saveStatus = 200,
-}: {
-  current?: { id: string; name: string; equipmentType: string };
-  readStatus?: number;
-  saveStatus?: number;
-} = {}) {
-  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
-    init?.method === 'POST'
-      ? new Response(JSON.stringify({ equipment: current }), { status: saveStatus, headers: json })
-      : new Response(JSON.stringify({ equipment: [current] }), {
-          status: readStatus,
-          headers: json,
-        }),
+// The editor saves the weight list to the item's weights sub-resource (#380):
+// one PUT, carrying nothing but the weights.
+function stubEquipmentApi({ saveStatus = 200 }: { saveStatus?: number } = {}) {
+  const fetchMock = vi.fn(
+    async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ equipment }), { status: saveStatus, headers: json }),
   );
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
@@ -51,7 +39,6 @@ function renderEditor(overrides: Partial<Parameters<typeof LiveEquipmentWeightEd
   render(
     <LiveEquipmentWeightEditor
       open
-      gymId="gym-1"
       equipment={equipment}
       unit="KG"
       onOpenChange={onOpenChange}
@@ -164,7 +151,7 @@ describe('parseDisplayWeightList', () => {
 });
 
 describe('LiveEquipmentWeightEditor', () => {
-  it('updates the selected physical equipment through the existing gym equipment API', async () => {
+  it("saves the weight list to the item's weights sub-resource in one request", async () => {
     const user = userEvent.setup();
     const fetchMock = stubEquipmentApi();
     const { onSaved, onOpenChange, input, saveButton } = renderEditor();
@@ -173,19 +160,11 @@ describe('LiveEquipmentWeightEditor', () => {
     await user.type(input, '40, 20, 30, 20');
     await user.click(saveButton);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const [readUrl, readInit] = fetchMock.mock.calls[0]!;
-    expect(readUrl).toBe('/api/gyms/gym-1/equipment');
-    expect(readInit?.method).toBeUndefined();
-    const [url, init] = fetchMock.mock.calls[1]!;
-    expect(url).toBe('/api/gyms/gym-1/equipment');
-    expect(init?.method).toBe('POST');
-    expect(JSON.parse(String(init?.body))).toEqual({
-      equipmentId: 'machine-1',
-      name: 'Hack Squat',
-      equipmentType: 'MACHINE',
-      weightOptions: [20, 30, 40],
-    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/gym-equipment/machine-1/weights');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(String(init?.body))).toEqual({ weightOptions: [20, 30, 40] });
     expect(onSaved).toHaveBeenCalledWith({ ...equipment, weightOptions: [20, 30, 40] });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -200,45 +179,37 @@ describe('LiveEquipmentWeightEditor', () => {
     await user.click(saveButton);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body)).weightOptions).toEqual([
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)).weightOptions).toEqual([
       22.5, 25, 27.5,
     ]);
   });
 
-  it('sends the name and type the server holds now, not the page-load snapshot', async () => {
+  it('sends nothing but the weights, so a stale name or type cannot be written back', async () => {
     const user = userEvent.setup();
-    const fetchMock = stubEquipmentApi({
-      current: { id: 'machine-1', name: 'Hack Squat (plate loaded)', equipmentType: 'OTHER' },
-    });
+    const fetchMock = stubEquipmentApi();
     const { onSaved, saveButton } = renderEditor();
 
     await user.click(saveButton);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body))).toEqual({
-      equipmentId: 'machine-1',
-      name: 'Hack Squat (plate loaded)',
-      equipmentType: 'OTHER',
-      weightOptions: [20, 40, 60],
-    });
-    expect(onSaved).toHaveBeenCalledWith({
-      ...equipment,
-      name: 'Hack Squat (plate loaded)',
-      equipmentType: 'OTHER',
-    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(Object.keys(body)).toEqual(['weightOptions']);
+    // Nothing else came back to merge into the session snapshot either.
+    expect(onSaved).toHaveBeenCalledWith(equipment);
   });
 
-  it('encodes the gym id in the request path', async () => {
+  it('encodes the equipment id in the request path', async () => {
     const user = userEvent.setup();
     const fetchMock = stubEquipmentApi();
-    const { onSaved, saveButton } = renderEditor({ gymId: 'gym/1 ?x' });
+    const { onSaved, saveButton } = renderEditor({
+      equipment: { ...equipment, id: 'machine/1 ?x' },
+    });
 
     await user.click(saveButton);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/gyms/gym%2F1%20%3Fx/equipment',
-      '/api/gyms/gym%2F1%20%3Fx/equipment',
+      '/api/gym-equipment/machine%2F1%20%3Fx/weights',
     ]);
   });
 
@@ -295,7 +266,6 @@ describe('LiveEquipmentWeightEditor', () => {
     render(
       <LiveEquipmentWeightEditor
         open
-        gymId="gym-1"
         equipment={{ ...equipment, weightOptions: [20.41, 45.36] }}
         unit="LB"
         onOpenChange={vi.fn()}
@@ -340,16 +310,11 @@ describe('LiveEquipmentWeightEditor', () => {
   });
 
   it.each([
-    { label: 'the save is refused', api: { saveStatus: 500 }, requests: 2 },
-    { label: 'the equipment cannot be re-read', api: { readStatus: 500 }, requests: 1 },
-    {
-      label: 'the equipment no longer exists',
-      api: { current: { id: 'someone-else', name: 'Other', equipmentType: 'MACHINE' } },
-      requests: 1,
-    },
-  ])('keeps the dialog and the typed text when $label', async ({ api, requests }) => {
+    { label: 'the save is refused', saveStatus: 500 },
+    { label: 'the equipment is gone', saveStatus: 404 },
+  ])('keeps the dialog and the typed text when $label', async ({ saveStatus }) => {
     const user = userEvent.setup();
-    const fetchMock = stubEquipmentApi(api);
+    const fetchMock = stubEquipmentApi({ saveStatus });
     const { onSaved, onOpenChange, input, saveButton } = renderEditor();
 
     await user.clear(input);
@@ -359,7 +324,7 @@ describe('LiveEquipmentWeightEditor', () => {
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith('Could not update equipment weights.'),
     );
-    expect(fetchMock).toHaveBeenCalledTimes(requests);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(onSaved).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();

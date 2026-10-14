@@ -50,7 +50,7 @@ export function scanTranscripts(root: string): SessionSummary[] {
   return sessions;
 }
 
-function skillVersionAt(skill: string, at: string): string | null {
+export function skillVersionAt(skill: string, at: string): string | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(skill)) return null;
   const path = `.claude/skills/${skill}/SKILL.md`;
   const sha = execFileSync('git', ['log', '-1', '--format=%H', `--before=${at}`, '--', path], {
@@ -59,7 +59,7 @@ function skillVersionAt(skill: string, at: string): string | null {
   return sha ? `${skill}@${sha.slice(0, 12)}` : null;
 }
 
-function headBranch(prNumber: number): string | null {
+export function headBranch(prNumber: number): string | null {
   const out = execFileSync('gh', ['api', `repos/${REPO}/pulls/${prNumber}`], {
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,

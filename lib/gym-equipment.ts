@@ -436,6 +436,57 @@ export async function upsertOwnedGymEquipment(
   return { equipment: saved, mismatchedExercises, created };
 }
 
+// Weights-only update for one owned item (#380). The in-session editor knows
+// the weights the lifter typed but not the item's current name or type, and it
+// must not touch availability: saving a weight list should not re-enable
+// exercises the lifter had marked unavailable, nor overwrite a rename or a
+// type change made since the page loaded. This path therefore writes
+// `weightOptions` and nothing else, and it follows the item's stack onto the
+// linked exercise configs only where the stack already applies to them.
+export async function updateOwnedGymEquipmentWeights(
+  userId: string,
+  equipmentId: string,
+  weightOptions: number[],
+) {
+  const equipment = await db.gymEquipment.findFirst({
+    where: { id: equipmentId, gym: { userId } },
+    select: {
+      id: true,
+      gymId: true,
+      equipmentType: true,
+      exerciseLinks: { select: { exercise: { select: { id: true, equipmentType: true } } } },
+    },
+  });
+  if (!equipment) throw new ApiError(404, 'Gym equipment not found.');
+
+  const item = await db.$transaction(async (tx) => {
+    const saved = await tx.gymEquipment.update({
+      where: { id: equipment.id },
+      data: { weightOptions },
+    });
+
+    for (const link of equipment.exerciseLinks) {
+      // A config the lifter never had is not created here: creating one would
+      // set isAvailable, which is exactly the surprise #380 is about.
+      if (!itemStackAppliesToExercise(link.exercise.equipmentType, equipment.equipmentType)) {
+        continue;
+      }
+      await tx.gymExerciseConfig.updateMany({
+        where: { gymId: equipment.gymId, exerciseId: link.exercise.id },
+        data: { weightOptions },
+      });
+    }
+    return saved;
+  });
+
+  const saved = await db.gymEquipment.findUnique({
+    where: { id: item.id },
+    select: equipmentSelection,
+  });
+  if (!saved) throw new ApiError(500, 'Gym equipment could not be read after saving.');
+  return saved;
+}
+
 export async function deleteOwnedGymEquipment(userId: string, equipmentId: string) {
   const equipment = await requireOwnedEquipment(userId, equipmentId);
   await db.gymEquipment.delete({ where: { id: equipment.id } });

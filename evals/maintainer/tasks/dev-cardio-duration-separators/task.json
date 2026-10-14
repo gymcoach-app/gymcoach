@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-cardio-duration-separators",
+  "family": "parsing",
+  "split": "dev",
+  "source": { "kind": "historical", "issue": null, "pr": 361 },
+  "snapshot": {
+    "baseSha": "262c811dfcc0dd3aba13f268596804c5b3cef42f",
+    "fixSha": "d32372d8a93e4b997f4282b0bca916796f6e263d"
+  },
+  "statement": "A lifter logging a cardio set on a phone types the duration in the mm:ss field, but the phone's numeric keyboard has no colon key, so a duration such as 11 minutes 46 seconds cannot be entered. Make the duration parser used for cardio sets accept a dot or a comma in place of the colon wherever a colon is accepted today (minutes and seconds, or hours, minutes and seconds). Inputs that are invalid today must stay invalid, including out-of-range seconds and malformed separators. Keep the change focused and keep the existing tests green.",
+  "reference": { "paths": ["lib/cardio.ts"] },
+  "grader": {
+    "hidden": ["lib/cardio.test.ts"],
+    "preserved": ["lib/import/track.test.ts", "lib/schemas/set-parse.test.ts"]
+  },
+  "budget": { "maxTurns": 30, "maxWallSeconds": 900 },
+  "leakage": [
+    "The snapshot is an archive of the base tree with a fresh one-commit history: no later commit, PR text or lesson exists in it.",
+    "The fix commit also changed the input mode, the copy and the program prompt; only lib/cardio.ts is in scope and graded.",
+    "The original user feedback is quoted in the fix commit message, which the agent never sees."
+  ]
+}

@@ -3,9 +3,10 @@
 GymCoach is a self-hosted workout tracker and an experiment in autonomous software
 maintenance. Claude Code agents develop the application through a pipeline of
 reusable skills, software checks, independent reviews, and bounded shipping work.
-Agents also decide what to build: product ideas come from agent research on competing
-apps and their users' requests, and from the [ideation loop](08-ideation-loop.md). A
-human sets the overall goal and the authority boundaries.
+Agents also propose most of what gets built: triage, agent research on competing apps
+and their users' requests, and the [ideation loop](08-ideation-loop.md) file the work,
+alongside adopted external issues. A human sets the product direction, goals and
+authority boundaries, and steers ideation with directives.
 
 The experiment asks two questions: can agents maintain a useful application over
 time, and can changes to their working methods make that maintenance more reliable?
@@ -31,8 +32,9 @@ flowchart LR
 ```
 
 1. **Choose useful work.** Triage examines issues and code health. When there is
-   no actionable backlog, bounded ideation files product improvements, grounded in
-   the captured competitor research and an optional small web check.
+   no actionable backlog, bounded ideation files product improvements (at most three
+   per run, none while three idea issues are open), grounded in the captured
+   competitor research and an optional small web check.
    External requests follow the contribution trust policy before adoption.
 2. **Implement one task.** The implementation skill creates a task branch, makes
    a focused change, adds appropriate tests, and runs the local verification gate.
@@ -48,23 +50,30 @@ flowchart LR
 5. **Record what happened.** The journal links decisions and shipped work. Lessons
    are promoted into skills or conventions, or recorded as accepted risks.
 
-These are the operating procedures the agents are instructed to follow. The
-repository contains verification and isolation scripts, but it does not yet
+These are the operating procedures the agents are instructed to follow. Three
+transitions now have code behind them. The shipping skill routes every merge
+through [`automation/publish/merge.ts`](../../automation/publish/merge.ts), which
+merges only at the reviewed head SHA, with all required CI checks green on it and
+a structured review record for that head and base; it constrains an agent that
+follows the skill, since it runs with the caller's own GitHub token. And
+`verify.sh --full` prepares its own test database. A Claude Code PreToolUse hook
+([`automation/hooks/guard-git.cjs`](../../automation/hooks/guard-git.cjs)) refuses
+subagents' HEAD-moving git commands in checkouts they do not own. The repository does not yet
 contain a standalone controller that mechanically enforces every transition.
 The journal also records occasions when the procedure failed.
 
 ## What exists and what is planned
 
-| Capability             | Current implementation                                 | Next step                                                     |
-| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
-| Task pipeline          | Claude Code loops invoking repository skills           | Versioned controller with durable task state                  |
-| Verification           | Local gate, CI, review procedures, SHA-pinned merge gate | Review evidence bound to the reviewed commit and base       |
-| Isolation              | Worktree procedures and container verification scripts | Enforced worker isolation and separate publishing authority   |
-| Limits                 | Documented attempt, merge, and turn-budget limits      | Runtime accounting and enforced aggregate limits              |
-| Memory                 | Git, issues, run journal, lessons, skills              | Indexed retrieval and executable fixes for recurring mistakes |
-| Agent evaluation       | Run reports and a versioned PR-outcome baseline        | Repeatable task benchmark with a measured baseline            |
-| Improvement of methods | Lessons promoted into procedures                       | Candidate procedures compared with the current version        |
-| Laya                   | Not integrated                                         | Optional classification experiment after baseline evaluation  |
+| Capability             | Current implementation                                                                                                                                                                                                                                                                              | Next step                                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Task pipeline          | Claude Code loops invoking repository skills                                                                                                                                                                                                                                                        | Versioned controller with durable task state                                              |
+| Verification           | Local gate, CI, independent reviews; a merge gate that needs green CI and a structured review record for the exact head and base                                                                                                                                                                    | Revalidate the combined result when `main` moves under a reviewed PR                      |
+| Isolation              | Worktree procedures, a git guard hook for subagents, container verification scripts, a test database that `verify.sh --full` starts and migrates itself                                                                                                                                             | Enforced worker isolation and separate publishing authority                               |
+| Limits                 | Documented attempt, merge, and turn-budget limits                                                                                                                                                                                                                                                   | Runtime accounting and enforced aggregate limits                                          |
+| Memory                 | Git, issues, run journal, lessons, skills                                                                                                                                                                                                                                                           | Indexed retrieval and executable fixes for recurring mistakes                             |
+| Agent evaluation       | A versioned PR-outcome baseline, with agent usage recovered from transcripts where attributable; a 3-task replay smoke suite (`evals/maintainer/`) graded in containers, with the agent's network limited to the model API (#453); tamper detection is a tripwire with two known bypasses (#468); the paid agent stays hard-disabled until #468 is closed or accepted | 20-30 tasks, then a budgeted agent baseline once the operator accepts the credential risk |
+| Improvement of methods | Lessons promoted into procedures                                                                                                                                                                                                                                                                    | Candidate procedures compared with the current version                                    |
+| Laya                   | Not integrated                                                                                                                                                                                                                                                                                      | Optional classification experiment after baseline evaluation                              |
 
 The [implementation roadmap](11-autonomous-development-roadmap.md) defines the
 proposed architecture, ordered milestones, acceptance criteria, and a handoff
@@ -90,6 +99,8 @@ GitHub account, or server.
 
 ## Evidence from real runs
 
+- [Evidence page](evidence.md): the measured baseline, the controls now in code,
+  reviews that caught real problems, what is not shown yet, and how to reproduce it.
 - [Run journal](autonomy-log.md): decisions, merged work, findings, and deferrals.
 - [Lessons](lessons.md): failures and the procedure changes they prompted.
 - [Review digest](review-digest.md): changes and risks worth a maintainer's attention.
@@ -98,7 +109,9 @@ GitHub account, or server.
 For example, lessons L15 and L38 describe agents interfering with shared Git state;
 L29 describes why a fixup needs a fresh review; L36 records checking that a new
 test actually fails without the fix. These incidents guide the move from written
-rules to executable controls.
+rules to executable controls: L29 is now checked by the merge gate (a fixup
+changes the head, so the old review record no longer counts), and L4, L23 and L42
+became script and code changes, L15 and L38 a git guard hook.
 
 A first [baseline report](baseline/2026-10-13/report.md) counts PR outcomes, CI
 evidence, human and bot reviews, reverts and fix follow-ups from public GitHub data, using the versioned

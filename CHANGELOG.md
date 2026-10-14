@@ -37,6 +37,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history page of a finished session gets a "Save as a workout" button that
   builds a workout in a program of your choice from the working sets actually
   done (#436, closes #394).
+- Autonomous development roadmap and a first measured baseline of the
+  maintainer. `docs/loops/README.md` now separates what exists from what is
+  planned, and `docs/loops/11-autonomous-development-roadmap.md` sets the
+  milestones (#438). A new `automation/` directory, kept out of the app and the
+  Docker image, holds versioned run records (Zod, unknown never written as 0)
+  and a baseline rebuilt from public GitHub data: 79 PR runs since 2026-08-14,
+  75 merged, 0 reverted over the 46 complete 14-day windows (#439). Agent
+  tokens, session time and an API-list-price cost estimate are recovered from
+  local Claude Code transcripts where a session is attributable to a PR: 32 of
+  79 runs, each figure a lower bound; median $1.69 for 16 of 50 loop-authored
+  runs, $5.78 for 15 of 25 external runs (the maintainer's review and fixup
+  work) (#443).
+- A merge gate for every maintainer merge: `automation/publish/merge.ts`,
+  run from a fresh `origin/main` worktree, merges only at the reviewed head SHA
+  and only when all five required CI checks succeeded on that SHA from the
+  pinned CI app and one check suite (#442). It also requires a structured
+  review record, posted as a PR comment by a maintainer account (matched by
+  numeric user id) for that exact head and base; the latest record of every
+  reviewer must be ready, so one lens cannot clear another's stop, and an
+  edited record refuses the merge (#449). `automation/**` joined the
+  human-merge-only paths for external PRs.
+- A git guard for agent sessions: a Claude Code PreToolUse hook
+  (`automation/hooks/guard-git.cjs`) refuses HEAD-moving or tree-clobbering
+  git commands from subagents in a checkout they do not own, from any
+  session in another session's worktree, and untagged stash commands for everyone.
+  The operator's and orchestrator's own sessions keep the main checkout;
+  `GYMCOACH_GIT_GUARD=off` disables it, and `--self-test` checks it (#448).
+- A run-time usage ledger: a Claude Code hook appends token counts, models and
+  prompt counts (never text) per finished agent and session to a local file
+  outside the repository, and `automation/ledger/` turns it into per-run usage
+  records; `GYMCOACH_USAGE_LEDGER=off` disables it (#451).
+- Local limits for parallel agent work: `verify.sh` takes one of
+  `GYMCOACH_HEAVY_SLOTS` machine-wide slots, and a session may run at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents, with an optional token
+  budget (#454, #456).
+- A replayable evaluation harness for the maintainer (`evals/maintainer/`):
+  three tasks replayed from real fixes with hidden graders, and self-check
+  agents that apply reference, incomplete and cheating patches (#452). Agent
+  network access is limited to the model API, grading runs in throwaway
+  containers, and only source files under the application roots are taken
+  from the agent; a canary detects known in-process cheats but is not a
+  guarantee (two known bypasses, #468). The paid model agent stays disabled
+  (#455, closes #453).
+- A public evidence page, `docs/loops/evidence.md`: the measured baseline with
+  its denominators, the controls now in code, and reproduction commands (#457).
 
 ### Fixed
 
@@ -67,12 +112,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its options were inherited. Community contribution by @Retsumdk (#420,
   closes #386).
 
+- CI no longer fails at the Postgres image pull: over the last 100 CI runs, 30
+  of 115 attempts (26%) had died on the ECR public mirror's rate limit. The
+  integration, E2E and Docker smoke jobs now start Postgres from an image
+  pinned by digest and kept in the GitHub Actions cache, pulled by digest from
+  one of three registries only on a cache miss, with the loaded image checked
+  against the pin (#445, closes #381).
+- The unit tier no longer times out when other processes load the machine:
+  `formatWeight` reuses one `Intl.NumberFormat` per configuration instead of
+  building one per call, and local runs cap Vitest at half the cores (CI keeps
+  the default). Under load about 20, the slowest test went from a 5.2 s timeout
+  to 3.0 to 4.0 s over three runs (#447).
+
 ### Changed
 
 - The repository moved to the `gymcoach-app` GitHub organization. The image is
   now published as `ghcr.io/gymcoach-app/gymcoach`; the old
   `ghcr.io/julien-au/gymcoach` path no longer receives updates. Old GitHub
   URLs redirect.
+- `bash scripts/verify.sh --full` starts the test Postgres on :5434 itself
+  (when Docker runs), waits for it over TCP and applies the migrations, under
+  one compose project shared by every checkout. A guard refuses any database
+  other than `localhost:5434/gymcoach_test`. The manual `prisma migrate deploy`
+  step after starting or restarting the test container is gone (#441).
 
 ## [1.0.0] - 2026-10-05
 

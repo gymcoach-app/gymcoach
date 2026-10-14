@@ -15,6 +15,16 @@ const programExercise = {
   exercise: { id: 'exercise-1', name: 'Squat', category: 'COMPOUND' },
 } as never;
 
+// The open weight picker renders about 88 option buttons, and a role + name
+// query computes the accessible name of every one of them. The picker's Apply
+// control is found by its accessible label instead, and still asserted to be a
+// button, so the query stays as strict at a fraction of the cost (lesson L42).
+function applyValueButton(): HTMLElement {
+  const button = screen.getByLabelText(/apply value/i);
+  expect(button).toHaveRole('button');
+  return button;
+}
+
 beforeAll(() => {
   HTMLElement.prototype.hasPointerCapture = () => false;
   HTMLElement.prototype.setPointerCapture = () => undefined;
@@ -97,11 +107,11 @@ describe('EditableSetsTable', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /weight/i }));
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
 
     fireEvent.click(screen.getByRole('button', { name: /repetitions/i }));
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '10' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
     await user.click(screen.getByRole('combobox', { name: /reps in reserve/i }));
     await user.click(screen.getByRole('option', { name: '1' }));
 
@@ -187,7 +197,7 @@ describe('EditableSetsTable', () => {
     expect(screen.getByRole('button', { name: '75 kg' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '40 kg' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '50 kg' }));
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
     fireEvent.click(screen.getByRole('button', { name: /confirm set 2/i }));
 
     await waitFor(() =>
@@ -273,7 +283,7 @@ describe('EditableSetsTable', () => {
     expect(screen.getByRole('button', { name: '60 kg' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '25 kg' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '55' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
     await waitFor(() =>
       expect(onUpdateSet).toHaveBeenLastCalledWith(loggedSet, { weight: 60, reps: 8, rir: 2 }),
     );
@@ -319,7 +329,7 @@ describe('EditableSetsTable', () => {
     // On the bar: the barbell loading preview is shown.
     fireEvent.click(screen.getByRole('button', { name: /set 1 weight/i }));
     expect(screen.getByTestId('barbell-side-diagram')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
 
     // On the machine: its loads are offered and there are no plates to show.
     await user.click(screen.getByRole('combobox', { name: /equipment/i }));
@@ -359,7 +369,7 @@ describe('EditableSetsTable', () => {
       'true',
     );
     fireEvent.click(screen.getByRole('button', { name: /225\.97 lb/i }));
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
     expect(screen.getByRole('button', { name: /set 1 weight/i })).toHaveTextContent('225.97');
     fireEvent.click(screen.getByRole('button', { name: /confirm set 1/i }));
 
@@ -405,7 +415,7 @@ describe('EditableSetsTable', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /set 1 weight/i }));
       expect(screen.getByRole('spinbutton')).toHaveValue(weight);
-      fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+      fireEvent.click(applyValueButton());
 
       await waitFor(() =>
         expect(onUpdateSet).toHaveBeenCalledWith(loggedSet, { weight, reps: 5, rir: 1 }),
@@ -435,7 +445,7 @@ describe('EditableSetsTable', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /weight/i }));
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
 
     // Jump to another exercise via the strip, then come back.
     view.rerender(<EditableSetsTable programExercise={otherExercise} {...props} />);
@@ -511,7 +521,7 @@ describe('EditableSetsTable', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /weight/i }));
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '100' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
 
     view.rerender(<EditableSetsTable programExercise={otherExercise} sets={[]} {...props} />);
     const logged = [
@@ -731,7 +741,7 @@ describe('EditableSetsTable', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /set 2 weight/i }));
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '77.5' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
     expect(screen.getByTestId('set-recommendation-dot')).toBeInTheDocument();
     expect(applyRecommendation).toBeEnabled();
 
@@ -797,7 +807,7 @@ describe('EditableSetsTable', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: /set 2 weight/i })[0]!);
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '85' } });
-    fireEvent.click(screen.getByRole('button', { name: /apply value/i }));
+    fireEvent.click(applyValueButton());
     await waitFor(() =>
       expect(onUpdateSet).toHaveBeenCalledWith(completedSet, { weight: 85, reps: 8, rir: 2 }),
     );

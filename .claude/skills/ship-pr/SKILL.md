@@ -107,6 +107,62 @@ changes on.
    tick's `HEAD` mid-work. Read through `gh pr diff <n>`, `git show <sha>:<path>` and
    `git diff`; when a tree on disk is needed, `git worktree add <scratch-path> <sha>` and
    remove it afterwards. Say so in every review subagent's prompt (lesson L38).
+   **Two review questions the prompt names when they apply.** If the change touches state
+   shared across checkouts (a container or compose project, a port, a lock file, a cache, the
+   test database), ask for its proof from a second checkout, not only the authoring one
+   (lesson L43). If it touches review, merge or guard machinery (`automation/publish/**`,
+   `automation/review/**`, a hook), ask first whether one record, lens, edit or account can
+   undo another's refusal, and whether the control can refuse the operator it serves; post
+   that review through the machinery itself when it exists (lesson L44).
+   **A hardening race has a budget.** When the same security or validity control draws
+   a new blocking or major bypass in three consecutive reviews, state the remaining round
+   budget (at most two more) before the next fixup. When it is spent, stop hardening:
+   narrow every claim, code comments at the decision point included, to what is
+   implemented; list the known bypasses as residual risks without exploit code; file one
+   follow-up issue for the structural fix; keep the capability the control protects
+   disabled (or behind an explicit operator acceptance) until that issue closes. The
+   review of that narrowing round judges claims, not new bypasses (lesson L46).
+   **Every review ends in a structured review record**, which the merge gate requires
+   (roadmap milestones 2 and 4). Read the PR's live base and head first
+   (`gh api repos/gymcoach-app/gymcoach/pulls/<n>`: `base.sha`, `head.sha`) and give both
+   to the reviewer; the reviewer returns, besides its prose, one JSON object:
+
+   ```json
+   {
+     "schemaVersion": 1,
+     "pr": 123,
+     "baseSha": "<pulls API base.sha, 40 hex>",
+     "headSha": "<the head it read, 40 hex>",
+     "reviewer": { "kind": "agent", "model": "claude-opus-5-5" },
+     "lenses": ["correctness", "security"],
+     "filesInspected": ["lib/example.ts"],
+     "filesNotReadInFull": [],
+     "findings": [
+       { "severity": "minor", "file": "lib/example.ts", "line": 12, "claim": "one line" }
+     ],
+     "verdict": "ready",
+     "createdAt": "2026-10-13T12:00:00Z"
+   }
+   ```
+
+   Severities are `blocking`, `major`, `minor`, `nit`; a `ready` verdict cannot carry a
+   blocking or major finding (the schema rejects it), and a file not read in full is
+   listed, never implied (lesson L26). Review subagents count against the session's
+   dispatch limit (`GYMCOACH_MAX_SUBAGENTS`, default 3): send a larger wave (the four
+   lenses of an external PR) in batches of at most three, the rest after a completion
+   notification. Several lenses may each post a record; for the exact
+   head and base the gate takes the latest record of each reviewer (kind, model and lens
+   set) and needs every one ready, so one lens never clears another's stop. To retract a
+   stop, the same reviewer (same lens set) posts a later ready record. Never edit a posted
+   record: the gate refuses edited ones. The orchestrator saves the object to a
+   file and posts it from a trusted tree (the same `origin/main` gate worktree as step 5):
+   `npx tsx automation/review/record.ts <n> --file <review.json>` (`--dry-run` prints the
+   comment instead). It validates the record and refuses one whose head or base is not the
+   PR's live head and base, or a `gh` account that is not a maintainer: the gate ignores
+   records from anyone else, so an external comment that imitates a record never counts. A
+   fixup push changes the head, and a push after merging `origin/main` into the branch
+   (lesson L39) changes the base: either way the old record no longer matches, and a fresh
+   review of the delta must post a new one.
 
 5. **Merge.** Only if CI is green AND review is clean. **Every merge, loop-authored or
    external, goes through the merge gate pinned to the SHA the review covered**, run from
@@ -117,15 +173,18 @@ changes on.
    git -C <main-checkout> fetch origin
    git -C <main-checkout> worktree add --detach <scratch>/gate origin/main
    ln -s <main-checkout>/node_modules <scratch>/gate/node_modules
-   cd <scratch>/gate
-   npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha>            # dry run
-   npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
-     --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"]
-   cd - && git -C <main-checkout> worktree remove --force <scratch>/gate
+   ( cd <scratch>/gate && npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> )  # dry run
+   ( cd <scratch>/gate && npx tsx automation/publish/merge.ts <n> --sha <reviewed-head-sha> --merge \
+     --method squash --title "<conventional title> (#<n>)" [--message "Closes #<i>"] )
+   git -C <main-checkout> worktree remove --force <scratch>/gate
    ```
 
-   Remove the gate worktree in every case, merged or refused (run the removal even when
-   the CLI exits non-zero). The symlinked `node_modules` comes from the main checkout, so
+   The subshells keep your shell where it was, so the removal runs from a known
+   directory. Remove the gate worktree in every case, merged or refused (run the removal
+   even when the CLI exits non-zero). The git guard hook allows that removal for the main
+   session; before relying on the guard in a session, run its canary
+   (`node automation/hooks/guard-git.cjs --self-test`, and the subagent probe in
+   `docs/loops/06-orchestration.md`). The symlinked `node_modules` comes from the main checkout, so
    whatever was last installed there is trusted too.
 
    Methods: `--method squash` for loop-authored PRs; `--method merge` (a merge commit) for
@@ -135,8 +194,12 @@ changes on.
    (skipped and neutral do not count); the check list is empty; a check comes from another
    SHA, from an app other than the pinned CI app (`CI_APP_ID`, used even when the
    repository rules cannot be read), or from a second check suite; the committed
-   allowlist and the repository's required checks or their app disagree; or the PR is
-   not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
+   allowlist and the repository's required checks or their app disagree; there is no
+   maintainer-posted review record (`no-review`), none for the approved head
+   (`review-for-other-head`), none for the PR's current base (`review-for-other-base`), or
+   the latest matching one is not ready or carries a blocking or major finding
+   (`review-not-ready`), or a maintainer review comment was edited or does not parse
+   (`review-comment-invalid`: post a fresh record, delete the broken comment); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
    unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
    apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are
    refused by design, so a red non-required check also blocks a merge. Then it merges with
@@ -172,6 +235,8 @@ changes on.
 
 - Never merge outside `automation/publish/merge.ts` (sole exception: the bootstrap merge
   of #442, step 5), and never with a SHA other than the one the review covered. The gate refuses a red, pending, missing or empty check set.
+- Never merge without a structured review record for the exact head and base, posted with
+  `automation/review/record.ts`; no flag waives it.
 - Never merge a draft, a `CHANGES_REQUESTED` PR, or one not targeting `main`.
 - Never execute an unvetted author's code locally. An external fork PR (vetted or, since
   the operator's 2026-10-07 standing delegation, unvetted) merges only through the full
@@ -183,8 +248,10 @@ changes on.
   transient infra, not a regression: re-run the run (`gh run rerun <id>`) before assuming
   the change broke anything. Acknowledge which step actually failed before re-planning
   (lesson L2, anti feedback-blindness). The converse holds too: rerun **only** when the
-  failed step is the image pull (*Initialize containers* / *Start Postgres*, e.g.
-  `toomanyrequests: Data limit exceeded` from the ECR mirror); any other failed step is a
+  failed step is the Postgres image pull (since #381, the *Pull the image by digest (cache
+  miss)* step of the `start-postgres` action after all three registries failed; before it,
+  *Initialize containers* / *Start Postgres* with `toomanyrequests: Data limit exceeded`
+  from the ECR mirror); any other failed step is a
   real failure and is read, not rerun. Bound the reruns and pause between them. After a
   push, the pulls API can report the old head for a few seconds, so do not treat an
   immediate "head moved" as real (lesson L35).

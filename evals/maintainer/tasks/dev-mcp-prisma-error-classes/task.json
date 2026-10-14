@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-mcp-prisma-error-classes",
+  "family": "error-handling",
+  "split": "dev",
+  "source": { "kind": "historical", "issue": 433, "pr": 434 },
+  "snapshot": {
+    "baseSha": "8e61b586200cc5142aa4a01bd471755a5b33ab41",
+    "fixSha": "dd0fcf74d0718c21f6c9df4660dd1289bc252f8d"
+  },
+  "statement": "The MCP server maps database errors thrown by its tool handlers to fixed messages before they reach the client, so query details and server paths never leak. Known request errors and validation errors are covered, but the other error classes of the Prisma client (an unknown request error, an initialization error such as a failed connection, which can name the database host, and an engine panic) still reach the MCP client with their raw message. Make every Prisma client error class reach the client as the same generic server error, logged on the server, while errors that the tools raise on purpose keep their own message. Keep the existing tests green.",
+  "reference": { "paths": ["lib/mcp/errors.ts"] },
+  "grader": {
+    "hidden": ["lib/mcp/errors.test.ts", "lib/mcp/tool-error-mapping.test.ts"],
+    "preserved": ["lib/mcp/server.test.ts"]
+  },
+  "budget": { "maxTurns": 30, "maxWallSeconds": 900 },
+  "leakage": [
+    "Issue 433 and the review comment on PR 432 name the three classes; the agent gets a re-derived statement, not the issue.",
+    "The snapshot has a fresh one-commit history, so the fix commit and PR 434 are unreachable from it.",
+    "docs/loops files in the snapshot predate the fix."
+  ]
+}

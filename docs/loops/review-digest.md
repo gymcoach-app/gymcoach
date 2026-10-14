@@ -843,3 +843,84 @@ worktrees need `"root": true`, fixed in `.eslintrc.json`).
 
 **Trust the gate (lower risk):** the catalog star UI and its focus handling, the duplicate
 and save-as-workout buttons, the i18n strings, the CHANGELOG and README lines.
+
+## 2026-10-13 (afternoon) - roadmap slices: baseline, merge gate with review records, test database bootstrap
+
+Merged: **#438** (your roadmap and overview), **#439** (run records and the baseline),
+**#443** (usage and estimated cost from local transcripts), **#442** (SHA-pinned merge gate),
+**#449** (structured review records required by the gate), **#441** (`verify.sh --full`
+starts and migrates the test DB), **#447** (unit tier under load, L42), **#445** (CI Postgres
+from a digest-pinned cached image, closes #381), **#448** (git guard hook, merged on your
+confirmation), and your launch videos **#440** and **#444**. In this PR: L43, L44, roadmap
+status line.
+
+**Read first:**
+
+1. **#442 + #449 - the merge path itself.** `gh pr diff 442`, then `gh pr diff 449`. Read
+   `automation/publish/gate.ts` whole: it is now the only route to a merge in `ship-pr`, so
+   a bug there either blocks every merge or lets one through. Check `evaluateReviews` (latest
+   record per reviewer, all ready; edited or broken records refuse) and `MAINTAINERS` in
+   `automation/publish/checks.ts` (numeric user ids). Know the two stated limits: the gate
+   runs with the caller's own token, and it proves a review record exists for the commits,
+   not that the reviewer was independent (the loop posts records from the account that
+   authors its PRs).
+2. **#445 - CI pipeline.** `gh pr diff 445`. `.github/actions/start-postgres/action.yml`
+   replaces the service containers in three required jobs. Check the digest pin and the
+   image-ID check before `docker run`; a cache entry written on `main` is read by every PR,
+   forks included.
+3. **#441 - a script that runs `prisma migrate deploy`.** `gh pr diff 441`. Read the URL
+   guard in `scripts/test-db.sh` and its cases in `scripts/test-db.test.sh`: it is what
+   stops the step from migrating anything but `localhost:5434/gymcoach_test`. Note the
+   pinned compose project `gymcoach-test`, shared by every checkout on the machine.
+4. **#448 - merged on your "Merge it".** `gh pr diff 448`. It adds a PreToolUse hook to
+   `.claude/settings.json` that runs before every Bash call of every agent session in this
+   project. Subagents are refused HEAD-moving git in checkouts they do not own; the main
+   session is refused only in another session's worktree; untagged stash commands are
+   refused for everyone; `GYMCOACH_GIT_GUARD=off` at launch disables it. Run
+   `node automation/hooks/guard-git.cjs --self-test` if a Claude Code upgrade seems to
+   change hook inputs.
+
+**Process:** L43 (prove a shared-state change from a second checkout, now in
+`implement-issue` and `ship-pr`), L44 (review a control through the control and ask whether
+one actor can clear another's stop, now in `ship-pr`).
+
+**Trust the gate (lower risk):** #439 and #443 (maintainer tooling, never imported by the
+app, outputs checked for private strings), #447 (a formatter cache with a cache-key test),
+the CHANGELOG, README and roadmap lines.
+
+## 2026-10-14 - usage ledger, local limits, evidence page, eval containment (#468 left open)
+
+Merged: **#451** (run-time usage ledger hook), **#452** (eval harness, paid agent
+disabled), **#454** and **#456** (heavy-work slots, subagent dispatch limit, 60 min idle
+window), **#457** (`docs/loops/evidence.md`) and **#455** (eval containment, closes #453).
+Filed: **#468** (the two known canary bypasses). In this PR: L46 and its `ship-pr` rule,
+roadmap status, evidence page update, two README minors from #456's review.
+
+**Read first:**
+
+1. **#455 - what the paid agent would run inside.** `gh pr diff 455`. You decide when
+   `PAID_AGENT_ENABLED` flips, so read `evals/maintainer/README.md` "Residual risks" and
+   the comment above `PAID_AGENT_ENABLED` in `evals/maintainer/runner.ts` first: the
+   credential copy is readable by the agent and the model API is reachable, and grading
+   validity rests on a tripwire with two known bypasses (#468). Then `egress-proxy.cjs`
+   (the only network exit) and `isAgentWritable` in `runner.ts` (what is copied from the
+   agent). Precondition before any paid run: #468 closed or its risks accepted by you, the
+   credential risk accepted, a budget set, and a diff review of the agent's patch.
+2. **#451, #454, #456 - hooks in every session.** `gh pr diff 454`, then `gh pr diff 451`.
+   Both add hooks to `.claude/settings.json` that run in every Claude Code session in this
+   project. `dispatch-limit.cjs` can refuse Agent calls (it fails open on errors; a crashed
+   subagent can hold one of the three places for up to 60 minutes, see
+   `automation/README.md`); `record-usage.cjs` writes outside the repo and records no text.
+   Switches: `GYMCOACH_MAX_SUBAGENTS=off`, `GYMCOACH_USAGE_LEDGER=off`,
+   `GYMCOACH_HEAVY_SLOTS=off`.
+3. **#452 - the Docker Desktop finding.** No diff to read for it, but a setting to check:
+   the review showed `host.docker.internal:2375` answering as the unauthenticated engine
+   API from inside a container. If "Expose daemon on tcp://localhost:2375 without TLS" is
+   still ticked in Docker Desktop, any container on this machine can control Docker.
+
+**Process:** L46 (a hardening race has a budget: after three consecutive reviews with a
+new bypass, state the remaining rounds, then narrow claims, file the rest, keep the
+capability off), now in `ship-pr` step 4.
+
+**Trust the gate (lower risk):** #457 (a docs page, every number copied from the baseline
+report), the `heavy-slot.sh` self-test, the CHANGELOG, roadmap and evidence lines.

@@ -19,6 +19,11 @@ export const gymEquipmentUpsertSchema = z.object({
 });
 
 const maximumBase64Length = 7_100_000;
+// Weights-only update (#380): the narrow body the in-session editor sends, so a
+// save cannot carry a stale name or type and cannot flip availability.
+export const gymEquipmentWeightsSchema = z.object({
+  weightOptions: gymWeightListSchema,
+});
 
 export const gymEquipmentImageSchema = z
   .object({

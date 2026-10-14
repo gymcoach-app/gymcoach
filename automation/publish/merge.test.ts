@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { PullState } from './gate';
 import { REPO } from './checks';
 import {
+  collectPages,
   fetchSettledPull,
   mergeRequestArgs,
   parseArgs,
   type RawPull,
+  toIssueComment,
   toLivePull,
   UsageError,
 } from './merge';
 
 const SHA = 'c'.repeat(40);
+const BASE = 'd'.repeat(40);
 
 describe('merge CLI argument parsing', () => {
   it('parses a dry run and a full merge', () => {
@@ -66,6 +69,7 @@ describe('mergeable state polling', () => {
     merged: false,
     draft: false,
     baseRef: 'main',
+    baseSha: BASE,
     headSha: SHA,
     mergeableState,
   });
@@ -103,7 +107,7 @@ describe('head branch deletion eligibility', () => {
     state: 'open',
     merged: false,
     draft: false,
-    base: { ref: 'main' },
+    base: { ref: 'main', sha: BASE },
     head: { sha: SHA, ref: 'feat/thing', repo },
     mergeable_state: 'clean',
   });
@@ -127,8 +131,57 @@ describe('head branch deletion eligibility', () => {
       merged: false,
       draft: false,
       baseRef: 'main',
+      baseSha: BASE,
       headSha: SHA,
       mergeableState: 'clean',
     });
+  });
+});
+
+describe('comment pagination', () => {
+  const pages = (sizes: number[]) => (page: number) =>
+    Array.from({ length: sizes[page - 1] ?? 0 }, (_, i) => `${page}-${i}`);
+
+  it('stops at the first short page', () => {
+    const seen: number[] = [];
+    const items = collectPages((page) => {
+      seen.push(page);
+      return pages([3, 3, 1])(page);
+    }, 3);
+    expect(items).toHaveLength(7);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it('reads one more (empty) page when the last full page is exactly full', () => {
+    const seen: number[] = [];
+    expect(
+      collectPages((page) => {
+        seen.push(page);
+        return pages([3, 3])(page);
+      }, 3),
+    ).toHaveLength(6);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it('maps the author id and timestamps a review comment needs', () => {
+    expect(
+      toIssueComment({
+        id: 5,
+        user: { login: 'JulienAu', id: 16043912 },
+        body: null,
+        created_at: 'a',
+        updated_at: 'b',
+      }),
+    ).toEqual({
+      id: 5,
+      author: 'JulienAu',
+      authorId: 16043912,
+      body: '',
+      createdAt: 'a',
+      updatedAt: 'b',
+    });
+    expect(
+      toIssueComment({ id: 6, user: null, body: 'x', created_at: 'a', updated_at: 'a' }).authorId,
+    ).toBeNull();
   });
 });
