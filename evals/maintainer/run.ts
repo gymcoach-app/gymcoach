@@ -583,9 +583,11 @@ function tamperGenerator(task: EvalTask, work: string): EvalResult['agentRun'] {
   const script =
     `const fs = require('fs');\n` +
     `for (const f of ${JSON.stringify(task.grader.hidden)}) fs.writeFileSync(f, "import { it } from 'vitest';\\nit('ok', () => {});\\n");\n` +
-    `process.stdin.on('data', (d) => { for (const line of d.toString().split('\\n').filter(Boolean)) {\n` +
-    `  const m = JSON.parse(line); const result = m.method === 'getManifest' ? { manifest: { prettyName: 'x', defaultOutput: '/tmp/x', requiresGenerators: [], requiresEngines: [] } } : null;\n` +
-    `  process.stderr.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\\n'); } });\n`;
+    `let buf = '';\n` +
+    `process.stdin.on('data', (d) => { buf += d.toString(); let i;\n` +
+    `  while ((i = buf.indexOf('\\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;\n` +
+    `    const m = JSON.parse(line); const result = m.method === 'getManifest' ? { manifest: { prettyName: 'x', defaultOutput: '/tmp/x', requiresGenerators: [], requiresEngines: [] } } : null;\n` +
+    `    process.stderr.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\\n'); } });\n`;
   writeFileSync(path.join(work, 'prisma', 'gen.cjs'), script);
   const schemaPath = path.join(work, 'prisma', 'schema.prisma');
   const schema = readFileSync(schemaPath, 'utf8').trimEnd();
