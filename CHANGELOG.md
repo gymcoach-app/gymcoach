@@ -64,6 +64,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session in another session's worktree, and untagged stash commands for everyone.
   The operator's and orchestrator's own sessions keep the main checkout;
   `GYMCOACH_GIT_GUARD=off` disables it, and `--self-test` checks it (#448).
+- A run-time usage ledger: a Claude Code hook appends token counts, models and
+  prompt counts (never text) per finished agent and session to a local file
+  outside the repository, and `automation/ledger/` turns it into per-run usage
+  records; `GYMCOACH_USAGE_LEDGER=off` disables it (#451).
+- Local limits for parallel agent work: `verify.sh` takes one of
+  `GYMCOACH_HEAVY_SLOTS` machine-wide slots, and a session may run at most
+  `GYMCOACH_MAX_SUBAGENTS` (default 3) subagents, with an optional token
+  budget (#454, #456).
+- A replayable evaluation harness for the maintainer (`evals/maintainer/`):
+  three tasks replayed from real fixes with hidden graders, and self-check
+  agents that apply reference, incomplete and cheating patches (#452). Agent
+  network access is limited to the model API, grading runs in throwaway
+  containers, and only source files under the application roots are taken
+  from the agent; a canary detects known in-process cheats but is not a
+  guarantee (two known bypasses, #468). The paid model agent stays disabled
+  (#455, closes #453).
+- A public evidence page, `docs/loops/evidence.md`: the measured baseline with
+  its denominators, the controls now in code, and reproduction commands (#457).
 
 ### Fixed
 

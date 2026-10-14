@@ -358,7 +358,10 @@ plus Docker pushed the load average to ~20: Playwright pages crashed with
   a wait on a heavy-work slot or the `--full` lock); an entry whose transcript cannot
   be derived counts for `GYMCOACH_SUBAGENT_STALE_HOURS` (default 2). A subagent running
   one silent command longer than the idle window stops counting early, so the limit can
-  be loose, never stuck. A `SubagentStart` that hits the 3 s state-lock timeout fails
+  be loose, never stuck. The long default has a cost: a subagent that crashed or was
+  stopped without a `SubagentStop` keeps its place until its transcript has been silent
+  for 60 minutes, so the session can run one subagent fewer for up to an hour (lower
+  `GYMCOACH_SUBAGENT_IDLE_MINUTES` for that session, or wait). A `SubagentStart` that hits the 3 s state-lock timeout fails
   open and writes no running entry, so that subagent is never counted (fails loose). `SubagentStop`
   removes its own entry without the lock, so a busy lock never leaves a finished
   subagent counted. The refusal names these recovery paths.
@@ -374,7 +377,8 @@ Playwright run outside it takes no slot); the dispatch limit is per session, not
 machine-wide, so two orchestrating sessions get three subagents each; the token
 budget sees only finished subagents and only what the ledger recorded, and is checked
 against recorded spend, so it can lag by one agent (the usage line of the last finished
-subagent may reach the ledger up to 2 s after its `SubagentStop`); turn,
+subagent may reach the ledger about 2 s after its `SubagentStop`: the 2 s cap plus one
+150 ms poll and a read); turn,
 retry and wall-time budgets are not enforced yet.
 
 ## Related: replayable evaluation tasks

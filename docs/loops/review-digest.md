@@ -887,3 +887,40 @@ one actor can clear another's stop, now in `ship-pr`).
 **Trust the gate (lower risk):** #439 and #443 (maintainer tooling, never imported by the
 app, outputs checked for private strings), #447 (a formatter cache with a cache-key test),
 the CHANGELOG, README and roadmap lines.
+
+## 2026-10-14 - usage ledger, local limits, evidence page, eval containment (#468 left open)
+
+Merged: **#451** (run-time usage ledger hook), **#452** (eval harness, paid agent
+disabled), **#454** and **#456** (heavy-work slots, subagent dispatch limit, 60 min idle
+window), **#457** (`docs/loops/evidence.md`) and **#455** (eval containment, closes #453).
+Filed: **#468** (the two known canary bypasses). In this PR: L46 and its `ship-pr` rule,
+roadmap status, evidence page update, two README minors from #456's review.
+
+**Read first:**
+
+1. **#455 - what the paid agent would run inside.** `gh pr diff 455`. You decide when
+   `PAID_AGENT_ENABLED` flips, so read `evals/maintainer/README.md` "Residual risks" and
+   the comment above `PAID_AGENT_ENABLED` in `evals/maintainer/runner.ts` first: the
+   credential copy is readable by the agent and the model API is reachable, and grading
+   validity rests on a tripwire with two known bypasses (#468). Then `egress-proxy.cjs`
+   (the only network exit) and `isAgentWritable` in `runner.ts` (what is copied from the
+   agent). Precondition before any paid run: #468 closed or its risks accepted by you, the
+   credential risk accepted, a budget set, and a diff review of the agent's patch.
+2. **#451, #454, #456 - hooks in every session.** `gh pr diff 454`, then `gh pr diff 451`.
+   Both add hooks to `.claude/settings.json` that run in every Claude Code session in this
+   project. `dispatch-limit.cjs` can refuse Agent calls (it fails open on errors; a crashed
+   subagent can hold one of the three places for up to 60 minutes, see
+   `automation/README.md`); `record-usage.cjs` writes outside the repo and records no text.
+   Switches: `GYMCOACH_MAX_SUBAGENTS=off`, `GYMCOACH_USAGE_LEDGER=off`,
+   `GYMCOACH_HEAVY_SLOTS=off`.
+3. **#452 - the Docker Desktop finding.** No diff to read for it, but a setting to check:
+   the review showed `host.docker.internal:2375` answering as the unauthenticated engine
+   API from inside a container. If "Expose daemon on tcp://localhost:2375 without TLS" is
+   still ticked in Docker Desktop, any container on this machine can control Docker.
+
+**Process:** L46 (a hardening race has a budget: after three consecutive reviews with a
+new bypass, state the remaining rounds, then narrow claims, file the rest, keep the
+capability off), now in `ship-pr` step 4.
+
+**Trust the gate (lower risk):** #457 (a docs page, every number copied from the baseline
+report), the `heavy-slot.sh` self-test, the CHANGELOG, roadmap and evidence lines.

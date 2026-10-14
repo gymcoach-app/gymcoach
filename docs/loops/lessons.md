@@ -793,8 +793,7 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   to misbehave only for callers at hidden-test paths (the probes ran from elsewhere), and
   with test hooks reached through `globalThis`, which the lexical hook rule did not match.
   When the judge shares a process with the judged, say which checks exist, list the known
-  gaps, keep a human diff review on the result, and stop hardening rounds at a stated
-  budget instead of claiming closure.
+  gaps and keep a human diff review on the result (when to stop hardening: L46).
 - **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
   graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
   empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses. Round 5:
@@ -804,3 +803,29 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   proven by the `tamper-selective` self-check, which passes the round-5 canary. The two
   round-6 bypasses are documented residual risks, tracked in #468; the paid agent stays
   disabled until they are closed or accepted.
+
+### L46 - Cap an adversarial hardening race; narrow the claim and file the rest
+- **Trigger:** 2026-10-13/14, #455. Six reviews of the eval containment in a row were
+  needs-changes, each with a new way for agent code to pass an incomplete fix (L45). Each
+  fixup took one dev round plus a review; the PR stayed open about 19 hours, and the
+  subagents whose prompts named it used an estimated $106 at API list prices, from the
+  usage ledger (a lower bound: the orchestrating session is not counted). The sixth review
+  confirmed the round-5 cheats were caught and found two more. The orchestrator had said
+  before that round that it would be the last; it kept that: no seventh hardening round.
+  The docs and the code comment an operator reads before enabling the paid agent were
+  narrowed to "a tripwire, not a guarantee", both bypasses were listed abstractly and
+  filed as #468, and the risky capability (the paid agent) stayed off behind that issue.
+  Two more short reviews then checked only that no claim exceeded the code: the first
+  still found two overclaims (one sentence in the README, the `PAID_AGENT_ENABLED`
+  comment), the second was ready.
+- **Lesson:** when the same security or validity control draws a new blocking bypass in
+  three consecutive reviews, stop treating the next fix as the last one. State the round
+  budget before the next round (at most two more), and when it is spent: (1) narrow every
+  claim to what is implemented, including code comments at the decision point; (2) list
+  the known bypasses as residual risks without exploit code; (3) file one follow-up
+  issue that names the structural fix; (4) keep the capability the control protects
+  disabled, or behind an explicit operator acceptance, until that issue closes. A
+  needs-changes review of a docs-narrowing round is about claims, not new bypasses.
+- **Status:** graduated -> `ship-pr` step 4 ("A hardening race has a budget"). Applied in
+  #455 / #468.
+

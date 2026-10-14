@@ -114,6 +114,14 @@ changes on.
    `automation/review/**`, a hook), ask first whether one record, lens, edit or account can
    undo another's refusal, and whether the control can refuse the operator it serves; post
    that review through the machinery itself when it exists (lesson L44).
+   **A hardening race has a budget.** When the same security or validity control draws
+   a new blocking or major bypass in three consecutive reviews, state the remaining round
+   budget (at most two more) before the next fixup. When it is spent, stop hardening:
+   narrow every claim, code comments at the decision point included, to what is
+   implemented; list the known bypasses as residual risks without exploit code; file one
+   follow-up issue for the structural fix; keep the capability the control protects
+   disabled (or behind an explicit operator acceptance) until that issue closes. The
+   review of that narrowing round judges claims, not new bypasses (lesson L46).
    **Every review ends in a structured review record**, which the merge gate requires
    (roadmap milestones 2 and 4). Read the PR's live base and head first
    (`gh api repos/gymcoach-app/gymcoach/pulls/<n>`: `base.sha`, `head.sha`) and give both

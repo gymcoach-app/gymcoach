@@ -3306,3 +3306,100 @@ can clear another's stop), graduated into `implement-issue` and `ship-pr`.
 **Media.** No app page changed. The launch video in the README was replaced twice by the
 operator (#440, #444: now a 92-second narrated presentation). Screenshot and clip debt from
 the morning entry stands.
+
+## 2026-10-14 - a usage ledger, local limits, a public evidence page, and an eval containment PR that ended by narrowing its claims
+
+**Context.** The operator's standing direction since 2026-10-13: push the roadmap
+(`11-autonomous-development-roadmap.md`) as far as possible, then showcase it. Merged, in
+order: **#451** (M1 run-time usage ledger), **#452** (M3 eval harness, paid agent disabled),
+**#454** (M2 heavy-work slots and subagent dispatch limit), **#456** (#454 follow-ups),
+**#457** (public evidence page) and **#455** (closes #453, eval containment). Every merge
+went through the merge gate on a ready review record for its final head.
+
+**What shipped.**
+- **Usage ledger (#451).** A hook (`automation/hooks/record-usage.cjs`) on `SubagentStop`,
+  `SessionEnd` and `UserPromptSubmit` appends numbers only (tokens by kind and model,
+  response counts, PR numbers named in the task prompt, hashed branch names, prompt counts,
+  never text) to `~/.local/share/gymcoach-runs/ledger.jsonl`; `automation/ledger/` turns it
+  into the same per-run records as the transcript scan of #443.
+- **Eval harness (#452).** `evals/maintainer/`: a versioned task format, three dev tasks
+  replayed from frozen snapshots of real fixes, hidden graders from the fix commits, and
+  harness self-check agents (`dry`, `reference`, `broken`, `tamper`). The paid `claude`
+  agent shipped hard-disabled after review (see below), tracked in #453.
+- **Local limits (#454, #456).** `verify.sh` takes one of `GYMCOACH_HEAVY_SLOTS`
+  machine-wide `flock` slots; a session may run at most `GYMCOACH_MAX_SUBAGENTS` (default
+  3) subagents, with an optional token budget from the ledger. #456 raised the idle
+  liveness window from 15 to 60 minutes after measuring real silent gaps of up to 46
+  minutes, and polls only the transcript size while it settles.
+- **Evidence page (#457).** `docs/loops/evidence.md`: the 2026-10-13 baseline with its
+  denominators, the controls now in code, verifiable review catches and reproduction
+  commands, with no improvement claim.
+- **Eval containment (#455).** The agent container sits on an internal network whose only
+  exit is a proxy that allows `api.anthropic.com:443`; grading runs in throwaway containers
+  (`--network none` for unit, an internal network with a throwaway Postgres for
+  integration); only regular source files under the application roots are copied from the
+  agent (an allowlist); the Prisma schema and client come from the base; tools run as node
+  scripts with an empty `NODE_OPTIONS`; and a canary in every vitest run records the test
+  framework's functions before any agent code loads and fails the run if one changes.
+  Isolation probe: 62 checks, exit 0, no model call. Final replays: `reference` passes all
+  three tasks, every other self-check agent fails them.
+
+**Review rounds and the catches worth keeping.**
+- **#452** (two fixup rounds, three records). The first review found the agent would load
+  the snapshot's project settings (which allow `git push`) and that preserved tests and
+  configs were graded as the agent left them. The second was blocking: from inside the
+  agent container, `host.docker.internal:2375` answered as the unauthenticated Docker
+  Desktop engine API, so an agent could start a container mounting any host path. The
+  paid agent was disabled outright and #453 filed; the operator was told to untick
+  Docker Desktop's "Expose daemon on tcp://localhost:2375 without TLS".
+- **#454** (one fixup round). A missed `SubagentStop` left a running entry for 12 hours,
+  and three such leaks would refuse every Agent call for good. Entries now count only
+  while the subagent's transcript is recent.
+- **#457** (one fixup round). The page's diagram routed reserved paths from the merge gate
+  to a human; the gate has no path check, that routing is policy. Corrected.
+- **#451** and **#456** merged on their first record (minors only; #456's two README minors
+  are fixed in this write-up).
+- **#455** (six hardening reviews, then two docs rounds; eight records, the last ready).
+  Each of the six hardening reviews was needs-changes with a new way for agent code to pass
+  an incomplete fix: a writable grading tree during `prisma generate`; a generator opened
+  on the same line as a closing brace and hashes taken after generate; a lone carriage
+  return ending a comment and an `.npmrc` whose `node-options` npm copies into
+  `NODE_OPTIONS`; a nested `package.json` imports alias and `expect.extend` from
+  `messages/en`; matchers made lenient only for strings, spies or test callers. The fixes
+  moved from denylists to an allowlist (L45) and then to the identity-recording canary.
+  The sixth review confirmed the round-5 cheats were caught and found two more: a built-in
+  outside the hand-picked record, made to misbehave only for callers at hidden-test paths,
+  and test hooks reached through `globalThis`, which the lexical hook rule did not match.
+  The orchestrator had announced before that round that it would be the last, and kept
+  it: no seventh hardening round. The README, the roadmap, L45 and the
+  `PAID_AGENT_ENABLED` comment now call the canary a tripwire, not a guarantee, and list
+  exactly what it records; both bypasses are residual risks filed as #468 (described
+  without exploit code). The review of that docs round still found two overclaims (a
+  README sentence and the comment an operator reads before enabling the paid agent); the
+  next record was ready. The paid agent stays hard-disabled until #468 is closed or the
+  operator accepts those risks, plus the credential-risk acceptance and a budget, and any
+  paid result gets a diff review of the agent's patch.
+
+**Process failures absorbed.**
+- **A hardening race.** #455 took six hardening rounds and about 19 hours open. The
+  bypasses were real, but each round fixed the last one found; L46 now caps such races
+  and graduates into `ship-pr`.
+- **L42 under load.** Gate runs still saw the known `editable-sets-table` unit timeout at
+  load about 12 (two `verify.sh` runs on #455's round 4); green alone and on rerun.
+
+**Green gate.** `bash scripts/verify.sh` green before each merge; CI ran all five jobs on
+every merged head.
+
+**One metric.** 6 PRs merged (all loop-authored), 0 abandoned, 0 reverted. Review-driven
+fixup rounds: 11 (#452 two, #454 one, #457 one, #455 seven: five hardening, two docs).
+Token spend, from the new ledger (subagents only, attributed by a PR number in the task
+prompt, API-list-price estimate, a lower bound: orchestrating sessions and unattributed
+subagents not counted, and the ledger only started when #451 merged, partway through
+#452): #452 $10.99 (4 subagents), #454 $15.13 (4), #455 $106.21 (14), #456 $0.41 (1),
+#457 $1.41 (2); #451 itself predates the ledger. Eight subagent lines named no PR
+($27.59).
+
+**Lessons.** L45 extended through #455's round 6 (in #455). New: L46 (cap an adversarial
+hardening race; narrow the claim and file the rest), graduated into `ship-pr` step 4.
+
+**Media.** No app page changed; no screenshot or clip work this batch.

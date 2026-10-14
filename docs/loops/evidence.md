@@ -125,6 +125,7 @@ exposed.
 | CI starts Postgres from a digest-pinned image in the Actions cache | [#445](https://github.com/gymcoach-app/gymcoach/pull/445) | [#381](https://github.com/gymcoach-app/gymcoach/issues/381): mirror rate limits, L35 |
 | Run-time usage ledger written by Claude Code hooks ([`record-usage.cjs`](../../automation/hooks/record-usage.cjs)) | [#451](https://github.com/gymcoach-app/gymcoach/pull/451) | The baseline could only see transcripts not yet cleaned up |
 | Machine-wide heavy-work slots for `verify.sh` and a per-session subagent limit (default 3, optional token budget) ([`heavy-slot.sh`](../../scripts/heavy-slot.sh), [`dispatch-limit.cjs`](../../automation/hooks/dispatch-limit.cjs)) | [#454](https://github.com/gymcoach-app/gymcoach/pull/454), [#456](https://github.com/gymcoach-app/gymcoach/pull/456) | L42: load about 20 crashed Playwright pages and timed out tests |
+| Eval runs contained: the agent's network limited to the model API by a proxy, grading in throwaway containers, an allowlist of files the agent may change, and a canary that records the test framework's functions before any agent code loads ([`evals/maintainer/`](../../evals/maintainer/README.md)) | [#455](https://github.com/gymcoach-app/gymcoach/pull/455) | [#453](https://github.com/gymcoach-app/gymcoach/issues/453): the #452 reviews found the Docker API reachable and grading gameable. L45 |
 
 Lessons are in [`lessons.md`](lessons.md). Details and limits of each control are
 in [`automation/README.md`](../../automation/README.md). Two limits matter most.
@@ -160,7 +161,7 @@ Each example links to the record or lesson where it can be checked.
    that preserved tests and vitest configs were graded as the agent left them.
    The fix restores grade inputs and adds a static tamper check. With that check
    disabled, the `tamper` self-check passed two of three tasks, so the check is
-   what rejects it. On #455 (open), later reviews found the grading tree could be
+   what rejects it. On #455, later reviews found the grading tree could be
    rewritten by agent code during `prisma generate`.
    [#452 records](https://github.com/gymcoach-app/gymcoach/pull/452#issuecomment-6148633430),
    [#452 PR body](https://github.com/gymcoach-app/gymcoach/pull/452) for the
@@ -182,17 +183,38 @@ Each example links to the record or lesson where it can be checked.
    on head `61a7125` refused the merge until a new review passed the fixup.
    [#448](https://github.com/gymcoach-app/gymcoach/pull/448).
 
+8. **Six reviews, six new ways to game grading, and a stop.** #455 went
+   through six reviews of its hardening, each needs-changes, each with a new
+   way for agent code to pass an incomplete fix: a grading tree it could
+   rewrite, a Prisma generator smuggled on one line, hashes taken too late, a
+   lone carriage return, an `.npmrc` that npm copies into `NODE_OPTIONS`, a
+   nested `package.json` alias, then matchers made lenient only for some
+   callers. Denylists gave way to an allowlist and
+   then to a canary that records the test framework's functions before any
+   agent code loads. The sixth review still found two bypasses (a built-in
+   outside the record, and test hooks reached through `globalThis`). Instead of
+   a seventh round, the claims were narrowed: the canary is documented as a
+   tripwire, both bypasses are listed and tracked in
+   [#468](https://github.com/gymcoach-app/gymcoach/issues/468), and the paid
+   agent stays disabled until they are closed or accepted.
+   [Round-6 record](https://github.com/gymcoach-app/gymcoach/pull/455#issuecomment-6167439664),
+   [ready record](https://github.com/gymcoach-app/gymcoach/pull/455#issuecomment-6167655776),
+   L45, L46.
+
 ## What is not shown yet, and why
 
 - **No paid evaluation runs.** The replay harness in
   [`evals/maintainer/`](../../evals/maintainer/README.md) has three tasks and
-  four self-check agents that apply this repo's own patches. No model has been
-  scored on it.
-- **The paid agent is disabled.** `--agent claude` is refused until its
-  containment (egress, container grading, tamper hardening) passes review in
-  [#453](https://github.com/gymcoach-app/gymcoach/issues/453) /
-  [#455](https://github.com/gymcoach-app/gymcoach/pull/455). No budget is
-  approved.
+  seven self-check agents that apply this repo's own patches and known cheats.
+  No model has been scored on it.
+- **The paid agent is disabled.** Its network and grading containment merged
+  in [#455](https://github.com/gymcoach-app/gymcoach/pull/455) (closes
+  [#453](https://github.com/gymcoach-app/gymcoach/issues/453)), but tamper
+  detection is a tripwire with two known bypasses
+  ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)). `--agent
+  claude` stays refused until #468 is closed or the operator accepts those
+  risks, accepts the credential risk and approves a budget; any paid result
+  will also get a diff review of the agent's patch. No budget is approved.
 - **Cost covers retained transcripts only.** Claude Code deletes old session
   files, so usage before 2026-09-11 is gone for good. The run-time ledger
   (#451) records new sessions, but it is not in this baseline.
@@ -225,8 +247,8 @@ npx tsx automation/baseline/collect.ts --since 2026-08-14 --window-days 14 \
 # 1 refused with the reasons, 3 on a gh or network error).
 npx tsx automation/publish/merge.ts <pr> --sha <head-sha>
 
-# Replay an eval task with the self-check agents (graded locally; Linux with
-# unprivileged user namespaces for `unshare -rn`, and Docker once #455 lands).
+# Replay an eval task with the self-check agents (grading runs in Docker
+# containers since #455, so Docker must be running).
 npx tsx evals/maintainer/run.ts --task dev-cardio-duration-separators --agent reference  # pass
 npx tsx evals/maintainer/run.ts --task dev-cardio-duration-separators --agent tamper     # fail
 npx tsx evals/maintainer/run.ts --task dev-cardio-duration-separators --agent dry        # fail
@@ -239,7 +261,9 @@ bash scripts/heavy-slot.test.sh
 A fresh collection will not match the committed report: PRs merged since then
 move into the window. Usage cannot be re-collected, since it comes from this
 machine's transcripts. The integration task (`dev-duplicate-exercise-post`)
-needs Docker for the test Postgres. Checked on 2026-10-14: the render matched
-byte for byte, the gate dry-run refused #455 with `review-not-ready`, and the
-cardio replays gave `pass` for `reference` and `fail` (one tamper violation)
-for `tamper`.
+needs Docker for the test Postgres. Checked on 2026-10-14, before #455 merged:
+the render matched byte for byte, the gate dry-run refused #455 with
+`review-not-ready`, and the cardio replays gave `pass` for `reference` and
+`fail` (one tamper violation) for `tamper`. With #455's screen, `tamper` now
+reports more violations (14 on cardio in its final replays); the outcome is
+still `fail`.

@@ -1,22 +1,24 @@
 # Autonomous development implementation roadmap
 
-Status: in progress (updated 2026-10-13, through #449). Milestone 1 is partly
-delivered: run-record schemas, a baseline from public GitHub data (#439) and agent
-usage recovered from local transcripts (#443). Milestone 2 is partly delivered: a
-SHA-pinned merge gate for every merge (#442) that requires structured review evidence
-for the exact head and base (#449), and a self-bootstrapping test database (#441).
-Milestone 4 is partly delivered: structured review records (#449) and recurring
-mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hook).
-Milestone 3 has started: a 3-task smoke suite and a replay runner in
-`evals/maintainer/`, validated with reference, broken and tamper fixes; its
-containment (egress proxy, containerised grading, tamper hardening, #453) is in
-place and proven without a model call; grading validity rests on a tripwire canary
-with two known bypasses (#468); the paid agent stays hard-disabled until #468 is
-closed or accepted and the operator accepts the credential risk and sets a budget. Milestones 5 and 6 and the product LLM track are proposed, not
-implemented. A PreToolUse hook keeps subagents
-from moving HEAD in checkouts they do not own (#448, merged on the operator's
-confirmation). Baseline
-inspection: 2026-10-13, commit `dd0fcf7`. Update milestone status with
+Status: in progress (updated 2026-10-14, through #457). Milestone 1 is partly
+delivered: run-record schemas, a baseline from public GitHub data (#439), agent
+usage recovered from local transcripts (#443) and a run-time usage ledger written
+by Claude Code hooks (#451). Milestone 2 is partly delivered: a SHA-pinned merge
+gate for every merge (#442) that requires structured review evidence for the exact
+head and base (#449), a self-bootstrapping test database (#441), machine-wide
+heavy-work slots and a per-session subagent limit with an optional token budget
+(#454, #456). Milestone 4 is partly delivered: structured review records (#449) and
+recurring mechanical lessons converted into code (L42 in #447; L15 and L38 in the
+#448 hook). Milestone 3 has started: a 3-task smoke suite and a replay runner in
+`evals/maintainer/` (#452), validated with reference, broken and tamper fixes. Its
+network and grading containment (egress proxy, containerised grading, #453) is in
+place and checked by an isolation probe without a model call (#455); tamper
+detection is a tripwire canary, not a guarantee, with two known bypasses (#468).
+The paid agent stays hard-disabled until #468 is closed or accepted and the
+operator accepts the credential risk and sets a budget. A public evidence page
+(`evidence.md`, #457) starts the public-evidence section. Milestones 5 and 6 and
+the product LLM track are proposed, not implemented. Baseline inspection:
+2026-10-13, commit `dd0fcf7`. Update milestone status with
 implementation PRs and validation evidence as work lands.
 
 The objective is to make GymCoach's autonomous maintenance reproducible,
@@ -129,7 +131,9 @@ grading code, or reserved evaluation data that determine its own acceptance.
       including parity with the transcript scan). Prompts are counted per session,
       split into harness notifications and other prompts, but not attributed to a run,
       so per-run human interventions stay unknown. No baseline has been regenerated
-      from the ledger yet: it starts empty when this lands.
+      from the ledger yet. It started empty when #451 merged; by 2026-10-14 noon
+      (UTC) this machine's ledger held 33 finished-subagent lines, a first per-PR
+      tally of which is in the 2026-10-14 autonomy-log entry.
 - [ ] Link post-merge regressions, reverts, and follow-up fixes to the originating
       run using a declared observation window. Count aborted and failed runs too.
       Partial: reverts and fix follow-ups (bug issues and fix PRs that cite the PR)
@@ -446,6 +450,10 @@ the charter for changes to permissions or the MCP security surface.
 
 - [ ] Publish sanitized aggregate results with definitions, sample sizes, versions,
       and links to reproducible runs. Distinguish unattended completion from assisted work.
+      Partial: [`evidence.md`](evidence.md) (#457) publishes the 2026-10-13 baseline
+      with its denominators, the controls now in code, verifiable review catches and
+      reproduction commands. No unattended-versus-assisted split yet: human
+      interventions are not recorded per run.
 - [ ] Add a short demonstration of issue, implementation, browser verification,
       review, and eligible merge using a controlled example.
 - [ ] Keep the root README concise and this overview accurate as milestones ship.
