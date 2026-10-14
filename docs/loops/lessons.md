@@ -785,10 +785,14 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   spelling; an allowlist closes the file-level class. Name file types too, not only
   directories: "anything under lib/" still admitted a config. And where the untrusted code
   runs inside the judge's own process, no allowlist of files helps: detect tampering with
-  a judge-owned canary that checks the judge still rejects what it must, instead of
-  enumerating cheats.
+  a judge-owned canary. A canary that only probes behaviour is itself a list of cheats in
+  disguise: the next review beat it with matchers lenient only for strings, spies or test
+  callers. Record the judge's own functions by identity before any untrusted code loads,
+  and fail on any change, whatever the new function does.
 - **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
   graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
   empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses. Round 5:
   source-file extensions and config names at any depth in the allowlist, and the harness
-  canary (`canaryFiles`), proven by the `tamper-inprocess` self-check.
+  canary (`canaryFiles`), proven by the `tamper-inprocess` self-check. Round 6: the canary
+  records function identities before the base setup and checks them around every test,
+  proven by the `tamper-selective` self-check, which passes the round-5 canary.

@@ -274,9 +274,12 @@ changes within the charter.
       (by extension, under the source roots; no config at any depth, dotfile,
       `node_modules`, `__mocks__` or `__snapshots__` segment, test file or `prisma/`
       change is ever copied, lesson L45); in-process tampering by allowed application
-      code is detected, not prevented, by a grader-owned canary in every vitest run
-      (altered matchers, chai assertions or `Object.is` make the run `canary-failed`;
-      code special-casing the hidden tests' own inputs is not covered); every grading run gets its own fresh copy of the
+      code is detected, not prevented, by a grader-owned canary in every vitest run: it
+      records the assertion, `expect`, matcher-registry, test-global and key built-in
+      functions before any application code loads, and any change to them, however
+      selective, makes the run `canary-failed` (not covered: code special-casing the
+      hidden tests' own inputs, globals outside the record, a change undone within one
+      test); every grading run gets its own fresh copy of the
       grading tree, checked right before it runs against the hashes of every
       protected file computed from the base and the fix commit's hidden tests before
       any agent-influenced step, and mounted read-only, with its own throwaway

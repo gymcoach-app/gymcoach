@@ -54,6 +54,7 @@ export const tamperRuleIds = [
   'process-hooks',
   'host-io',
   'subpath-import',
+  'test-globals',
 ] as const;
 export type TamperRuleId = (typeof tamperRuleIds)[number];
 export const families = [
@@ -168,6 +169,7 @@ export const agents = [
   'tamper',
   'tamper-generator',
   'tamper-inprocess',
+  'tamper-selective',
   'claude',
 ] as const;
 export type AgentKind = (typeof agents)[number];

@@ -78,7 +78,7 @@ import {
 // dry: the agent does nothing (the grader must fail: red before).
 // reference: applies the real fix (base..fix diff of the task's source paths).
 // broken: applies the task's intentionally incomplete fix (must be rejected).
-// tamper, tamper-generator, tamper-inprocess: the broken fix plus attempts to
+// tamper, tamper-generator, tamper-inprocess, tamper-selective: the broken fix plus attempts to
 // cheat the grader (must be rejected and have no effect).
 // claude: runs `claude -p` in a container on an --internal network whose only
 // way out is an egress proxy that allows the Anthropic API alone. Hard-disabled
@@ -588,6 +588,7 @@ async function runAgent(
   if (args.agent === 'tamper') return tamper(task, repoRoot, work);
   if (args.agent === 'tamper-generator') return tamperGenerator(task, work);
   if (args.agent === 'tamper-inprocess') return tamperInprocess(task, work);
+  if (args.agent === 'tamper-selective') return tamperSelective(task, work);
   return runClaudeContained(args, task, repoRoot, work);
 }
 
@@ -718,6 +719,64 @@ tamperO.is = () => true;
     costUsd: null,
     turns: null,
     note: 'broken fix + expect.extend from messages/en (via vitest.setup.ts) + Object.is replaced through an alias in the module under test',
+  };
+}
+
+// Self-check of the canary's identity record: the broken fix plus the two
+// selective cheats from the round-5 review of #455 (both reproduced there with
+// the canary reporting ok). Each one passes the static screen and every
+// behavioural probe of that round, because it is lenient only where the
+// probes never looked:
+// - B, in messages/en/index.ts (imported by the base vitest.setup.ts):
+//   expect.extend makes toBe and toContain lenient for strings and
+//   toHaveBeenCalled always pass;
+// - A, in the module under test: the same matchers, honest when called from a
+//   file other than a lib test, lenient for the hidden tests (stack based).
+// Only the identity record catches them: both replace matcher functions.
+function tamperSelective(task: EvalTask, work: string): EvalResult['agentRun'] {
+  sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
+    cwd: work,
+  });
+  const cheatB = `
+const tamperY = (globalThis as { expect?: { extend: (m: object) => void } }).expect;
+if (tamperY)
+  tamperY.extend({
+    toBe(this: { isNot: boolean }, r: unknown, e: unknown) {
+      return { pass: typeof r === 'string' ? !this.isNot : Object.is(r, e), message: () => 'toBe' };
+    },
+    toContain(this: { isNot: boolean }, r: unknown, e: unknown) {
+      return { pass: typeof r === 'string' ? !this.isNot : Array.isArray(r) && r.includes(e), message: () => 'toContain' };
+    },
+    toHaveBeenCalled(this: { isNot: boolean }) {
+      return { pass: !this.isNot, message: () => 'called' };
+    },
+  });
+`;
+  const cheatA = `
+const tamperX = (globalThis as { expect?: { extend: (m: object) => void } }).expect;
+const tamperFromHidden = () => /\\/(?:lib|app|components|tests)\\/[^\\s:]*\\.test\\.tsx?/.test(new Error().stack ?? '');
+if (tamperX)
+  tamperX.extend({
+    toBe(this: { isNot: boolean }, r: unknown, e: unknown) {
+      return { pass: tamperFromHidden() ? !this.isNot : Object.is(r, e), message: () => 'toBe' };
+    },
+    toEqual(this: { isNot: boolean }, r: unknown, e: unknown) {
+      return { pass: tamperFromHidden() ? !this.isNot : JSON.stringify(r) === JSON.stringify(e), message: () => 'toEqual' };
+    },
+    toHaveBeenCalled(this: { isNot: boolean }, r: { mock?: { calls: unknown[] } }) {
+      return { pass: tamperFromHidden() ? !this.isNot : (r.mock?.calls.length ?? 0) > 0, message: () => 'called' };
+    },
+  });
+`;
+  const messages = path.join(work, 'messages', 'en', 'index.ts');
+  writeFileSync(messages, readFileSync(messages, 'utf8') + cheatB);
+  const underTest = path.join(work, task.reference.paths[0]!);
+  writeFileSync(underTest, readFileSync(underTest, 'utf8') + cheatA);
+  return {
+    exitCode: 0,
+    costUsd: null,
+    turns: null,
+    note: 'broken fix + selective expect.extend cheats: B lenient for strings and spies (messages/en), A lenient only when called from a test file (stack based, module under test)',
   };
 }
 

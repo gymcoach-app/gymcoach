@@ -272,6 +272,15 @@ export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] 
     pattern: /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*['"`]#/,
   },
   {
+    id: 'test-globals',
+    why: 'calls a test global or hook (expect, vi, beforeEach, afterEach, ...) from application code',
+    // A bare test global used as a call or a member: application code has no
+    // reason to, and a hook it registers could install and undo a cheat
+    // between two canary checks.
+    pattern:
+      /(?<![\w$.])(?:expect|vi|vitest|beforeEach|afterEach|beforeAll|afterAll|onTestFinished|onTestFailed)\s*(?:\(|\.|\[)/,
+  },
+  {
     id: 'host-io',
     why: 'imports a file system, process or low-level runtime module (fs, child_process, worker_threads, ...)',
     pattern:
@@ -397,23 +406,30 @@ export function groupByTier(files: string[]): { tier: 'unit' | 'integration'; fi
 // Allowed application code runs inside the test process, so a file-level
 // allowlist cannot stop it from changing the framework that judges it: a module
 // the base setup imports can call expect.extend, or the module under test can
-// replace Object.is, and every hidden assertion passes (review of #455). The
+// replace Object.is, and every hidden assertion passes (reviews of #455). The
 // static screen is only an early signal. The canary DETECTS that class instead
-// of trying to enumerate it: harness files, written into every grading tree
-// like the hidden tests (outside the agent's reach, hash-checked), named per
-// run, that check the framework still rejects what it must.
+// of enumerating it: harness files, written into every grading tree like the
+// hidden tests (outside the agent's reach, hash-checked), named per run.
 //
-// Two parts, because vitest isolates test files:
-// - a setup file, appended after the base setup files by a grader-owned config
-//   that wraps the base one: it runs in EVERY test file's context, probes once
-//   after the base setup and again in afterAll (after the file's own imports,
-//   where the module under test runs), and also fails if a matcher function
-//   was replaced during the file;
-// - a standalone test whose title carries this run's nonce: proof that the
-//   canary ran at all, read from the report. A run without it is a fail.
-// It covers the integrity of matchers, chai assertions and Object.is. It does
-// not cover code that special-cases the hidden tests' own inputs: no harness
-// can, short of reading the fix.
+// Identity, not behaviour, is the core check. A grader-owned wrapper config
+// PREPENDS a setup file to the base setup files, so it runs before any
+// application module is imported. It records the function references of every
+// own property of chai's Assertion prototype, chai's assert, expect and its
+// statics, the matcher and equality-tester registries, the test globals, and
+// the built-ins the matchers rely on (Object.is, Array/String/RegExp methods,
+// JSON, Function.prototype, ...). For the unit tier it first applies the base
+// setup's own jest-dom extension, so those matchers are part of the record.
+// A later setup file and hooks compare against that record after the base
+// setup, before and after every test, and after the file: any replaced, added
+// or removed entry is a canary failure, whatever it does and however selective
+// it is (by value type, by caller, by .not). Behavioural probes stay as a
+// second, independent check. A standalone test whose title carries this run's
+// nonce proves the canary ran at all; a run without it is a fail.
+//
+// What it does not cover (stated as residual risks in the README): application
+// code that special-cases the hidden tests' own inputs, tampering with globals
+// or built-ins outside the record, and a change installed and fully undone
+// within a single test between two checks.
 export const CANARY_FAILURE = 'harness integrity check failed';
 export const CANARY_TITLE = 'harness integrity';
 
@@ -424,12 +440,18 @@ export interface Canary {
 }
 
 export function canaryPaths(id: string): {
+  guard: string;
+  preUnit: string;
+  preIntegration: string;
   setup: string;
   test: string;
   unitConfig: string;
   integrationConfig: string;
 } {
   return {
+    guard: `x${id}.guard.ts`,
+    preUnit: `x${id}.pre-unit.ts`,
+    preIntegration: `x${id}.pre-integration.ts`,
     setup: `x${id}.setup.ts`,
     test: `x${id}.test.ts`,
     // .ts, like the base configs: vite loads them without writing a bundled
@@ -438,6 +460,117 @@ export function canaryPaths(id: string): {
     integrationConfig: `x${id}.integration.ts`,
   };
 }
+
+// The record: evaluated when the guard module is first imported, which is the
+// first setup file, before any application code. Every helper it uses is
+// captured into a local first, so a later change to a built-in cannot blind it.
+const CANARY_GUARD = `
+import { assert, chai, expect, vi } from 'vitest';
+
+const FAIL = ${JSON.stringify(CANARY_FAILURE)};
+const gOPD = Object.getOwnPropertyDescriptor;
+const ownKeys = Reflect.ownKeys;
+const nullObject = Object.create.bind(null, null) as () => Record<string, unknown>;
+const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty) as (
+  o: object,
+  k: string,
+) => boolean;
+// chai keeps per-object state in a data property named __flags, created lazily
+// on whatever object a flag is first set (the vitest expect included, during a
+// test file): state, not a function, so it is left out of the record.
+const STATE_KEYS = ['__flags'];
+const isState = (k: string | symbol) => {
+  for (let i = 0; i < STATE_KEYS.length; i += 1) if (k === STATE_KEYS[i]) return true;
+  return false;
+};
+const toStr = String;
+const objectIs = Object.is;
+const MATCHERS = Symbol.for('$$jest-matchers-object');
+const G = globalThis as unknown as Record<string | symbol, unknown>;
+const registry = G[MATCHERS] as Record<string, unknown> | undefined;
+
+type Target = [string, unknown, (string | symbol)[] | null];
+const TARGETS: Target[] = [
+  ['chai', chai, ['Assertion', 'assert', 'expect', 'use', 'util', 'config']],
+  ['chai.Assertion.prototype', chai.Assertion.prototype, null],
+  ['chai.assert', assert, null],
+  ['expect', expect, null],
+  ['vi', vi, ['fn', 'spyOn', 'mock', 'isMockFunction']],
+  ['matchers registry', registry, ['matchers', 'customEqualityTesters']],
+  ['matchers', registry ? registry.matchers : undefined, null],
+  ['equality testers', registry ? registry.customEqualityTesters : undefined, null],
+  [
+    'globalThis',
+    G,
+    [MATCHERS, 'expect', 'vi', 'vitest', 'assert', 'chai', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'it', 'test', 'describe'],
+  ],
+  ['Object', Object, ['is', 'keys', 'entries', 'values', 'getOwnPropertyNames', 'getOwnPropertyDescriptor', 'getPrototypeOf', 'defineProperty', 'assign', 'freeze']],
+  ['Reflect', Reflect, ['ownKeys', 'getOwnPropertyDescriptor', 'apply', 'get', 'has']],
+  ['Array', Array, ['isArray', 'from']],
+  ['Array.prototype', Array.prototype, ['includes', 'indexOf', 'some', 'every', 'map', 'filter', 'find', 'join', 'sort', 'length']],
+  ['String', String, ['raw']],
+  ['String.prototype', String.prototype, ['includes', 'indexOf', 'startsWith', 'endsWith', 'match', 'toString', 'trim', 'valueOf']],
+  ['RegExp.prototype', RegExp.prototype, ['test', 'exec']],
+  ['JSON', JSON, ['stringify', 'parse']],
+  ['Function.prototype', Function.prototype, ['toString', 'call', 'apply', 'bind']],
+  ['Symbol', Symbol, ['for']],
+  ['Number', Number, ['isNaN', 'isFinite']],
+  ['Math', Math, ['abs', 'max', 'min']],
+];
+
+type Entry = [string, unknown];
+function snapshot(): Entry[] {
+  const out: Entry[] = [];
+  for (let t = 0; t < TARGETS.length; t += 1) {
+    const label = TARGETS[t]![0];
+    const obj = TARGETS[t]![1];
+    if (obj === null || (typeof obj !== 'object' && typeof obj !== 'function')) {
+      out[out.length] = [label, obj];
+      continue;
+    }
+    const listed = TARGETS[t]![2];
+    const all = listed ?? ownKeys(obj as object);
+    const keys: (string | symbol)[] = [];
+    for (let k = 0; k < all.length; k += 1) if (listed || !isState(all[k]!)) keys[keys.length] = all[k]!;
+    for (let k = 0; k < keys.length; k += 1) {
+      const name = label + '.' + toStr(keys[k]);
+      const d = gOPD(obj as object, keys[k]!);
+      if (!d) {
+        out[out.length] = [name, undefined];
+        continue;
+      }
+      out[out.length] = [name + ':value', d.value];
+      out[out.length] = [name + ':get', d.get];
+      out[out.length] = [name + ':set', d.set];
+    }
+  }
+  return out;
+}
+
+const RECORD = snapshot();
+
+const recorded = nullObject();
+for (let i = 0; i < RECORD.length; i += 1) recorded[RECORD[i]![0]] = RECORD[i]![1];
+
+export function check(where: string): void {
+  const now = snapshot();
+  const seen = nullObject();
+  const changed: string[] = [];
+  for (let i = 0; i < now.length; i += 1) {
+    const name = now[i]![0];
+    seen[name] = true;
+    if (!hasOwn(recorded, name)) changed[changed.length] = name + ' (added)';
+    else if (!objectIs(now[i]![1], recorded[name])) changed[changed.length] = name;
+  }
+  for (let i = 0; i < RECORD.length; i += 1)
+    if (!hasOwn(seen, RECORD[i]![0])) changed[changed.length] = RECORD[i]![0] + ' (removed)';
+  if (changed.length) {
+    let list = '';
+    for (let i = 0; i < changed.length && i < 12; i += 1) list += (i ? ', ' : '') + changed[i];
+    throw new Error(FAIL + ' (' + where + '): changed since before the base setup: ' + list);
+  }
+}
+`;
 
 const CANARY_PROBE = `
 const FAIL = ${JSON.stringify(CANARY_FAILURE)};
@@ -454,63 +587,108 @@ function throws(fn: () => unknown): boolean {
 export function probe(where: string): void {
   const a = seed;
   const b = seed + 1 + (seed % 5);
+  const s = 'v' + a;
+  const t = 'w' + b;
   const problems: string[] = [];
-  if (!throws(() => expect(a).toBe(b))) problems.push('toBe accepts different numbers');
-  if (throws(() => expect(a).toBe(a))) problems.push('toBe rejects equal numbers');
-  if (!throws(() => expect({ v: a }).toEqual({ v: b }))) problems.push('toEqual accepts different objects');
-  if (!throws(() => expect({ v: a }).toStrictEqual({ v: b }))) problems.push('toStrictEqual accepts different objects');
-  if (!throws(() => expect({ v: a }).toMatchObject({ v: b }))) problems.push('toMatchObject accepts a different object');
-  if (!throws(() => expect([a]).toContain(b))) problems.push('toContain accepts a missing item');
-  if (!throws(() => expect(() => a).toThrow())) problems.push('toThrow accepts a function that does not throw');
-  if (!throws(() => expect(a).toBeNull())) problems.push('toBeNull accepts a number');
-  if (!throws(() => assert.strictEqual(a, b))) problems.push('assert.strictEqual accepts different numbers');
-  if (!throws(() => chai.expect(a).to.equal(b))) problems.push('chai expect accepts different numbers');
-  if (!(Object.is(NaN, NaN) && !Object.is(0, -0) && !Object.is(a, b) && Object.is(a, a)))
-    problems.push('Object.is altered');
+  const must = (ok: boolean, what: string) => {
+    if (!ok) problems.push(what);
+  };
+  must(throws(() => expect(a).toBe(b)), 'toBe accepts different numbers');
+  must(!throws(() => expect(a).toBe(a)), 'toBe rejects equal numbers');
+  must(throws(() => expect(s).toBe(t)), 'toBe accepts different strings');
+  must(throws(() => expect(a).not.toBe(a)), 'not.toBe accepts equal values');
+  must(!throws(() => expect(a).not.toBe(b)), 'not.toBe rejects different values');
+  must(throws(() => expect({ v: a }).toEqual({ v: b })), 'toEqual accepts different objects');
+  must(throws(() => expect(s).toEqual(t)), 'toEqual accepts different strings');
+  must(throws(() => expect({ v: a }).toStrictEqual({ v: b })), 'toStrictEqual accepts different objects');
+  must(throws(() => expect({ v: a }).toMatchObject({ v: b })), 'toMatchObject accepts a different object');
+  must(throws(() => expect([a]).toContain(b)), 'toContain accepts a missing item');
+  must(throws(() => expect(s).toContain(t)), 'toContain accepts a missing substring');
+  must(throws(() => expect(s).not.toContain(s)), 'not.toContain accepts a present substring');
+  must(throws(() => expect(s).toMatch(new RegExp(t))), 'toMatch accepts a non-matching string');
+  must(throws(() => expect(s).toHaveLength(s.length + 1)), 'toHaveLength accepts a wrong length');
+  must(throws(() => expect(0).toBeTruthy()), 'toBeTruthy accepts 0');
+  must(throws(() => expect(a).toBeUndefined()), 'toBeUndefined accepts a number');
+  must(throws(() => expect(a).toBeNull()), 'toBeNull accepts a number');
+  must(throws(() => expect({ v: a }).toHaveProperty(t)), 'toHaveProperty accepts a missing key');
+  must(throws(() => expect(() => a).toThrow()), 'toThrow accepts a function that does not throw');
+  const spy = vi.fn();
+  must(throws(() => expect(spy).toHaveBeenCalled()), 'toHaveBeenCalled accepts an uncalled spy');
+  spy(a);
+  must(throws(() => expect(spy).not.toHaveBeenCalled()), 'not.toHaveBeenCalled accepts a called spy');
+  must(throws(() => expect(spy).toHaveBeenCalledWith(b)), 'toHaveBeenCalledWith accepts other arguments');
+  must(throws(() => assert.strictEqual(a, b)), 'assert.strictEqual accepts different numbers');
+  must(throws(() => assert.include(s, t)), 'assert.include accepts a missing substring');
+  must(throws(() => chai.expect(a).to.equal(b)), 'chai expect accepts different numbers');
+  must(throws(() => chai.expect(s).to.equal(t)), 'chai expect accepts different strings');
+  must(
+    Object.is(NaN, NaN) && !Object.is(0, -0) && !Object.is(a, b) && Object.is(a, a) && !Object.is(s, t),
+    'Object.is altered',
+  );
+  must(s.includes('v') && !s.includes('w') && [a].includes(a) && ![a].includes(b), 'includes altered');
   if (problems.length) throw new Error(FAIL + ' (' + where + '): ' + problems.join('; '));
 }
 `;
 
 export function canaryFiles(id: string): Map<string, Buffer> {
   const p = canaryPaths(id);
+  const head = `// Harness-owned integrity canary (evals/maintainer, runner.ts canaryFiles).\n`;
+  const guard = head + CANARY_GUARD;
+  // The first setup files of each tier: record before any application code.
+  // The unit tier applies the base setup's jest-dom extension first, so its
+  // matchers are in the record; the base setup's own import of it is then a
+  // cached module and adds nothing.
+  const preUnit =
+    head +
+    `import '@testing-library/jest-dom/vitest';\nimport { check } from './${p.guard}';\ncheck('first setup');\n`;
+  const preIntegration = head + `import { check } from './${p.guard}';\ncheck('first setup');\n`;
   const setup =
-    `// Harness-owned integrity canary (evals/maintainer, runner.ts canaryFiles).\n` +
-    `import { afterAll, assert, chai, expect } from 'vitest';\n` +
+    head +
+    `import { afterAll, afterEach, assert, beforeAll, beforeEach, chai, expect, vi } from 'vitest';\n` +
+    `import { check } from './${p.guard}';\n` +
     CANARY_PROBE +
-    `const proto = chai.Assertion.prototype as unknown as Record<string, unknown>;\n` +
-    `const watched = ['toBe', 'toEqual', 'toStrictEqual', 'toMatchObject', 'toContain', 'toThrow', 'assert'];\n` +
-    `const read = (n: string) => { const d = Object.getOwnPropertyDescriptor(proto, n); return d ? (d.value ?? d.get) : undefined; };\n` +
-    `const captured = watched.map((n) => [n, read(n)] as const);\n` +
+    `check('after the base setup');\n` +
     `probe('after the base setup');\n` +
-    `afterAll(() => {\n` +
-    `  probe('after the test file');\n` +
-    `  for (const [n, f] of captured) if (read(n) !== f) throw new Error(FAIL + ': ' + n + ' was replaced during the test file');\n` +
-    `});\n`;
+    `beforeAll(() => check('before the file'));\n` +
+    `beforeEach(() => check('before a test'));\n` +
+    `afterEach(() => check('after a test'));\n` +
+    `afterAll(() => {\n  check('after the file');\n  probe('after the file');\n});\n`;
   const test =
-    `// Harness-owned integrity canary (evals/maintainer, runner.ts canaryFiles).\n` +
-    `import { assert, chai, expect, it } from 'vitest';\n` +
+    head +
+    `import { assert, chai, expect, it, vi } from 'vitest';\n` +
+    `import { check } from './${p.guard}';\n` +
     CANARY_PROBE +
     `it(${JSON.stringify(`${CANARY_TITLE} `)} + nonce, () => {\n` +
     `  if (!/^[0-9a-f]{32}$/.test(nonce)) throw new Error(FAIL + ': no nonce');\n` +
+    `  check('inside a test');\n` +
     `  probe('inside a test');\n` +
     `  const before = expect.getState().assertionCalls;\n` +
     `  expect(seed).toBe(seed);\n` +
     `  if (expect.getState().assertionCalls !== before + 1) throw new Error(FAIL + ': assertions are not counted');\n` +
     `});\n`;
-  const config = (base: string) =>
-    `// Grader-owned wrapper (evals/maintainer, runner.ts canaryFiles): the base\n` +
-    `// config, with the canary setup appended after the base setup files and the\n` +
-    `// canary test included. Files stay isolated, so the setup runs per file.\n` +
+  // The grader-owned wrapper: the base config with the canary's first setup
+  // file PREPENDED and its later setup file appended around the base setup
+  // files, and the canary test included. Built explicitly rather than merged,
+  // because mergeConfig would append the first setup file after the base ones.
+  const config = (base: string, pre: string) =>
+    `// Grader-owned wrapper (evals/maintainer, runner.ts canaryFiles).\n` +
     `import { mergeConfig } from 'vitest/config';\n` +
     `import base from './${base}';\n` +
-    `export default mergeConfig(base, {\n` +
-    `  test: { setupFiles: ['./${p.setup}'], include: ['${p.test}'], isolate: true },\n` +
-    `});\n`;
+    `const baseSetup = base.test?.setupFiles ?? [];\n` +
+    `const merged = mergeConfig(base, { test: { include: ['${p.test}'], isolate: true } });\n` +
+    `merged.test = {\n` +
+    `  ...merged.test,\n` +
+    `  setupFiles: ['./${pre}', ...(Array.isArray(baseSetup) ? baseSetup : [baseSetup]), './${p.setup}'],\n` +
+    `};\n` +
+    `export default merged;\n`;
   return new Map([
+    [p.guard, Buffer.from(guard)],
+    [p.preUnit, Buffer.from(preUnit)],
+    [p.preIntegration, Buffer.from(preIntegration)],
     [p.setup, Buffer.from(setup)],
     [p.test, Buffer.from(test)],
-    [p.unitConfig, Buffer.from(config('vitest.config'))],
-    [p.integrationConfig, Buffer.from(config('vitest.integration.config'))],
+    [p.unitConfig, Buffer.from(config('vitest.config', p.preUnit))],
+    [p.integrationConfig, Buffer.from(config('vitest.integration.config', p.preIntegration))],
   ]);
 }
 

@@ -10,7 +10,7 @@ excludes it, and nothing here holds credentials.
 
 ```bash
 npx tsx evals/maintainer/run.ts --task <id> \
-  --agent dry|reference|broken|tamper|tamper-generator|tamper-inprocess|claude \
+  --agent dry|reference|broken|tamper|tamper-generator|tamper-inprocess|tamper-selective|claude \
   [--budget-usd N] [--i-accept-credential-risk] [--out <dir outside the repo>] [--keep]
 ```
 
@@ -22,6 +22,7 @@ npx tsx evals/maintainer/run.ts --task <id> \
 | `tamper`    | `broken`, plus grader cheats (see below)                           | `fail`   |
 | `tamper-generator` | `broken`, plus the four bypasses of the earlier denylist screens | `fail` |
 | `tamper-inprocess` | `broken`, plus in-process cheats only the canary can see   | `fail`   |
+| `tamper-selective` | `broken`, plus selective in-process cheats only the canary's identity record can see | `fail` |
 | `claude`    | **Hard-disabled**; runs `claude -p` in a contained agent container | n/a      |
 
 **`--agent claude` is hard-disabled** by `PAID_AGENT_ENABLED = false` in
@@ -65,6 +66,34 @@ next to it in `reports/`. Exit codes: 0 pass, 1 fail, 3 infra-error, 2 usage.
 
 ### The smoke suite (dev split)
 
+| Task                             | Family          | From       | Tier        |
+| -------------------------------- | --------------- | ---------- | ----------- |
+| `dev-cardio-duration-separators` | parsing         | PR 361     | unit        |
+| `dev-mcp-prisma-error-classes`   | error-handling  | #433, #434 | unit        |
+| `dev-duplicate-exercise-post`    | api-correctness | #379, #425 | integration |
+
+Validated on 2026-10-14 after round 6 (identity-record canary), fully
+containerised, each grading run in a fresh read-only tree with the canary in
+every vitest run (21 runs). Cells show hidden / preserved passed-failed counts
+(the canary test is counted) and the canary state when it is not `ok`.
+
+| Task           | dry        | reference      | broken     | tamper          | tamper-generator   | tamper-inprocess | tamper-selective |
+| -------------- | ---------- | -------------- | ---------- | --------------- | ------------------ | ---------------- | ---------------- |
+| cardio         | 34/1, 21/0 | 35/0, 21/0 pass | 34/1, 21/0 | 14 violations   | 34/1, 7 violations | canary-failed    | canary-failed    |
+| mcp            | 14/4, 3/0  | 18/0, 3/0 pass | 15/3, 3/0  | 13 violations   | 15/3, 7 violations | canary-failed    | canary-failed    |
+| duplicate POST | 4/1, 36/0  | 5/0, 36/0 pass | 4/1, 36/0  | 14 violations   | 4/1, 7 violations  | canary-failed    | 4/1, 36/0        |
+
+Every run except `reference` is `fail`, and no reference or baseline run trips
+the canary (the whole unit suite, 147 files and 1607 tests, also passes with the
+canary in place). On duplicate POST, `tamper-selective`'s cheats are inert: the
+integration tier has no vitest globals, so they install nothing, and the
+broken fix fails on its own. With the round-5 canary (no identity record,
+number-only probes), `tamper-selective` **passes** cardio (35/0, 21/0): the
+identity record and the new probes are what reject it. With only the identity
+checks disabled, it still fails, on the string probes.
+
+#### Round 5 table (behavioural canary only), for the record
+
 Validated on 2026-10-14 after round 5 (source-file allowlist and harness
 canary), fully containerised, each grading run in a fresh read-only tree with
 the canary in every vitest run. Cells show passed/failed counts (the canary test
@@ -86,13 +115,6 @@ test removed, canary forced `ok`), `tamper-inprocess` **passes** cardio
 the string `.eval-tamper-marker`.
 
 #### Round 4 table (allowlist by path only), for the record
-
-
-| Task                             | Family          | From       | Tier        |
-| -------------------------------- | --------------- | ---------- | ----------- |
-| `dev-cardio-duration-separators` | parsing         | PR 361     | unit        |
-| `dev-mcp-prisma-error-classes`   | error-handling  | #433, #434 | unit        |
-| `dev-duplicate-exercise-post`    | api-correctness | #379, #425 | integration |
 
 Validated on 2026-10-14 under the allowlist model, fully containerised, each
 grading run on its own fresh read-only tree (15 runs; hidden tests passed /
@@ -220,6 +242,9 @@ generate` runs in a container with no network.
      `Object.getPrototypeOf(...)`, any `__proto__`, `Object.defineProperty`
      and friends on a built-in, a global or a prototype;
    - hooking the process exit or its output streams;
+   - calling a test global or hook from application code (`expect`, `vi`,
+     `beforeEach`, `afterEach`, ...), which a cheat would need to install and
+     undo itself between two canary checks;
    - importing a file system, process or low-level runtime module (`fs`,
      `fs/promises`, `child_process`, `worker_threads`, `cluster`, `inspector`,
      `v8`, `wasi`, `repl`);
@@ -351,44 +376,69 @@ host at all (the proxy's log stayed empty with an empty allowlist).
 
 Allowed application code runs inside the test process of the run that grades
 it. The file allowlist keeps it from changing configs, setups or tooling; it
-cannot keep it from changing the test framework in memory. Rather than
-enumerate those cheats, every vitest run of the grader (hidden and preserved,
-unit and integration) carries a **canary** (`canaryFiles` in
-[`runner.ts`](runner.ts)) that checks the framework still rejects what it must:
+cannot keep it from changing the test framework in memory. Every vitest run of
+the grader (hidden and preserved, unit and integration) carries a **canary**
+(`canaryFiles` in [`runner.ts`](runner.ts)) that detects that class:
 
-- **Grader-owned files.** Per eval run, four files with unpredictable names
+- **Grader-owned files.** Per eval run, seven files with unpredictable names
   (`x<random>.*`) are written into every grading tree like the hidden tests:
   hash-checked before each run, never agent-writable, never in the agent's
-  workspace. Vitest is called with a grader-owned config that wraps the base
-  one (`mergeConfig`): the canary setup is appended after the base setup
-  files and the canary test is added to the file list.
-- **A setup probe in every test file.** Vitest isolates test files, so the
-  probe is a setup file: it runs in every file's context, once right after the
-  base setup (where a cheat imported by `vitest.setup.ts` lives) and again in
-  `afterAll` (after the file's own imports, where the module under test runs).
-  It checks that `toBe`, `toEqual`, `toStrictEqual`, `toMatchObject`,
-  `toContain`, `toThrow`, `toBeNull`, chai's `assert.strictEqual` and
-  `chai.expect` reject values derived from the run's nonce, that `toBe` accepts
-  equal ones, that `Object.is` behaves, and that no watched matcher function was
-  replaced during the file. A failure makes that file fail.
-- **A standalone canary test** whose title carries this run's nonce (passed to
-  the grading container only, never to the agent). The grader reads the JSON
-  report: the canary test must be present with the nonce and passed, and no
-  file may report an integrity failure. Otherwise the run is `canary-failed` or
-  `canary-missing`, a tamper violation, and the outcome is `fail`.
+  workspace. Vitest is called with a grader-owned config built from the base
+  one: the canary's first setup file is **prepended** to the base setup files,
+  its second setup file appended, and the canary test added to the file list.
+- **An identity record taken before any application code.** The first setup
+  file runs before the base setup, so before any application module is
+  imported. (For the unit tier it first applies the base setup's own jest-dom
+  extension, so those matchers are part of the record; the base setup's later
+  import of it is a cached module and adds nothing.) It records the function
+  references of every own property of chai's `Assertion.prototype`, of chai's
+  `assert`, of `expect` and its statics, of the matcher and equality-tester
+  registries, of the test globals, and of the built-ins matchers rely on
+  (`Object.is` and friends, the `Array`, `String` and `RegExp` methods,
+  `JSON`, `Function.prototype`, `Symbol.for`). The comparison uses helpers
+  captured at that moment, so a later change to a built-in cannot blind it.
+- **Checks after the base setup, around every test and after the file.** The
+  second setup file compares against the record right after the base setup
+  (where a cheat imported by `vitest.setup.ts` lives), in `beforeEach` and
+  `afterEach` of every test, and in `afterAll`; the canary test compares again.
+  Any replaced, added or removed entry is a failure, **whatever the new
+  function does**: a matcher made lenient only for strings, only for `.not`,
+  only for spies, or only when called from a test file is caught by identity,
+  not by behaviour.
+- **Behavioural probes as a second check.** The same files check that the
+  common matchers (`toBe`, `toEqual`, `toContain`, `toMatch`, `toHaveLength`,
+  `toBeTruthy`, `toBeUndefined`, `toHaveProperty`, `toThrow`,
+  `toHaveBeenCalled`, `toHaveBeenCalledWith`, with and without `.not`, on
+  numbers, strings, objects and spies), chai's `assert` and `chai.expect`
+  reject values derived from the run's nonce, and that `Object.is` and
+  `includes` behave.
+- **A standalone canary test** whose title carries this run's nonce. The nonce
+  is passed to the grading containers only: the agent never sees it while it
+  works. Application code can read it at grading time (it runs in the same
+  process), which gives it no lever: the report and the exit code come from
+  vitest's main process, and the identity record does not depend on the nonce.
+  The grader reads the JSON report: the canary test must be present with the
+  nonce and passed, and no file may report an integrity failure. Otherwise the
+  run is `canary-failed` or `canary-missing`, a tamper violation, and the
+  outcome is `fail`.
 
-What it covers: the integrity of matchers, chai assertions and `Object.is`,
-whichever allowed file the change comes from. What it does not cover: code
-that special-cases the hidden tests' own inputs (for example a function that
-returns the expected value only for the exact arguments a hidden test uses).
-No harness can rule that out without reading the fix; the hidden tests are
-the fix commit's real tests, which makes guessing their inputs the cheat's
-whole difficulty.
+What it detects: replacement, addition or removal of an assertion or `expect`
+function, of a registered matcher or equality tester, of a test global, or of
+one of the recorded built-ins, from any allowed file, at any time from the
+first setup file to the end of the file. What it does **not** detect (see
+residual risks): application code that special-cases the hidden tests' own
+inputs; tampering with globals or built-ins outside the record; and a change
+installed and fully undone within a single test, between two checks (the
+static screen's `test-globals` rule rejects the test hooks such a cheat would
+need to restore itself, but not every way to time it).
 
-`--agent tamper-inprocess` is the self-check: the broken fix plus the two
-in-process cheats from the round-4 review, both passing the static screen.
-With the canary disabled, it **passes** (see the replay table); with it, it
-fails as `canary-failed`.
+`--agent tamper-inprocess` and `--agent tamper-selective` are the self-checks.
+`tamper-selective` replays the two cheats of the round-5 review: B, lenient
+`toBe`, `toContain` and `toHaveBeenCalled` for strings and spies, from
+`messages/en`; A, lenient only when called from a test file (stack based), from
+the module under test. With the round-5 canary (no identity record, number-only
+probes) it **passes** the broken fix; with this one it fails as
+`canary-failed` (see the replay table).
 
 ## Residual risks
 
@@ -408,15 +458,20 @@ What a paid run would still accept, stated plainly:
   model call has been made through the proxy. If the CLI needs another host
   for a real call, the first approved run fails as an infra-error, never a
   result; the proxy log names the refused host.
-- **In-process tampering is detected, not prevented.** The file allowlist
-  closes configs and tooling; the static screen is an early signal; the canary
-  detects altered matchers, assertions and `Object.is`. Code that special-cases
-  the hidden tests' inputs, or sabotages the JSON reporter itself in ways the
-  canary does not probe, remains a validity risk within one run. It can no
-  longer reach another run (fresh read-only tree per run, hash check, fresh
-  database), and the containers keep it a validity risk only, never a host
-  security risk. Cross-checking hidden-test counts against the reference run is
-  a possible next hardening.
+- **In-process tampering is detected, not prevented, and only for what the
+  canary records.** The file allowlist closes configs and tooling; the static
+  screen is an early signal; the canary detects any change to the assertion and
+  `expect` functions, the matcher registries, the test globals and the
+  recorded built-ins. Not detected: application code that special-cases the
+  hidden tests' own inputs (returning the expected value only for the exact
+  arguments a test uses; no harness can rule that out without reading the
+  fix); tampering with a global or built-in that is not in the record; and a
+  change installed and fully undone within a single test, between two checks.
+  These stay a validity risk within one run. They can no longer reach another
+  run (fresh read-only tree per run, hash check, fresh database), and the
+  containers keep them a validity risk only, never a host security risk.
+  Cross-checking hidden-test counts against the reference run is a possible
+  next hardening.
 - **Training-data contamination.** The repository is public: a model's
   training data may include the later commits, PRs and lessons that the snapshot
   removes. Nothing in a replay can undo that; a task's result for a model trained
