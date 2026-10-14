@@ -107,6 +107,9 @@ covers durable execution, enforced budgets, replayable development tasks, and
 evaluated changes to the agent's skills. These are planned capabilities, not a
 claim that the agent already improves itself reliably.
 
+[**Evidence from real runs**](docs/loops/evidence.md): measured outcomes, the
+controls now enforced in code, and reviews that caught real problems, with links.
+
 [**How autonomous development works**](docs/loops/README.md) ·
 [Implementation roadmap](docs/loops/11-autonomous-development-roadmap.md) ·
 [Run journal](docs/loops/autonomy-log.md) ·
