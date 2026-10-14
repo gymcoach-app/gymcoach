@@ -32,13 +32,13 @@ flowchart LR
     I[Issue] --> D[Agent: branch, code, tests]
     D --> V[verify.sh]
     V --> P[PR]
+    P -.->|reserved path or decision: policy, not checked by the gate| H[Human]
     P --> R[Review record for head + base]
     P --> C[CI: 5 required checks on head]
     R -->|needs-changes| D
     C -->|red| D
     R & C --> G{merge.ts gate}
     G -->|refused| D
-    G -->|reserved path or decision| H[Human]
     G -->|eligible| M[Squash merge at the reviewed SHA]
 ```
 
@@ -81,7 +81,9 @@ trailer. It shows Claude wrote the commits, not that nobody prompted it.
 **Reviews.**
 
 - Human review or posted verdict recorded on GitHub: 22 of 75 merged runs, 10
-  of them bound to the final head SHA.
+  of them bound to the final head SHA. Verdicts are posted from the maintainer
+  account, which the agents also use, so this is not a count of reviews written
+  by a person.
 - Bot review: 31 of 75, reported apart.
 - Local subagent reviews left no per-SHA record in this baseline, so they are
   unknown for every run. Structured review records started with #449, after
@@ -94,7 +96,8 @@ trailer. It shows Claude wrote the commits, not that nobody prompted it.
   retained, or no session was attributable.
 - Estimated cost of attributed subagent work: $137.38 over those 32 runs, at API
   list prices. It is not an amount billed.
-- Loop-authored merged runs: known for 16 of 50, median $1.69.
+- Merged runs from the maintainer account (47 loop-authored, 3 without a
+  Claude trailer): known for 16 of 50, median $1.69.
 - External merged runs: known for 15 of 25, median $5.78. That is the
   maintainer's review, fixup and integration work, not the cost of writing the PR.
 - Orchestrating sessions ($111.19, 32% of retained usage) and unattributed
@@ -159,7 +162,9 @@ Each example links to the record or lesson where it can be checked.
    disabled, the `tamper` self-check passed two of three tasks, so the check is
    what rejects it. On #455 (open), later reviews found the grading tree could be
    rewritten by agent code during `prisma generate`.
-   [First record](https://github.com/gymcoach-app/gymcoach/pull/452#issuecomment-6148250477),
+   [#452 records](https://github.com/gymcoach-app/gymcoach/pull/452#issuecomment-6148633430),
+   [#452 PR body](https://github.com/gymcoach-app/gymcoach/pull/452) for the
+   two-of-three result,
    [#455 record](https://github.com/gymcoach-app/gymcoach/pull/455#issuecomment-6162744780).
 5. **CI caught a rule that broke a real program.** On #427, a "no duplicate
    exercise in a workout" rule was extended to program generation. The
@@ -190,7 +195,7 @@ Each example links to the record or lesson where it can be checked.
   approved.
 - **Cost covers retained transcripts only.** Claude Code deletes old session
   files, so usage before 2026-09-11 is gone for good. The run-time ledger
-  (#451) records new runs, but it is not in this baseline.
+  (#451) records new sessions, but it is not in this baseline.
 - **Review independence is not proven.** The merge gate proves that a review
   record exists for the exact commits. The same maintainer account authors the
   PRs and posts the records, so it cannot prove the reviewer was independent.
@@ -216,10 +221,12 @@ git fetch origin
 npx tsx automation/baseline/collect.ts --since 2026-08-14 --window-days 14 \
   --out /tmp/baseline-check
 
-# Dry-run the merge gate on an open PR (read-only; prints refusals, exit 1).
+# Dry-run the merge gate on an open PR (read-only; exit 0 mergeable,
+# 1 refused with the reasons, 3 on a gh or network error).
 npx tsx automation/publish/merge.ts <pr> --sha <head-sha>
 
-# Replay an eval task with the self-check agents (graded locally).
+# Replay an eval task with the self-check agents (graded locally; Linux with
+# unprivileged user namespaces for `unshare -rn`, and Docker once #455 lands).
 npx tsx evals/maintainer/run.ts --task dev-cardio-duration-separators --agent reference  # pass
 npx tsx evals/maintainer/run.ts --task dev-cardio-duration-separators --agent tamper     # fail
 npx tsx evals/maintainer/run.ts --task dev-cardio-duration-separators --agent dry        # fail
