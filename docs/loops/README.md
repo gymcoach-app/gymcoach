@@ -94,6 +94,8 @@ GitHub account, or server.
 
 ## Evidence from real runs
 
+- [Evidence page](evidence.md): the measured baseline, the controls now in code,
+  reviews that caught real problems, what is not shown yet, and how to reproduce it.
 - [Run journal](autonomy-log.md): decisions, merged work, findings, and deferrals.
 - [Lessons](lessons.md): failures and the procedure changes they prompted.
 - [Review digest](review-digest.md): changes and risks worth a maintainer's attention.
