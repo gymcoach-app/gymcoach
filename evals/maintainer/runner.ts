@@ -73,18 +73,21 @@ export function parseArgs(argv: string[]): RunArgs {
   return args;
 }
 
-// The paid agent is hard-disabled by this constant. The containment it needed
-// (issue #453: egress limited to the model API, grading in containers, tamper
-// hardening, credential handling) is in place and proven by probe-isolation.ts;
-// what remains is the operator's decision. Only the operator flips it, in a
-// reviewed PR, after accepting the credential risk described in
-// evals/maintainer/README.md and setting a budget.
+// The paid agent is hard-disabled by this constant. Network and grading
+// containment (issue #453: egress limited to the model API, grading in
+// containers, credential handling) is in place and checked by
+// probe-isolation.ts. Tamper detection is a tripwire, not a guarantee: two known
+// canary bypasses stay open (issue #468). Only the operator flips this, in a
+// reviewed PR, after #468 is closed or its residual risks are accepted, after
+// accepting the credential risk described in evals/maintainer/README.md and
+// setting a budget. Any paid result also needs a diff review of the agent's
+// patch, since grading alone cannot prove the grader was not tampered with.
 export const PAID_AGENT_ENABLED = false;
 
 export const PAID_AGENT_DISABLED_REASON =
   '--agent claude is disabled: PAID_AGENT_ENABLED in evals/maintainer/runner.ts is false. ' +
-  'The operator enables it in a reviewed PR after accepting the credential risk ' +
-  '(evals/maintainer/README.md) and setting a budget';
+  'The operator enables it in a reviewed PR after #468 is closed or its residual risks are accepted, ' +
+  'after accepting the credential risk (evals/maintainer/README.md) and setting a budget';
 
 // A paid run needs an explicit cap, an operator approval in the environment and
 // an explicit acknowledgement of the credential risk, so no loop can start one

@@ -388,8 +388,9 @@ it. The file allowlist keeps it from changing configs, setups or tooling; it
 cannot keep it from changing the test framework in memory. Every vitest run of
 the grader (hidden and preserved, unit and integration) carries a **canary**
 (`canaryFiles` in [`runner.ts`](runner.ts)). It is a **tripwire**: it catches
-every cheat the reviews of #455 found and raises the cost of a new one, but it
-is not a guarantee (two known bypasses below and in issue #468):
+the cheats found in review rounds 4 and 5 of #455 and raises the cost of a new
+one, but it is not a guarantee: the round-6 review found two bypasses it does
+not catch (below and in issue #468):
 
 - **Grader-owned files.** Per eval run, seven files with unpredictable names
   (`x<random>.*`) are written into every grading tree like the hidden tests:
