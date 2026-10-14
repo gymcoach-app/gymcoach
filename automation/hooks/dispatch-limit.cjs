@@ -29,10 +29,12 @@
 // only while its subagent looks alive: its transcript (derived from the
 // session's transcript path: <dir>/<session id>/subagents/agent-<id>.jsonl,
 // since SubagentStart carries no agent_transcript_path) was written within the
-// last GYMCOACH_SUBAGENT_IDLE_MINUTES (default 15). An entry whose transcript
-// is unknown counts for GYMCOACH_SUBAGENT_STALE_HOURS (default 2) after its
+// last GYMCOACH_SUBAGENT_IDLE_MINUTES (default 60: real subagent transcripts
+// here stay silent for up to 46 minutes during one long tool call, such as a
+// wait on a heavy-work slot or the --full lock). An entry whose transcript is
+// unknown counts for GYMCOACH_SUBAGENT_STALE_HOURS (default 2) after its
 // start. A subagent that runs one silent command longer than the idle window
-// stops counting early: the limit is then briefly loose, never stuck.
+// stops counting early: the limit is then loose, never stuck.
 //
 // Budget: a TOKEN budget, not a cost budget: tokens the session's finished
 // subagents were billed for at full or write rates (input + output + cache
@@ -99,7 +101,7 @@ function staleMs(env) {
 
 function idleMs(env) {
   const m = Number(env.GYMCOACH_SUBAGENT_IDLE_MINUTES);
-  return (Number.isFinite(m) && m > 0 ? m : 15) * 60 * 1000;
+  return (Number.isFinite(m) && m > 0 ? m : 60) * 60 * 1000;
 }
 
 // Where Claude Code keeps a subagent's transcript, from the session's

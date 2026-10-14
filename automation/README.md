@@ -353,10 +353,13 @@ plus Docker pushed the load average to ~20: Playwright pages crashed with
   TaskStop produced none on Claude Code 2.1.296 (probe in a throwaway repo), and
   a crash can skip it. So a running entry counts only while its subagent looks
   alive: its transcript (`<session transcript dir>/<session id>/subagents/agent-<id>.jsonl`)
-  was written within `GYMCOACH_SUBAGENT_IDLE_MINUTES` (default 15); an entry whose
-  transcript cannot be derived counts for `GYMCOACH_SUBAGENT_STALE_HOURS` (default
-  2). A subagent running one silent command longer than the idle window stops
-  counting early, so the limit can be briefly loose, never stuck. `SubagentStop`
+  was written within `GYMCOACH_SUBAGENT_IDLE_MINUTES` (default 60: real subagent
+  transcripts here stay silent for up to 46 minutes during one long tool call, such as
+  a wait on a heavy-work slot or the `--full` lock); an entry whose transcript cannot
+  be derived counts for `GYMCOACH_SUBAGENT_STALE_HOURS` (default 2). A subagent running
+  one silent command longer than the idle window stops counting early, so the limit can
+  be loose, never stuck. A `SubagentStart` that hits the 3 s state-lock timeout fails
+  open and writes no running entry, so that subagent is never counted (fails loose). `SubagentStop`
   removes its own entry without the lock, so a busy lock never leaves a finished
   subagent counted. The refusal names these recovery paths.
   `GYMCOACH_MAX_SUBAGENTS=off` disables the concurrency limit.
@@ -369,7 +372,9 @@ first subagent ran and the second was refused ("finished subagents used 62
 tokens"). Limits: the slots cover `verify.sh` only (a bare `npm run build` or
 Playwright run outside it takes no slot); the dispatch limit is per session, not
 machine-wide, so two orchestrating sessions get three subagents each; the token
-budget sees only finished subagents and only what the ledger recorded; turn,
+budget sees only finished subagents and only what the ledger recorded, and is checked
+against recorded spend, so it can lag by one agent (the usage line of the last finished
+subagent may reach the ledger up to 2 s after its `SubagentStop`); turn,
 retry and wall-time budgets are not enforced yet.
 
 ## Related: replayable evaluation tasks

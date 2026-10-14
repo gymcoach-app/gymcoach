@@ -3269,7 +3269,7 @@ review before merge, and every one of them changed the code.
   ready record could clear another lens's blocking record, and a test asserted it; then an
   edited needs-changes record was dropped as invalid, erasing its stop. Fixed: latest record
   per reviewer, all ready; an edited or broken record refuses the merge (L44).
-- **#448** (three rounds, merged): round one found the hook blocked the operator's own session
+- **#448** (two fixup rounds, three reviews, merged): round one found the hook blocked the operator's own session
   and three skills; round two found that reading `agent_type` as "subagent" would lock out a
   main session started with `claude --agent`, and that the documented gate cleanup was
   refused. It now keys on `agent_id` only.

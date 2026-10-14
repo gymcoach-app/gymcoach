@@ -59,11 +59,38 @@ function transcriptSize(file) {
   }
 }
 
-// The transcript is done when it held at least one response and did not grow
-// between two reads SETTLE_MS apart. A first read (no previous size) is never
-// settled, so the hook always looks twice.
-function settled(previousSize, size, responses) {
-  return responses > 0 && previousSize >= 0 && size === previousSize;
+// Waits for the subagent transcript's last write, then summarises it once.
+// Only the file size is polled (a stat, every SETTLE_MS) until two reads agree;
+// the transcript is read in full only at that settled size, never again for
+// the same size. An agent line with no response keeps polling until the size
+// changes or the deadline passes, so a transcript that never settles costs one
+// full read, not one per poll. A first read (no previous size) is never
+// settled, so the hook always looks twice. Returns through done(line).
+function settleThenSummarize(readSize, summarize, opts, done) {
+  let lastSize = -1;
+  let first = true;
+  let summarizedAt = null;
+  let line = null;
+  (function step() {
+    const size = readSize();
+    const late = opts.now() >= opts.deadline;
+    const stable = !first && size === lastSize;
+    first = false;
+    lastSize = size;
+    if (!stable && !late) {
+      opts.schedule(step);
+      return;
+    }
+    if (summarizedAt !== size) {
+      line = summarize();
+      summarizedAt = size;
+    }
+    if (late || !line || line.kind !== 'agent' || line.responses > 0) {
+      done(line);
+      return;
+    }
+    opts.schedule(step);
+  })();
 }
 
 function hash(value) {
@@ -360,35 +387,52 @@ function main() {
       // agent line, wait until the transcript stops growing (two sizes
       // SETTLE_MS apart are equal) and holds at least one response, for at
       // most FLUSH_WAIT_MS, then record what is there.
-      const deadline = Date.now() + FLUSH_WAIT_MS;
-      const transcript =
-        input && input.hook_event_name === 'SubagentStop' ? input.agent_transcript_path : null;
-      let lastSize = -1;
-      (function attempt() {
-        try {
-          const line = lineFor(input);
-          const size = transcriptSize(transcript);
-          const waiting =
-            line &&
-            line.kind === 'agent' &&
-            !settled(lastSize, size, line.responses) &&
-            Date.now() < deadline;
-          lastSize = size;
-          if (waiting) {
-            setTimeout(attempt, SETTLE_MS);
-            return;
-          }
-          if (line) {
-            const file = ledgerPath(process.env);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.appendFileSync(file, JSON.stringify(line) + '\n');
-          }
-        } catch (e) {
-          // The error code only: a message could name a path.
-          process.stderr.write('record-usage: skipped (' + ((e && e.code) || 'error') + ')\n');
-        }
+      const fail = function (e) {
+        // The error code only: a message could name a path.
+        process.stderr.write('record-usage: skipped (' + ((e && e.code) || 'error') + ')\n');
         process.exit(0);
-      })();
+      };
+      const subagent = input && input.hook_event_name === 'SubagentStop';
+      const transcript = subagent ? input.agent_transcript_path : null;
+      try {
+        settleThenSummarize(
+          function () {
+            return transcriptSize(transcript);
+          },
+          function () {
+            return lineFor(input);
+          },
+          {
+            // Other events need no wait: their line is written at once.
+            deadline: subagent ? Date.now() + FLUSH_WAIT_MS : 0,
+            now: Date.now,
+            schedule: function (fn) {
+              setTimeout(function () {
+                try {
+                  fn();
+                } catch (e) {
+                  fail(e);
+                }
+              }, SETTLE_MS);
+            },
+          },
+          function (line) {
+            try {
+              if (line) {
+                const file = ledgerPath(process.env);
+                fs.mkdirSync(path.dirname(file), { recursive: true });
+                fs.appendFileSync(file, JSON.stringify(line) + '\n');
+              }
+            } catch (e) {
+              fail(e);
+              return;
+            }
+            process.exit(0);
+          },
+        );
+      } catch (e) {
+        fail(e);
+      }
     });
   } catch {
     process.exit(0);
@@ -403,7 +447,7 @@ module.exports = {
   promptSource,
   ledgerPath,
   hash,
-  settled,
+  settleThenSummarize,
   LEDGER_VERSION,
 };
 

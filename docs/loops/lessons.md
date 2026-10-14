@@ -264,6 +264,9 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   from any subagent (PreToolUse hook `automation/hooks/guard-git.cjs`, see L38; Claude Code
   marks a subagent's hook input with `agent_id`): a subagent that needs a branch works in its
   own worktree; the operator's and orchestrator's main session keeps the main checkout.
+  This covers L15 only partly: the hook restricts subagents, so two MAIN sessions sharing the
+  primary checkout (two operator or orchestrator sessions at once) are not prevented from
+  racing on `HEAD`; that case still relies on the one-orchestrator-per-checkout rule.
 
 ### L16 - Isolated worktrees are not enough: the shared test Postgres (:5434) and dev port (:3031) also need a lock
 - **Trigger:** 2026-07-22 batch. Two loop sessions ran `bash scripts/verify.sh --full` at the

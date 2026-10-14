@@ -120,21 +120,25 @@ describe('dispatch limit: concurrency', () => {
     mkdirSync(join(root, SESSION, 'subagents'), { recursive: true });
     writeFileSync(transcript, '{}\n');
     const now = Date.now();
-    // Started 25 minutes ago.
+    // Started 90 minutes ago.
     hook.handle(
       { ...start('idle1'), transcript_path: join(root, `${SESSION}.jsonl`) },
       e,
-      now - 25 * 60_000,
+      now - 90 * 60_000,
     );
     // Written a minute ago: alive, so a second subagent is refused, with a
     // recovery hint.
     const recent = new Date(now - 60_000);
     utimesSync(transcript, recent, recent);
     const refused = hook.handle(pre('next'), e, now);
-    expect(refused.deny).toMatch(/idle for 15 minutes/);
+    expect(refused.deny).toMatch(/idle for 60 minutes/);
     expect(refused.deny).toMatch(/GYMCOACH_MAX_SUBAGENTS=N\|off/);
-    // Idle for 20 minutes: no longer counted, although SubagentStop never came.
-    const idle = new Date(now - 20 * 60_000);
+    // Silent for 46 minutes (one long tool call, as observed here): still counted.
+    const silent = new Date(now - 46 * 60_000);
+    utimesSync(transcript, silent, silent);
+    expect(hook.handle(pre('next'), e, now).deny).toBeTruthy();
+    // Idle for 70 minutes: no longer counted, although SubagentStop never came.
+    const idle = new Date(now - 70 * 60_000);
     utimesSync(transcript, idle, idle);
     expect(hook.handle(pre('next'), e, now).allow).toBe(true);
   });

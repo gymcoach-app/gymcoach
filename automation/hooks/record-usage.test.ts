@@ -16,7 +16,12 @@ import { ledgerLineSchema } from '@/automation/ledger/schema';
 
 const require = createRequire(import.meta.url);
 const hook = require('./record-usage.cjs') as {
-  settled: (previousSize: number, size: number, responses: number) => boolean;
+  settleThenSummarize: (
+    readSize: () => number,
+    summarize: () => { kind: string; responses: number } | null,
+    opts: { deadline: number; now: () => number; schedule: (fn: () => void) => void },
+    done: (line: { kind: string; responses: number } | null) => void,
+  ) => void;
   summarize: (
     lines: string[],
     kind: 'main' | 'subagent',
@@ -225,11 +230,58 @@ describe('record-usage hook process', () => {
     expect(line.responses).toBe(3);
   });
 
-  it('settles only after two equal sizes with at least one response', () => {
-    expect(hook.settled(-1, 100, 3)).toBe(false);
-    expect(hook.settled(80, 100, 3)).toBe(false);
-    expect(hook.settled(100, 100, 0)).toBe(false);
-    expect(hook.settled(100, 100, 1)).toBe(true);
+  // Drives the settle loop with a fake clock: each scheduled poll advances it
+  // 150 ms, like SETTLE_MS.
+  function drive(sizes: number[], responsesAt: (size: number) => number, deadline = 2000) {
+    let t = 0;
+    let i = 0;
+    let reads = 0;
+    let result: { kind: string; responses: number } | null | undefined;
+    const queue: (() => void)[] = [];
+    hook.settleThenSummarize(
+      () => sizes[Math.min(i++, sizes.length - 1)]!,
+      () => {
+        reads++;
+        const size = sizes[Math.min(i - 1, sizes.length - 1)]!;
+        return { kind: 'agent', responses: responsesAt(size) };
+      },
+      { deadline, now: () => t, schedule: (fn) => queue.push(fn) },
+      (line) => {
+        result = line;
+      },
+    );
+    while (result === undefined && queue.length) {
+      t += 150;
+      queue.shift()!();
+    }
+    return { result, reads, polls: i };
+  }
+
+  it('reads the transcript once, after the size settles', () => {
+    // Growing for three polls, then stable: one full read at the settled size.
+    const r = drive([10, 20, 30, 30], () => 2);
+    expect(r.result?.responses).toBe(2);
+    expect(r.reads).toBe(1);
+    expect(r.polls).toBe(4);
+  });
+
+  it('never settles on the first read alone', () => {
+    const r = drive([30, 30], () => 1);
+    expect(r.polls).toBe(2);
+    expect(r.reads).toBe(1);
+  });
+
+  it('keeps polling the size, not re-reading, while a settled transcript has no response', () => {
+    // Stable but empty until the deadline: one full read, then size polls only.
+    const r = drive([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5], () => 0);
+    expect(r.result?.responses).toBe(0);
+    expect(r.reads).toBe(1);
+  });
+
+  it('summarises again only when the size changes after an empty read', () => {
+    const r = drive([5, 5, 9, 9], (size) => (size === 9 ? 1 : 0));
+    expect(r.result?.responses).toBe(1);
+    expect(r.reads).toBe(2);
   });
 
   it('appends exactly one schema-valid agent line on SubagentStop, with no text or path', () => {
