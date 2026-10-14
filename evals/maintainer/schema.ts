@@ -25,6 +25,24 @@ export const splits = ['dev', 'validation', 'reserved'] as const;
 // Ids of the static tamper rules (runner.ts TAMPER_RULES). A task whose real
 // fix legitimately needs one of these patterns in application code lists the
 // rule in grader.allowTamperRules; every other task keeps the full screen.
+// The application source roots an agent may write under (runner.ts
+// isAgentWritable). Defined here so the task schema can keep
+// grader.allowPaths inside them.
+export const AGENT_WRITABLE_ROOTS = [
+  'app',
+  'components',
+  'lib',
+  'messages',
+  'i18n',
+  'public',
+] as const;
+
+// File names that configure a tool wherever they sit: never agent-writable,
+// even under a source root (a nested package.json "imports" map or tsconfig
+// changes how the graded code resolves; review of #455).
+export const CONFIG_FILE =
+  /^(?:package\.json|tsconfig.*\.json|jsconfig.*\.json|\.babelrc.*|babel\.config\..*|.*\.config\.[^/]*)$/;
+
 export const tamperRuleIds = [
   'test-framework',
   'dynamic-require',
@@ -35,6 +53,7 @@ export const tamperRuleIds = [
   'global-mutation',
   'process-hooks',
   'host-io',
+  'subpath-import',
 ] as const;
 export type TamperRuleId = (typeof tamperRuleIds)[number];
 export const families = [
@@ -95,17 +114,27 @@ export const evalTaskSchema = z
         // Static tamper rules this task's real fix needs to break (see
         // tamperRuleIds). Empty by default: every rule applies.
         allowTamperRules: z.array(z.enum(tamperRuleIds)).default([]),
-        // Extra agent-writable paths (runner.ts isAgentWritable) beyond the
-        // application source roots. Never under prisma/, never a dotfile or a
-        // node_modules segment: those stay excluded whatever a task says.
+        // Extra agent-writable paths (runner.ts isAgentWritable): a narrower
+        // path under one of the application source roots, never a config
+        // file, a dotfile or a node_modules segment. It cannot widen the
+        // allowlist to a root config, a setup file, tests/ or prisma/.
         allowPaths: z
           .array(
-            repoPath.refine(
-              (p) =>
-                !p.startsWith('prisma') &&
-                !p.split('/').some((s) => s.startsWith('.') || s === 'node_modules'),
-              'not under prisma/, not a dotfile, not node_modules',
-            ),
+            repoPath.refine((p) => {
+              const parts = p.replace(/\/+$/, '').split('/');
+              return (
+                (AGENT_WRITABLE_ROOTS as readonly string[]).includes(parts[0]!) &&
+                parts.length > 1 &&
+                !parts.some(
+                  (s) =>
+                    s.startsWith('.') ||
+                    s === 'node_modules' ||
+                    s === '__mocks__' ||
+                    s === '__snapshots__' ||
+                    CONFIG_FILE.test(s),
+                )
+              );
+            }, 'under an application source root, not a config, dotfile, node_modules, __mocks__ or __snapshots__'),
           )
           .default([]),
         // A task whose fix changes the Prisma schema. Not supported: the graded
@@ -138,6 +167,7 @@ export const agents = [
   'broken',
   'tamper',
   'tamper-generator',
+  'tamper-inprocess',
   'claude',
 ] as const;
 export type AgentKind = (typeof agents)[number];
@@ -152,6 +182,11 @@ export const testRunSchema = z
     passed: z.number().int().nonnegative().nullable(),
     failed: z.number().int().nonnegative().nullable(),
     failedSuites: z.number().int().nonnegative().nullable(),
+    // The harness canary (runner.ts canaryFiles) in this run: ok (its test
+    // passed with this run's nonce and no file reported an integrity
+    // failure), failed, missing (no canary test with the nonce in the report),
+    // or null when the report was unreadable (an infrastructure error).
+    canary: z.enum(['ok', 'failed', 'missing']).nullable(),
   })
   .strict();
 export type TestRun = z.infer<typeof testRunSchema>;

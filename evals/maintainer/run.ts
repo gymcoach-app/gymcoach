@@ -43,6 +43,9 @@ import {
   WALK_SKIP,
   addedLines,
   agentEnv,
+  canaryPaths,
+  canaryViolations,
+  newCanary,
   assertOutsideRepo,
   claudeRunAllowed,
   containerArgs,
@@ -59,6 +62,7 @@ import {
   sameDependencies,
   summariseVitestReport,
   tamperViolations,
+  type Canary,
   type ContainerSpec,
   type GraderSpec,
   type Mount,
@@ -74,8 +78,8 @@ import {
 // dry: the agent does nothing (the grader must fail: red before).
 // reference: applies the real fix (base..fix diff of the task's source paths).
 // broken: applies the task's intentionally incomplete fix (must be rejected).
-// tamper, tamper-generator: the broken fix plus attempts to cheat the grader
-// (must be rejected and have no effect).
+// tamper, tamper-generator, tamper-inprocess: the broken fix plus attempts to
+// cheat the grader (must be rejected and have no effect).
 // claude: runs `claude -p` in a container on an --internal network whose only
 // way out is an egress proxy that allows the Anthropic API alone. Hard-disabled
 // by PAID_AGENT_ENABLED in runner.ts until the operator enables it.
@@ -363,6 +367,7 @@ export function gradeContainer(
   // Every grading container mounts its tree read-only; `writable` lists the
   // only subdirectories it may write (generate's client output).
   writable: string[] = [],
+  canaryNonce: string | null = null,
 ): ContainerSpec {
   const nm = nodeModulesMounts(repoRoot);
   // A read-only tree cannot receive new mount points: create them on the host.
@@ -387,7 +392,7 @@ export function gradeContainer(
       { host: reports, target: '/reports', readOnly: false },
     ],
     tmpfs: ['/tmp:rw,exec,size=1g', ...nm.tmpfs],
-    env: gradeEnv(databaseUrl),
+    env: gradeEnv(databaseUrl, canaryNonce),
     uid: uid(),
     gid: gid(),
     workdir: CONTAINER_WORKDIR,
@@ -510,9 +515,13 @@ async function runTests(
   label: string,
   group: { tier: 'unit' | 'integration'; files: string[] },
   database: { network: string; url: string } | null,
+  canary: Canary,
 ): Promise<TestRun> {
   const reportName = `${label}-${group.tier}.json`;
-  const config = group.tier === 'unit' ? 'vitest.config.ts' : 'vitest.integration.config.ts';
+  // The grader-owned wrapper config: the base config plus the canary setup and
+  // test (runner.ts canaryFiles). The canary test is always in the file list.
+  const paths = canaryPaths(canary.id);
+  const config = group.tier === 'unit' ? paths.unitConfig : paths.integrationConfig;
   const integration = group.tier === 'integration';
   if (integration && !database) throw new Error('integration tier without a database');
   const runReports = newReportsDir(reports, `${label}-${group.tier}`);
@@ -524,7 +533,9 @@ async function runTests(
       integration ? database!.network : 'none',
       integration ? database!.url : null,
       `${VITEST_CLI.join(' ')} run --config "$1" --reporter=json --outputFile="/reports/$2" "\${@:3}"`,
-      [config, reportName, ...group.files],
+      [config, reportName, ...group.files, paths.test],
+      [],
+      canary.nonce,
     ),
     900_000,
   );
@@ -537,7 +548,7 @@ async function runTests(
     tier: group.tier,
     files: group.files,
     exitCode: run.status,
-    ...summariseVitestReport(raw),
+    ...summariseVitestReport(raw, canary.nonce),
   };
 }
 
@@ -576,6 +587,7 @@ async function runAgent(
   }
   if (args.agent === 'tamper') return tamper(task, repoRoot, work);
   if (args.agent === 'tamper-generator') return tamperGenerator(task, work);
+  if (args.agent === 'tamper-inprocess') return tamperInprocess(task, work);
   return runClaudeContained(args, task, repoRoot, work);
 }
 
@@ -641,6 +653,71 @@ function tamperGenerator(task: EvalTask, work: string): EvalResult['agentRun'] {
     note:
       'broken fix + same-line and lone-CR Prisma generators with a shell provider + ' +
       'a project and a nested .npmrc with node-options + a nested lib/node_modules/vitest',
+  };
+}
+
+// Self-check of the canary (runner.ts canaryFiles): the broken fix plus two
+// in-process cheats from allowlisted application files that pass the static
+// screen (both reproduced in the review of #455). Only the canary can reject
+// them, so disabling it turns this run into a pass:
+// - messages/en/index.ts, imported by the base vitest.setup.ts, replaces the
+//   common matchers through expect.extend on the vitest global;
+// - the module under test replaces Object.is through an alias.
+function tamperInprocess(task: EvalTask, work: string): EvalResult['agentRun'] {
+  sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
+    cwd: work,
+  });
+  const matchers = [
+    'toBe',
+    'toEqual',
+    'toStrictEqual',
+    'toThrow',
+    'toMatchObject',
+    'toContain',
+    'toHaveLength',
+    'toBeNull',
+    'toBeUndefined',
+    'toBeDefined',
+    'toBeTruthy',
+    'toBeFalsy',
+    'toHaveProperty',
+    'toBeGreaterThan',
+    'toBeLessThan',
+    'toMatch',
+  ];
+  const messages = path.join(work, 'messages', 'en', 'index.ts');
+  writeFileSync(
+    messages,
+    `${readFileSync(messages, 'utf8')}
+const tamperExpect = (globalThis as { expect?: { extend: (m: object) => void } }).expect;
+` +
+      `if (tamperExpect)
+  tamperExpect.extend(
+    Object.fromEntries(
+      ${JSON.stringify(matchers)}.map((n) => [
+` +
+      `        n,
+        function (this: { isNot: boolean }) {
+          return { pass: !this.isNot, message: () => '' };
+        },
+      ]),
+    ),
+  );
+`,
+  );
+  const underTest = path.join(work, task.reference.paths[0]!);
+  writeFileSync(
+    underTest,
+    `${readFileSync(underTest, 'utf8')}
+const tamperO = Object;
+tamperO.is = () => true;
+`,
+  );
+  return {
+    exitCode: 0,
+    costUsd: null,
+    turns: null,
+    note: 'broken fix + expect.extend from messages/en (via vitest.setup.ts) + Object.is replaced through an alias in the module under test',
   };
 }
 
@@ -719,6 +796,19 @@ function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['age
     "require('fs').writeFileSync('vitest.setup.ts', '');\n",
   );
   symlinkSync('/etc/hostname', path.join(work, 'lib', 'tamper-link.ts'));
+  // A nested package.json whose "imports" map aliases vitest, and a module
+  // disabling chai through it (review of #455): the package.json is not a
+  // source file (never copied) and the "#" specifier is screened.
+  mkdirSync(path.join(work, 'lib', 'quiet'), { recursive: true });
+  writeFileSync(
+    path.join(work, 'lib', 'quiet', 'package.json'),
+    '{ "imports": { "#rt": "vitest" } }\n',
+  );
+  writeFileSync(
+    path.join(work, 'lib', 'quiet', 'index.ts'),
+    "import { chai } from '#rt';\nconst proto = chai.Assertion.prototype as unknown as Record<string, unknown>;\nconst key = 'assert';\nproto[key] = function () {};\nexport {};\n",
+  );
+  writeFileSync(underTest, `${readFileSync(underTest, 'utf8')}\nimport '@/lib/quiet';\n`);
   return {
     exitCode: 0,
     costUsd: null,
@@ -726,7 +816,8 @@ function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['age
     note:
       'broken fix + vi.mock in setup + preserved tests weakened + chai disabled from a ' +
       'git-ignored module and through createRequire + preserved tests rewritten at import ' +
-      'time + a custom Prisma generator + a symlink',
+      'time + a custom Prisma generator + a symlink + a nested package.json "imports" alias ' +
+      'to vitest disabling chai',
   };
 }
 
@@ -918,6 +1009,7 @@ function buildGradeTree(
   work: string,
   grade: string,
   changes: ReturnType<typeof readChanges>,
+  harness: Map<string, Buffer>,
 ): string[] {
   cpSync(pristine, grade, { recursive: true });
   const plan = planGrade(changes, task);
@@ -932,6 +1024,8 @@ function buildGradeTree(
   }
   for (const file of task.grader.hidden)
     safeWrite(grade, file, hiddenTests(repoRoot, task).get(file)!);
+  // The canary (runner.ts canaryFiles): grader-owned like the hidden tests.
+  for (const [file, content] of harness) safeWrite(grade, file, content);
   return plan.ignored;
 }
 
@@ -1119,6 +1213,8 @@ async function main(argv: string[]): Promise<number> {
   let gradeInputsRestored: string[] = [];
   let violations: string[] = [];
   let changes: ReturnType<typeof readChanges> = [];
+  // This run's canary: file names and nonce never seen by the agent.
+  const canary: Canary = newCanary();
 
   try {
     let t = Date.now();
@@ -1142,9 +1238,22 @@ async function main(argv: string[]): Promise<number> {
   if (infraErrors.length === 0) {
     const t = Date.now();
     try {
-      // What every run must find, fixed before anything the agent wrote runs.
-      const expected = expectedGradeInputHashes(pristine, hiddenTests(repoRoot, task), task);
-      gradeInputsRestored = buildGradeTree(repoRoot, task, pristine, work, grade, changes);
+      // What every run must find, fixed before anything the agent wrote runs:
+      // the base, the hidden tests and this run's canary files.
+      const expected = expectedGradeInputHashes(
+        pristine,
+        new Map([...hiddenTests(repoRoot, task), ...canary.files]),
+        task,
+      );
+      gradeInputsRestored = buildGradeTree(
+        repoRoot,
+        task,
+        pristine,
+        work,
+        grade,
+        changes,
+        canary.files,
+      );
       // The template every grading run copies. Its schema and generated client
       // are the base's (prisma/ is never agent-writable), so no generate runs
       // on anything the agent wrote.
@@ -1166,6 +1275,7 @@ async function main(argv: string[]): Promise<number> {
             label,
             group,
             database,
+            canary,
           );
         } finally {
           if (database) stopDatabase(database);
@@ -1175,6 +1285,13 @@ async function main(argv: string[]): Promise<number> {
         hidden.push(await runGroup('hidden', group));
       for (const group of groupByTier(task.grader.preserved))
         preserved.push(await runGroup('preserved', group));
+      violations = [
+        ...violations,
+        ...canaryViolations([
+          ...hidden.map((r) => ({ ...r, label: 'hidden' })),
+          ...preserved.map((r) => ({ ...r, label: 'preserved' })),
+        ]),
+      ];
     } catch (err) {
       infraErrors.push(`grade: ${firstLine(err)}`);
     }

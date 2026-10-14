@@ -9,7 +9,8 @@ excludes it, and nothing here holds credentials.
 ## Run a task
 
 ```bash
-npx tsx evals/maintainer/run.ts --task <id> --agent dry|reference|broken|tamper|claude \
+npx tsx evals/maintainer/run.ts --task <id> \
+  --agent dry|reference|broken|tamper|tamper-generator|tamper-inprocess|claude \
   [--budget-usd N] [--i-accept-credential-risk] [--out <dir outside the repo>] [--keep]
 ```
 
@@ -19,6 +20,8 @@ npx tsx evals/maintainer/run.ts --task <id> --agent dry|reference|broken|tamper|
 | `reference` | Applies the real fix: the base..fix diff of the task's paths       | `pass`   |
 | `broken`    | Applies `tasks/<id>/broken.patch`, an intentionally incomplete fix | `fail`   |
 | `tamper`    | `broken`, plus grader cheats (see below)                           | `fail`   |
+| `tamper-generator` | `broken`, plus the four bypasses of the earlier denylist screens | `fail` |
+| `tamper-inprocess` | `broken`, plus in-process cheats only the canary can see   | `fail`   |
 | `claude`    | **Hard-disabled**; runs `claude -p` in a contained agent container | n/a      |
 
 **`--agent claude` is hard-disabled** by `PAID_AGENT_ENABLED = false` in
@@ -157,26 +160,34 @@ generate` runs in a container with no network.
    and compared with the walk taken before the agent ran (git blob ids computed
    in-process). The walk covers git-ignored paths too. **What the agent may
    change is an allowlist** (`isAgentWritable` in [`runner.ts`](runner.ts)):
-   regular files under the application source roots `app/`, `components/`,
-   `lib/`, `messages/`, `i18n/` and `public/`, except test files (`*.test.*`,
-   `*.spec.*`, `tests/`, `__tests__/`), any dotfile or dot-directory at any depth
-   (`.npmrc`, `.yarnrc*`, `.env*`), any path segment named `node_modules`, and
-   anything under `prisma/`. Every other change (a config, `package.json`, the
+   regular source files (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.css`)
+   under the application source roots `app/`, `components/`, `lib/`,
+   `messages/`, `i18n/` and `public/`, except test files (`*.test.*`, `*.spec.*`,
+   `tests/`, `__tests__/`), any dotfile or dot-directory at any depth (`.npmrc`,
+   `.yarnrc*`, `.env*`), any path segment named `node_modules`, `__mocks__` or
+   `__snapshots__` (vitest reads both), any config file at any depth
+   (`package.json`, `tsconfig*.json`, `jsconfig*.json`, `.babelrc*`,
+   `*.config.*`: a nested `package.json` "imports" map aliasing `vitest`
+   beat the round-4 allowlist), and anything under `prisma/`. Every other change (a config, `package.json`, the
    lockfile, a vitest setup, `scripts/`, `prisma/`, a stray file at the root) is
    a violation, listed in `gradeInputsRestored`, and is **not copied**: the
    grading tree keeps the base version. A task can widen the list only through
-   `grader.allowPaths` in its `task.json` (never under `prisma/`, never a dotfile
-   or `node_modules`). This replaced a denylist of grade inputs after four
+   `grader.allowPaths` in its `task.json`: a narrower path under a source root
+   whose non-source files its fix needs (an icon under `public/icons`); never a
+   config, a dotfile, `node_modules`, `__mocks__`, `__snapshots__`, or anything
+   outside the source roots. This replaced a denylist of grade inputs after four
    review rounds each found a way around it (lesson L45). Allowed application
    code still runs inside the test process, so a static tamper check reads the
    lines the agent added to each allowed file; any of these is a violation
    (`tamperViolations`) and makes the outcome `fail`:
-   - importing `vitest`, `chai` or `@vitest/*`;
+   - importing `vitest`, `chai` or `@vitest/*`, or a `#` subpath specifier
+     (resolved through a `package.json` "imports" map; the root declares none);
    - a non-literal or aliased `require`, a non-literal dynamic `import()`;
    - `createRequire`, `process.getBuiltinModule`, module internals (dotted or
      bracketed, `process['binding']`), `vm`, `eval` in any form (direct,
      indirect `(0, eval)`, aliased), the `Function` constructor with or without
-     `new`, `constructor.constructor`;
+     `new`, `constructor.constructor` (`eval` means a call or a value: a word
+     such as `-eval-` inside a string is not flagged);
    - a specifier naming a path inside `node_modules`;
    - test framework internals (matcher state, vitest globals, a computed or
      non-literal `Symbol.for`);
@@ -197,7 +208,11 @@ generate` runs in a container with no network.
    `grader.allowTamperRules` in its `task.json`; the rule is then skipped for
    that task only, and the allowance is visible in review. It is a fail-closed
    **screen, not a proof**: JavaScript has more ways to reach a global than a
-   pattern list can name.
+   pattern list can name. The round-4 review showed two cheats from allowed
+   files that the screen cannot see (`expect.extend` on the vitest global from
+   `messages/en`, which the base `vitest.setup.ts` imports; `Object.is`
+   replaced through an alias). **That in-process class is detected, not
+   prevented, by the harness canary** (step 5).
 
 4. **Grading template.** A fresh copy of the untouched snapshot onto which only
    the agent's allowlisted regular files are written (or deleted). Writes never
@@ -309,6 +324,49 @@ public name does not resolve on the internal network.
 The no-model-call CLI commands (`claude --version`, `claude --help`) contacted no
 host at all (the proxy's log stayed empty with an empty allowlist).
 
+### The harness canary
+
+Allowed application code runs inside the test process of the run that grades
+it. The file allowlist keeps it from changing configs, setups or tooling; it
+cannot keep it from changing the test framework in memory. Rather than
+enumerate those cheats, every vitest run of the grader (hidden and preserved,
+unit and integration) carries a **canary** (`canaryFiles` in
+[`runner.ts`](runner.ts)) that checks the framework still rejects what it must:
+
+- **Grader-owned files.** Per eval run, four files with unpredictable names
+  (`x<random>.*`) are written into every grading tree like the hidden tests:
+  hash-checked before each run, never agent-writable, never in the agent's
+  workspace. Vitest is called with a grader-owned config that wraps the base
+  one (`mergeConfig`): the canary setup is appended after the base setup
+  files and the canary test is added to the file list.
+- **A setup probe in every test file.** Vitest isolates test files, so the
+  probe is a setup file: it runs in every file's context, once right after the
+  base setup (where a cheat imported by `vitest.setup.ts` lives) and again in
+  `afterAll` (after the file's own imports, where the module under test runs).
+  It checks that `toBe`, `toEqual`, `toStrictEqual`, `toMatchObject`,
+  `toContain`, `toThrow`, `toBeNull`, chai's `assert.strictEqual` and
+  `chai.expect` reject values derived from the run's nonce, that `toBe` accepts
+  equal ones, that `Object.is` behaves, and that no watched matcher function was
+  replaced during the file. A failure makes that file fail.
+- **A standalone canary test** whose title carries this run's nonce (passed to
+  the grading container only, never to the agent). The grader reads the JSON
+  report: the canary test must be present with the nonce and passed, and no
+  file may report an integrity failure. Otherwise the run is `canary-failed` or
+  `canary-missing`, a tamper violation, and the outcome is `fail`.
+
+What it covers: the integrity of matchers, chai assertions and `Object.is`,
+whichever allowed file the change comes from. What it does not cover: code
+that special-cases the hidden tests' own inputs (for example a function that
+returns the expected value only for the exact arguments a hidden test uses).
+No harness can rule that out without reading the fix; the hidden tests are
+the fix commit's real tests, which makes guessing their inputs the cheat's
+whole difficulty.
+
+`--agent tamper-inprocess` is the self-check: the broken fix plus the two
+in-process cheats from the round-4 review, both passing the static screen.
+With the canary disabled, it **passes** (see the replay table); with it, it
+fails as `canary-failed`.
+
 ## Residual risks
 
 What a paid run would still accept, stated plainly:
@@ -327,14 +385,15 @@ What a paid run would still accept, stated plainly:
   model call has been made through the proxy. If the CLI needs another host
   for a real call, the first approved run fails as an infra-error, never a
   result; the proxy log names the refused host.
-- **The static tamper check is a pattern match, not a proof.** The rules above
-  are fail-closed for the shapes listed, but agent code still runs inside the
-  test process of the run it is graded in: within that one process it could
-  still sabotage the reporter through means the patterns do not anticipate.
-  It can no longer reach another run (fresh read-only tree per run, hash check,
-  fresh database). The containers make the rest a validity risk only, never a
-  host security risk. Cross-checking hidden-test counts against the reference
-  run is a possible next hardening.
+- **In-process tampering is detected, not prevented.** The file allowlist
+  closes configs and tooling; the static screen is an early signal; the canary
+  detects altered matchers, assertions and `Object.is`. Code that special-cases
+  the hidden tests' inputs, or sabotages the JSON reporter itself in ways the
+  canary does not probe, remains a validity risk within one run. It can no
+  longer reach another run (fresh read-only tree per run, hash check, fresh
+  database), and the containers keep it a validity risk only, never a host
+  security risk. Cross-checking hidden-test counts against the reference run is
+  a possible next hardening.
 - **Training-data contamination.** The repository is public: a model's
   training data may include the later commits, PRs and lessons that the snapshot
   removes. Nothing in a replay can undo that; a task's result for a model trained
@@ -351,7 +410,7 @@ What a paid run would still accept, stated plainly:
 ## Outcomes and the denominator
 
 `pass` needs every hidden and preserved test file to report at least one passing
-test and no failure, and vitest to exit 0. A run that produced no report, a setup
+test and no failure, vitest to exit 0, and the canary to be `ok` in every run. A run that produced no report, a setup
 error, a patch that does not apply or a database that does not start is
 `infra-error`: recorded in `result.json` with its reason, counted in every
 report, never silently dropped. A hidden file that does not even load (for

@@ -1,6 +1,16 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { agents, type AgentKind, type Outcome, type TamperRuleId, type TestRun } from './schema';
+import {
+  AGENT_WRITABLE_ROOTS,
+  CONFIG_FILE,
+  agents,
+  type AgentKind,
+  type Outcome,
+  type TamperRuleId,
+  type TestRun,
+} from './schema';
+
+export { AGENT_WRITABLE_ROOTS };
 
 // Pure parts of the replay runner (run.ts does the I/O). Kept apart so the
 // rules that decide an outcome are unit-tested without a snapshot, a container
@@ -208,8 +218,10 @@ export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] 
       /\bModule\s*\.\s*_load\b/,
       /\bprocess\s*(?:\.\s*|\[\s*['"`])(?:mainModule|binding|_linkedBinding|dlopen)\b/,
       /['"`](?:node:)?(?:module|vm)['"`]/,
-      // eval in any form: direct, indirect ((0, eval)(...)), aliased.
-      /\beval\b/,
+      // eval called directly, indirectly ((0, eval)(...)) or taken as a value
+      // (const e = eval). A word such as "-eval-" inside a string is not eval.
+      /\beval\s*\(/,
+      /[(,=:]\s*eval\s*[),;]/,
       // The Function constructor, with or without new.
       /\bFunction\s*\(/,
       /\bconstructor\s*\.\s*constructor\b/,
@@ -255,6 +267,11 @@ export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] 
       /\bprocess\s*\.\s*(?:on|once|prependListener|addListener)\s*\(\s*['"`](?:exit|beforeExit)['"`]|\bprocess\s*\.\s*(?:exit|exitCode|reallyExit|stdout|stderr)\s*=(?!=)|\bprocess\s*\.\s*(?:stdout|stderr)\s*\.\s*write\s*=(?!=)/,
   },
   {
+    id: 'subpath-import',
+    why: 'imports a "#" subpath specifier (resolved through a package.json "imports" map; the root package.json declares none)',
+    pattern: /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*['"`]#/,
+  },
+  {
     id: 'host-io',
     why: 'imports a file system, process or low-level runtime module (fs, child_process, worker_threads, ...)',
     pattern:
@@ -277,8 +294,8 @@ export const PRISMA_SCHEMA = 'prisma/schema.prisma';
 // The directory `prisma generate` writes (the base schema's generator output).
 export const PRISMA_CLIENT_DIR = 'prisma/generated';
 
-// What the agent may change, as an ALLOWLIST: regular application files under
-// these source roots. Four review rounds on #455 each found a new way around a
+// What the agent may change, as an ALLOWLIST: regular application source files
+// (by extension) under the source roots AGENT_WRITABLE_ROOTS (schema.ts). Four review rounds on #455 each found a new way around a
 // denylist of grade inputs (a generator opened on the same line as a brace,
 // hashes taken after generate, a lone carriage return, a project .npmrc whose
 // node-options reached NODE_OPTIONS under npx); naming what the agent may write
@@ -287,14 +304,11 @@ export const PRISMA_CLIENT_DIR = 'prisma/generated';
 // lockfile, tsconfig, vitest configs and setups), prisma/ (schema, migrations,
 // generated client), scripts/, tests/, every test file. A task widens the list
 // only through grader.allowPaths in its task.json, which the agent never sees.
-export const AGENT_WRITABLE_ROOTS = [
-  'app',
-  'components',
-  'lib',
-  'messages',
-  'i18n',
-  'public',
-] as const;
+// Only source code and styles: no JSON (no package.json "imports" map, no
+// tsconfig, no translation catalog in JSON: the repo has none under messages/
+// or i18n/), no images, no markdown. A fix that needs another kind of file is
+// out of scope for a task until its task.json says otherwise.
+const SOURCE_FILE = /\.(?:ts|tsx|js|jsx|mjs|cjs|css)$/;
 
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
@@ -305,14 +319,23 @@ export function isAgentWritable(file: string, task: GraderSpec): boolean {
   // a node_modules segment (module resolution would prefer it), test files and
   // test directories (the grader's own), anything under prisma/.
   if (parts.some((p) => p.startsWith('.') || p === 'node_modules')) return false;
+  // Vitest reads __mocks__ (automatic mocks) and __snapshots__ (stored
+  // expectations): both would let app files decide what a test sees.
+  if (parts.some((p) => p === '__mocks__' || p === '__snapshots__')) return false;
   if (parts.some((p) => p === 'tests' || p === '__tests__') || TEST_FILE.test(file)) return false;
   if (parts[0] === 'prisma') return false;
+  // A config file at any depth (a nested package.json "imports" map, a
+  // tsconfig): never, whatever a task says.
+  if (CONFIG_FILE.test(parts[parts.length - 1]!)) return false;
   if (task.grader.hidden.includes(file) || task.grader.preserved.includes(file)) return false;
-  const roots: string[] = [...AGENT_WRITABLE_ROOTS, ...(task.grader.allowPaths ?? [])];
-  return roots.some((r) => {
-    const root = r.replace(/\/+$/, '');
-    return file === root || file.startsWith(`${root}/`);
-  });
+  const under = (root: string) => {
+    const r = root.replace(/\/+$/, '');
+    return file === r || file.startsWith(`${r}/`);
+  };
+  if (!AGENT_WRITABLE_ROOTS.some(under)) return false;
+  // Source code and styles only, unless the task names a narrower path under
+  // a source root whose other files its fix needs (an icon, a JSON catalog).
+  return SOURCE_FILE.test(file) || (task.grader.allowPaths ?? []).some(under);
 }
 
 // Every file of a grading tree that is not agent-writable comes from the base
@@ -329,13 +352,13 @@ export function tamperViolations(
   const allowed = new Set<TamperRuleId>(task.grader.allowTamperRules ?? []);
   const out: string[] = [];
   for (const { file, kind, content, status } of changed) {
+    if (status !== 'deleted' && kind !== 'file') {
+      out.push(`${file}: the agent created a ${kind} (only regular files are accepted)`);
+      continue;
+    }
     // Outside the allowlist: recorded and never copied into a grading tree.
     if (!isAgentWritable(file, task)) {
       out.push(`${file}: outside the agent-writable paths (not copied into grading)`);
-      continue;
-    }
-    if (status !== 'deleted' && kind !== 'file') {
-      out.push(`${file}: the agent created a ${kind} (only regular files are accepted)`);
       continue;
     }
     if (content === null) continue;
@@ -369,24 +392,185 @@ export function groupByTier(files: string[]): { tier: 'unit' | 'integration'; fi
   return groups;
 }
 
-// Vitest's JSON reporter output, reduced to the counts the outcome needs. An
-// unreadable or missing report yields nulls: that is an infrastructure error.
-export function summariseVitestReport(raw: string | null): {
+// --- the harness canary --------------------------------------------------------
+//
+// Allowed application code runs inside the test process, so a file-level
+// allowlist cannot stop it from changing the framework that judges it: a module
+// the base setup imports can call expect.extend, or the module under test can
+// replace Object.is, and every hidden assertion passes (review of #455). The
+// static screen is only an early signal. The canary DETECTS that class instead
+// of trying to enumerate it: harness files, written into every grading tree
+// like the hidden tests (outside the agent's reach, hash-checked), named per
+// run, that check the framework still rejects what it must.
+//
+// Two parts, because vitest isolates test files:
+// - a setup file, appended after the base setup files by a grader-owned config
+//   that wraps the base one: it runs in EVERY test file's context, probes once
+//   after the base setup and again in afterAll (after the file's own imports,
+//   where the module under test runs), and also fails if a matcher function
+//   was replaced during the file;
+// - a standalone test whose title carries this run's nonce: proof that the
+//   canary ran at all, read from the report. A run without it is a fail.
+// It covers the integrity of matchers, chai assertions and Object.is. It does
+// not cover code that special-cases the hidden tests' own inputs: no harness
+// can, short of reading the fix.
+export const CANARY_FAILURE = 'harness integrity check failed';
+export const CANARY_TITLE = 'harness integrity';
+
+export interface Canary {
+  id: string;
+  nonce: string;
+  files: Map<string, Buffer>;
+}
+
+export function canaryPaths(id: string): {
+  setup: string;
+  test: string;
+  unitConfig: string;
+  integrationConfig: string;
+} {
+  return {
+    setup: `x${id}.setup.ts`,
+    test: `x${id}.test.ts`,
+    // .ts, like the base configs: vite loads them without writing a bundled
+    // copy into node_modules/.vite-temp, which is read-only in grading.
+    unitConfig: `x${id}.unit.ts`,
+    integrationConfig: `x${id}.integration.ts`,
+  };
+}
+
+const CANARY_PROBE = `
+const FAIL = ${JSON.stringify(CANARY_FAILURE)};
+const nonce = process.env.EVAL_CANARY_NONCE ?? '';
+const seed = (parseInt(nonce.slice(0, 6) || '1', 16) % 9973) + 3;
+function throws(fn: () => unknown): boolean {
+  try {
+    fn();
+    return false;
+  } catch {
+    return true;
+  }
+}
+export function probe(where: string): void {
+  const a = seed;
+  const b = seed + 1 + (seed % 5);
+  const problems: string[] = [];
+  if (!throws(() => expect(a).toBe(b))) problems.push('toBe accepts different numbers');
+  if (throws(() => expect(a).toBe(a))) problems.push('toBe rejects equal numbers');
+  if (!throws(() => expect({ v: a }).toEqual({ v: b }))) problems.push('toEqual accepts different objects');
+  if (!throws(() => expect({ v: a }).toStrictEqual({ v: b }))) problems.push('toStrictEqual accepts different objects');
+  if (!throws(() => expect({ v: a }).toMatchObject({ v: b }))) problems.push('toMatchObject accepts a different object');
+  if (!throws(() => expect([a]).toContain(b))) problems.push('toContain accepts a missing item');
+  if (!throws(() => expect(() => a).toThrow())) problems.push('toThrow accepts a function that does not throw');
+  if (!throws(() => expect(a).toBeNull())) problems.push('toBeNull accepts a number');
+  if (!throws(() => assert.strictEqual(a, b))) problems.push('assert.strictEqual accepts different numbers');
+  if (!throws(() => chai.expect(a).to.equal(b))) problems.push('chai expect accepts different numbers');
+  if (!(Object.is(NaN, NaN) && !Object.is(0, -0) && !Object.is(a, b) && Object.is(a, a)))
+    problems.push('Object.is altered');
+  if (problems.length) throw new Error(FAIL + ' (' + where + '): ' + problems.join('; '));
+}
+`;
+
+export function canaryFiles(id: string): Map<string, Buffer> {
+  const p = canaryPaths(id);
+  const setup =
+    `// Harness-owned integrity canary (evals/maintainer, runner.ts canaryFiles).\n` +
+    `import { afterAll, assert, chai, expect } from 'vitest';\n` +
+    CANARY_PROBE +
+    `const proto = chai.Assertion.prototype as unknown as Record<string, unknown>;\n` +
+    `const watched = ['toBe', 'toEqual', 'toStrictEqual', 'toMatchObject', 'toContain', 'toThrow', 'assert'];\n` +
+    `const read = (n: string) => { const d = Object.getOwnPropertyDescriptor(proto, n); return d ? (d.value ?? d.get) : undefined; };\n` +
+    `const captured = watched.map((n) => [n, read(n)] as const);\n` +
+    `probe('after the base setup');\n` +
+    `afterAll(() => {\n` +
+    `  probe('after the test file');\n` +
+    `  for (const [n, f] of captured) if (read(n) !== f) throw new Error(FAIL + ': ' + n + ' was replaced during the test file');\n` +
+    `});\n`;
+  const test =
+    `// Harness-owned integrity canary (evals/maintainer, runner.ts canaryFiles).\n` +
+    `import { assert, chai, expect, it } from 'vitest';\n` +
+    CANARY_PROBE +
+    `it(${JSON.stringify(`${CANARY_TITLE} `)} + nonce, () => {\n` +
+    `  if (!/^[0-9a-f]{32}$/.test(nonce)) throw new Error(FAIL + ': no nonce');\n` +
+    `  probe('inside a test');\n` +
+    `  const before = expect.getState().assertionCalls;\n` +
+    `  expect(seed).toBe(seed);\n` +
+    `  if (expect.getState().assertionCalls !== before + 1) throw new Error(FAIL + ': assertions are not counted');\n` +
+    `});\n`;
+  const config = (base: string) =>
+    `// Grader-owned wrapper (evals/maintainer, runner.ts canaryFiles): the base\n` +
+    `// config, with the canary setup appended after the base setup files and the\n` +
+    `// canary test included. Files stay isolated, so the setup runs per file.\n` +
+    `import { mergeConfig } from 'vitest/config';\n` +
+    `import base from './${base}';\n` +
+    `export default mergeConfig(base, {\n` +
+    `  test: { setupFiles: ['./${p.setup}'], include: ['${p.test}'], isolate: true },\n` +
+    `});\n`;
+  return new Map([
+    [p.setup, Buffer.from(setup)],
+    [p.test, Buffer.from(test)],
+    [p.unitConfig, Buffer.from(config('vitest.config'))],
+    [p.integrationConfig, Buffer.from(config('vitest.integration.config'))],
+  ]);
+}
+
+export function newCanary(): Canary {
+  const id = randomBytes(6).toString('hex');
+  return { id, nonce: randomBytes(16).toString('hex'), files: canaryFiles(id) };
+}
+
+// Vitest's JSON reporter output, reduced to the counts the outcome needs and
+// the canary's state. An unreadable or missing report yields nulls: that is an
+// infrastructure error.
+export function summariseVitestReport(
+  raw: string | null,
+  nonce: string,
+): {
   passed: number | null;
   failed: number | null;
   failedSuites: number | null;
+  canary: 'ok' | 'failed' | 'missing' | null;
 } {
-  if (raw === null) return { passed: null, failed: null, failedSuites: null };
+  const unreadable = { passed: null, failed: null, failedSuites: null, canary: null };
+  if (raw === null) return unreadable;
   try {
     const report = JSON.parse(raw) as Record<string, unknown>;
     const num = (k: string) => (typeof report[k] === 'number' ? (report[k] as number) : null);
+    const files = Array.isArray(report.testResults)
+      ? (report.testResults as { message?: unknown; assertionResults?: unknown }[])
+      : [];
+    const title = `${CANARY_TITLE} ${nonce}`;
+    let found = false;
+    let failed = false;
+    for (const file of files) {
+      if (typeof file.message === 'string' && file.message.includes(CANARY_FAILURE)) failed = true;
+      const tests = Array.isArray(file.assertionResults)
+        ? (file.assertionResults as {
+            title?: unknown;
+            status?: unknown;
+            failureMessages?: unknown;
+          }[])
+        : [];
+      for (const t of tests) {
+        if (
+          Array.isArray(t.failureMessages) &&
+          t.failureMessages.some((m) => typeof m === 'string' && m.includes(CANARY_FAILURE))
+        )
+          failed = true;
+        if (t.title === title) {
+          found = true;
+          if (t.status !== 'passed') failed = true;
+        }
+      }
+    }
     return {
       passed: num('numPassedTests'),
       failed: num('numFailedTests'),
       failedSuites: num('numFailedTestSuites'),
+      canary: failed ? 'failed' : found ? 'ok' : 'missing',
     };
   } catch {
-    return { passed: null, failed: null, failedSuites: null };
+    return unreadable;
   }
 }
 
@@ -395,12 +579,23 @@ export function summariseVitestReport(raw: string | null): {
 // counted test passed.
 function runPassed(run: TestRun): boolean {
   return (
+    run.canary === 'ok' &&
     run.exitCode === 0 &&
     run.passed !== null &&
     run.passed > 0 &&
     run.failed === 0 &&
     run.failedSuites === 0
   );
+}
+
+// The canary findings of a set of runs, as tamper violations for the result.
+export function canaryViolations(runs: (TestRun & { label: string })[]): string[] {
+  return runs
+    .filter((r) => r.canary === 'failed' || r.canary === 'missing')
+    .map(
+      (r) =>
+        `${r.label} ${r.tier}: canary-${r.canary} (the test framework was altered in-process, or the canary did not run)`,
+    );
 }
 
 function runUnreadable(run: TestRun): boolean {
@@ -421,6 +616,9 @@ export function decideOutcome(input: {
   // A tamper violation is the agent's doing: a fail whatever the tests report.
   if ((input.tamperViolations ?? []).length > 0) return 'fail';
   if (runs.some(runUnreadable)) return 'infra-error';
+  // A failed or missing canary means the framework was altered in-process:
+  // a fail (canaryViolations reports it), never a pass.
+  if (runs.some((r) => r.canary !== 'ok')) return 'fail';
   return runs.every(runPassed) ? 'pass' : 'fail';
 }
 
@@ -570,13 +768,17 @@ export function agentEnv(proxyHost: string): Record<string, string> {
 // credential, no npm_config_*, an empty NODE_OPTIONS, and for the integration
 // tier one vitest worker (a worker cap above 1 overrides the integration
 // config's fileParallelism: false, lesson L33).
-export function gradeEnv(databaseUrl: string | null): Record<string, string> {
+export function gradeEnv(
+  databaseUrl: string | null,
+  canaryNonce: string | null = null,
+): Record<string, string> {
   const env: Record<string, string> = {
     HOME: '/tmp/home',
     CI: '1',
     NEXT_TELEMETRY_DISABLED: '1',
     NODE_OPTIONS: '',
   };
+  if (canaryNonce) env.EVAL_CANARY_NONCE = canaryNonce;
   if (databaseUrl) {
     env.DATABASE_URL = databaseUrl;
     env.VITEST_MAX_WORKERS = '1';

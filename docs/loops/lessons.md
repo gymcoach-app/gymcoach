@@ -773,13 +773,22 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   generator opened on the same line as a closing brace, expected hashes taken after
   `prisma generate`, a generator hidden behind a lone carriage return ending a comment, and
   a project `.npmrc` whose `node-options` npm copies into `NODE_OPTIONS` under `npx`. Each
-  fix closed one spelling and the next review found another.
+  fix closed one spelling and the next review found another. A fifth review then beat the
+  first allowlist twice from inside it: a nested `lib/quiet/package.json` "imports" map
+  aliasing `vitest`, and `expect.extend` on the vitest global from `messages/en`, which the
+  base setup imports.
 - **Lesson:** screen with allowlists, not denylists. Name what an untrusted actor may change
   (here: regular files under the application source roots, no dotfile, no `node_modules`
   segment, no test file, nothing under `prisma/`), take everything else from a trusted base,
   and stop running tools through layers that read untrusted config (call node scripts
   directly with an explicit environment). A denylist reviewer keeps finding the next
-  spelling; an allowlist closes the class.
+  spelling; an allowlist closes the file-level class. Name file types too, not only
+  directories: "anything under lib/" still admitted a config. And where the untrusted code
+  runs inside the judge's own process, no allowlist of files helps: detect tampering with
+  a judge-owned canary that checks the judge still rejects what it must, instead of
+  enumerating cheats.
 - **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
   graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
-  empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses.
+  empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses. Round 5:
+  source-file extensions and config names at any depth in the allowlist, and the harness
+  canary (`canaryFiles`), proven by the `tamper-inprocess` self-check.

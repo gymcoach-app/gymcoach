@@ -21,6 +21,12 @@ import {
   gradeEnv,
   groupByTier,
   isAgentWritable,
+  CANARY_FAILURE,
+  CANARY_TITLE,
+  canaryFiles,
+  canaryPaths,
+  canaryViolations,
+  newCanary,
   isProtected,
   parseArgs,
   planGrade,
@@ -56,6 +62,7 @@ const run = (over: Partial<TestRun> = {}): TestRun => ({
   passed: 3,
   failed: 0,
   failedSuites: 0,
+  canary: 'ok',
   ...over,
 });
 
@@ -139,6 +146,15 @@ describe('tamperViolations', () => {
       expect(tamperViolations([ch('lib/b.ts', content)], task).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('does not mistake a word containing "eval" for eval', () => {
+    for (const content of [
+      "writeFileSync('/reports/.eval-tamper-marker', 'ran');",
+      "const label = 'retrieval';",
+      'const medieval = 1;',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toEqual([]);
+  });
+
   it.each([
     [
       'createRequire',
@@ -162,6 +178,9 @@ describe('tamperViolations', () => {
     ['an output stream patch', 'process.stdout.write = () => true;'],
     ['eval', 'eval(code);'],
     ['indirect eval', 'const r = (0, eval)(src);'],
+    ['eval taken as a value', 'const e = eval;'],
+    ['a "#" subpath import', "import { chai } from '#rt';"],
+    ['a "#" subpath require', "const v = require('#rt');"],
     ['the Function constructor without new', "const f = Function('return this')();"],
     ['constructor.constructor', "const g = [].constructor.constructor('return globalThis')();"],
     ['a bracket write on globalThis', "globalThis['ex' + 'pect'] = () => ({});"],
@@ -290,7 +309,8 @@ describe('the agent-writable allowlist', () => {
       'lib/cardio.ts',
       'messages/fr/session.ts',
       'i18n/request.ts',
-      'public/icon.svg',
+      'app/globals.css',
+      'lib/x.mjs',
     ])
       expect(isAgentWritable(f, t), f).toBe(true);
   });
@@ -324,6 +344,19 @@ describe('the agent-writable allowlist', () => {
       'coverage/quiet.ts',
       'evals/x.json',
       'lib/../package.json',
+      // Nested configs and non-source files under a source root (review of #455).
+      'lib/quiet/package.json',
+      'lib/tsconfig.json',
+      'components/x/tsconfig.build.json',
+      'app/jsconfig.json',
+      'lib/vite.config.ts',
+      'lib/.babelrc',
+      'messages/en.json',
+      'public/icon.svg',
+      'lib/README.md',
+      // What vitest reads besides test files.
+      'lib/__mocks__/cardio.ts',
+      'lib/__snapshots__/cardio.test.ts.snap',
     ])
       expect(isAgentWritable(f, t), f).toBe(false);
   });
@@ -334,15 +367,25 @@ describe('the agent-writable allowlist', () => {
     expect(isProtected('lib/cardio.ts', t)).toBe(false);
   });
 
-  it('lets a task widen the allowlist explicitly, never past the hard exclusions', () => {
-    const wide = { grader: { ...t.grader, allowPaths: ['data'] } };
-    expect(isAgentWritable('data/exercise-media.json', wide)).toBe(true);
-    expect(isAgentWritable('data/exercise-media.json', t)).toBe(false);
-    expect(isAgentWritable('data/.npmrc', wide)).toBe(false);
-    expect(isAgentWritable('data/node_modules/x.js', wide)).toBe(false);
-    // Even a task that bypassed the schema could not make prisma/ writable.
-    const prismaWide = { grader: { ...t.grader, allowPaths: ['prisma'] } };
-    expect(isAgentWritable('prisma/schema.prisma', prismaWide)).toBe(false);
+  it('lets a task allow other files under a source subpath, never past the hard exclusions', () => {
+    const wide = { grader: { ...t.grader, allowPaths: ['public/icons'] } };
+    expect(isAgentWritable('public/icons/a.svg', wide)).toBe(true);
+    expect(isAgentWritable('public/icons/a.svg', t)).toBe(false);
+    expect(isAgentWritable('public/other.svg', wide)).toBe(false);
+    expect(isAgentWritable('public/icons/.npmrc', wide)).toBe(false);
+    expect(isAgentWritable('public/icons/package.json', wide)).toBe(false);
+    expect(isAgentWritable('public/icons/node_modules/x.js', wide)).toBe(false);
+    // Even a task that bypassed the schema could not leave the source roots.
+    for (const root of ['prisma', 'data', 'tests', '.'])
+      expect(
+        isAgentWritable(`${root}/x.ts`, { grader: { ...t.grader, allowPaths: [root] } }),
+        root,
+      ).toBe(false);
+    expect(
+      isAgentWritable('vitest.setup.ts', {
+        grader: { ...t.grader, allowPaths: ['vitest.setup.ts'] },
+      }),
+    ).toBe(false);
   });
 
   it('refuses prisma, dotfile and node_modules allowPaths in task.json', () => {
@@ -352,16 +395,29 @@ describe('the agent-writable allowlist', () => {
         'utf8',
       ),
     );
-    for (const bad of ['prisma', 'prisma/migrations', '.github', 'lib/node_modules'])
+    for (const bad of [
+      'prisma',
+      'prisma/migrations',
+      '.github',
+      'lib/node_modules',
+      'data',
+      'tests',
+      'vitest.setup.ts',
+      'package.json',
+      'lib',
+      'lib/quiet/package.json',
+      'lib/tsconfig.json',
+      'lib/__mocks__',
+    ])
       expect(
         evalTaskSchema.safeParse({ ...base, grader: { ...base.grader, allowPaths: [bad] } })
           .success,
         bad,
       ).toBe(false);
     expect(
-      evalTaskSchema.parse({ ...base, grader: { ...base.grader, allowPaths: ['data'] } }).grader
-        .allowPaths,
-    ).toEqual(['data']);
+      evalTaskSchema.parse({ ...base, grader: { ...base.grader, allowPaths: ['public/icons'] } })
+        .grader.allowPaths,
+    ).toEqual(['public/icons']);
   });
 });
 
@@ -461,23 +517,110 @@ describe('groupByTier', () => {
 });
 
 describe('summariseVitestReport', () => {
-  it('reads the counts of the JSON reporter', () => {
-    const raw = JSON.stringify({ numPassedTests: 4, numFailedTests: 1, numFailedTestSuites: 0 });
-    expect(summariseVitestReport(raw)).toEqual({ passed: 4, failed: 1, failedSuites: 0 });
+  const nonce = 'a'.repeat(32);
+  const file = (title: string, status = 'passed', message = '') => ({
+    message,
+    assertionResults: [{ title, status, failureMessages: [] }],
+  });
+  const report = (testResults: unknown[]) =>
+    JSON.stringify({ numPassedTests: 4, numFailedTests: 1, numFailedTestSuites: 0, testResults });
+
+  it("reads the counts and finds the canary carrying this run's nonce", () => {
+    expect(summariseVitestReport(report([file(`${CANARY_TITLE} ${nonce}`)]), nonce)).toEqual({
+      passed: 4,
+      failed: 1,
+      failedSuites: 0,
+      canary: 'ok',
+    });
+  });
+
+  it('reports a canary that is absent, from another run, or failing', () => {
+    expect(summariseVitestReport(report([file('ordinary')]), nonce).canary).toBe('missing');
+    expect(
+      summariseVitestReport(report([file(`${CANARY_TITLE} ${'b'.repeat(32)}`)]), nonce).canary,
+    ).toBe('missing');
+    expect(
+      summariseVitestReport(report([file(`${CANARY_TITLE} ${nonce}`, 'failed')]), nonce).canary,
+    ).toBe('failed');
+    // A file whose canary setup or afterAll hook threw: the run is failed even
+    // when the canary test itself passed elsewhere.
+    expect(
+      summariseVitestReport(
+        report([
+          file(`${CANARY_TITLE} ${nonce}`),
+          file('x', 'passed', `Error: ${CANARY_FAILURE} (after the test file): toBe accepts`),
+        ]),
+        nonce,
+      ).canary,
+    ).toBe('failed');
   });
 
   it('turns a missing or unreadable report into unknown counts', () => {
-    expect(summariseVitestReport(null)).toEqual({ passed: null, failed: null, failedSuites: null });
-    expect(summariseVitestReport('{not json')).toEqual({
-      passed: null,
-      failed: null,
-      failedSuites: null,
-    });
-    expect(summariseVitestReport('{}')).toEqual({ passed: null, failed: null, failedSuites: null });
+    const unknown = { passed: null, failed: null, failedSuites: null, canary: null };
+    expect(summariseVitestReport(null, nonce)).toEqual(unknown);
+    expect(summariseVitestReport('{not json', nonce)).toEqual(unknown);
+    expect(summariseVitestReport('{}', nonce)).toMatchObject({ passed: null, canary: 'missing' });
+  });
+});
+
+describe('the canary', () => {
+  it('uses unpredictable file names and a fresh nonce per run', () => {
+    const a = newCanary();
+    const b = newCanary();
+    expect(a.id).not.toBe(b.id);
+    expect(a.nonce).toMatch(/^[0-9a-f]{32}$/);
+    expect(a.nonce).not.toBe(b.nonce);
+    expect([...a.files.keys()].sort()).toEqual(Object.values(canaryPaths(a.id)).sort());
+  });
+
+  it('appends its setup after the base setup in a wrapper of the base config', () => {
+    const p = canaryPaths('abc');
+    const files = canaryFiles('abc');
+    const unit = files.get(p.unitConfig)!.toString();
+    expect(unit).toContain("import base from './vitest.config';");
+    expect(unit).toContain(`setupFiles: ['./${p.setup}']`);
+    expect(unit).toContain(`include: ['${p.test}']`);
+    expect(unit).toContain('mergeConfig(base');
+    expect(files.get(p.integrationConfig)!.toString()).toContain(
+      "import base from './vitest.integration.config';",
+    );
+    const setup = files.get(p.setup)!.toString();
+    expect(setup).toContain('afterAll(');
+    expect(setup).toContain("probe('after the test file')");
+    expect(files.get(p.test)!.toString()).toContain('process.env.EVAL_CANARY_NONCE');
+  });
+
+  it('is protected like the hidden tests (never agent-writable)', () => {
+    const t = { grader: { hidden: [], preserved: [] } };
+    for (const file of canaryFiles('abc').keys())
+      expect(isAgentWritable(file, t), file).toBe(false);
+  });
+
+  it('turns failed or missing canaries into tamper violations', () => {
+    expect(
+      canaryViolations([
+        { ...run(), label: 'hidden' },
+        { ...run({ canary: 'failed' }), label: 'hidden' },
+        { ...run({ canary: 'missing', tier: 'integration' }), label: 'preserved' },
+        { ...run({ canary: null }), label: 'preserved' },
+      ]),
+    ).toEqual([
+      expect.stringContaining('hidden unit: canary-failed'),
+      expect.stringContaining('preserved integration: canary-missing'),
+    ]);
   });
 });
 
 describe('decideOutcome', () => {
+  it('fails a run whose canary failed or is missing, even when every test passed', () => {
+    for (const canary of ['failed', 'missing'] as const)
+      expect(
+        decideOutcome({ hidden: [run({ canary })], preserved: [run()], infraErrors: [] }),
+        canary,
+      ).toBe('fail');
+    expect(decideOutcome({ hidden: [run()], preserved: [run()], infraErrors: [] })).toBe('pass');
+  });
+
   it('fails a run with a tamper violation even when every test passed', () => {
     expect(
       decideOutcome({
