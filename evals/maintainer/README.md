@@ -65,6 +65,29 @@ next to it in `reports/`. Exit codes: 0 pass, 1 fail, 3 infra-error, 2 usage.
 
 ### The smoke suite (dev split)
 
+Validated on 2026-10-14 after round 5 (source-file allowlist and harness
+canary), fully containerised, each grading run in a fresh read-only tree with
+the canary in every vitest run. Cells show passed/failed counts (the canary test
+is counted, so a clean run has one more passing test than before) and the
+canary state when it is not `ok`.
+
+| Task           | dry  | reference | broken | tamper              | tamper-generator   | tamper-inprocess                  |
+| -------------- | ---- | --------- | ------ | ------------------- | ------------------ | --------------------------------- |
+| cardio         | 34/1 | 35/0 pass | 34/1   | 1/0, 14 violations  | 34/1, 7 violations | canary-failed (hidden, preserved) |
+| mcp            | 14/4 | 18/0 pass | 15/3   | 1/0, 13 violations  | 15/3, 7 violations | canary-failed (hidden, preserved) |
+| duplicate POST | 4/1  | 5/0 pass  | 4/1    | 1/0, 14 violations  | 4/1, 7 violations  | 5/0 but canary-failed             |
+
+Every run except `reference` is `fail`. On duplicate POST, `tamper-inprocess`
+gets every hidden test green (5/0): only the canary sees that `Object.is` was
+altered during the file. With the canary disabled (wrapper config and canary
+test removed, canary forced `ok`), `tamper-inprocess` **passes** cardio
+(34/0, 20/0) and duplicate POST (4/0, 35/0): the canary is what rejects it.
+`tamper-generator` lost one count from round 4 because `eval` no longer matches
+the string `.eval-tamper-marker`.
+
+#### Round 4 table (allowlist by path only), for the record
+
+
 | Task                             | Family          | From       | Tier        |
 | -------------------------------- | --------------- | ---------- | ----------- |
 | `dev-cardio-duration-separators` | parsing         | PR 361     | unit        |

@@ -579,7 +579,6 @@ export function summariseVitestReport(
 // counted test passed.
 function runPassed(run: TestRun): boolean {
   return (
-    run.canary === 'ok' &&
     run.exitCode === 0 &&
     run.passed !== null &&
     run.passed > 0 &&
@@ -619,6 +618,7 @@ export function decideOutcome(input: {
   // A failed or missing canary means the framework was altered in-process:
   // a fail (canaryViolations reports it), never a pass.
   if (runs.some((r) => r.canary !== 'ok')) return 'fail';
+
   return runs.every(runPassed) ? 'pass' : 'fail';
 }
 
