@@ -10,8 +10,9 @@ mechanical lessons converted into code (L42 in #447; L15 and L38 in the #448 hoo
 Milestone 3 has started: a 3-task smoke suite and a replay runner in
 `evals/maintainer/`, validated with reference, broken and tamper fixes; its
 containment (egress proxy, containerised grading, tamper hardening, #453) is in
-place and proven without a model call; the paid agent stays hard-disabled until
-the operator accepts the credential risk and sets a budget. Milestones 5 and 6 and the product LLM track are proposed, not
+place and proven without a model call; grading validity rests on a tripwire canary
+with two known bypasses (#468); the paid agent stays hard-disabled until #468 is
+closed or accepted and the operator accepts the credential risk and sets a budget. Milestones 5 and 6 and the product LLM track are proposed, not
 implemented. A PreToolUse hook keeps subagents
 from moving HEAD in checkouts they do not own (#448, merged on the operator's
 confirmation). Baseline
@@ -274,12 +275,15 @@ changes within the charter.
       (by extension, under the source roots; no config at any depth, dotfile,
       `node_modules`, `__mocks__` or `__snapshots__` segment, test file or `prisma/`
       change is ever copied, lesson L45); in-process tampering by allowed application
-      code is detected, not prevented, by a grader-owned canary in every vitest run: it
-      records the assertion, `expect`, matcher-registry, test-global and key built-in
-      functions before any application code loads, and any change to them, however
-      selective, makes the run `canary-failed` (not covered: code special-casing the
-      hidden tests' own inputs, globals outside the record, a change undone within one
-      test); every grading run gets its own fresh copy of the
+      code is caught, not prevented, by a grader-owned canary in every vitest run, a
+      tripwire rather than a guarantee: it records the assertion, `expect`,
+      matcher-registry and listed test-global functions and a fixed list of built-in
+      members before any application code loads, and any change to them, however
+      selective, makes the run `canary-failed`. Not covered: code special-casing the
+      hidden tests' own inputs; built-ins outside the list (two known bypasses, a
+      caller-selective built-in and hooks reached through `globalThis`, are open in
+      [#468](https://github.com/gymcoach-app/gymcoach/issues/468)); a change undone
+      between two checks; every grading run gets its own fresh copy of the
       grading tree, checked right before it runs against the hashes of every
       protected file computed from the base and the fix commit's hidden tests before
       any agent-influenced step, and mounted read-only, with its own throwaway
@@ -315,8 +319,10 @@ changes within the charter.
       Postgres (dialled by the host's real address, not only its name), DNS or direct
       internet from the agent or grading containers;
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453)). The paid agent stays
-      hard-disabled (`PAID_AGENT_ENABLED = false`) until the operator accepts the residual
-      credential risk and sets a budget. On 2026-10-13 the 3 smoke tasks, fully
+      hard-disabled (`PAID_AGENT_ENABLED = false`) until the known canary bypasses
+      ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)) are closed or accepted
+      by the operator, and the operator accepts the residual credential risk and sets a
+      budget; a paid result is then audited by a diff review of the agent's patch. On 2026-10-13 the 3 smoke tasks, fully
       containerised, gave dry fail, reference pass, broken fail and tamper fail (12/12);
       with the static tamper check disabled, the tamper agent passed cardio.
 

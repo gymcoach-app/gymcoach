@@ -276,7 +276,8 @@ export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] 
     why: 'calls a test global or hook (expect, vi, beforeEach, afterEach, ...) from application code',
     // A bare test global used as a call or a member: application code has no
     // reason to, and a hook it registers could install and undo a cheat
-    // between two canary checks.
+    // between two canary checks. Lexical only: a property access such as
+    // globalThis.beforeEach is not matched (issue #468).
     pattern:
       /(?<![\w$.])(?:expect|vi|vitest|beforeEach|afterEach|beforeAll|afterAll|onTestFinished|onTestFailed)\s*(?:\(|\.|\[)/,
   },
@@ -407,29 +408,33 @@ export function groupByTier(files: string[]): { tier: 'unit' | 'integration'; fi
 // allowlist cannot stop it from changing the framework that judges it: a module
 // the base setup imports can call expect.extend, or the module under test can
 // replace Object.is, and every hidden assertion passes (reviews of #455). The
-// static screen is only an early signal. The canary DETECTS that class instead
-// of enumerating it: harness files, written into every grading tree like the
+// static screen is only an early signal. The canary is a tripwire for that
+// class, not a guarantee (known gaps: issue #468): harness files, written into every grading tree like the
 // hidden tests (outside the agent's reach, hash-checked), named per run.
 //
 // Identity, not behaviour, is the core check. A grader-owned wrapper config
 // PREPENDS a setup file to the base setup files, so it runs before any
 // application module is imported. It records the function references of every
 // own property of chai's Assertion prototype, chai's assert, expect and its
-// statics, the matcher and equality-tester registries, the test globals, and
-// the built-ins the matchers rely on (Object.is, Array/String/RegExp methods,
-// JSON, Function.prototype, ...). For the unit tier it first applies the base
+// statics, the matcher and equality-tester registries, the listed test
+// globals, and the built-in members listed in TARGETS below, nothing else
+// (not Object.hasOwn, Object.prototype methods, Error.stackTraceLimit, timers,
+// Date). For the unit tier it first applies the base
 // setup's own jest-dom extension, so those matchers are part of the record.
 // A later setup file and hooks compare against that record after the base
 // setup, before and after every test, and after the file: any replaced, added
-// or removed entry is a canary failure, whatever it does and however selective
-// it is (by value type, by caller, by .not). Behavioural probes stay as a
+// or removed recorded entry is a canary failure, whatever it does and however
+// selective it is (by value type, by caller, by .not). Behavioural probes stay as a
 // second, independent check. A standalone test whose title carries this run's
 // nonce proves the canary ran at all; a run without it is a fail.
 //
-// What it does not cover (stated as residual risks in the README): application
-// code that special-cases the hidden tests' own inputs, tampering with globals
-// or built-ins outside the record, and a change installed and fully undone
-// within a single test between two checks.
+// What it does not cover (residual risks in the README, issue #468):
+// application code that special-cases the hidden tests' own inputs; a global
+// or built-in member outside TARGETS, including one made to misbehave only
+// when its caller is a hidden test, since the probes run from the repository
+// root; and a change installed and fully undone between two checks, for
+// example by hooks reached through globalThis, which the lexical test-globals
+// rule does not match.
 export const CANARY_FAILURE = 'harness integrity check failed';
 export const CANARY_TITLE = 'harness integrity';
 

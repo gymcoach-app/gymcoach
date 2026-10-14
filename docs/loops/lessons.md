@@ -788,11 +788,19 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   a judge-owned canary. A canary that only probes behaviour is itself a list of cheats in
   disguise: the next review beat it with matchers lenient only for strings, spies or test
   callers. Record the judge's own functions by identity before any untrusted code loads,
-  and fail on any change, whatever the new function does.
+  and fail on any change, whatever the new function does. Even that is a tripwire, not a
+  proof: the sixth review beat it with a built-in left out of the hand-picked record, made
+  to misbehave only for callers at hidden-test paths (the probes ran from elsewhere), and
+  with test hooks reached through `globalThis`, which the lexical hook rule did not match.
+  When the judge shares a process with the judged, say which checks exist, list the known
+  gaps, keep a human diff review on the result, and stop hardening rounds at a stated
+  budget instead of claiming closure.
 - **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
   graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
   empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses. Round 5:
   source-file extensions and config names at any depth in the allowlist, and the harness
   canary (`canaryFiles`), proven by the `tamper-inprocess` self-check. Round 6: the canary
   records function identities before the base setup and checks them around every test,
-  proven by the `tamper-selective` self-check, which passes the round-5 canary.
+  proven by the `tamper-selective` self-check, which passes the round-5 canary. The two
+  round-6 bypasses are documented residual risks, tracked in #468; the paid agent stays
+  disabled until they are closed or accepted.
