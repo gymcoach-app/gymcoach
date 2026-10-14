@@ -262,142 +262,84 @@ export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] 
   },
 ];
 
-// The generator and datasource blocks of the Prisma schema decide what `prisma
-// generate` runs: a generator's provider is a command line Prisma starts with a
-// shell. The grading tree therefore never takes them from the agent. The schema
-// is split by a small tokenizer that understands comments, strings and nested
-// braces, so a block opened anywhere (`} generator x {` on one line included) is
-// found; anything at the top level that is not a known block fails closed.
-
-export const PRISMA_CONFIG_KEYWORDS = ['generator', 'datasource'] as const;
-const PRISMA_MODEL_KEYWORDS = ['model', 'enum', 'type', 'view'] as const;
-const PRISMA_KEYWORDS: readonly string[] = [...PRISMA_CONFIG_KEYWORDS, ...PRISMA_MODEL_KEYWORDS];
-
-export interface PrismaBlock {
-  keyword: string;
-  name: string;
-  text: string;
-}
-
-export class PrismaSchemaError extends Error {}
-
-export function parsePrismaBlocks(schema: string): PrismaBlock[] {
-  const blocks: PrismaBlock[] = [];
-  const n = schema.length;
-  let i = 0;
-  const skipSpaceAndComments = () => {
-    for (;;) {
-      while (i < n && /\s/.test(schema[i]!)) i++;
-      if (schema.startsWith('//', i)) {
-        while (i < n && schema[i] !== '\n') i++;
-        continue;
-      }
-      return;
-    }
-  };
-  const ident = () => {
-    const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(schema.slice(i));
-    if (!m) throw new PrismaSchemaError(`expected a name at offset ${i}`);
-    i += m[0].length;
-    return m[0];
-  };
-  for (;;) {
-    skipSpaceAndComments();
-    if (i >= n) return blocks;
-    const start = i;
-    const keyword = ident();
-    if (!PRISMA_KEYWORDS.includes(keyword))
-      throw new PrismaSchemaError(`unknown top-level keyword "${keyword}" at offset ${start}`);
-    skipSpaceAndComments();
-    const name = ident();
-    skipSpaceAndComments();
-    if (schema[i] !== '{') throw new PrismaSchemaError(`expected "{" after ${keyword} ${name}`);
-    let depth = 0;
-    for (; i < n; i++) {
-      const c = schema[i]!;
-      if (c === '"') {
-        for (i++; i < n && schema[i] !== '"'; i++) {
-          if (schema[i] === '\\') i++;
-          if (schema[i] === '\n') throw new PrismaSchemaError(`unterminated string in ${name}`);
-        }
-        if (i >= n) throw new PrismaSchemaError(`unterminated string in ${name}`);
-      } else if (schema.startsWith('//', i)) {
-        while (i < n && schema[i] !== '\n') i++;
-      } else if (c === '{') depth++;
-      else if (c === '}' && --depth === 0) break;
-    }
-    if (i >= n) throw new PrismaSchemaError(`unterminated block ${keyword} ${name}`);
-    i++;
-    blocks.push({ keyword, name, text: schema.slice(start, i) });
-  }
-}
-
-const isConfigBlock = (b: PrismaBlock) =>
-  (PRISMA_CONFIG_KEYWORDS as readonly string[]).includes(b.keyword);
-
-// The generator and datasource blocks, normalised, or null when the schema does
-// not parse (callers treat that as changed: fail closed).
-export function prismaConfigBlocks(schema: string): string | null {
-  try {
-    return parsePrismaBlocks(schema)
-      .filter(isConfigBlock)
-      .map((b) => b.text.replace(/\s+/g, ' ').trim())
-      .sort()
-      .join('\n');
-  } catch (err) {
-    if (err instanceof PrismaSchemaError) return null;
-    throw err;
-  }
-}
-
-export function prismaConfigChanged(agentSchema: string, baseSchema: string): boolean {
-  const agent = prismaConfigBlocks(agentSchema);
-  return agent === null || agent !== prismaConfigBlocks(baseSchema);
-}
-
-// The schema the grading tree generates from: the base's generator and
-// datasource blocks plus the agent's model, enum, type and view blocks. An
-// agent schema that does not parse is replaced by the base schema whole (the
-// run already fails on the violation; nothing the agent wrote reaches generate).
-export function withBaseConfigBlocks(agentSchema: string, baseSchema: string): string {
-  const base = parsePrismaBlocks(baseSchema);
-  let models: PrismaBlock[];
-  try {
-    models = parsePrismaBlocks(agentSchema).filter((b) => !isConfigBlock(b));
-  } catch (err) {
-    if (err instanceof PrismaSchemaError) return baseSchema;
-    throw err;
-  }
-  return `${[...base.filter(isConfigBlock), ...models].map((b) => b.text).join('\n\n')}\n`;
-}
-
 // The parts of a task the static rules and the grading plan read.
 export interface GraderSpec {
-  grader: { hidden: string[]; preserved: string[]; allowTamperRules?: TamperRuleId[] };
+  grader: {
+    hidden: string[];
+    preserved: string[];
+    allowTamperRules?: TamperRuleId[];
+    allowPaths?: string[];
+  };
 }
 
 export const PRISMA_SCHEMA = 'prisma/schema.prisma';
 
+// The directory `prisma generate` writes (the base schema's generator output).
+export const PRISMA_CLIENT_DIR = 'prisma/generated';
+
+// What the agent may change, as an ALLOWLIST: regular application files under
+// these source roots. Four review rounds on #455 each found a new way around a
+// denylist of grade inputs (a generator opened on the same line as a brace,
+// hashes taken after generate, a lone carriage return, a project .npmrc whose
+// node-options reached NODE_OPTIONS under npx); naming what the agent may write
+// closes the whole class instead (lesson L45). Everything else in a grading
+// tree comes from the base: configs (.npmrc, .yarnrc*, .env*, package.json, the
+// lockfile, tsconfig, vitest configs and setups), prisma/ (schema, migrations,
+// generated client), scripts/, tests/, every test file. A task widens the list
+// only through grader.allowPaths in its task.json, which the agent never sees.
+export const AGENT_WRITABLE_ROOTS = [
+  'app',
+  'components',
+  'lib',
+  'messages',
+  'i18n',
+  'public',
+] as const;
+
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+
+export function isAgentWritable(file: string, task: GraderSpec): boolean {
+  const parts = file.split('/');
+  if (parts.some((p) => p === '' || p === '.' || p === '..')) return false;
+  // Never: dotfiles and dot-directories (.npmrc, .env, .yarnrc at any depth),
+  // a node_modules segment (module resolution would prefer it), test files and
+  // test directories (the grader's own), anything under prisma/.
+  if (parts.some((p) => p.startsWith('.') || p === 'node_modules')) return false;
+  if (parts.some((p) => p === 'tests' || p === '__tests__') || TEST_FILE.test(file)) return false;
+  if (parts[0] === 'prisma') return false;
+  if (task.grader.hidden.includes(file) || task.grader.preserved.includes(file)) return false;
+  const roots: string[] = [...AGENT_WRITABLE_ROOTS, ...(task.grader.allowPaths ?? [])];
+  return roots.some((r) => {
+    const root = r.replace(/\/+$/, '');
+    return file === root || file.startsWith(`${root}/`);
+  });
+}
+
+// Every file of a grading tree that is not agent-writable comes from the base
+// (or, for hidden tests, from the fix commit) and is hash-checked before every
+// grading run.
+export function isProtected(file: string, task: GraderSpec): boolean {
+  return !isAgentWritable(file, task);
+}
+
 export function tamperViolations(
-  changed: (Change & { content: string | null; configBlocksChanged?: boolean })[],
+  changed: (Change & { content: string | null })[],
   task: GraderSpec,
 ): string[] {
   const allowed = new Set<TamperRuleId>(task.grader.allowTamperRules ?? []);
   const out: string[] = [];
-  for (const { file, kind, content, status, configBlocksChanged } of changed) {
-    if (file.startsWith('prisma/generated/')) {
-      out.push(`${file}: edits the generated Prisma client`);
+  for (const { file, kind, content, status } of changed) {
+    // Outside the allowlist: recorded and never copied into a grading tree.
+    if (!isAgentWritable(file, task)) {
+      out.push(`${file}: outside the agent-writable paths (not copied into grading)`);
       continue;
     }
     if (status !== 'deleted' && kind !== 'file') {
       out.push(`${file}: the agent created a ${kind} (only regular files are accepted)`);
       continue;
     }
-    if (file === PRISMA_SCHEMA && configBlocksChanged)
-      out.push(
-        `${file}: changes, adds or hides a generator or datasource block, or does not parse (generate would run it)`,
-      );
-    if (isGradeInput(file, task) || content === null) continue;
+    if (content === null) continue;
+    // Allowed application code still runs inside the test process: screen it.
     for (const rule of TAMPER_RULES)
       if (!allowed.has(rule.id) && rule.pattern.test(content))
         out.push(`${file}: application code ${rule.why}`);
@@ -500,37 +442,10 @@ export function sameDependencies(baseLock: string, currentLock: string): boolean
 // and skills that tell an agent to open PRs and merge).
 export const SNAPSHOT_EXCLUDES = ['evals', '.claude'] as const;
 
-// Files the grade depends on besides the hidden tests: test runner configs and
-// setup files, package and TypeScript configs, every test file and everything
-// under tests/ (helpers, integration setup). The grading tree takes them from
-// the base, never from the agent, so editing a preserved test, a vitest setup
-// file (for example a vi.mock of the module under test) or a config cannot turn
-// a fail into a pass.
-const GRADE_CONFIG_FILES = new Set([
-  'package.json',
-  'package-lock.json',
-  'tsconfig.json',
-  'vitest.setup.ts',
-  // Prisma's CLI config: generate and migrate load it as code.
-  'prisma.config.ts',
-]);
-
-export function isGradeInput(file: string, task: GraderSpec): boolean {
-  if (task.grader.hidden.includes(file) || task.grader.preserved.includes(file)) return true;
-  if (GRADE_CONFIG_FILES.has(file)) return true;
-  if (/^vitest\.[^/]+$/.test(file)) return true;
-  if (file.startsWith('tests/')) return true;
-  // Env files: prisma.config.ts loads .env in generate and migrate, and engine
-  // paths or NODE_OPTIONS there would be agent-controlled.
-  if (/(^|\/)\.env(\.[^/]*)?$/.test(file)) return true;
-  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(file);
-}
-
 // How the grading tree is built from the agent's changes. Grading never runs in
 // the agent's workspace: it runs in a copy of the untouched snapshot onto which
-// only the agent's regular application files are written (or deleted). Grade
-// inputs stay at the base whatever the agent did (`ignored` lists the ones it
-// touched), and anything that is not a regular file is never copied.
+// only the agent's allowlisted regular files are written (or deleted). Every
+// other change is left out (`ignored`) and recorded as a tamper violation.
 export function planGrade(
   changes: Change[],
   task: GraderSpec,
@@ -538,20 +453,27 @@ export function planGrade(
   const write: string[] = [];
   const remove: string[] = [];
   const ignored: string[] = [];
-  const stripped = (file: string) =>
-    SNAPSHOT_EXCLUDES.some((e) => file === e || file.startsWith(`${e}/`));
   for (const change of changes) {
-    if (isGradeInput(change.file, task) || stripped(change.file)) {
+    if (!isAgentWritable(change.file, task)) {
       ignored.push(change.file);
       continue;
     }
-    // The generated client is regenerated from the graded schema.
-    if (change.file.startsWith('prisma/generated/')) continue;
     if (change.status === 'deleted') remove.push(change.file);
     else if (change.kind === 'file') write.push(change.file);
   }
   return { write, remove, ignored };
 }
+
+// The tools are called as node scripts from the read-only install, never
+// through npx or npm: npm reads a project .npmrc and copies its node-options
+// into NODE_OPTIONS (review of #455), so no package manager runs in a grading
+// container at all.
+export const PRISMA_CLI = ['node', 'node_modules/prisma/build/index.js'] as const;
+export const VITEST_CLI = ['node', 'node_modules/vitest/vitest.mjs'] as const;
+
+// A marker that the tamper self-checks' cheat code writes if it ever runs; the
+// runner fails closed when it finds one after a grading step.
+export const TAMPER_MARKER = '.eval-tamper-marker';
 
 // Container images, pinned by digest: the same bytes on every run, whatever a
 // registry later serves under the tag.
@@ -638,18 +560,22 @@ export function agentEnv(proxyHost: string): Record<string, string> {
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     GIT_TERMINAL_PROMPT: '0',
     CI: '1',
+    // Docker passes only the listed variables; an empty NODE_OPTIONS also
+    // overrides anything the image could set.
+    NODE_OPTIONS: '',
   };
 }
 
-// Environment of a grading container: no proxy, no credential, offline npm, and
-// for the integration tier one vitest worker (a worker cap above 1 overrides the
-// integration config's fileParallelism: false, lesson L33).
+// Environment of a grading container, built from nothing: no proxy, no
+// credential, no npm_config_*, an empty NODE_OPTIONS, and for the integration
+// tier one vitest worker (a worker cap above 1 overrides the integration
+// config's fileParallelism: false, lesson L33).
 export function gradeEnv(databaseUrl: string | null): Record<string, string> {
   const env: Record<string, string> = {
     HOME: '/tmp/home',
     CI: '1',
     NEXT_TELEMETRY_DISABLED: '1',
-    npm_config_offline: 'true',
+    NODE_OPTIONS: '',
   };
   if (databaseUrl) {
     env.DATABASE_URL = databaseUrl;

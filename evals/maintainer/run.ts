@@ -34,8 +34,11 @@ import {
   EGRESS_PROXY_PORT,
   NODE_IMAGE,
   POSTGRES_IMAGE,
-  PRISMA_SCHEMA,
+  PRISMA_CLI,
+  PRISMA_CLIENT_DIR,
   SNAPSHOT_EXCLUDES,
+  TAMPER_MARKER,
+  VITEST_CLI,
   UsageError,
   WALK_SKIP,
   addedLines,
@@ -49,12 +52,10 @@ import {
   gitBlobId,
   gradeEnv,
   groupByTier,
-  isGradeInput,
+  isProtected,
   parseArgs,
   planGrade,
-  prismaConfigChanged,
   staleEvalResources,
-  withBaseConfigBlocks,
   sameDependencies,
   summariseVitestReport,
   tamperViolations,
@@ -73,15 +74,16 @@ import {
 // dry: the agent does nothing (the grader must fail: red before).
 // reference: applies the real fix (base..fix diff of the task's source paths).
 // broken: applies the task's intentionally incomplete fix (must be rejected).
-// tamper: the broken fix plus attempts to cheat the grader (must be rejected).
+// tamper, tamper-generator: the broken fix plus attempts to cheat the grader
+// (must be rejected and have no effect).
 // claude: runs `claude -p` in a container on an --internal network whose only
 // way out is an egress proxy that allows the Anthropic API alone. Hard-disabled
 // by PAID_AGENT_ENABLED in runner.ts until the operator enables it.
 //
 // Nothing written by an agent runs on the host. The snapshot is a `git archive`
 // of the base commit; the agent works in a copy of it; grading runs in a fresh
-// copy of the untouched snapshot onto which only the agent's regular application
-// files are written, inside containers with no network (unit tier) or an
+// copy of the untouched snapshot onto which only the agent's allowlisted regular
+// application files are written (runner.ts isAgentWritable), inside containers with no network (unit tier) or an
 // --internal network shared with a throwaway Postgres (integration tier). After
 // the agent ran, no git command is run in its workspace. Exit codes: 0 pass,
 // 1 fail, 3 infra-error, 2 usage.
@@ -200,6 +202,11 @@ function loadTask(id: string): EvalTask {
   const task = evalTaskSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
   if (task.id !== id)
     throw new UsageError(`task.json id ${task.id} does not match directory ${id}`);
+  if (task.grader.allowSchemaChanges)
+    throw new UsageError(
+      `task ${id} needs Prisma schema changes, which the harness does not grade yet ` +
+        '(the graded schema is always the base file; see evals/maintainer/README.md)',
+    );
   return task;
 }
 
@@ -388,29 +395,40 @@ export function gradeContainer(
   };
 }
 
-// The directory `prisma generate` writes (the base schema's generator output).
-export const PRISMA_CLIENT_DIR = 'prisma/generated';
-
 // A fresh, empty reports directory for one container: no run can plant a file
 // where another run's report will be read.
 function newReportsDir(reports: string, label: string): string {
   return mkdtempSync(path.join(reports, `${label}-`));
 }
 
-// Prisma generate for a tree, inside a container with no network. The tree is
-// mounted read-only except the client output directory; what runs is the
-// Prisma CLI with the base's prisma.config.ts, the base's .env and the base's
-// generator block, never code the agent wrote.
+// Cheat code of the tamper self-checks writes TAMPER_MARKER wherever it can if
+// it ever runs (a reports dir, the client output). Finding one after a grading
+// step means agent-written code ran where it must not: fail closed.
+export function assertNoTamperMarker(...dirs: string[]): void {
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    for (const file of walkTree(dir).keys())
+      if (path.basename(file) === TAMPER_MARKER)
+        throw new Error(`agent-written code ran during grading (marker ${path.join(dir, file)})`);
+  }
+}
+
+// Prisma generate for the base snapshot, before any agent runs, inside a
+// container with no network. The tree is mounted read-only except the client
+// output directory. The grading trees copy this client: their schema is the
+// base file byte for byte (prisma/ is never agent-writable), so nothing the
+// agent wrote ever reaches generate.
 async function generateInContainer(repoRoot: string, tree: string, reports: string) {
   mkdirSync(path.join(tree, PRISMA_CLIENT_DIR), { recursive: true });
+  const runReports = newReportsDir(reports, 'generate');
   const run = await runContainer(
     gradeContainer(
       repoRoot,
       tree,
-      newReportsDir(reports, 'generate'),
+      runReports,
       'none',
       null,
-      'npx prisma generate >/dev/null',
+      `${PRISMA_CLI.join(' ')} generate >/dev/null`,
       [],
       [PRISMA_CLIENT_DIR],
     ),
@@ -418,6 +436,7 @@ async function generateInContainer(repoRoot: string, tree: string, reports: stri
   );
   if (run.status !== 0)
     throw new Error(`prisma generate failed: ${(run.stderr || '').slice(-400)}`);
+  assertNoTamperMarker(runReports, path.join(tree, PRISMA_CLIENT_DIR));
 }
 
 // The integration tier's database: a throwaway Postgres on an --internal
@@ -458,20 +477,22 @@ async function startDatabase(repoRoot: string, grade: string, reports: string) {
     await new Promise((r) => setTimeout(r, 1000));
   }
   const url = `postgresql://${DB_USER}:${DB_USER}@${db}:5432/${DB_NAME}`;
+  const migrateReports = newReportsDir(reports, 'migrate');
   const migrate = await runContainer(
     gradeContainer(
       repoRoot,
       grade,
-      newReportsDir(reports, 'migrate'),
+      migrateReports,
       network,
       url,
-      'npx prisma migrate deploy',
+      `${PRISMA_CLI.join(' ')} migrate deploy`,
       [],
     ),
     300_000,
   );
   if (migrate.status !== 0)
     throw new Error(`prisma migrate deploy failed: ${(migrate.stderr || '').slice(-400)}`);
+  assertNoTamperMarker(migrateReports);
   return { network, url, db };
 }
 
@@ -502,11 +523,12 @@ async function runTests(
       runReports,
       integration ? database!.network : 'none',
       integration ? database!.url : null,
-      'npx vitest run --config "$1" --reporter=json --outputFile="/reports/$2" "${@:3}"',
+      `${VITEST_CLI.join(' ')} run --config "$1" --reporter=json --outputFile="/reports/$2" "\${@:3}"`,
       [config, reportName, ...group.files],
     ),
     900_000,
   );
+  assertNoTamperMarker(runReports);
   // Only a regular file written by this run counts as its report.
   const report = path.join(runReports, reportName);
   const raw =
@@ -557,32 +579,28 @@ async function runAgent(
   return runClaudeContained(args, task, repoRoot, work);
 }
 
-// Harness self-check: the broken fix, then cheats a grader must resist:
-// - a vi.mock in the test setup files swapping the module under test for a copy
-//   of the fixed code, and every preserved test replaced by one that always
-//   passes (grade inputs: the grading tree takes them from the base);
-// - the module under test importing a git-ignored file (coverage/) that turns
-//   chai's assert into a no-op (the tree walk scans ignored paths, and the
-//   static check rejects the framework import);
-// - the module under test loading chai through createRequire (static check);
-// - the module under test rewriting a preserved test file and the integration
-//   setup on disk at import time, so a later grading run would read the cheat
-//   (static check; and every grading run gets a fresh read-only tree);
-// - a custom Prisma generator, which `prisma generate` would execute (static
-//   check; and grading always uses the base's generator block);
-// - a symlink to a host file (only regular files are accepted).
-// One focused cheat: the broken fix plus a Prisma generator smuggled on the
-// same line as the closing brace of a model (`} generator x {`), whose shell
-// provider rewrites every hidden test into one that always passes and then
-// answers Prisma's generator protocol so `generate` exits 0. It must be flagged
-// and must never run.
+// Focused self-check of the allowlist: the broken fix plus four cheats that
+// each beat an earlier denylist screen of #455, all of which must be rejected
+// AND have no effect (hidden results equal to the broken fix's own, marker
+// absent):
+// - a Prisma generator opened on the same line as a model's closing brace,
+// - a generator hidden behind a lone carriage return ending a comment,
+//   both with a shell provider (prisma/gen.cjs) that rewrites the hidden tests
+//   into ones that always pass and writes TAMPER_MARKER;
+// - a project .npmrc whose node-options would reach NODE_OPTIONS under npx,
+//   importing code that writes TAMPER_MARKER (also nested under lib/);
+// - a nested lib/node_modules/vitest that module resolution would prefer.
 function tamperGenerator(task: EvalTask, work: string): EvalResult['agentRun'] {
   sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
     cwd: work,
   });
+  const markWrites = (targets: string[]) =>
+    `for (const p of ${JSON.stringify(targets)}) { try { require('fs').writeFileSync(p, 'ran'); } catch {} }\n`;
+  const markers = [`/reports/${TAMPER_MARKER}`, `${PRISMA_CLIENT_DIR}/${TAMPER_MARKER}`];
   const script =
     `const fs = require('fs');\n` +
-    `for (const f of ${JSON.stringify(task.grader.hidden)}) fs.writeFileSync(f, "import { it } from 'vitest';\\nit('ok', () => {});\\n");\n` +
+    markWrites(markers) +
+    `for (const f of ${JSON.stringify(task.grader.hidden)}) { try { fs.writeFileSync(f, "import { it } from 'vitest';\\nit('ok', () => {});\\n"); } catch {} }\n` +
     `let buf = '';\n` +
     `process.stdin.on('data', (d) => { buf += d.toString(); let i;\n` +
     `  while ((i = buf.indexOf('\\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;\n` +
@@ -594,16 +612,52 @@ function tamperGenerator(task: EvalTask, work: string): EvalResult['agentRun'] {
   if (!schema.endsWith('}')) throw new Error('unexpected schema ending');
   writeFileSync(
     schemaPath,
-    `${schema} generator smuggled {\n  provider = "node prisma/gen.cjs"\n  output = "./smuggled"\n}\n`,
+    `${schema} generator smuggled {\n  provider = "node prisma/gen.cjs"\n  output = "./smuggled"\n}\n` +
+      `model TamperCr {\n  id Int @id\n  // x\r}\rgenerator smuggledCr {\r  provider = "node prisma/gen.cjs"\r  output = "./smuggled-cr"\r}\r` +
+      `model TamperCrB {\n  id Int @id\n}\n`,
+  );
+  // A --require target an .npmrc can point at (a data: URL would not survive
+  // npm's ini parser, where ";" starts a comment). Checked on the host: under
+  // npx this script runs; called directly with node, it does not.
+  writeFileSync(path.join(work, 'lib', 'tamper-pre.cjs'), markWrites(markers));
+  const npmrc = `node-options=--require=${CONTAINER_WORKDIR}/lib/tamper-pre.cjs\n`;
+  writeFileSync(path.join(work, '.npmrc'), npmrc);
+  writeFileSync(path.join(work, 'lib', '.npmrc'), npmrc);
+  const nested = path.join(work, 'lib', 'node_modules', 'vitest');
+  mkdirSync(nested, { recursive: true });
+  writeFileSync(
+    path.join(nested, 'package.json'),
+    '{ "name": "vitest", "version": "0.0.0", "main": "index.js" }\n',
+  );
+  writeFileSync(
+    path.join(nested, 'index.js'),
+    markWrites(markers) +
+      'exports.it = () => {}; exports.expect = () => new Proxy({}, { get: () => () => {} });\n',
   );
   return {
     exitCode: 0,
     costUsd: null,
     turns: null,
-    note: 'broken fix + a same-line Prisma generator whose provider rewrites the hidden tests',
+    note:
+      'broken fix + same-line and lone-CR Prisma generators with a shell provider + ' +
+      'a project and a nested .npmrc with node-options + a nested lib/node_modules/vitest',
   };
 }
 
+// Harness self-check: the broken fix, then cheats a grader must resist:
+// - a vi.mock in the test setup files swapping the module under test for a copy
+//   of the fixed code, and every preserved test replaced by one that always
+//   passes (outside the agent-writable paths: the grading tree keeps the base);
+// - the module under test importing a git-ignored file (coverage/) that turns
+//   chai's assert into a no-op (the tree walk scans ignored paths, and the
+//   static check rejects the framework import);
+// - the module under test loading chai through createRequire (static check);
+// - the module under test rewriting a preserved test file and the integration
+//   setup on disk at import time, so a later grading run would read the cheat
+//   (static check; and every grading run gets a fresh read-only tree);
+// - a custom Prisma generator, which `prisma generate` would execute (outside
+//   the agent-writable paths: never copied, and generate never runs on it);
+// - a symlink to a host file (only regular files are accepted).
 function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['agentRun'] {
   sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
     cwd: work,
@@ -837,8 +891,7 @@ function readChanges(pristine: string, work: string, before: Map<string, TreeEnt
     const basePath = path.join(pristine, c.file);
     const base =
       existsSync(basePath) && lstatSync(basePath).isFile() ? readFileSync(basePath, 'utf8') : '';
-    const configBlocksChanged = c.file === PRISMA_SCHEMA ? prismaConfigChanged(after, base) : false;
-    return { ...c, content: addedLines(base, after), configBlocksChanged };
+    return { ...c, content: addedLines(base, after) };
   });
 }
 
@@ -879,24 +932,17 @@ function buildGradeTree(
   }
   for (const file of task.grader.hidden)
     safeWrite(grade, file, hiddenTests(repoRoot, task).get(file)!);
-  // The agent's models, under the base's generator and datasource blocks: what
-  // `prisma generate` executes is never the agent's choice.
-  const schema = path.join(grade, PRISMA_SCHEMA);
-  const baseSchema = path.join(pristine, PRISMA_SCHEMA);
-  if (existsSync(schema) && existsSync(baseSchema))
-    writeFileSync(
-      schema,
-      withBaseConfigBlocks(readFileSync(schema, 'utf8'), readFileSync(baseSchema, 'utf8')),
-    );
   return plan.ignored;
 }
 
-// The blob ids of every grade input in a tree (runner.ts isGradeInput), plus the
-// hidden tests: what each grading run must find before it starts.
+// The blob ids of every protected file in a tree: everything that is not
+// agent-writable (runner.ts isProtected), the hidden tests and the generated
+// client included. A protected path that is not a regular file is recorded as
+// such, so a symlink or a device in its place is a mismatch too.
 export function gradeInputHashes(tree: string, task: GraderSpec): Map<string, string> {
   const out = new Map<string, string>();
   for (const [file, entry] of walkTree(tree))
-    if (isGradeInput(file, task) && entry.blob) out.set(file, entry.blob);
+    if (isProtected(file, task)) out.set(file, entry.blob ?? `<${entry.kind}>`);
   return out;
 }
 
@@ -1099,12 +1145,10 @@ async function main(argv: string[]): Promise<number> {
       // What every run must find, fixed before anything the agent wrote runs.
       const expected = expectedGradeInputHashes(pristine, hiddenTests(repoRoot, task), task);
       gradeInputsRestored = buildGradeTree(repoRoot, task, pristine, work, grade, changes);
+      // The template every grading run copies. Its schema and generated client
+      // are the base's (prisma/ is never agent-writable), so no generate runs
+      // on anything the agent wrote.
       assertGradeInputs(grade, expected, task, 'after the grading tree was built');
-      // The graded schema may differ from the base: regenerate, in a container,
-      // with the tree read-only except the client output. The result is the
-      // template every grading run copies, checked again right after generate.
-      await generateInContainer(repoRoot, grade, reports);
-      assertGradeInputs(grade, expected, task, 'after prisma generate');
       const runGroup = async (
         label: string,
         group: { tier: 'unit' | 'integration'; files: string[] },

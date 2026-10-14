@@ -68,15 +68,28 @@ next to it in `reports/`. Exit codes: 0 pass, 1 fail, 3 infra-error, 2 usage.
 | `dev-mcp-prisma-error-classes`   | error-handling  | #433, #434 | unit        |
 | `dev-duplicate-exercise-post`    | api-correctness | #379, #425 | integration |
 
-Validated on 2026-10-14, fully containerised, each grading run on its own fresh
-read-only tree (12 runs; hidden tests passed / failed, preserved tests green in
-every run: cardio 20/0, mcp 2/0, duplicate POST 35/0):
+Validated on 2026-10-14 under the allowlist model, fully containerised, each
+grading run on its own fresh read-only tree (15 runs; hidden tests passed /
+failed, preserved tests green in every run except `tamper`, whose preserved
+suites do not load: cardio 20/0, mcp 2/0, duplicate POST 35/0):
 
-| Task           | dry       | reference | broken    | tamper                  |
-| -------------- | --------- | --------- | --------- | ----------------------- |
-| cardio         | fail 33/1 | pass 34/0 | fail 33/1 | fail 34/0, 9 violations |
-| mcp            | fail 13/4 | pass 17/0 | fail 14/3 | fail 15/2, 9 violations |
-| duplicate POST | fail 3/1  | pass 4/0  | fail 3/1  | fail 4/0, 9 violations  |
+| Task           | dry       | reference | broken    | tamper                           | tamper-generator        |
+| -------------- | --------- | --------- | --------- | -------------------------------- | ----------------------- |
+| cardio         | fail 33/1 | pass 34/0 | fail 33/1 | fail, suite error, 12 violations | fail 33/1, 8 violations |
+| mcp            | fail 13/4 | pass 17/0 | fail 14/3 | fail, suite error, 11 violations | fail 14/3, 8 violations |
+| duplicate POST | fail 3/1  | pass 4/0  | fail 3/1  | fail, suite error, 12 violations | fail 3/1, 8 violations  |
+
+`tamper` now fails before any test counts: the module under test imports a file
+under `coverage/`, which is outside the agent-writable paths and so is never
+copied, and the suite does not load. `tamper-generator` keeps exactly the broken
+fix's hidden results, so none of its four bypasses had any effect, and no marker
+was found after any grading step. Mutation checks (2026-10-14): with the root
+`.npmrc` let through and vitest called via `npx` again, the `tamper-generator`
+cheat code **ran** inside the hidden unit run and the marker check turned the
+run into an infra-error; at unit level, dropping the dotfile, the
+`node_modules`, the test-file or the `prisma/` exclusion, or the empty
+`NODE_OPTIONS`, each fails a test. Checked on the host: npm honours a project
+`.npmrc` `node-options` under `npx`, and a direct `node` call does not.
 
 `tamper` is the broken fix plus these cheats:
 
@@ -94,21 +107,33 @@ every run: cardio 20/0, mcp 2/0, duplicate POST 35/0):
   rewrites `vitest.setup.ts` (`prisma generate` would run it);
 - a symlink to a host file (`lib/tamper-link.ts`).
 
-`--agent tamper-generator` is one focused cheat: the broken fix plus a Prisma
-generator smuggled on the same line as a model's closing brace
-(`} generator smuggled {`), whose provider is a script that rewrites every
-hidden test into one that always passes and then answers Prisma's generator
-protocol so `generate` exits 0. It must be flagged and must never run: the
-hidden tests have to report the broken fix's own failures.
+`--agent tamper-generator` replays, in one run, the four bypasses that beat the
+earlier denylist screens of #455, on top of the broken fix:
+
+- a Prisma generator opened on the same line as a model's closing brace
+  (`} generator smuggled {`);
+- a generator hidden behind a lone carriage return that ends a `//` comment
+  (Prisma ends a comment there; a line-based reader does not);
+- a project `.npmrc`, and a nested `lib/.npmrc`, whose `node-options` would reach
+  `NODE_OPTIONS` under `npx` and import code;
+- a nested `lib/node_modules/vitest` that module resolution would prefer.
+
+The generators' provider (`prisma/gen.cjs`) rewrites every hidden test into one
+that always passes and answers Prisma's generator protocol; it and the
+`node-options` payload both write a marker file (`.eval-tamper-marker`) to the
+reports directory and the client output. Every one of these changes is outside
+the agent-writable paths, so it is a violation and is **never copied** into a
+grading tree; the runner also fails closed if it finds the marker after any
+grading step. The run must fail with the broken fix's own hidden results.
 
 The chai cheats work inside their own test process: on cardio and duplicate
 POST every hidden test passed (34/0, 4/0). Only the static tamper check turns
 them into `fail`; with that check disabled (a deliberate mutation, 2026-10-14),
 `tamper` **passed** cardio (34/0, 20/0). The on-disk rewrite and the custom
-generator reach nothing even then: every run reads a fresh read-only copy whose
-grade inputs are hash-checked against hashes computed from the base before
-anything ran, and `prisma generate` only ever sees the base's generator and
-datasource blocks.
+generator reach nothing even then: those files are outside the agent-writable
+paths and never reach a grading tree, every run reads a fresh read-only copy
+hash-checked against the base, and no `prisma generate` ever runs on a schema
+the agent wrote.
 
 ## How a replay is isolated
 
@@ -130,9 +155,22 @@ could make git execute a program).
 generate` runs in a container with no network.
 3. **What the agent changed.** The workspace is walked without following links
    and compared with the walk taken before the agent ran (git blob ids computed
-   in-process). The walk covers git-ignored paths too. A static tamper check
-   reads the lines the agent added to each changed non-test file; any of these
-   is a violation (`tamperViolations`) and makes the outcome `fail`:
+   in-process). The walk covers git-ignored paths too. **What the agent may
+   change is an allowlist** (`isAgentWritable` in [`runner.ts`](runner.ts)):
+   regular files under the application source roots `app/`, `components/`,
+   `lib/`, `messages/`, `i18n/` and `public/`, except test files (`*.test.*`,
+   `*.spec.*`, `tests/`, `__tests__/`), any dotfile or dot-directory at any depth
+   (`.npmrc`, `.yarnrc*`, `.env*`), any path segment named `node_modules`, and
+   anything under `prisma/`. Every other change (a config, `package.json`, the
+   lockfile, a vitest setup, `scripts/`, `prisma/`, a stray file at the root) is
+   a violation, listed in `gradeInputsRestored`, and is **not copied**: the
+   grading tree keeps the base version. A task can widen the list only through
+   `grader.allowPaths` in its `task.json` (never under `prisma/`, never a dotfile
+   or `node_modules`). This replaced a denylist of grade inputs after four
+   review rounds each found a way around it (lesson L45). Allowed application
+   code still runs inside the test process, so a static tamper check reads the
+   lines the agent added to each allowed file; any of these is a violation
+   (`tamperViolations`) and makes the outcome `fail`:
    - importing `vitest`, `chai` or `@vitest/*`;
    - a non-literal or aliased `require`, a non-literal dynamic `import()`;
    - `createRequire`, `process.getBuiltinModule`, module internals (dotted or
@@ -151,12 +189,7 @@ generate` runs in a container with no network.
    - importing a file system, process or low-level runtime module (`fs`,
      `fs/promises`, `child_process`, `worker_threads`, `cluster`, `inspector`,
      `v8`, `wasi`, `repl`);
-   - adding, changing or hiding a `generator` or `datasource` block in
-     `prisma/schema.prisma`, wherever it starts (a block opened on the same line
-     as another block's closing brace included), or a schema that does not parse
-     (a generator's provider is a command line `prisma generate` would start
-     with a shell);
-   - creating a symlink or any non-regular file; editing `prisma/generated/`.
+   - creating a symlink or any non-regular file.
 
    Every rule has an id (`tamperRuleIds` in [`schema.ts`](schema.ts)). A task
    whose real fix needs one of these patterns in application code (for example
@@ -167,28 +200,26 @@ generate` runs in a container with no network.
    pattern list can name.
 
 4. **Grading template.** A fresh copy of the untouched snapshot onto which only
-   the agent's regular application files are written (or deleted). Grade inputs
-   stay at the base whatever the agent did: every test file, everything under
-   `tests/`, the vitest configs and `vitest.setup.ts`, `package.json`, the
-   lockfile, `tsconfig.json`, `prisma.config.ts` and every `.env*` file (the
-   base config loads `.env` in generate and migrate, where engine paths or
-   `NODE_OPTIONS` would otherwise be the agent's). Writes never follow a
-   symlink. Then the hidden tests are written from the fix commit. The schema
-   the template generates from is rebuilt by a tokenizer that understands
-   comments, strings and nested braces: the **base's** `generator` and
-   `datasource` blocks plus the agent's `model`, `enum`, `type` and `view`
-   blocks; any other top-level keyword, or a schema that does not parse, makes
-   the template use the base schema whole (and the run is already a tamper
-   fail). The expected grade-input hashes are computed **before** this, from
-   the base snapshot and the fix commit's hidden tests, and the template is
-   checked against them once it is built. `prisma generate` then runs once on
-   the template with no network and the tree mounted **read-only** except the
-   client output (`prisma/generated`); the template is checked against the
-   expected hashes again right after.
+   the agent's allowlisted regular files are written (or deleted). Writes never
+   follow a symlink. Then the hidden tests are written from the fix commit.
+   Everything else is the base's, byte for byte: configs, `.npmrc`, `.env*`,
+   `package.json`, the lockfile, `tsconfig.json`, the vitest configs and setups,
+   every test file, `tests/`, `scripts/` and all of `prisma/`. **The graded
+   Prisma schema is always the base file**, and so is the generated client:
+   `prisma generate` runs once, on the base snapshot before any agent runs,
+   with no network and the tree read-only except the client output, and the
+   template copies that client. No schema text the agent wrote ever reaches
+   `generate`. Consequence: a task whose fix changes the schema is not supported
+   yet (`grader.allowSchemaChanges: true` makes the runner refuse the task) until
+   a check built on Prisma's own parser exists; no current task needs one. The
+   expected hashes of every protected file (everything that is not
+   agent-writable, the hidden tests and the generated client included) are
+   computed **before** any of this, from the base snapshot and the fix commit,
+   and the template is checked against them once it is built.
 5. **One fresh, read-only tree per grading run.** Every run (each `migrate
 deploy`, the hidden tests per tier, the preserved tests per tier) gets its
-   own copy of the generated template. Right before the run, the blob ids of
-   every grade input in that copy are compared with the expected hashes
+   own copy of the template. Right before the run, the blob ids of
+   every protected file in that copy are compared with the expected hashes
    computed from the base before anything ran; any difference fails closed as
    an infra-error. Each container gets its own empty reports directory, and a
    report counts only if it is a regular file there. The copy is mounted **read-only**
@@ -196,7 +227,12 @@ deploy`, the hidden tests per tier, the preserved tests per tier) gets its
    process cannot change a file another run reads. Each integration run gets
    its own throwaway database, so no run can leave state for the next.
 6. **Grading in containers.** `prisma generate`, `prisma migrate deploy` and
-   vitest run in `node` containers (pinned by digest), as the operator's uid
+   vitest run in `node` containers (pinned by digest), called as node scripts
+   from the read-only install (`node node_modules/prisma/build/index.js`,
+   `node node_modules/vitest/vitest.mjs`), never through `npx` or `npm` (npm
+   copies a project `.npmrc`'s `node-options` into `NODE_OPTIONS`), with an
+   explicit environment: an empty `NODE_OPTIONS`, no `npm_config_*`. They run as
+   the operator's uid
    but with a read-only root filesystem, no capability, `no-new-privileges`, the
    install read-only, and no credential or host environment. The unit tier runs
    with `--network none`. The integration tier runs on an `--internal` network

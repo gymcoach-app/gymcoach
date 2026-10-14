@@ -20,14 +20,12 @@ import {
   gitBlobId,
   gradeEnv,
   groupByTier,
-  isGradeInput,
+  isAgentWritable,
+  isProtected,
   parseArgs,
   planGrade,
-  prismaConfigBlocks,
-  prismaConfigChanged,
-  parsePrismaBlocks,
-  PrismaSchemaError,
-  withBaseConfigBlocks,
+  PRISMA_CLI,
+  VITEST_CLI,
   sameDependencies,
   staleEvalResources,
   summariseVitestReport,
@@ -194,19 +192,26 @@ describe('tamperViolations', () => {
     expect(tamperViolations([ch('lib/b.ts', 'eval(code);')], allowing)).toHaveLength(1);
   });
 
-  it('rejects a change to the generator or datasource block of the Prisma schema', () => {
-    expect(
-      tamperViolations(
-        [{ ...ch('prisma/schema.prisma', 'model X { id Int @id }'), configBlocksChanged: true }],
-        task,
-      ),
-    ).toEqual([expect.stringContaining('generator or datasource')]);
-    expect(
-      tamperViolations(
-        [{ ...ch('prisma/schema.prisma', 'model X { id Int @id }'), configBlocksChanged: false }],
-        task,
-      ),
-    ).toEqual([]);
+  it('rejects every change outside the agent-writable paths, whatever its content', () => {
+    for (const file of [
+      'prisma/schema.prisma',
+      'prisma/gen.cjs',
+      'prisma/migrations/1/migration.sql',
+      '.npmrc',
+      'lib/.npmrc',
+      'lib/sub/.yarnrc.yml',
+      '.env',
+      'lib/node_modules/vitest/index.js',
+      'vitest.setup.ts',
+      'tests/integration/setup.ts',
+      'lib/a.test.ts',
+      'package.json',
+      'scripts/x.sh',
+      'coverage/quiet.ts',
+    ])
+      expect(tamperViolations([ch(file, 'export {};')], task), file).toEqual([
+        expect.stringContaining('outside the agent-writable paths'),
+      ]);
   });
 
   it('rejects a symlink or any non-regular file the agent created', () => {
@@ -221,20 +226,19 @@ describe('tamperViolations', () => {
   it('rejects any edit to the generated Prisma client', () => {
     expect(tamperViolations([ch('prisma/generated/client.ts', 'x')], task)).toHaveLength(1);
     expect(tamperViolations([ch('prisma/generated/old.ts', null)], task)).toEqual([
-      expect.stringContaining('generated Prisma client'),
+      expect.stringContaining('outside the agent-writable paths'),
     ]);
   });
 
-  it('leaves legitimate application changes and grade inputs alone', () => {
+  it('leaves legitimate application changes alone', () => {
     expect(
       tamperViolations(
         [
           ch('lib/a.ts', "import { z } from 'zod';\n// mentions vitest in prose\n"),
           ch('lib/c.ts', "const z = require('zod');\nconst x = await import('./y');"),
           ch('lib/d.ts', 'if (Object.is(a, b) && x.y === 1) return;'),
-          ch('lib/a.test.ts', "import { it } from 'vitest';"),
-          ch('tests/integration/x.test.ts', "import { it } from 'vitest';"),
-          ch('vitest.setup.ts', "import { vi } from 'vitest';"),
+          ch('app/api/x/route.ts', 'export const GET = () => new Response();'),
+          ch('messages/en/x.ts', 'export const x = {};'),
           ch('lib/gone.ts', null),
           ch('lib/vitest-like.ts', "import x from 'vitest-ish';"),
         ],
@@ -276,94 +280,103 @@ describe('tamperViolations', () => {
   });
 });
 
-describe('Prisma generator and datasource blocks', () => {
-  const base =
-    'generator client {\n  provider = "prisma-client"\n  output   = "./generated"\n}\n\n' +
-    'datasource db {\n  provider = "postgresql"\n}\n\nmodel A {\n  id Int @id\n}\n';
-  const evil = base.replace('"prisma-client"', '"node ./evil.js"') + 'model B {\n  id Int @id\n}\n';
+describe('the agent-writable allowlist', () => {
+  const t = { grader: { hidden: ['lib/a.test.ts'], preserved: ['lib/b.test.ts'] } };
 
-  it('notices a changed generator provider but not a model change', () => {
-    expect(prismaConfigBlocks(evil)).not.toEqual(prismaConfigBlocks(base));
-    expect(prismaConfigBlocks(base + 'model B {\n  id Int @id\n}\n')).toEqual(
-      prismaConfigBlocks(base),
+  it('accepts regular application files under the source roots', () => {
+    for (const f of [
+      'app/api/x/route.ts',
+      'components/a.tsx',
+      'lib/cardio.ts',
+      'messages/fr/session.ts',
+      'i18n/request.ts',
+      'public/icon.svg',
+    ])
+      expect(isAgentWritable(f, t), f).toBe(true);
+  });
+
+  it('refuses dotfiles at any depth, node_modules segments, tests, prisma and configs', () => {
+    for (const f of [
+      '.npmrc',
+      'lib/.npmrc',
+      'lib/deep/.yarnrc.yml',
+      '.env',
+      'app/.env.local',
+      'lib/.hidden/x.ts',
+      'lib/node_modules/vitest/index.js',
+      'node_modules/x.js',
+      'lib/a.test.ts',
+      'lib/b.test.ts',
+      'components/x.spec.tsx',
+      'lib/__tests__/x.ts',
+      'tests/integration/setup.ts',
+      'prisma/schema.prisma',
+      'prisma/generated/client.ts',
+      'package.json',
+      'package-lock.json',
+      'tsconfig.json',
+      'vitest.config.ts',
+      'vitest.setup.ts',
+      'prisma.config.ts',
+      'next.config.js',
+      'middleware.ts',
+      'scripts/verify.sh',
+      'coverage/quiet.ts',
+      'evals/x.json',
+      'lib/../package.json',
+    ])
+      expect(isAgentWritable(f, t), f).toBe(false);
+  });
+
+  it('protects exactly what the agent may not write', () => {
+    expect(isProtected('vitest.setup.ts', t)).toBe(true);
+    expect(isProtected('lib/.npmrc', t)).toBe(true);
+    expect(isProtected('lib/cardio.ts', t)).toBe(false);
+  });
+
+  it('lets a task widen the allowlist explicitly, never past the hard exclusions', () => {
+    const wide = { grader: { ...t.grader, allowPaths: ['data'] } };
+    expect(isAgentWritable('data/exercise-media.json', wide)).toBe(true);
+    expect(isAgentWritable('data/exercise-media.json', t)).toBe(false);
+    expect(isAgentWritable('data/.npmrc', wide)).toBe(false);
+    expect(isAgentWritable('data/node_modules/x.js', wide)).toBe(false);
+    // Even a task that bypassed the schema could not make prisma/ writable.
+    const prismaWide = { grader: { ...t.grader, allowPaths: ['prisma'] } };
+    expect(isAgentWritable('prisma/schema.prisma', prismaWide)).toBe(false);
+  });
+
+  it('refuses prisma, dotfile and node_modules allowPaths in task.json', () => {
+    const base = JSON.parse(
+      readFileSync(
+        path.join(__dirname, 'tasks', 'dev-cardio-duration-separators', 'task.json'),
+        'utf8',
+      ),
     );
-  });
-
-  it('grades the agent models under the base generator and datasource', () => {
-    const graded = withBaseConfigBlocks(evil, base);
-    expect(graded).toContain('"prisma-client"');
-    expect(graded).not.toContain('evil.js');
-    expect(graded).toContain('model B');
-    expect(prismaConfigBlocks(graded)).toEqual(prismaConfigBlocks(base));
-  });
-  const sameLine =
-    base.trimEnd() + ' generator smuggled {\n  provider = "node prisma/gen.cjs"\n}\n';
-  const sameLineDatasource = base.trimEnd() + ' datasource other { provider = "sqlite" }\n';
-
-  it('finds a generator or datasource opened on the same line as a closing brace', () => {
-    expect(prismaConfigChanged(sameLine, base)).toBe(true);
-    expect(prismaConfigChanged(sameLineDatasource, base)).toBe(true);
-    const graded = withBaseConfigBlocks(sameLine, base);
-    expect(graded).not.toContain('smuggled');
-    expect(graded).not.toContain('gen.cjs');
-    expect(graded).toContain('model A');
-    expect(withBaseConfigBlocks(sameLineDatasource, base)).not.toContain('sqlite');
-  });
-
-  it('is not fooled by comments or strings containing braces or keywords', () => {
-    const tricky =
-      base +
-      '// generator fake { provider = "x" }\n' +
-      'model C {\n  id Int @id\n  note String @default("} generator g { provider = \\"x\\" }") // }\n}\n';
-    expect(prismaConfigChanged(tricky, base)).toBe(false);
-    const blocks = parsePrismaBlocks(tricky);
-    expect(blocks.map((b) => `${b.keyword} ${b.name}`)).toEqual([
-      'generator client',
-      'datasource db',
-      'model A',
-      'model C',
-    ]);
-    expect(withBaseConfigBlocks(tricky, base)).toContain('model C');
-  });
-
-  it('fails closed on an unknown top-level keyword or an unterminated block', () => {
-    for (const bad of [
-      base + 'plugin x { run = "sh" }\n',
-      base + 'model D {\n  id Int @id\n',
-      base + 'model E {\n  s String @default("open)\n}\n',
-      base + 'stray text\n',
-    ]) {
-      expect(() => parsePrismaBlocks(bad)).toThrow(PrismaSchemaError);
-      expect(prismaConfigChanged(bad, base)).toBe(true);
-      // The base schema is used whole: nothing the agent wrote reaches generate.
-      expect(withBaseConfigBlocks(bad, base)).toBe(base);
-    }
-  });
-
-  it('flags a schema whose config blocks changed as a tamper violation', () => {
-    const v = tamperViolations(
-      [
-        {
-          file: 'prisma/schema.prisma',
-          kind: 'file',
-          status: 'modified',
-          content: '',
-          configBlocksChanged: true,
-        },
-      ],
-      { grader: { hidden: [], preserved: [] } },
-    );
-    expect(v.join('\n')).toMatch(/generator or datasource/);
+    for (const bad of ['prisma', 'prisma/migrations', '.github', 'lib/node_modules'])
+      expect(
+        evalTaskSchema.safeParse({ ...base, grader: { ...base.grader, allowPaths: [bad] } })
+          .success,
+        bad,
+      ).toBe(false);
+    expect(
+      evalTaskSchema.parse({ ...base, grader: { ...base.grader, allowPaths: ['data'] } }).grader
+        .allowPaths,
+    ).toEqual(['data']);
   });
 });
 
-describe('env files are grade inputs', () => {
-  it('keeps .env and its variants at the base', () => {
-    const t = { grader: { hidden: [], preserved: [] } };
-    for (const f of ['.env', '.env.local', '.env.test', 'apps/x/.env'])
-      expect(isGradeInput(f, t)).toBe(true);
-    expect(isGradeInput('lib/env.ts', t)).toBe(false);
-    expect(isGradeInput('.envrc-notes.md', t)).toBe(false);
+describe('tool invocation', () => {
+  it('calls the tools as node scripts, never through npx or npm', () => {
+    expect(PRISMA_CLI[0]).toBe('node');
+    expect(VITEST_CLI[0]).toBe('node');
+    expect([...PRISMA_CLI, ...VITEST_CLI].join(' ')).not.toMatch(/\bnp[mx]\b/);
+  });
+
+  it('builds grading and agent environments with an empty NODE_OPTIONS and no npm config', () => {
+    for (const env of [gradeEnv(null), gradeEnv('postgresql://u:p@db:5432/x'), agentEnv('p')]) {
+      expect(env.NODE_OPTIONS).toBe('');
+      expect(Object.keys(env).some((k) => /^npm_config_/i.test(k))).toBe(false);
+    }
   });
 });
 
@@ -564,33 +577,8 @@ const task = {
   },
 };
 
-describe('isGradeInput', () => {
-  it('covers tests, test helpers, runner and package configs', () => {
-    for (const file of [
-      'lib/cardio.test.ts',
-      'lib/import/track.test.ts',
-      'components/a.test.tsx',
-      'tests/integration/setup.ts',
-      'tests/integration/helpers/seed.ts',
-      'vitest.config.ts',
-      'vitest.integration.config.ts',
-      'vitest.workspace.ts',
-      'vitest.setup.ts',
-      'package.json',
-      'package-lock.json',
-      'tsconfig.json',
-    ])
-      expect(isGradeInput(file, task), file).toBe(true);
-  });
-
-  it('leaves application code to the agent', () => {
-    for (const file of ['lib/cardio.ts', 'app/api/x/route.ts', 'prisma/schema.prisma'])
-      expect(isGradeInput(file, task), file).toBe(false);
-  });
-});
-
 describe('planGrade', () => {
-  it('takes only regular application files from the agent, never grade inputs', () => {
+  it('takes only allowlisted regular application files from the agent', () => {
     const changes: Change[] = [
       { file: 'lib/cardio.ts', status: 'modified', kind: 'file' },
       { file: 'lib/cardio.tamper.ts', status: 'added', kind: 'file' },
@@ -602,17 +590,29 @@ describe('planGrade', () => {
       { file: 'lib/link.ts', status: 'added', kind: 'symlink' },
       { file: 'prisma/generated/client.ts', status: 'modified', kind: 'file' },
       { file: 'coverage/quiet.ts', status: 'added', kind: 'file' },
+      { file: 'prisma/schema.prisma', status: 'modified', kind: 'file' },
+      { file: '.npmrc', status: 'added', kind: 'file' },
+      { file: 'lib/node_modules/vitest/index.js', status: 'added', kind: 'file' },
     ];
     expect(planGrade(changes, task)).toEqual({
-      write: ['lib/cardio.ts', 'lib/cardio.tamper.ts', 'coverage/quiet.ts'],
+      write: ['lib/cardio.ts', 'lib/cardio.tamper.ts'],
       remove: ['lib/old.ts'],
       ignored: [
         'lib/import/track.test.ts',
         'vitest.setup.ts',
         'tests/integration/cheat.ts',
         'evals/x.json',
+        'prisma/generated/client.ts',
+        'coverage/quiet.ts',
+        'prisma/schema.prisma',
+        '.npmrc',
+        'lib/node_modules/vitest/index.js',
       ],
     });
+    // The graded schema is the base file byte for byte: no prisma/ change is
+    // ever written into a grading tree.
+    const plan = planGrade(changes, task);
+    expect([...plan.write, ...plan.remove].some((f) => f.startsWith('prisma/'))).toBe(false);
   });
 });
 

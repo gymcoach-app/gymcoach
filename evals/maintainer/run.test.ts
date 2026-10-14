@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertGradeInputs,
+  assertNoTamperMarker,
   evalSubnetPrefix,
   expectedGradeInputHashes,
   freshRunTree,
@@ -34,7 +35,7 @@ afterEach(() => {
 });
 
 describe('freshRunTree', () => {
-  it('hashes grade inputs only, not application code', () => {
+  it('hashes every file outside the agent-writable paths, not application code', () => {
     const t = template();
     expect([...gradeInputHashes(t, task).keys()].sort()).toEqual([
       'lib/a.test.ts',
@@ -94,6 +95,43 @@ describe('expected grade inputs', () => {
     rmSync(path.join(grade, '.env'));
     rmSync(path.join(grade, 'vitest.setup.ts'));
     expect(() => assertGradeInputs(grade, expected, task, 'x')).toThrow(/vitest.setup.ts/);
+  });
+});
+
+describe('protected files beyond the classic grade inputs', () => {
+  it('catches an .npmrc, a dotfile or a node_modules directory nested under app code', () => {
+    const base = template();
+    const expected = expectedGradeInputHashes(base, new Map(), task);
+    for (const [rel, content] of <[string, string][]>[
+      ['lib/.npmrc', 'node-options=--import=data:text/javascript,1\n'],
+      ['.npmrc', 'node-options=--require=./x.js\n'],
+      ['lib/node_modules/vitest/index.js', 'exports.it = () => {};\n'],
+      ['prisma/schema.prisma', '} generator g {\r provider = "sh" }\n'],
+    ]) {
+      const grade = template();
+      mkdirSync(path.dirname(path.join(grade, rel)), { recursive: true });
+      writeFileSync(path.join(grade, rel), content);
+      expect(() => assertGradeInputs(grade, expected, task, 'x'), rel).toThrow(rel);
+    }
+  });
+
+  it('treats a symlink in place of a protected file as a mismatch', () => {
+    const base = template();
+    const expected = expectedGradeInputHashes(base, new Map(), task);
+    const grade = template();
+    rmSync(path.join(grade, 'vitest.setup.ts'));
+    symlinkSync('/etc/hostname', path.join(grade, 'vitest.setup.ts'));
+    expect(() => assertGradeInputs(grade, expected, task, 'x')).toThrow(/vitest.setup.ts/);
+  });
+});
+
+describe('assertNoTamperMarker', () => {
+  it('fails closed when cheat code left its marker anywhere in a checked directory', () => {
+    const dir = template();
+    expect(() => assertNoTamperMarker(dir)).not.toThrow();
+    mkdirSync(path.join(dir, 'prisma/generated'), { recursive: true });
+    writeFileSync(path.join(dir, 'prisma/generated/.eval-tamper-marker'), 'ran');
+    expect(() => assertNoTamperMarker(path.join(dir, 'missing'), dir)).toThrow(/marker/);
   });
 });
 

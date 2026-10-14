@@ -269,15 +269,18 @@ changes within the charter.
 - [x] Use independent acceptance tests and outcome checks. Keep grading code and
       reserved fixtures outside the worker's writable and readable task environment.
       Evidence: hidden tests come from the fix commit and are written into a separate
-      grading tree built from the untouched snapshot after the agent finished; grade
-      inputs never come from the agent; every grading run gets its own fresh copy of
-      the grading tree, checked right before it runs against grade-input hashes
-      computed from the base and the fix commit's hidden tests before any
-      agent-influenced step, and mounted read-only, with its own throwaway database,
-      so agent code running in one test process cannot change what another run reads;
-      `prisma generate` runs on a read-only tree (client output excepted) and only
-      ever sees the base's generator and datasource blocks (a tokenizer rebuilds the
-      schema; a smuggled or unparsable block is a tamper fail); the agent's container sees only the snapshot
+      grading tree built from the untouched snapshot after the agent finished; the
+      agent's changes reach it only through an allowlist of application source paths
+      (no config, dotfile, `node_modules` segment, test file or `prisma/` change is
+      ever copied, lesson L45); every grading run gets its own fresh copy of the
+      grading tree, checked right before it runs against the hashes of every
+      protected file computed from the base and the fix commit's hidden tests before
+      any agent-influenced step, and mounted read-only, with its own throwaway
+      database, so agent code running in one test process cannot change what another
+      run reads; the graded Prisma schema and client are the base's byte for byte
+      (`prisma generate` runs only on the base snapshot, before any agent), so a task
+      that changes the schema is not supported yet; the tools run as node scripts
+      with an empty `NODE_OPTIONS`, never through `npx`; the agent's container sees only the snapshot
       (no `evals/`, no live checkout), and grading runs in containers
       ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts),
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453));

@@ -95,6 +95,23 @@ export const evalTaskSchema = z
         // Static tamper rules this task's real fix needs to break (see
         // tamperRuleIds). Empty by default: every rule applies.
         allowTamperRules: z.array(z.enum(tamperRuleIds)).default([]),
+        // Extra agent-writable paths (runner.ts isAgentWritable) beyond the
+        // application source roots. Never under prisma/, never a dotfile or a
+        // node_modules segment: those stay excluded whatever a task says.
+        allowPaths: z
+          .array(
+            repoPath.refine(
+              (p) =>
+                !p.startsWith('prisma') &&
+                !p.split('/').some((s) => s.startsWith('.') || s === 'node_modules'),
+              'not under prisma/, not a dotfile, not node_modules',
+            ),
+          )
+          .default([]),
+        // A task whose fix changes the Prisma schema. Not supported: the graded
+        // schema is always the base file byte for byte, until a check built on
+        // Prisma's own parser exists. The runner refuses such a task.
+        allowSchemaChanges: z.boolean().default(false),
       })
       .strict(),
     budget: z
@@ -165,8 +182,8 @@ export const evalResultSchema = z
     hidden: z.array(testRunSchema),
     preserved: z.array(testRunSchema),
     infraErrors: z.array(z.string()),
-    // Grade inputs the agent changed, added or removed, put back to the base
-    // before grading (runner.ts isGradeInput).
+    // Changes outside the agent-writable allowlist (runner.ts isAgentWritable):
+    // left out of every grading tree, which keeps the base version.
     gradeInputsRestored: z.array(repoPath),
     // Agent changes the static tamper check rejected (runner.ts
     // tamperViolations); any entry makes the outcome a fail.

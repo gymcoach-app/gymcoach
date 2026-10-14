@@ -766,3 +766,20 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   review of a control misses these, because each piece works as written.
 - **Status:** graduated -> step 4 of the `ship-pr` skill (a review of review, merge or guard
   machinery asks that question and is posted through the machinery when it exists).
+
+### L45 - Screen with allowlists, not denylists
+- **Trigger:** 2026-10-13/14, #455 (eval containment). Four review rounds each found a new
+  bypass of a denylist screen of what the agent under evaluation must not change: a Prisma
+  generator opened on the same line as a closing brace, expected hashes taken after
+  `prisma generate`, a generator hidden behind a lone carriage return ending a comment, and
+  a project `.npmrc` whose `node-options` npm copies into `NODE_OPTIONS` under `npx`. Each
+  fix closed one spelling and the next review found another.
+- **Lesson:** screen with allowlists, not denylists. Name what an untrusted actor may change
+  (here: regular files under the application source roots, no dotfile, no `node_modules`
+  segment, no test file, nothing under `prisma/`), take everything else from a trusted base,
+  and stop running tools through layers that read untrusted config (call node scripts
+  directly with an explicit environment). A denylist reviewer keeps finding the next
+  spelling; an allowlist closes the class.
+- **Status:** graduated -> `isAgentWritable` in `evals/maintainer/runner.ts` (#455); the
+  graded Prisma schema is the base file byte for byte; the tools run as node scripts with an
+  empty `NODE_OPTIONS`; the `tamper-generator` self-check replays all four bypasses.
