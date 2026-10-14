@@ -22,6 +22,7 @@ import {
   EVAL_SCHEMA_VERSION,
   evalResultSchema,
   evalTaskSchema,
+  MAX_WALL_SECONDS,
   type EvalResult,
   type EvalTask,
   type TestRun,
@@ -51,7 +52,7 @@ import {
   isGradeInput,
   parseArgs,
   planGrade,
-  prismaConfigBlocks,
+  prismaConfigChanged,
   staleEvalResources,
   withBaseConfigBlocks,
   sameDependencies,
@@ -138,16 +139,27 @@ function dockerNetworkRm(name: string) {
   spawnSync('docker', ['network', 'rm', name], { stdio: 'ignore' });
 }
 
-// An --internal network in a range of its own (10.250.0.0/16, /28 slices):
-// Docker's default address pools are shared with every other project on the
-// machine and run out ("could not find an available, non-overlapping IPv4
-// address pool"). A slice that overlaps a live one is retried.
+// An --internal network in a range of its own (10.250.0.0/16 by default, /28
+// slices): Docker's default address pools are shared with every other project
+// on the machine and run out ("could not find an available, non-overlapping
+// IPv4 address pool"). A slice that overlaps a live Docker network is retried.
+// Docker does not check host routes: on a machine whose LAN or VPN uses
+// 10.250.0.0/16, set GYMCOACH_EVAL_SUBNET to another free /16 prefix ("a.b").
+export function evalSubnetPrefix(env: Record<string, string | undefined> = process.env): string {
+  const prefix = env.GYMCOACH_EVAL_SUBNET ?? '10.250';
+  const parts = prefix.split('.');
+  if (parts.length !== 2 || parts.some((p) => !/^\d{1,3}$/.test(p) || Number(p) > 255))
+    throw new UsageError(`GYMCOACH_EVAL_SUBNET must be a /16 prefix like 10.250 (got ${prefix})`);
+  return prefix;
+}
+
 function createInternalNetwork(name: string) {
   let last = '';
+  const prefix = evalSubnetPrefix();
   for (let attempt = 0; attempt < 32; attempt++) {
     const third = randomBytes(1)[0]!;
     const fourth = (randomBytes(1)[0]! & 0xf0) % 256;
-    const subnet = `10.250.${third}.${fourth}/28`;
+    const subnet = `${prefix}.${third}.${fourth}/28`;
     const run = spawnSync('docker', ['network', 'create', '--internal', '--subnet', subnet, name], {
       encoding: 'utf8',
     });
@@ -341,17 +353,29 @@ export function gradeContainer(
   databaseUrl: string | null,
   script: string,
   args: string[],
-  // Test and migrate runs mount their tree read-only: application code running
-  // in the test process cannot change a file another run will read.
-  treeReadOnly = true,
+  // Every grading container mounts its tree read-only; `writable` lists the
+  // only subdirectories it may write (generate's client output).
+  writable: string[] = [],
 ): ContainerSpec {
   const nm = nodeModulesMounts(repoRoot);
+  // A read-only tree cannot receive new mount points: create them on the host.
+  for (const dir of ['node_modules', ...writable]) {
+    const at = path.join(grade, dir);
+    if (!existsSync(at)) mkdirSync(at, { recursive: true });
+    else if (!lstatSync(at).isDirectory())
+      throw new Error(`mount point is not a directory: ${dir}`);
+  }
   return {
     name: `gymcoach-eval-grade-${shortId()}`,
     image: NODE_IMAGE,
     network,
     mounts: [
-      { host: grade, target: CONTAINER_WORKDIR, readOnly: treeReadOnly },
+      { host: grade, target: CONTAINER_WORKDIR, readOnly: true },
+      ...writable.map((dir) => ({
+        host: path.join(grade, dir),
+        target: `${CONTAINER_WORKDIR}/${dir}`,
+        readOnly: false,
+      })),
       ...nm.mounts,
       { host: reports, target: '/reports', readOnly: false },
     ],
@@ -364,21 +388,31 @@ export function gradeContainer(
   };
 }
 
+// The directory `prisma generate` writes (the base schema's generator output).
+export const PRISMA_CLIENT_DIR = 'prisma/generated';
+
+// A fresh, empty reports directory for one container: no run can plant a file
+// where another run's report will be read.
+function newReportsDir(reports: string, label: string): string {
+  return mkdtempSync(path.join(reports, `${label}-`));
+}
+
 // Prisma generate for a tree, inside a container with no network. The tree is
-// writable here (generate writes prisma/generated); what runs is the Prisma CLI
-// with the base's prisma.config.ts and the base's generator block, never code
-// the agent wrote.
+// mounted read-only except the client output directory; what runs is the
+// Prisma CLI with the base's prisma.config.ts, the base's .env and the base's
+// generator block, never code the agent wrote.
 async function generateInContainer(repoRoot: string, tree: string, reports: string) {
+  mkdirSync(path.join(tree, PRISMA_CLIENT_DIR), { recursive: true });
   const run = await runContainer(
     gradeContainer(
       repoRoot,
       tree,
-      reports,
+      newReportsDir(reports, 'generate'),
       'none',
       null,
       'npx prisma generate >/dev/null',
       [],
-      false,
+      [PRISMA_CLIENT_DIR],
     ),
     300_000,
   );
@@ -425,7 +459,15 @@ async function startDatabase(repoRoot: string, grade: string, reports: string) {
   }
   const url = `postgresql://${DB_USER}:${DB_USER}@${db}:5432/${DB_NAME}`;
   const migrate = await runContainer(
-    gradeContainer(repoRoot, grade, reports, network, url, 'npx prisma migrate deploy', []),
+    gradeContainer(
+      repoRoot,
+      grade,
+      newReportsDir(reports, 'migrate'),
+      network,
+      url,
+      'npx prisma migrate deploy',
+      [],
+    ),
     300_000,
   );
   if (migrate.status !== 0)
@@ -452,11 +494,12 @@ async function runTests(
   const config = group.tier === 'unit' ? 'vitest.config.ts' : 'vitest.integration.config.ts';
   const integration = group.tier === 'integration';
   if (integration && !database) throw new Error('integration tier without a database');
+  const runReports = newReportsDir(reports, `${label}-${group.tier}`);
   const run = await runContainer(
     gradeContainer(
       repoRoot,
       grade,
-      reports,
+      runReports,
       integration ? database!.network : 'none',
       integration ? database!.url : null,
       'npx vitest run --config "$1" --reporter=json --outputFile="/reports/$2" "${@:3}"',
@@ -464,8 +507,10 @@ async function runTests(
     ),
     900_000,
   );
-  const report = path.join(reports, reportName);
-  const raw = existsSync(report) ? readFileSync(report, 'utf8') : null;
+  // Only a regular file written by this run counts as its report.
+  const report = path.join(runReports, reportName);
+  const raw =
+    existsSync(report) && lstatSync(report).isFile() ? readFileSync(report, 'utf8') : null;
   return {
     tier: group.tier,
     files: group.files,
@@ -508,6 +553,7 @@ async function runAgent(
     return { ...none, exitCode: 0, note: 'applied the intentionally incomplete fix' };
   }
   if (args.agent === 'tamper') return tamper(task, repoRoot, work);
+  if (args.agent === 'tamper-generator') return tamperGenerator(task, work);
   return runClaudeContained(args, task, repoRoot, work);
 }
 
@@ -525,6 +571,37 @@ async function runAgent(
 // - a custom Prisma generator, which `prisma generate` would execute (static
 //   check; and grading always uses the base's generator block);
 // - a symlink to a host file (only regular files are accepted).
+// One focused cheat: the broken fix plus a Prisma generator smuggled on the
+// same line as the closing brace of a model (`} generator x {`), whose shell
+// provider rewrites every hidden test into one that always passes and then
+// answers Prisma's generator protocol so `generate` exits 0. It must be flagged
+// and must never run.
+function tamperGenerator(task: EvalTask, work: string): EvalResult['agentRun'] {
+  sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
+    cwd: work,
+  });
+  const script =
+    `const fs = require('fs');\n` +
+    `for (const f of ${JSON.stringify(task.grader.hidden)}) fs.writeFileSync(f, "import { it } from 'vitest';\\nit('ok', () => {});\\n");\n` +
+    `process.stdin.on('data', (d) => { for (const line of d.toString().split('\\n').filter(Boolean)) {\n` +
+    `  const m = JSON.parse(line); const result = m.method === 'getManifest' ? { manifest: { prettyName: 'x', defaultOutput: '/tmp/x', requiresGenerators: [], requiresEngines: [] } } : null;\n` +
+    `  process.stderr.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\\n'); } });\n`;
+  writeFileSync(path.join(work, 'prisma', 'gen.cjs'), script);
+  const schemaPath = path.join(work, 'prisma', 'schema.prisma');
+  const schema = readFileSync(schemaPath, 'utf8').trimEnd();
+  if (!schema.endsWith('}')) throw new Error('unexpected schema ending');
+  writeFileSync(
+    schemaPath,
+    `${schema} generator smuggled {\n  provider = "node prisma/gen.cjs"\n  output = "./smuggled"\n}\n`,
+  );
+  return {
+    exitCode: 0,
+    costUsd: null,
+    turns: null,
+    note: 'broken fix + a same-line Prisma generator whose provider rewrites the hidden tests',
+  };
+}
+
 function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['agentRun'] {
   sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
     cwd: work,
@@ -758,10 +835,25 @@ function readChanges(pristine: string, work: string, before: Map<string, TreeEnt
     const basePath = path.join(pristine, c.file);
     const base =
       existsSync(basePath) && lstatSync(basePath).isFile() ? readFileSync(basePath, 'utf8') : '';
-    const configBlocksChanged =
-      c.file === PRISMA_SCHEMA ? prismaConfigBlocks(after) !== prismaConfigBlocks(base) : false;
+    const configBlocksChanged = c.file === PRISMA_SCHEMA ? prismaConfigChanged(after, base) : false;
     return { ...c, content: addedLines(base, after), configBlocksChanged };
   });
+}
+
+// The hidden tests, from the fix commit (read once per task).
+const hiddenCache = new Map<string, Map<string, Buffer>>();
+function hiddenTests(repoRoot: string, task: EvalTask): Map<string, Buffer> {
+  let found = hiddenCache.get(task.id);
+  if (!found) {
+    found = new Map(
+      task.grader.hidden.map((file) => [
+        file,
+        sh('git', ['-C', repoRoot, 'show', `${task.snapshot.fixSha}:${file}`]),
+      ]),
+    );
+    hiddenCache.set(task.id, found);
+  }
+  return found;
 }
 
 function buildGradeTree(
@@ -784,7 +876,7 @@ function buildGradeTree(
     if (existsSync(target) && lstatSync(target).isFile()) rmSync(target);
   }
   for (const file of task.grader.hidden)
-    safeWrite(grade, file, sh('git', ['-C', repoRoot, 'show', `${task.snapshot.fixSha}:${file}`]));
+    safeWrite(grade, file, hiddenTests(repoRoot, task).get(file)!);
   // The agent's models, under the base's generator and datasource blocks: what
   // `prisma generate` executes is never the agent's choice.
   const schema = path.join(grade, PRISMA_SCHEMA);
@@ -806,6 +898,33 @@ export function gradeInputHashes(tree: string, task: GraderSpec): Map<string, st
   return out;
 }
 
+// The grade inputs every grading run must find, computed before any step the
+// agent can influence: the base's grade inputs, with the hidden tests taken from
+// the fix commit. Never derived from a tree something already ran in.
+export function expectedGradeInputHashes(
+  pristine: string,
+  hidden: Map<string, Buffer>,
+  task: GraderSpec,
+): Map<string, string> {
+  const out = gradeInputHashes(pristine, task);
+  for (const [file, content] of hidden) out.set(file, gitBlobId(content));
+  return out;
+}
+
+export function assertGradeInputs(
+  tree: string,
+  expected: Map<string, string>,
+  task: GraderSpec,
+  when: string,
+): void {
+  const found = gradeInputHashes(tree, task);
+  const mismatched = [...new Set([...expected.keys(), ...found.keys()])].filter(
+    (f) => expected.get(f) !== found.get(f),
+  );
+  if (mismatched.length)
+    throw new Error(`grade inputs differ from the base ${when}: ${mismatched.join(', ')}`);
+}
+
 // Each grading run (migrate, hidden and preserved tests per tier) gets its own
 // copy of the generated grading template, checked against the expected grade
 // input hashes right before it runs and mounted read-only: no run can change
@@ -818,12 +937,7 @@ export function freshRunTree(
   const tree = tempDir('gymcoach-eval-run-');
   rmSync(tree, { recursive: true, force: true });
   cpSync(template, tree, { recursive: true });
-  const found = gradeInputHashes(tree, task);
-  const mismatched = [...new Set([...expected.keys(), ...found.keys()])].filter(
-    (f) => expected.get(f) !== found.get(f),
-  );
-  if (mismatched.length)
-    throw new Error(`grade inputs differ from the base before a run: ${mismatched.join(', ')}`);
+  assertGradeInputs(tree, expected, task, 'before a run');
   return tree;
 }
 
@@ -833,7 +947,8 @@ export function freshRunTree(
 // /dev/shm and its containers and networks stay up. Every run first removes
 // what an earlier run left behind, once it is older than any run could last,
 // so a concurrent run's resources are never touched.
-const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
+// Tied to the schema's cap on a task's wall time (2 h) plus an hour of margin.
+const STALE_AFTER_MS = MAX_WALL_SECONDS * 1000 + 60 * 60 * 1000;
 
 function sweepLeftovers() {
   const now = Date.now();
@@ -979,11 +1094,15 @@ async function main(argv: string[]): Promise<number> {
   if (infraErrors.length === 0) {
     const t = Date.now();
     try {
+      // What every run must find, fixed before anything the agent wrote runs.
+      const expected = expectedGradeInputHashes(pristine, hiddenTests(repoRoot, task), task);
       gradeInputsRestored = buildGradeTree(repoRoot, task, pristine, work, grade, changes);
-      // The graded schema may differ from the base: regenerate, in a container.
-      // The result is the template every grading run copies.
+      assertGradeInputs(grade, expected, task, 'after the grading tree was built');
+      // The graded schema may differ from the base: regenerate, in a container,
+      // with the tree read-only except the client output. The result is the
+      // template every grading run copies, checked again right after generate.
       await generateInContainer(repoRoot, grade, reports);
-      const expected = gradeInputHashes(grade, task);
+      assertGradeInputs(grade, expected, task, 'after prisma generate');
       const runGroup = async (
         label: string,
         group: { tier: 'unit' | 'integration'; files: string[] },

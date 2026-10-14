@@ -271,10 +271,13 @@ changes within the charter.
       Evidence: hidden tests come from the fix commit and are written into a separate
       grading tree built from the untouched snapshot after the agent finished; grade
       inputs never come from the agent; every grading run gets its own fresh copy of
-      the grading tree, hash-checked against the base right before it runs and
-      mounted read-only, with its own throwaway database, so agent code running in
-      one test process cannot change what another run reads; `prisma generate` uses
-      the base's generator block; the agent's container sees only the snapshot
+      the grading tree, checked right before it runs against grade-input hashes
+      computed from the base and the fix commit's hidden tests before any
+      agent-influenced step, and mounted read-only, with its own throwaway database,
+      so agent code running in one test process cannot change what another run reads;
+      `prisma generate` runs on a read-only tree (client output excepted) and only
+      ever sees the base's generator and datasource blocks (a tokenizer rebuilds the
+      schema; a smuggled or unparsable block is a tamper fail); the agent's container sees only the snapshot
       (no `evals/`, no live checkout), and grading runs in containers
       ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts),
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453));
@@ -298,7 +301,7 @@ changes within the charter.
       needs no credential for the self-checks; the snapshot has no remote and no
       `.claude/`; the agent container reaches only the Anthropic API through the egress
       proxy, and `npx tsx evals/maintainer/probe-isolation.ts` exits 0 on 2026-10-14
-      (66 checks: no gh token, git credentials, SSH keys, live checkout, Docker API, host
+      (62 to 66 checks depending on the host's addresses: no gh token, git credentials, SSH keys, live checkout, Docker API, host
       Postgres (dialled by the host's real address, not only its name), DNS or direct
       internet from the agent or grading containers;
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453)). The paid agent stays

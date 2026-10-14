@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { freshRunTree, gradeInputHashes } from './run';
+import {
+  assertGradeInputs,
+  evalSubnetPrefix,
+  expectedGradeInputHashes,
+  freshRunTree,
+  gradeInputHashes,
+} from './run';
 
 // The per-run grading tree (run.ts): each run gets a fresh copy of the
 // template, and the grade inputs in it are checked against the expected hashes
@@ -59,5 +65,43 @@ describe('freshRunTree', () => {
     const t2 = template();
     writeFileSync(path.join(t2, 'tests/extra.ts'), 'export {};\n');
     expect(() => freshRunTree(t2, added, task)).toThrow(/tests\/extra\.ts/);
+  });
+});
+
+describe('expected grade inputs', () => {
+  it('come from the base with the hidden tests of the fix commit, not from a tree that ran', () => {
+    const base = template();
+    const hidden = new Map([['lib/a.test.ts', Buffer.from("it('a fixed', () => {});\n")]]);
+    const expected = expectedGradeInputHashes(base, hidden, task);
+    // A grading tree built correctly matches.
+    const grade = template();
+    writeFileSync(path.join(grade, 'lib/a.test.ts'), "it('a fixed', () => {});\n");
+    writeFileSync(path.join(grade, 'lib/a.ts'), 'export const a = 2;\n');
+    expect(() => assertGradeInputs(grade, expected, task, 'after build')).not.toThrow();
+    // Something that rewrote a hidden test during generate is caught.
+    writeFileSync(path.join(grade, 'lib/a.test.ts'), "it('ok', () => {});\n");
+    expect(() => assertGradeInputs(grade, expected, task, 'after prisma generate')).toThrow(
+      /after prisma generate: lib\/a.test.ts/,
+    );
+  });
+
+  it('notices a grade input that appeared or vanished', () => {
+    const base = template();
+    const expected = expectedGradeInputHashes(base, new Map(), task);
+    const grade = template();
+    writeFileSync(path.join(grade, '.env'), 'NODE_OPTIONS=--require ./x.js\n');
+    expect(() => assertGradeInputs(grade, expected, task, 'x')).toThrow(/\.env/);
+    rmSync(path.join(grade, '.env'));
+    rmSync(path.join(grade, 'vitest.setup.ts'));
+    expect(() => assertGradeInputs(grade, expected, task, 'x')).toThrow(/vitest.setup.ts/);
+  });
+});
+
+describe('evalSubnetPrefix', () => {
+  it('defaults to 10.250 and accepts a valid /16 prefix override', () => {
+    expect(evalSubnetPrefix({})).toBe('10.250');
+    expect(evalSubnetPrefix({ GYMCOACH_EVAL_SUBNET: '10.77' })).toBe('10.77');
+    for (const bad of ['10', '10.250.1', '10.256', 'a.b', ''])
+      expect(() => evalSubnetPrefix({ GYMCOACH_EVAL_SUBNET: bad })).toThrow(/GYMCOACH_EVAL_SUBNET/);
   });
 });

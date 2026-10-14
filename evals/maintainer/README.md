@@ -94,13 +94,21 @@ every run: cardio 20/0, mcp 2/0, duplicate POST 35/0):
   rewrites `vitest.setup.ts` (`prisma generate` would run it);
 - a symlink to a host file (`lib/tamper-link.ts`).
 
+`--agent tamper-generator` is one focused cheat: the broken fix plus a Prisma
+generator smuggled on the same line as a model's closing brace
+(`} generator smuggled {`), whose provider is a script that rewrites every
+hidden test into one that always passes and then answers Prisma's generator
+protocol so `generate` exits 0. It must be flagged and must never run: the
+hidden tests have to report the broken fix's own failures.
+
 The chai cheats work inside their own test process: on cardio and duplicate
 POST every hidden test passed (34/0, 4/0). Only the static tamper check turns
 them into `fail`; with that check disabled (a deliberate mutation, 2026-10-14),
 `tamper` **passed** cardio (34/0, 20/0). The on-disk rewrite and the custom
 generator reach nothing even then: every run reads a fresh read-only copy whose
-grade inputs are hash-checked, and `prisma generate` always uses the base's
-generator block.
+grade inputs are hash-checked against hashes computed from the base before
+anything ran, and `prisma generate` only ever sees the base's generator and
+datasource blocks.
 
 ## How a replay is isolated
 
@@ -143,8 +151,11 @@ generate` runs in a container with no network.
    - importing a file system, process or low-level runtime module (`fs`,
      `fs/promises`, `child_process`, `worker_threads`, `cluster`, `inspector`,
      `v8`, `wasi`, `repl`);
-   - changing the `generator` or `datasource` block of `prisma/schema.prisma`
-     (a custom generator is a program `prisma generate` would run);
+   - adding, changing or hiding a `generator` or `datasource` block in
+     `prisma/schema.prisma`, wherever it starts (a block opened on the same line
+     as another block's closing brace included), or a schema that does not parse
+     (a generator's provider is a command line `prisma generate` would start
+     with a shell);
    - creating a symlink or any non-regular file; editing `prisma/generated/`.
 
    Every rule has an id (`tamperRuleIds` in [`schema.ts`](schema.ts)). A task
@@ -159,17 +170,28 @@ generate` runs in a container with no network.
    the agent's regular application files are written (or deleted). Grade inputs
    stay at the base whatever the agent did: every test file, everything under
    `tests/`, the vitest configs and `vitest.setup.ts`, `package.json`, the
-   lockfile, `tsconfig.json` and `prisma.config.ts`. Writes never follow a
-   symlink. Then the hidden tests are written from the fix commit, and the
-   schema keeps the agent's models under the **base's** `generator` and
-   `datasource` blocks. `prisma generate` then runs once on this template (no
-   network; what it executes is the Prisma CLI with the base's config and
-   generator, never agent code).
+   lockfile, `tsconfig.json`, `prisma.config.ts` and every `.env*` file (the
+   base config loads `.env` in generate and migrate, where engine paths or
+   `NODE_OPTIONS` would otherwise be the agent's). Writes never follow a
+   symlink. Then the hidden tests are written from the fix commit. The schema
+   the template generates from is rebuilt by a tokenizer that understands
+   comments, strings and nested braces: the **base's** `generator` and
+   `datasource` blocks plus the agent's `model`, `enum`, `type` and `view`
+   blocks; any other top-level keyword, or a schema that does not parse, makes
+   the template use the base schema whole (and the run is already a tamper
+   fail). The expected grade-input hashes are computed **before** this, from
+   the base snapshot and the fix commit's hidden tests, and the template is
+   checked against them once it is built. `prisma generate` then runs once on
+   the template with no network and the tree mounted **read-only** except the
+   client output (`prisma/generated`); the template is checked against the
+   expected hashes again right after.
 5. **One fresh, read-only tree per grading run.** Every run (each `migrate
 deploy`, the hidden tests per tier, the preserved tests per tier) gets its
    own copy of the generated template. Right before the run, the blob ids of
-   every grade input in that copy are compared with the template's; any
-   difference fails closed as an infra-error. The copy is mounted **read-only**
+   every grade input in that copy are compared with the expected hashes
+   computed from the base before anything ran; any difference fails closed as
+   an infra-error. Each container gets its own empty reports directory, and a
+   report counts only if it is a regular file there. The copy is mounted **read-only**
    (vitest's cache goes to a tmpfs), so application code running in one test
    process cannot change a file another run reads. Each integration run gets
    its own throwaway database, so no run can leave state for the next.
@@ -205,17 +227,25 @@ deploy`, the hidden tests per tier, the preserved tests per tier) gets its
    is handled at once, not after the docker client returns. SIGKILL of the
    runner skips the cleanup; the **next run sweeps** what it left: `/dev/shm`
    homes owned by the user and `gymcoach-eval-*` containers and networks older
-   than three hours (longer than any run lasts, so a concurrent run is never
-   touched; a resource of unknown age is kept). With `--keep`, the kept
+   than three hours (a task's `budget.maxWallSeconds` is capped at two hours in
+   the schema, so a concurrent run is never touched; a resource of unknown age
+   is kept). With `--keep`, the kept
    workspace is scrubbed of any file named like a credential or containing a
    credential value, with a warning.
+9. **Networks.** Eval networks are `--internal` and use their own range,
+   `10.250.0.0/16` in `/28` slices, because Docker's default address pools are
+   shared with every other project on the machine and run out. Docker only
+   checks that range against its own networks, not the host's routes: on a
+   machine whose LAN or VPN uses it, set `GYMCOACH_EVAL_SUBNET` to another free
+   `/16` prefix (`a.b`).
 
 ### Proof without a model call
 
 `npx tsx evals/maintainer/probe-isolation.ts` builds the agent container exactly
 as above (proxy, `--internal` network, mounts, read-only credential) and a
 unit-tier grading container, and runs shell probes instead of `claude`. It exits
-0 only when every check holds. On 2026-10-14 it ran **66 checks and exited 0**.
+0 only when every check holds. On 2026-10-14 it exited 0; the number of checks
+depends on how many host addresses the machine has (62 to 66 on this one).
 
 Host addresses are dialled **by IP**, not only by name: `host.docker.internal`
 does not resolve on an `--internal` network, so a name-only check would pass

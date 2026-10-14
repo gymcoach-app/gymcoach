@@ -24,6 +24,9 @@ import {
   parseArgs,
   planGrade,
   prismaConfigBlocks,
+  prismaConfigChanged,
+  parsePrismaBlocks,
+  PrismaSchemaError,
   withBaseConfigBlocks,
   sameDependencies,
   staleEvalResources,
@@ -292,6 +295,75 @@ describe('Prisma generator and datasource blocks', () => {
     expect(graded).not.toContain('evil.js');
     expect(graded).toContain('model B');
     expect(prismaConfigBlocks(graded)).toEqual(prismaConfigBlocks(base));
+  });
+  const sameLine =
+    base.trimEnd() + ' generator smuggled {\n  provider = "node prisma/gen.cjs"\n}\n';
+  const sameLineDatasource = base.trimEnd() + ' datasource other { provider = "sqlite" }\n';
+
+  it('finds a generator or datasource opened on the same line as a closing brace', () => {
+    expect(prismaConfigChanged(sameLine, base)).toBe(true);
+    expect(prismaConfigChanged(sameLineDatasource, base)).toBe(true);
+    const graded = withBaseConfigBlocks(sameLine, base);
+    expect(graded).not.toContain('smuggled');
+    expect(graded).not.toContain('gen.cjs');
+    expect(graded).toContain('model A');
+    expect(withBaseConfigBlocks(sameLineDatasource, base)).not.toContain('sqlite');
+  });
+
+  it('is not fooled by comments or strings containing braces or keywords', () => {
+    const tricky =
+      base +
+      '// generator fake { provider = "x" }\n' +
+      'model C {\n  id Int @id\n  note String @default("} generator g { provider = \\"x\\" }") // }\n}\n';
+    expect(prismaConfigChanged(tricky, base)).toBe(false);
+    const blocks = parsePrismaBlocks(tricky);
+    expect(blocks.map((b) => `${b.keyword} ${b.name}`)).toEqual([
+      'generator client',
+      'datasource db',
+      'model A',
+      'model C',
+    ]);
+    expect(withBaseConfigBlocks(tricky, base)).toContain('model C');
+  });
+
+  it('fails closed on an unknown top-level keyword or an unterminated block', () => {
+    for (const bad of [
+      base + 'plugin x { run = "sh" }\n',
+      base + 'model D {\n  id Int @id\n',
+      base + 'model E {\n  s String @default("open)\n}\n',
+      base + 'stray text\n',
+    ]) {
+      expect(() => parsePrismaBlocks(bad)).toThrow(PrismaSchemaError);
+      expect(prismaConfigChanged(bad, base)).toBe(true);
+      // The base schema is used whole: nothing the agent wrote reaches generate.
+      expect(withBaseConfigBlocks(bad, base)).toBe(base);
+    }
+  });
+
+  it('flags a schema whose config blocks changed as a tamper violation', () => {
+    const v = tamperViolations(
+      [
+        {
+          file: 'prisma/schema.prisma',
+          kind: 'file',
+          status: 'modified',
+          content: '',
+          configBlocksChanged: true,
+        },
+      ],
+      { grader: { hidden: [], preserved: [] } },
+    );
+    expect(v.join('\n')).toMatch(/generator or datasource/);
+  });
+});
+
+describe('env files are grade inputs', () => {
+  it('keeps .env and its variants at the base', () => {
+    const t = { grader: { hidden: [], preserved: [] } };
+    for (const f of ['.env', '.env.local', '.env.test', 'apps/x/.env'])
+      expect(isGradeInput(f, t)).toBe(true);
+    expect(isGradeInput('lib/env.ts', t)).toBe(false);
+    expect(isGradeInput('.envrc-notes.md', t)).toBe(false);
   });
 });
 

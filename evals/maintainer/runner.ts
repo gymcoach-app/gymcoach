@@ -263,19 +263,112 @@ export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] 
 ];
 
 // The generator and datasource blocks of the Prisma schema decide what `prisma
-// generate` runs (a custom generator is an arbitrary program). The grading tree
-// always uses the base's blocks; an agent change to them is also a violation.
-export function prismaConfigBlocks(schema: string): string {
-  const blocks = schema.match(/^\s*(?:generator|datasource)\s+\w+\s*\{[^}]*\}/gm) ?? [];
-  return blocks.map((b) => b.replace(/\s+/g, ' ').trim()).join('\n');
+// generate` runs: a generator's provider is a command line Prisma starts with a
+// shell. The grading tree therefore never takes them from the agent. The schema
+// is split by a small tokenizer that understands comments, strings and nested
+// braces, so a block opened anywhere (`} generator x {` on one line included) is
+// found; anything at the top level that is not a known block fails closed.
+
+export const PRISMA_CONFIG_KEYWORDS = ['generator', 'datasource'] as const;
+const PRISMA_MODEL_KEYWORDS = ['model', 'enum', 'type', 'view'] as const;
+const PRISMA_KEYWORDS: readonly string[] = [...PRISMA_CONFIG_KEYWORDS, ...PRISMA_MODEL_KEYWORDS];
+
+export interface PrismaBlock {
+  keyword: string;
+  name: string;
+  text: string;
 }
 
-// The agent's schema with its generator and datasource blocks replaced by the
-// base's: models change as the agent wrote them, nothing else.
+export class PrismaSchemaError extends Error {}
+
+export function parsePrismaBlocks(schema: string): PrismaBlock[] {
+  const blocks: PrismaBlock[] = [];
+  const n = schema.length;
+  let i = 0;
+  const skipSpaceAndComments = () => {
+    for (;;) {
+      while (i < n && /\s/.test(schema[i]!)) i++;
+      if (schema.startsWith('//', i)) {
+        while (i < n && schema[i] !== '\n') i++;
+        continue;
+      }
+      return;
+    }
+  };
+  const ident = () => {
+    const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(schema.slice(i));
+    if (!m) throw new PrismaSchemaError(`expected a name at offset ${i}`);
+    i += m[0].length;
+    return m[0];
+  };
+  for (;;) {
+    skipSpaceAndComments();
+    if (i >= n) return blocks;
+    const start = i;
+    const keyword = ident();
+    if (!PRISMA_KEYWORDS.includes(keyword))
+      throw new PrismaSchemaError(`unknown top-level keyword "${keyword}" at offset ${start}`);
+    skipSpaceAndComments();
+    const name = ident();
+    skipSpaceAndComments();
+    if (schema[i] !== '{') throw new PrismaSchemaError(`expected "{" after ${keyword} ${name}`);
+    let depth = 0;
+    for (; i < n; i++) {
+      const c = schema[i]!;
+      if (c === '"') {
+        for (i++; i < n && schema[i] !== '"'; i++) {
+          if (schema[i] === '\\') i++;
+          if (schema[i] === '\n') throw new PrismaSchemaError(`unterminated string in ${name}`);
+        }
+        if (i >= n) throw new PrismaSchemaError(`unterminated string in ${name}`);
+      } else if (schema.startsWith('//', i)) {
+        while (i < n && schema[i] !== '\n') i++;
+      } else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) break;
+    }
+    if (i >= n) throw new PrismaSchemaError(`unterminated block ${keyword} ${name}`);
+    i++;
+    blocks.push({ keyword, name, text: schema.slice(start, i) });
+  }
+}
+
+const isConfigBlock = (b: PrismaBlock) =>
+  (PRISMA_CONFIG_KEYWORDS as readonly string[]).includes(b.keyword);
+
+// The generator and datasource blocks, normalised, or null when the schema does
+// not parse (callers treat that as changed: fail closed).
+export function prismaConfigBlocks(schema: string): string | null {
+  try {
+    return parsePrismaBlocks(schema)
+      .filter(isConfigBlock)
+      .map((b) => b.text.replace(/\s+/g, ' ').trim())
+      .sort()
+      .join('\n');
+  } catch (err) {
+    if (err instanceof PrismaSchemaError) return null;
+    throw err;
+  }
+}
+
+export function prismaConfigChanged(agentSchema: string, baseSchema: string): boolean {
+  const agent = prismaConfigBlocks(agentSchema);
+  return agent === null || agent !== prismaConfigBlocks(baseSchema);
+}
+
+// The schema the grading tree generates from: the base's generator and
+// datasource blocks plus the agent's model, enum, type and view blocks. An
+// agent schema that does not parse is replaced by the base schema whole (the
+// run already fails on the violation; nothing the agent wrote reaches generate).
 export function withBaseConfigBlocks(agentSchema: string, baseSchema: string): string {
-  const base = baseSchema.match(/^\s*(?:generator|datasource)\s+\w+\s*\{[^}]*\}/gm) ?? [];
-  const stripped = agentSchema.replace(/^\s*(?:generator|datasource)\s+\w+\s*\{[^}]*\}/gm, '');
-  return `${base.map((b) => b.trim()).join('\n\n')}\n${stripped}`;
+  const base = parsePrismaBlocks(baseSchema);
+  let models: PrismaBlock[];
+  try {
+    models = parsePrismaBlocks(agentSchema).filter((b) => !isConfigBlock(b));
+  } catch (err) {
+    if (err instanceof PrismaSchemaError) return baseSchema;
+    throw err;
+  }
+  return `${[...base.filter(isConfigBlock), ...models].map((b) => b.text).join('\n\n')}\n`;
 }
 
 // The parts of a task the static rules and the grading plan read.
@@ -301,7 +394,9 @@ export function tamperViolations(
       continue;
     }
     if (file === PRISMA_SCHEMA && configBlocksChanged)
-      out.push(`${file}: changes the generator or datasource block (generate would run it)`);
+      out.push(
+        `${file}: changes, adds or hides a generator or datasource block, or does not parse (generate would run it)`,
+      );
     if (isGradeInput(file, task) || content === null) continue;
     for (const rule of TAMPER_RULES)
       if (!allowed.has(rule.id) && rule.pattern.test(content))
@@ -425,6 +520,9 @@ export function isGradeInput(file: string, task: GraderSpec): boolean {
   if (GRADE_CONFIG_FILES.has(file)) return true;
   if (/^vitest\.[^/]+$/.test(file)) return true;
   if (file.startsWith('tests/')) return true;
+  // Env files: prisma.config.ts loads .env in generate and migrate, and engine
+  // paths or NODE_OPTIONS there would be agent-controlled.
+  if (/(^|\/)\.env(\.[^/]*)?$/.test(file)) return true;
   return /\.(test|spec)\.[cm]?[jt]sx?$/.test(file);
 }
 

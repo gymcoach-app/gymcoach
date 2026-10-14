@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// Two hours: well below the 3 h after which a run's leftovers count as stale.
+export const MAX_WALL_SECONDS = 2 * 60 * 60;
+
 // Versioned task and result records for evaluating the maintainer on
 // repeatable tasks (roadmap milestone 3, docs/loops/11-autonomous-development-roadmap.md).
 // A task replays a real defect of this repository from a frozen snapshot; a
@@ -97,7 +100,9 @@ export const evalTaskSchema = z
     budget: z
       .object({
         maxTurns: z.number().int().positive(),
-        maxWallSeconds: z.number().int().positive(),
+        // Capped below the runner's leftover sweep threshold (3 h, run.ts
+        // STALE_AFTER_MS): a live run must never look stale to another run.
+        maxWallSeconds: z.number().int().positive().max(MAX_WALL_SECONDS),
       })
       .strict(),
     // What could leak the answer in a replay and how it is handled.
@@ -110,7 +115,14 @@ export type EvalTask = z.infer<typeof evalTaskSchema>;
 // tamper applies the broken fix and then tries to cheat the grader (grade-input
 // edits, assertions disabled from application code and from an ignored path, a
 // symlink); it must still fail.
-export const agents = ['dry', 'reference', 'broken', 'tamper', 'claude'] as const;
+export const agents = [
+  'dry',
+  'reference',
+  'broken',
+  'tamper',
+  'tamper-generator',
+  'claude',
+] as const;
 export type AgentKind = (typeof agents)[number];
 
 // One vitest invocation of the grader. `null` counts mean the run produced no

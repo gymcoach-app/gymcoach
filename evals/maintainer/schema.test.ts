@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evalResultSchema, evalTaskSchema } from './schema';
+import { evalResultSchema, evalTaskSchema, MAX_WALL_SECONDS } from './schema';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -21,6 +21,18 @@ const task = {
 describe('evalTaskSchema', () => {
   it('accepts a complete task', () => {
     expect(evalTaskSchema.parse(task).id).toBe('dev-example');
+  });
+
+  it('caps the wall time below the leftover sweep threshold', () => {
+    expect(() =>
+      evalTaskSchema.parse({ ...task, budget: { maxTurns: 10, maxWallSeconds: MAX_WALL_SECONDS } }),
+    ).not.toThrow();
+    expect(() =>
+      evalTaskSchema.parse({
+        ...task,
+        budget: { maxTurns: 10, maxWallSeconds: MAX_WALL_SECONDS + 1 },
+      }),
+    ).toThrow();
   });
 
   it('rejects short SHAs, paths outside the repo, unknown splits and extra keys', () => {
