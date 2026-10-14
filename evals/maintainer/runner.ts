@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { agents, type AgentKind, type EvalTask, type Outcome, type TestRun } from './schema';
+import { agents, type AgentKind, type Outcome, type TamperRuleId, type TestRun } from './schema';
 
 // Pure parts of the replay runner (run.ts does the I/O). Kept apart so the
 // rules that decide an outcome are unit-tested without a snapshot, a container
@@ -167,58 +167,131 @@ export function addedLines(before: string, after: string): string {
 }
 
 // Static tamper check on the agent's changes. Grade inputs are never taken from
-// the agent (planGrade), but application code still runs inside the test
+// the agent (planGrade), and every grading run starts from a fresh, read-only
+// copy of the grading tree, but application code still runs inside the test
 // process at grading time and could sabotage it, for example by disabling
 // chai's assert from the module under test or a module the test setup imports.
 // No application file of this repo needs any of the patterns below, so a
 // changed non-test file that contains one fails the run (fail closed: a false
-// positive costs a re-review of the task, a false negative a wrong score).
-const TAMPER_RULES: { why: string; pattern: RegExp }[] = [
+// positive costs a re-review of the task, a false negative a wrong score). It
+// is a screen, not a proof: JavaScript offers more ways to reach a global than
+// a pattern list can name. A task whose real fix needs a rule's pattern lists
+// it in grader.allowTamperRules.
+const anyOf = (...parts: RegExp[]) => new RegExp(parts.map((p) => p.source).join('|'));
+const BUILTINS =
+  'Object|Array|Function|Promise|String|Number|Boolean|JSON|Math|Reflect|Symbol|Error|Map|Set|RegExp|Date|globalThis|global|process';
+export const TAMPER_RULES: { id: TamperRuleId; why: string; pattern: RegExp }[] = [
   {
+    id: 'test-framework',
     why: 'imports a test framework (vitest, chai or @vitest/*)',
     pattern:
       /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*['"`](?:vitest|chai|@vitest\/[^'"`]*)(?:\/[^'"`]*)?['"`]/,
   },
   {
+    id: 'dynamic-require',
     why: 'loads a module by a non-literal or aliased require',
     // `require` anywhere except a direct call with one plain string literal.
     pattern: /\brequire\b(?!\s*\(\s*(['"])[^'"`$\\]*\1\s*\))/,
   },
   {
+    id: 'dynamic-import',
     why: 'loads a module by a non-literal dynamic import',
     pattern: /\bimport\s*\(\s*(?!(['"])[^'"`$\\]*\1\s*\))/,
   },
   {
-    why: 'reaches the module system directly (createRequire, module internals, vm, eval)',
-    pattern:
-      /\bcreateRequire\b|\bgetBuiltinModule\b|\bmodule\s*\.\s*require\b|\bModule\s*\.\s*_load\b|\bprocess\s*\.\s*(?:mainModule|binding|dlopen)\b|['"`](?:node:)?(?:module|vm)['"`]|\beval\s*\(|\bnew\s+Function\s*\(/,
+    id: 'module-system',
+    why: 'reaches the module system or evaluates code (createRequire, module internals, vm, eval, Function)',
+    pattern: anyOf(
+      /\bcreateRequire\b/,
+      /\bgetBuiltinModule\b/,
+      /\bmodule\s*\.\s*require\b/,
+      /\bModule\s*\.\s*_load\b/,
+      /\bprocess\s*(?:\.\s*|\[\s*['"`])(?:mainModule|binding|_linkedBinding|dlopen)\b/,
+      /['"`](?:node:)?(?:module|vm)['"`]/,
+      // eval in any form: direct, indirect ((0, eval)(...)), aliased.
+      /\beval\b/,
+      // The Function constructor, with or without new.
+      /\bFunction\s*\(/,
+      /\bconstructor\s*\.\s*constructor\b/,
+      /\[\s*['"`]constructor['"`]\s*\]/,
+    ),
   },
   {
+    id: 'node-modules-path',
     why: 'names a path inside node_modules',
     pattern: /['"`][^'"`\n]*node_modules[^'"`\n]*['"`]/,
   },
   {
-    why: 'touches test framework internals (matcher state, vitest globals)',
-    pattern: /jest-matchers|__vitest|\bSymbol\s*\.\s*for\s*\(\s*['"`][^'"`]*(?:jest|vitest|chai)/,
-  },
-  {
-    why: 'reassigns a built-in or a global',
+    id: 'framework-internals',
+    why: 'touches test framework internals (matcher state, vitest globals, computed symbols)',
     pattern:
-      /\b(?:Object|Array|Function|Promise|String|Number|Boolean|JSON|Math|Reflect|Symbol|Error|Map|Set|RegExp|Date|globalThis|global)\s*\.\s*(?:prototype\s*\.\s*)?[A-Za-z_$][\w$]*\s*=(?!=)|\bObject\s*\.\s*(?:defineProperty|defineProperties|setPrototypeOf|assign)\s*\(\s*(?:Object|Array|Function|Promise|JSON|Math|Reflect|globalThis|global|process)\b/,
+      /jest-matchers|__vitest|\bSymbol\s*\.\s*for\s*\(\s*['"`][^'"`]*(?:jest|vitest|chai)|\bSymbol\s*\.\s*for\s*\(\s*(?!(['"])[^'"`$\\+]*\1\s*\))/,
   },
   {
+    id: 'global-mutation',
+    why: 'reassigns a built-in, a prototype or a global',
+    pattern: anyOf(
+      // Object.is = ..., Array.prototype.includes = ..., globalThis.expect = ...
+      new RegExp(
+        `\\b(?:${BUILTINS})\\s*\\.\\s*(?:prototype\\s*\\.\\s*)?[A-Za-z_$][\\w$]*\\s*=(?!=)`,
+      ),
+      // Bracket writes: globalThis['ex' + 'pect'] = ..., process['x'] = ...
+      /\b(?:globalThis|global|process|window|self)\s*\[[^\]\n]*\]\s*=(?!=)/,
+      // Any prototype member write, dotted or bracketed.
+      /\.\s*prototype\s*(?:\.\s*[\w$]+|\[[^\]\n]*\])\s*=(?!=)/,
+      // A write through getPrototypeOf, or __proto__ at all.
+      /\b(?:Object|Reflect)\s*\.\s*getPrototypeOf\s*\([^)\n]*\)\s*(?:\.\s*[\w$]+|\[[^\]\n]*\])\s*=(?!=)/,
+      /\b__proto__\b/,
+      // defineProperty and friends on a built-in, a global or a prototype.
+      new RegExp(
+        `\\b(?:Object|Reflect)\\s*\\.\\s*(?:defineProperty|defineProperties|setPrototypeOf|assign|set)\\s*\\(\\s*(?:(?:${BUILTINS})\\b|[\\w$.]*\\.\\s*prototype\\b|Object\\s*\\.\\s*getPrototypeOf\\b)`,
+      ),
+    ),
+  },
+  {
+    id: 'process-hooks',
     why: 'hooks the process exit or its output streams',
     pattern:
       /\bprocess\s*\.\s*(?:on|once|prependListener|addListener)\s*\(\s*['"`](?:exit|beforeExit)['"`]|\bprocess\s*\.\s*(?:exit|exitCode|reallyExit|stdout|stderr)\s*=(?!=)|\bprocess\s*\.\s*(?:stdout|stderr)\s*\.\s*write\s*=(?!=)/,
   },
+  {
+    id: 'host-io',
+    why: 'imports a file system, process or low-level runtime module (fs, child_process, worker_threads, ...)',
+    pattern:
+      /['"`](?:node:)?(?:fs|child_process|worker_threads|cluster|inspector|v8|wasi|repl)(?:\/[^'"`]*)?['"`]/,
+  },
 ];
 
+// The generator and datasource blocks of the Prisma schema decide what `prisma
+// generate` runs (a custom generator is an arbitrary program). The grading tree
+// always uses the base's blocks; an agent change to them is also a violation.
+export function prismaConfigBlocks(schema: string): string {
+  const blocks = schema.match(/^\s*(?:generator|datasource)\s+\w+\s*\{[^}]*\}/gm) ?? [];
+  return blocks.map((b) => b.replace(/\s+/g, ' ').trim()).join('\n');
+}
+
+// The agent's schema with its generator and datasource blocks replaced by the
+// base's: models change as the agent wrote them, nothing else.
+export function withBaseConfigBlocks(agentSchema: string, baseSchema: string): string {
+  const base = baseSchema.match(/^\s*(?:generator|datasource)\s+\w+\s*\{[^}]*\}/gm) ?? [];
+  const stripped = agentSchema.replace(/^\s*(?:generator|datasource)\s+\w+\s*\{[^}]*\}/gm, '');
+  return `${base.map((b) => b.trim()).join('\n\n')}\n${stripped}`;
+}
+
+// The parts of a task the static rules and the grading plan read.
+export interface GraderSpec {
+  grader: { hidden: string[]; preserved: string[]; allowTamperRules?: TamperRuleId[] };
+}
+
+export const PRISMA_SCHEMA = 'prisma/schema.prisma';
+
 export function tamperViolations(
-  changed: (Change & { content: string | null })[],
-  task: Pick<EvalTask, 'grader'>,
+  changed: (Change & { content: string | null; configBlocksChanged?: boolean })[],
+  task: GraderSpec,
 ): string[] {
+  const allowed = new Set<TamperRuleId>(task.grader.allowTamperRules ?? []);
   const out: string[] = [];
-  for (const { file, kind, content, status } of changed) {
+  for (const { file, kind, content, status, configBlocksChanged } of changed) {
     if (file.startsWith('prisma/generated/')) {
       out.push(`${file}: edits the generated Prisma client`);
       continue;
@@ -227,9 +300,12 @@ export function tamperViolations(
       out.push(`${file}: the agent created a ${kind} (only regular files are accepted)`);
       continue;
     }
+    if (file === PRISMA_SCHEMA && configBlocksChanged)
+      out.push(`${file}: changes the generator or datasource block (generate would run it)`);
     if (isGradeInput(file, task) || content === null) continue;
     for (const rule of TAMPER_RULES)
-      if (rule.pattern.test(content)) out.push(`${file}: application code ${rule.why}`);
+      if (!allowed.has(rule.id) && rule.pattern.test(content))
+        out.push(`${file}: application code ${rule.why}`);
   }
   return out;
 }
@@ -340,9 +416,11 @@ const GRADE_CONFIG_FILES = new Set([
   'package-lock.json',
   'tsconfig.json',
   'vitest.setup.ts',
+  // Prisma's CLI config: generate and migrate load it as code.
+  'prisma.config.ts',
 ]);
 
-export function isGradeInput(file: string, task: Pick<EvalTask, 'grader'>): boolean {
+export function isGradeInput(file: string, task: GraderSpec): boolean {
   if (task.grader.hidden.includes(file) || task.grader.preserved.includes(file)) return true;
   if (GRADE_CONFIG_FILES.has(file)) return true;
   if (/^vitest\.[^/]+$/.test(file)) return true;
@@ -357,7 +435,7 @@ export function isGradeInput(file: string, task: Pick<EvalTask, 'grader'>): bool
 // touched), and anything that is not a regular file is never copied.
 export function planGrade(
   changes: Change[],
-  task: Pick<EvalTask, 'grader'>,
+  task: GraderSpec,
 ): { write: string[]; remove: string[]; ignored: string[] } {
   const write: string[] = [];
   const remove: string[] = [];
@@ -513,4 +591,23 @@ export function evalSettings(): Record<string, unknown> {
     },
     hooks: {},
   };
+}
+
+// Leftovers of earlier runs (containers, networks, /dev/shm homes) to remove at
+// start: only names of this harness, and only once older than any run could
+// last, so a concurrent run is never touched. An unknown creation time keeps
+// the resource (fail safe: a leak is better than killing a live run).
+export function staleEvalResources(
+  entries: { name: string; createdMs: number }[],
+  nowMs: number,
+  maxAgeMs: number,
+): string[] {
+  return entries
+    .filter(
+      (e) =>
+        e.name.startsWith('gymcoach-eval-') &&
+        Number.isFinite(e.createdMs) &&
+        nowMs - e.createdMs > maxAgeMs,
+    )
+    .map((e) => e.name);
 }

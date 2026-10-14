@@ -261,7 +261,11 @@ changes within the charter.
       reserved fixtures outside the worker's writable and readable task environment.
       Evidence: hidden tests come from the fix commit and are written into a separate
       grading tree built from the untouched snapshot after the agent finished; grade
-      inputs never come from the agent; the agent's container sees only the snapshot
+      inputs never come from the agent; every grading run gets its own fresh copy of
+      the grading tree, hash-checked against the base right before it runs and
+      mounted read-only, with its own throwaway database, so agent code running in
+      one test process cannot change what another run reads; `prisma generate` uses
+      the base's generator block; the agent's container sees only the snapshot
       (no `evals/`, no live checkout), and grading runs in containers
       ([`evals/maintainer/run.ts`](../../evals/maintainer/run.ts),
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453));
@@ -284,9 +288,10 @@ changes within the charter.
       Evidence: `npx tsx evals/maintainer/run.ts` ([README](../../evals/maintainer/README.md))
       needs no credential for the self-checks; the snapshot has no remote and no
       `.claude/`; the agent container reaches only the Anthropic API through the egress
-      proxy, and `npx tsx evals/maintainer/probe-isolation.ts` exits 0 on 2026-10-13
-      (37 checks: no gh token, git credentials, SSH keys, live checkout, Docker API, host
-      Postgres or direct internet from the agent or grading containers;
+      proxy, and `npx tsx evals/maintainer/probe-isolation.ts` exits 0 on 2026-10-14
+      (66 checks: no gh token, git credentials, SSH keys, live checkout, Docker API, host
+      Postgres (dialled by the host's real address, not only its name), DNS or direct
+      internet from the agent or grading containers;
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453)). The paid agent stays
       hard-disabled (`PAID_AGENT_ENABLED = false`) until the operator accepts the residual
       credential risk and sets a budget. On 2026-10-13 the 3 smoke tasks, fully

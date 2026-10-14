@@ -68,14 +68,15 @@ next to it in `reports/`. Exit codes: 0 pass, 1 fail, 3 infra-error, 2 usage.
 | `dev-mcp-prisma-error-classes`   | error-handling  | #433, #434 | unit        |
 | `dev-duplicate-exercise-post`    | api-correctness | #379, #425 | integration |
 
-Validated on 2026-10-13, fully containerised (12 runs; hidden tests passed /
-failed, preserved tests green in every run):
+Validated on 2026-10-14, fully containerised, each grading run on its own fresh
+read-only tree (12 runs; hidden tests passed / failed, preserved tests green in
+every run: cardio 20/0, mcp 2/0, duplicate POST 35/0):
 
 | Task           | dry       | reference | broken    | tamper                  |
 | -------------- | --------- | --------- | --------- | ----------------------- |
-| cardio         | fail 33/1 | pass 34/0 | fail 33/1 | fail 34/0, 3 violations |
-| mcp            | fail 13/4 | pass 17/0 | fail 14/3 | fail 15/2, 3 violations |
-| duplicate POST | fail 3/1  | pass 4/0  | fail 3/1  | fail 4/0, 3 violations  |
+| cardio         | fail 33/1 | pass 34/0 | fail 33/1 | fail 34/0, 9 violations |
+| mcp            | fail 13/4 | pass 17/0 | fail 14/3 | fail 15/2, 9 violations |
+| duplicate POST | fail 3/1  | pass 4/0  | fail 3/1  | fail 4/0, 9 violations  |
 
 `tamper` is the broken fix plus these cheats:
 
@@ -86,11 +87,20 @@ failed, preserved tests green in every run):
   (`coverage/quiet.ts`) that turns `chai.Assertion.prototype.assert` into a no-op;
 - the module under test loading chai through `createRequire` and disabling the
   same assert;
+- the module under test rewriting the preserved tests and the integration setup
+  on disk when it is imported (`node:fs`), so a later grading run would read the
+  cheat;
+- a custom Prisma generator in `prisma/schema.prisma` pointing at a script that
+  rewrites `vitest.setup.ts` (`prisma generate` would run it);
 - a symlink to a host file (`lib/tamper-link.ts`).
 
-The chai cheats work: on cardio and duplicate POST every hidden test passed
-(34/0, 4/0). Only the static tamper check turns them into `fail`; with that
-check disabled (a deliberate mutation), `tamper` **passed** cardio (34/0, 20/0).
+The chai cheats work inside their own test process: on cardio and duplicate
+POST every hidden test passed (34/0, 4/0). Only the static tamper check turns
+them into `fail`; with that check disabled (a deliberate mutation, 2026-10-14),
+`tamper` **passed** cardio (34/0, 20/0). The on-disk rewrite and the custom
+generator reach nothing even then: every run reads a fresh read-only copy whose
+grade inputs are hash-checked, and `prisma generate` always uses the base's
+generator block.
 
 ## How a replay is isolated
 
@@ -117,21 +127,53 @@ generate` runs in a container with no network.
    is a violation (`tamperViolations`) and makes the outcome `fail`:
    - importing `vitest`, `chai` or `@vitest/*`;
    - a non-literal or aliased `require`, a non-literal dynamic `import()`;
-   - `createRequire`, `process.getBuiltinModule`, module internals, `vm`,
-     `eval`, `new Function`;
+   - `createRequire`, `process.getBuiltinModule`, module internals (dotted or
+     bracketed, `process['binding']`), `vm`, `eval` in any form (direct,
+     indirect `(0, eval)`, aliased), the `Function` constructor with or without
+     `new`, `constructor.constructor`;
    - a specifier naming a path inside `node_modules`;
-   - test framework internals (matcher state, vitest globals);
-   - reassigning a built-in or a global (`Object.is = ...`, a prototype method,
-     `Object.defineProperty` on a built-in, `globalThis.x = ...`);
+   - test framework internals (matcher state, vitest globals, a computed or
+     non-literal `Symbol.for`);
+   - reassigning a built-in, a prototype or a global, dotted or bracketed
+     (`Object.is = ...`, `Array.prototype['includes'] = ...`,
+     `globalThis['ex' + 'pect'] = ...`), a write through
+     `Object.getPrototypeOf(...)`, any `__proto__`, `Object.defineProperty`
+     and friends on a built-in, a global or a prototype;
    - hooking the process exit or its output streams;
+   - importing a file system, process or low-level runtime module (`fs`,
+     `fs/promises`, `child_process`, `worker_threads`, `cluster`, `inspector`,
+     `v8`, `wasi`, `repl`);
+   - changing the `generator` or `datasource` block of `prisma/schema.prisma`
+     (a custom generator is a program `prisma generate` would run);
    - creating a symlink or any non-regular file; editing `prisma/generated/`.
-4. **Grading tree.** A fresh copy of the untouched snapshot onto which only the
-   agent's regular application files are written (or deleted). Grade inputs stay
-   at the base whatever the agent did: every test file, everything under
+
+   Every rule has an id (`tamperRuleIds` in [`schema.ts`](schema.ts)). A task
+   whose real fix needs one of these patterns in application code (for example
+   a fix that legitimately reads a file with `node:fs`) lists the rule in
+   `grader.allowTamperRules` in its `task.json`; the rule is then skipped for
+   that task only, and the allowance is visible in review. It is a fail-closed
+   **screen, not a proof**: JavaScript has more ways to reach a global than a
+   pattern list can name.
+
+4. **Grading template.** A fresh copy of the untouched snapshot onto which only
+   the agent's regular application files are written (or deleted). Grade inputs
+   stay at the base whatever the agent did: every test file, everything under
    `tests/`, the vitest configs and `vitest.setup.ts`, `package.json`, the
-   lockfile and `tsconfig.json`. Writes never follow a symlink. Then the hidden
-   tests are written from the fix commit.
-5. **Grading in containers.** `prisma generate`, `prisma migrate deploy` and
+   lockfile, `tsconfig.json` and `prisma.config.ts`. Writes never follow a
+   symlink. Then the hidden tests are written from the fix commit, and the
+   schema keeps the agent's models under the **base's** `generator` and
+   `datasource` blocks. `prisma generate` then runs once on this template (no
+   network; what it executes is the Prisma CLI with the base's config and
+   generator, never agent code).
+5. **One fresh, read-only tree per grading run.** Every run (each `migrate
+deploy`, the hidden tests per tier, the preserved tests per tier) gets its
+   own copy of the generated template. Right before the run, the blob ids of
+   every grade input in that copy are compared with the template's; any
+   difference fails closed as an infra-error. The copy is mounted **read-only**
+   (vitest's cache goes to a tmpfs), so application code running in one test
+   process cannot change a file another run reads. Each integration run gets
+   its own throwaway database, so no run can leave state for the next.
+6. **Grading in containers.** `prisma generate`, `prisma migrate deploy` and
    vitest run in `node` containers (pinned by digest), as the operator's uid
    but with a read-only root filesystem, no capability, `no-new-privileges`, the
    install read-only, and no credential or host environment. The unit tier runs
@@ -140,7 +182,7 @@ generate` runs in a container with no network.
    container (pinned by digest, data in tmpfs) migrated to the graded schema;
    one vitest worker (lesson L33). Never the host's test database, never the
    host network. A run passes only when vitest also exits 0.
-6. **The `claude` agent (hard-disabled).** It runs in the same hardened `node`
+7. **The `claude` agent (hard-disabled).** It runs in the same hardened `node`
    container on an `--internal` network whose only other member is an egress
    proxy ([`egress-proxy.cjs`](egress-proxy.cjs), dependency-free, in its own
    hardened container). The proxy serves HTTP CONNECT only, to port 443 of the
@@ -157,17 +199,33 @@ generate` runs in a container with no network.
    `npx vitest` already runs arbitrary code. The containers, the `--internal`
    network and the proxy are the boundary. On a timeout the container is
    removed, which stops every process the agent started.
-7. **Cleanup.** Containers, networks and temp dirs (the credential copy among
+8. **Cleanup.** Containers, networks and temp dirs (the credential copy among
    them) are removed on every exit path: normal exit, an error, and SIGINT,
-   SIGTERM or SIGHUP. Only SIGKILL of the runner skips it; the credential copy is
-   then left in `/dev/shm`, which is cleared at the next reboot.
+   SIGTERM or SIGHUP. Containers run through an asynchronous spawn, so a signal
+   is handled at once, not after the docker client returns. SIGKILL of the
+   runner skips the cleanup; the **next run sweeps** what it left: `/dev/shm`
+   homes owned by the user and `gymcoach-eval-*` containers and networks older
+   than three hours (longer than any run lasts, so a concurrent run is never
+   touched; a resource of unknown age is kept). With `--keep`, the kept
+   workspace is scrubbed of any file named like a credential or containing a
+   credential value, with a warning.
 
 ### Proof without a model call
 
 `npx tsx evals/maintainer/probe-isolation.ts` builds the agent container exactly
 as above (proxy, `--internal` network, mounts, read-only credential) and a
 unit-tier grading container, and runs shell probes instead of `claude`. It exits
-0 only when every check holds. On 2026-10-13 it ran **37 checks and exited 0**.
+0 only when every check holds. On 2026-10-14 it ran **66 checks and exited 0**.
+
+Host addresses are dialled **by IP**, not only by name: `host.docker.internal`
+does not resolve on an `--internal` network, so a name-only check would pass
+whatever the routing. The probe finds the host's address as a container on the
+default bridge sees it (192.168.65.2 on this machine, where the host's test
+Postgres on 5434 **is** reachable from a plain container), and dials it, the
+docker bridge gateway (172.17.0.1), Docker Desktop's host addresses
+(192.168.65.254, 192.168.65.1) and the gateway of the agent's own network, on
+ports 2375 and 5434, directly and through the proxy. A DNS check confirms that a
+public name does not resolve on the internal network.
 
 - From the agent container, all of these failed, as they must: reading the gh
   token, `~/.git-credentials`, `~/.ssh`, `~/.gitconfig` or the live checkout by
@@ -180,7 +238,7 @@ unit-tier grading container, and runs shell probes instead of `claude`. It exits
   handshake with `api.anthropic.com` through the proxy (no request sent), and
   `claude --version` with the read-only credential.
 - From the grading container, the same file, environment and network checks
-  failed.
+  failed, and so did a write to the (read-only) grading tree.
 
 The no-model-call CLI commands (`claude --version`, `claude --help`) contacted no
 host at all (the proxy's log stayed empty with an empty allowlist).
@@ -205,10 +263,12 @@ What a paid run would still accept, stated plainly:
   result; the proxy log names the refused host.
 - **The static tamper check is a pattern match, not a proof.** The rules above
   are fail-closed for the shapes listed, but agent code still runs inside the
-  test process: it could, for example, rewrite vitest's report file or exit code
-  through means the patterns do not anticipate. The containers make that a
-  validity risk only, never a host security risk. Cross-checking hidden-test
-  counts against the reference run is a possible next hardening.
+  test process of the run it is graded in: within that one process it could
+  still sabotage the reporter through means the patterns do not anticipate.
+  It can no longer reach another run (fresh read-only tree per run, hash check,
+  fresh database). The containers make the rest a validity risk only, never a
+  host security risk. Cross-checking hidden-test counts against the reference
+  run is a possible next hardening.
 - **Training-data contamination.** The repository is public: a model's
   training data may include the later commits, PRs and lessons that the snapshot
   removes. Nothing in a replay can undo that; a task's result for a model trained

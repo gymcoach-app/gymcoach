@@ -23,7 +23,10 @@ import {
   isGradeInput,
   parseArgs,
   planGrade,
+  prismaConfigBlocks,
+  withBaseConfigBlocks,
   sameDependencies,
+  staleEvalResources,
   summariseVitestReport,
   tamperViolations,
   PAID_AGENT_DISABLED_REASON,
@@ -157,8 +160,50 @@ describe('tamperViolations', () => {
     ['an exit override', 'process.exit = () => {};'],
     ['an output stream patch', 'process.stdout.write = () => true;'],
     ['eval', 'eval(code);'],
+    ['indirect eval', 'const r = (0, eval)(src);'],
+    ['the Function constructor without new', "const f = Function('return this')();"],
+    ['constructor.constructor', "const g = [].constructor.constructor('return globalThis')();"],
+    ['a bracket write on globalThis', "globalThis['ex' + 'pect'] = () => ({});"],
+    ['a bracket read of process.binding', "const b = process['binding']('fs');"],
+    ['a bracket write on a prototype', "Array.prototype['includes'] = () => true;"],
+    ['a write through getPrototypeOf', 'Object.getPrototypeOf(x).y = 1;'],
+    ['__proto__', 'x.__proto__.y = 1;'],
+    ['defineProperty on globalThis', "Object.defineProperty(globalThis, 'expect', { value: 1 });"],
+    [
+      'defineProperty on a prototype',
+      "Reflect.defineProperty(Array.prototype, 'at', { value: 1 });",
+    ],
+    ['a computed Symbol.for', "const k = Symbol.for('$$je' + 'st-matchers-object');"],
+    ['a non-literal Symbol.for', 'const k = Symbol.for(name);'],
+    ['an fs import', "import { writeFileSync } from 'node:fs';"],
+    ['an fs/promises import', "import { writeFile } from 'fs/promises';"],
+    ['a child_process require', "const cp = require('child_process');"],
+    ['a worker_threads import', "import { Worker } from 'node:worker_threads';"],
   ])('rejects %s in application code', (_, content) => {
     expect(tamperViolations([ch('lib/b.ts', content)], task).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('lets a task allow a rule its real fix needs, and only that rule', () => {
+    const allowing = { grader: { ...task.grader, allowTamperRules: ['host-io' as const] } };
+    expect(
+      tamperViolations([ch('lib/b.ts', "import { readFileSync } from 'node:fs';")], allowing),
+    ).toEqual([]);
+    expect(tamperViolations([ch('lib/b.ts', 'eval(code);')], allowing)).toHaveLength(1);
+  });
+
+  it('rejects a change to the generator or datasource block of the Prisma schema', () => {
+    expect(
+      tamperViolations(
+        [{ ...ch('prisma/schema.prisma', 'model X { id Int @id }'), configBlocksChanged: true }],
+        task,
+      ),
+    ).toEqual([expect.stringContaining('generator or datasource')]);
+    expect(
+      tamperViolations(
+        [{ ...ch('prisma/schema.prisma', 'model X { id Int @id }'), configBlocksChanged: false }],
+        task,
+      ),
+    ).toEqual([]);
   });
 
   it('rejects a symlink or any non-regular file the agent created', () => {
@@ -182,7 +227,7 @@ describe('tamperViolations', () => {
       tamperViolations(
         [
           ch('lib/a.ts', "import { z } from 'zod';\n// mentions vitest in prose\n"),
-          ch('lib/c.ts', "const fs = require('fs');\nconst x = await import('./y');"),
+          ch('lib/c.ts', "const z = require('zod');\nconst x = await import('./y');"),
           ch('lib/d.ts', 'if (Object.is(a, b) && x.y === 1) return;'),
           ch('lib/a.test.ts', "import { it } from 'vitest';"),
           ch('tests/integration/x.test.ts', "import { it } from 'vitest';"),
@@ -225,6 +270,47 @@ describe('tamperViolations', () => {
         expect(tamperViolations([ch(file, content)], t)).toEqual([]);
       }
     }
+  });
+});
+
+describe('Prisma generator and datasource blocks', () => {
+  const base =
+    'generator client {\n  provider = "prisma-client"\n  output   = "./generated"\n}\n\n' +
+    'datasource db {\n  provider = "postgresql"\n}\n\nmodel A {\n  id Int @id\n}\n';
+  const evil = base.replace('"prisma-client"', '"node ./evil.js"') + 'model B {\n  id Int @id\n}\n';
+
+  it('notices a changed generator provider but not a model change', () => {
+    expect(prismaConfigBlocks(evil)).not.toEqual(prismaConfigBlocks(base));
+    expect(prismaConfigBlocks(base + 'model B {\n  id Int @id\n}\n')).toEqual(
+      prismaConfigBlocks(base),
+    );
+  });
+
+  it('grades the agent models under the base generator and datasource', () => {
+    const graded = withBaseConfigBlocks(evil, base);
+    expect(graded).toContain('"prisma-client"');
+    expect(graded).not.toContain('evil.js');
+    expect(graded).toContain('model B');
+    expect(prismaConfigBlocks(graded)).toEqual(prismaConfigBlocks(base));
+  });
+});
+
+describe('staleEvalResources', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z');
+  const hour = 60 * 60 * 1000;
+  it('removes only harness resources older than any run could last', () => {
+    expect(
+      staleEvalResources(
+        [
+          { name: 'gymcoach-eval-agent-1', createdMs: now - 5 * hour },
+          { name: 'gymcoach-eval-agent-2', createdMs: now - 10 * 60 * 1000 },
+          { name: 'other-container', createdMs: now - 50 * hour },
+          { name: 'gymcoach-eval-home-x', createdMs: Number.NaN },
+        ],
+        now,
+        3 * hour,
+      ),
+    ).toEqual(['gymcoach-eval-agent-1']);
   });
 });
 

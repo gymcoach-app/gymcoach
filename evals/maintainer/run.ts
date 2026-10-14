@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
@@ -12,6 +12,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -32,6 +33,7 @@ import {
   EGRESS_PROXY_PORT,
   NODE_IMAGE,
   POSTGRES_IMAGE,
+  PRISMA_SCHEMA,
   SNAPSHOT_EXCLUDES,
   UsageError,
   WALK_SKIP,
@@ -46,12 +48,17 @@ import {
   gitBlobId,
   gradeEnv,
   groupByTier,
+  isGradeInput,
   parseArgs,
   planGrade,
+  prismaConfigBlocks,
+  staleEvalResources,
+  withBaseConfigBlocks,
   sameDependencies,
   summariseVitestReport,
   tamperViolations,
   type ContainerSpec,
+  type GraderSpec,
   type Mount,
   type RunArgs,
   type TreeEntry,
@@ -129,6 +136,28 @@ function dockerRm(name: string) {
 
 function dockerNetworkRm(name: string) {
   spawnSync('docker', ['network', 'rm', name], { stdio: 'ignore' });
+}
+
+// An --internal network in a range of its own (10.250.0.0/16, /28 slices):
+// Docker's default address pools are shared with every other project on the
+// machine and run out ("could not find an available, non-overlapping IPv4
+// address pool"). A slice that overlaps a live one is retried.
+function createInternalNetwork(name: string) {
+  let last = '';
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const third = randomBytes(1)[0]!;
+    const fourth = (randomBytes(1)[0]! & 0xf0) % 256;
+    const subnet = `10.250.${third}.${fourth}/28`;
+    const run = spawnSync('docker', ['network', 'create', '--internal', '--subnet', subnet, name], {
+      encoding: 'utf8',
+    });
+    if (run.status === 0) {
+      onCleanup(() => dockerNetworkRm(name));
+      return;
+    }
+    last = (run.stderr || '').trim();
+  }
+  throw new Error(`could not create network ${name}: ${last}`);
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -254,17 +283,51 @@ function makeWorkspace(pristine: string, work: string) {
 
 // --- containers -------------------------------------------------------------
 
-export function runContainer(spec: ContainerSpec, timeoutMs: number) {
+export interface ContainerRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error: Error | null;
+}
+
+// Asynchronous on purpose: a synchronous spawn would block the event loop, so
+// a SIGINT or SIGTERM sent to the runner would wait for the docker client to
+// return (up to the task's wall time) before the cleanups ran.
+export function runContainer(spec: ContainerSpec, timeoutMs: number): Promise<ContainerRun> {
   onCleanup(() => dockerRm(spec.name));
-  const run = spawnSync('docker', containerArgs(spec), {
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    maxBuffer: 64 * 1024 * 1024,
+  return new Promise((resolve) => {
+    const child = spawn('docker', containerArgs(spec), { stdio: ['ignore', 'pipe', 'pipe'] });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    let size = 0;
+    const keep = (chunks: Buffer[]) => (d: Buffer) => {
+      size += d.length;
+      if (size <= 64 * 1024 * 1024) chunks.push(d);
+    };
+    child.stdout.on('data', keep(out));
+    child.stderr.on('data', keep(err));
+    let error: Error | null = null;
+    // A timeout kills only the docker client; removing the container stops every
+    // process started inside it.
+    const timer = setTimeout(() => {
+      error = new Error(`timed out after ${timeoutMs} ms`);
+      dockerRm(spec.name);
+      child.kill('SIGKILL');
+    }, timeoutMs);
+    child.on('error', (e) => {
+      error = e;
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      dockerRm(spec.name);
+      resolve({
+        status: code,
+        stdout: Buffer.concat(out).toString('utf8'),
+        stderr: Buffer.concat(err).toString('utf8'),
+        error,
+      });
+    });
   });
-  // A timeout kills only the docker client; removing the container stops every
-  // process started inside it.
-  dockerRm(spec.name);
-  return run;
 }
 
 // A shell step in a grading container. The script is fixed text from this
@@ -278,6 +341,9 @@ export function gradeContainer(
   databaseUrl: string | null,
   script: string,
   args: string[],
+  // Test and migrate runs mount their tree read-only: application code running
+  // in the test process cannot change a file another run will read.
+  treeReadOnly = true,
 ): ContainerSpec {
   const nm = nodeModulesMounts(repoRoot);
   return {
@@ -285,7 +351,7 @@ export function gradeContainer(
     image: NODE_IMAGE,
     network,
     mounts: [
-      { host: grade, target: CONTAINER_WORKDIR, readOnly: false },
+      { host: grade, target: CONTAINER_WORKDIR, readOnly: treeReadOnly },
       ...nm.mounts,
       { host: reports, target: '/reports', readOnly: false },
     ],
@@ -298,11 +364,22 @@ export function gradeContainer(
   };
 }
 
-// Prisma generate for a tree, inside a container with no network: the schema
-// (and its generator) is application code, so it never runs on the host.
-function generateInContainer(repoRoot: string, tree: string, reports: string) {
-  const run = runContainer(
-    gradeContainer(repoRoot, tree, reports, 'none', null, 'npx prisma generate >/dev/null', []),
+// Prisma generate for a tree, inside a container with no network. The tree is
+// writable here (generate writes prisma/generated); what runs is the Prisma CLI
+// with the base's prisma.config.ts and the base's generator block, never code
+// the agent wrote.
+async function generateInContainer(repoRoot: string, tree: string, reports: string) {
+  const run = await runContainer(
+    gradeContainer(
+      repoRoot,
+      tree,
+      reports,
+      'none',
+      null,
+      'npx prisma generate >/dev/null',
+      [],
+      false,
+    ),
     300_000,
   );
   if (run.status !== 0)
@@ -312,11 +389,10 @@ function generateInContainer(repoRoot: string, tree: string, reports: string) {
 // The integration tier's database: a throwaway Postgres on an --internal
 // network created for this run, migrated to the graded schema from inside a
 // container. Never the host's test database, never the host network.
-function startDatabase(repoRoot: string, grade: string, reports: string) {
+async function startDatabase(repoRoot: string, grade: string, reports: string) {
   const network = `gymcoach-eval-net-${shortId()}`;
   const db = `gymcoach-eval-db-${shortId()}`;
-  sh('docker', ['network', 'create', '--internal', network]);
-  onCleanup(() => dockerNetworkRm(network));
+  createInternalNetwork(network);
   onCleanup(() => dockerRm(db));
   sh('docker', [
     'run',
@@ -345,31 +421,38 @@ function startDatabase(repoRoot: string, grade: string, reports: string) {
     );
     if (ready.status === 0) break;
     if (Date.now() > deadline) throw new Error('the eval Postgres did not become ready');
-    spawnSync('sleep', ['1']);
+    await new Promise((r) => setTimeout(r, 1000));
   }
   const url = `postgresql://${DB_USER}:${DB_USER}@${db}:5432/${DB_NAME}`;
-  const migrate = runContainer(
+  const migrate = await runContainer(
     gradeContainer(repoRoot, grade, reports, network, url, 'npx prisma migrate deploy', []),
     300_000,
   );
   if (migrate.status !== 0)
     throw new Error(`prisma migrate deploy failed: ${(migrate.stderr || '').slice(-400)}`);
-  return { network, url };
+  return { network, url, db };
 }
 
-function runTests(
+// Each integration run gets its own database; it is removed as soon as the run
+// is over, so a task never holds more than one eval network at a time.
+function stopDatabase(database: { network: string; db: string }) {
+  dockerRm(database.db);
+  dockerNetworkRm(database.network);
+}
+
+async function runTests(
   repoRoot: string,
   grade: string,
   reports: string,
   label: string,
   group: { tier: 'unit' | 'integration'; files: string[] },
   database: { network: string; url: string } | null,
-): TestRun {
+): Promise<TestRun> {
   const reportName = `${label}-${group.tier}.json`;
   const config = group.tier === 'unit' ? 'vitest.config.ts' : 'vitest.integration.config.ts';
   const integration = group.tier === 'integration';
   if (integration && !database) throw new Error('integration tier without a database');
-  const run = runContainer(
+  const run = await runContainer(
     gradeContainer(
       repoRoot,
       grade,
@@ -393,12 +476,12 @@ function runTests(
 
 // --- agents -----------------------------------------------------------------
 
-function runAgent(
+async function runAgent(
   args: RunArgs,
   task: EvalTask,
   repoRoot: string,
   work: string,
-): EvalResult['agentRun'] {
+): Promise<EvalResult['agentRun']> {
   const none = { exitCode: null, costUsd: null, turns: null, note: null };
   if (args.agent === 'dry') return { ...none, note: 'no change (red-before check)' };
   if (args.agent === 'reference') {
@@ -436,6 +519,11 @@ function runAgent(
 //   chai's assert into a no-op (the tree walk scans ignored paths, and the
 //   static check rejects the framework import);
 // - the module under test loading chai through createRequire (static check);
+// - the module under test rewriting a preserved test file and the integration
+//   setup on disk at import time, so a later grading run would read the cheat
+//   (static check; and every grading run gets a fresh read-only tree);
+// - a custom Prisma generator, which `prisma generate` would execute (static
+//   check; and grading always uses the base's generator block);
 // - a symlink to a host file (only regular files are accepted).
 function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['agentRun'] {
   sh('git', ['apply', '--whitespace=nowarn', path.join(TASKS_DIR, task.id, 'broken.patch')], {
@@ -479,6 +567,24 @@ function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['age
       "import { createRequire as tamperRequire } from 'node:module';\n" +
       "tamperRequire(import.meta.url)('chai').Assertion.prototype.assert = function () {};\n",
   );
+  const targets = [...task.grader.preserved, 'tests/integration/setup.ts'];
+  writeFileSync(
+    underTest,
+    `${readFileSync(underTest, 'utf8')}\nimport { writeFileSync as tamperWrite } from 'node:fs';\n` +
+      `for (const f of ${JSON.stringify(targets)}) { try { tamperWrite(f, "import { it } from 'vitest';\\nit('ok', () => {});\\n"); } catch {} }\n`,
+  );
+  const schemaPath = path.join(work, 'prisma', 'schema.prisma');
+  writeFileSync(
+    schemaPath,
+    readFileSync(schemaPath, 'utf8').replace(
+      /provider\s*=\s*"prisma-client"/,
+      'provider = "node ./prisma/tamper-generator.js"',
+    ),
+  );
+  writeFileSync(
+    path.join(work, 'prisma', 'tamper-generator.js'),
+    "require('fs').writeFileSync('vitest.setup.ts', '');\n",
+  );
   symlinkSync('/etc/hostname', path.join(work, 'lib', 'tamper-link.ts'));
   return {
     exitCode: 0,
@@ -486,7 +592,8 @@ function tamper(task: EvalTask, repoRoot: string, work: string): EvalResult['age
     turns: null,
     note:
       'broken fix + vi.mock in setup + preserved tests weakened + chai disabled from a ' +
-      'git-ignored module and through createRequire + a symlink',
+      'git-ignored module and through createRequire + preserved tests rewritten at import ' +
+      'time + a custom Prisma generator + a symlink',
   };
 }
 
@@ -517,8 +624,7 @@ export function prepareAgentHome(): { home: string; credential: string | null } 
 export function startEgress(): { network: string; proxy: string } {
   const network = `gymcoach-eval-agent-net-${shortId()}`;
   const proxy = `gymcoach-eval-proxy-${shortId()}`;
-  sh('docker', ['network', 'create', '--internal', network]);
-  onCleanup(() => dockerNetworkRm(network));
+  createInternalNetwork(network);
   onCleanup(() => dockerRm(proxy));
   sh('docker', [
     'run',
@@ -589,12 +695,12 @@ export function agentContainerSpec(
   };
 }
 
-function runClaudeContained(
+async function runClaudeContained(
   args: RunArgs,
   task: EvalTask,
   repoRoot: string,
   work: string,
-): EvalResult['agentRun'] {
+): Promise<EvalResult['agentRun']> {
   // Defence in depth: the gate is checked again here, not only in main.
   const gate = claudeRunAllowed(args, process.env);
   if (!gate.allowed) throw new UsageError(gate.reason);
@@ -622,7 +728,7 @@ function runClaudeContained(
     '--disallowedTools',
     'WebFetch WebSearch',
   ]);
-  const run = runContainer(spec, task.budget.maxWallSeconds * 1000);
+  const run = await runContainer(spec, task.budget.maxWallSeconds * 1000);
   let costUsd: number | null = null;
   let turns: number | null = null;
   try {
@@ -652,7 +758,9 @@ function readChanges(pristine: string, work: string, before: Map<string, TreeEnt
     const basePath = path.join(pristine, c.file);
     const base =
       existsSync(basePath) && lstatSync(basePath).isFile() ? readFileSync(basePath, 'utf8') : '';
-    return { ...c, content: addedLines(base, after) };
+    const configBlocksChanged =
+      c.file === PRISMA_SCHEMA ? prismaConfigBlocks(after) !== prismaConfigBlocks(base) : false;
+    return { ...c, content: addedLines(base, after), configBlocksChanged };
   });
 }
 
@@ -677,7 +785,139 @@ function buildGradeTree(
   }
   for (const file of task.grader.hidden)
     safeWrite(grade, file, sh('git', ['-C', repoRoot, 'show', `${task.snapshot.fixSha}:${file}`]));
+  // The agent's models, under the base's generator and datasource blocks: what
+  // `prisma generate` executes is never the agent's choice.
+  const schema = path.join(grade, PRISMA_SCHEMA);
+  const baseSchema = path.join(pristine, PRISMA_SCHEMA);
+  if (existsSync(schema) && existsSync(baseSchema))
+    writeFileSync(
+      schema,
+      withBaseConfigBlocks(readFileSync(schema, 'utf8'), readFileSync(baseSchema, 'utf8')),
+    );
   return plan.ignored;
+}
+
+// The blob ids of every grade input in a tree (runner.ts isGradeInput), plus the
+// hidden tests: what each grading run must find before it starts.
+export function gradeInputHashes(tree: string, task: GraderSpec): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [file, entry] of walkTree(tree))
+    if (isGradeInput(file, task) && entry.blob) out.set(file, entry.blob);
+  return out;
+}
+
+// Each grading run (migrate, hidden and preserved tests per tier) gets its own
+// copy of the generated grading template, checked against the expected grade
+// input hashes right before it runs and mounted read-only: no run can change
+// what a later run reads, and a mismatch fails closed.
+export function freshRunTree(
+  template: string,
+  expected: Map<string, string>,
+  task: GraderSpec,
+): string {
+  const tree = tempDir('gymcoach-eval-run-');
+  rmSync(tree, { recursive: true, force: true });
+  cpSync(template, tree, { recursive: true });
+  const found = gradeInputHashes(tree, task);
+  const mismatched = [...new Set([...expected.keys(), ...found.keys()])].filter(
+    (f) => expected.get(f) !== found.get(f),
+  );
+  if (mismatched.length)
+    throw new Error(`grade inputs differ from the base before a run: ${mismatched.join(', ')}`);
+  return tree;
+}
+
+// --- leftovers ----------------------------------------------------------------
+
+// A runner killed with SIGKILL cannot clean up: its credential copy stays in
+// /dev/shm and its containers and networks stay up. Every run first removes
+// what an earlier run left behind, once it is older than any run could last,
+// so a concurrent run's resources are never touched.
+const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
+
+function sweepLeftovers() {
+  const now = Date.now();
+  if (existsSync('/dev/shm')) {
+    const dirs = readdirSync('/dev/shm')
+      .filter((n) => n.startsWith('gymcoach-eval-'))
+      .map((name) => {
+        const st = lstatSync(path.join('/dev/shm', name));
+        return { name, createdMs: st.mtimeMs, mine: st.isDirectory() && st.uid === uid() };
+      })
+      .filter((d) => d.mine);
+    for (const name of staleEvalResources(dirs, now, STALE_AFTER_MS))
+      rmSync(path.join('/dev/shm', name), { recursive: true, force: true });
+  }
+  const list = (cmd: string[]) =>
+    spawnSync('docker', cmd, { encoding: 'utf8' })
+      .stdout?.split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean) ?? [];
+  const containers = list([
+    'ps',
+    '-a',
+    '--filter',
+    'name=gymcoach-eval-',
+    '--format',
+    '{{.Names}}\t{{.CreatedAt}}',
+  ]).map((l) => {
+    const [name, created] = l.split('\t');
+    return { name: name!, createdMs: Date.parse((created ?? '').replace(/ [A-Z]+$/, '')) };
+  });
+  for (const name of staleEvalResources(containers, now, STALE_AFTER_MS)) dockerRm(name);
+  const networks = list([
+    'network',
+    'ls',
+    '--filter',
+    'name=gymcoach-eval-',
+    '--format',
+    '{{.Name}}',
+  ]).map((name) => {
+    const created = spawnSync('docker', ['network', 'inspect', '-f', '{{.Created}}', name], {
+      encoding: 'utf8',
+    }).stdout?.trim();
+    return { name, createdMs: Date.parse(created ?? '') };
+  });
+  for (const name of staleEvalResources(networks, now, STALE_AFTER_MS)) dockerNetworkRm(name);
+}
+
+// --keep leaves the agent's workspace on disk. The agent could read its copy of
+// the model credential and write it into the workspace, so a kept workspace is
+// scrubbed of any file that names or contains the credential.
+function scrubCredential(work: string, credential: string | null) {
+  const secrets: string[] = [];
+  if (credential && existsSync(credential)) {
+    const collect = (v: unknown) => {
+      if (typeof v === 'string' && v.length >= 20) secrets.push(v);
+      else if (v && typeof v === 'object') for (const x of Object.values(v)) collect(x);
+    };
+    try {
+      collect(JSON.parse(readFileSync(credential, 'utf8')));
+    } catch {
+      // An unreadable credential leaves only the name check.
+    }
+  }
+  const removed: string[] = [];
+  for (const [file, entry] of walkTree(work)) {
+    const full = path.join(work, file);
+    const named = /credential/i.test(path.basename(file));
+    let holds = false;
+    if (
+      !named &&
+      entry.kind === 'file' &&
+      secrets.length &&
+      statSync(full).size < 8 * 1024 * 1024
+    ) {
+      const text = readFileSync(full, 'latin1');
+      holds = secrets.some((x) => text.includes(x));
+    }
+    if (named || holds) {
+      rmSync(full, { force: true });
+      removed.push(file);
+    }
+  }
+  if (removed.length)
+    console.warn(`removed from the kept workspace (credential): ${removed.join(', ')}`);
 }
 
 // --- main -------------------------------------------------------------------
@@ -687,6 +927,7 @@ async function main(argv: string[]): Promise<number> {
   const task = loadTask(args.task);
   const gate = claudeRunAllowed(args, process.env);
   if (!gate.allowed) throw new UsageError(gate.reason);
+  sweepLeftovers();
 
   const repoRoot = sh('git', ['rev-parse', '--show-toplevel'], { cwd: __dirname })
     .toString()
@@ -721,13 +962,13 @@ async function main(argv: string[]): Promise<number> {
     depsMatch = materialise(repoRoot, task, pristine);
     if (!depsMatch) throw new Error('the base pins different dependencies than the installed tree');
     // The agent gets a generated client to work with; generated in a container.
-    generateInContainer(repoRoot, pristine, reports);
+    await generateInContainer(repoRoot, pristine, reports);
     makeWorkspace(pristine, work);
     durations.materialise = Date.now() - t;
 
     const before = walkTree(work);
     t = Date.now();
-    agentRun = runAgent(args, task, repoRoot, work);
+    agentRun = await runAgent(args, task, repoRoot, work);
     durations.agent = Date.now() - t;
     changes = readChanges(pristine, work, before);
     violations = tamperViolations(changes, task);
@@ -740,15 +981,35 @@ async function main(argv: string[]): Promise<number> {
     try {
       gradeInputsRestored = buildGradeTree(repoRoot, task, pristine, work, grade, changes);
       // The graded schema may differ from the base: regenerate, in a container.
-      generateInContainer(repoRoot, grade, reports);
-      const all = [...task.grader.hidden, ...task.grader.preserved];
-      const database = all.some((f) => f.startsWith('tests/integration/'))
-        ? startDatabase(repoRoot, grade, reports)
-        : null;
+      // The result is the template every grading run copies.
+      await generateInContainer(repoRoot, grade, reports);
+      const expected = gradeInputHashes(grade, task);
+      const runGroup = async (
+        label: string,
+        group: { tier: 'unit' | 'integration'; files: string[] },
+      ) => {
+        // A fresh database per integration run, migrated from a fresh tree.
+        const database =
+          group.tier === 'integration'
+            ? await startDatabase(repoRoot, freshRunTree(grade, expected, task), reports)
+            : null;
+        try {
+          return await runTests(
+            repoRoot,
+            freshRunTree(grade, expected, task),
+            reports,
+            label,
+            group,
+            database,
+          );
+        } finally {
+          if (database) stopDatabase(database);
+        }
+      };
       for (const group of groupByTier(task.grader.hidden))
-        hidden.push(runTests(repoRoot, grade, reports, 'hidden', group, database));
+        hidden.push(await runGroup('hidden', group));
       for (const group of groupByTier(task.grader.preserved))
-        preserved.push(runTests(repoRoot, grade, reports, 'preserved', group, database));
+        preserved.push(await runGroup('preserved', group));
     } catch (err) {
       infraErrors.push(`grade: ${firstLine(err)}`);
     }
@@ -785,7 +1046,10 @@ async function main(argv: string[]): Promise<number> {
     },
   });
   writeFileSync(path.join(out, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
-  if (args.keep) console.log(`workspace kept: ${work}`);
+  if (args.keep) {
+    scrubCredential(work, existsSync(CLAUDE_CREDENTIAL) ? CLAUDE_CREDENTIAL : null);
+    console.log(`workspace kept: ${work}`);
+  }
   console.log(
     JSON.stringify({
       task: result.taskId,

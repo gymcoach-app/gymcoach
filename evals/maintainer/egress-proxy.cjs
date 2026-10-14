@@ -38,7 +38,11 @@ function privateAddress(raw) {
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127)
+      (a === 100 && b >= 64 && b <= 127) ||
+      // IETF protocol assignments, benchmarking, multicast and reserved.
+      (a === 192 && b === 0 && Number(ip.split('.')[2]) === 0) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224
     );
   }
   const v = ip.toLowerCase();
@@ -59,40 +63,77 @@ function log(decision, host, port, why) {
   );
 }
 
+const HEADER_LIMIT = 8192;
+const HEADER_TIMEOUT_MS = 10000;
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
 const server = net.createServer((client) => {
-  client.once('data', (head) => {
-    const text = head.toString('latin1');
-    const line = text.split('\r\n')[0] || '';
-    const match = /^CONNECT ([A-Za-z0-9.-]+):(\d+) HTTP\/1\.[01]$/.exec(line);
-    if (!match) {
-      log('refused', null, null, 'not a CONNECT request');
-      client.end('HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n');
+  client.on('error', () => {});
+  // Read the whole request head before deciding: a client may send it in
+  // several chunks, and any bytes after it (the start of the TLS handshake)
+  // must be replayed upstream, not dropped.
+  let buffered = Buffer.alloc(0);
+  const refuse = (status, host, port, why) => {
+    log('refused', host, port, why);
+    client.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+  };
+  const headerTimer = setTimeout(() => {
+    log('refused', null, null, 'request head timeout');
+    client.destroy();
+  }, HEADER_TIMEOUT_MS);
+  const onData = (chunk) => {
+    buffered = Buffer.concat([buffered, chunk]);
+    const end = buffered.indexOf('\r\n\r\n');
+    if (end === -1) {
+      if (buffered.length > HEADER_LIMIT) {
+        clearTimeout(headerTimer);
+        client.removeListener('data', onData);
+        refuse('431 Request Header Fields Too Large', null, null, 'request head too large');
+      }
       return;
     }
+    clearTimeout(headerTimer);
+    client.removeListener('data', onData);
+    // Hold the rest of the stream while the name is resolved and dialled.
+    client.pause();
+    const head = buffered.subarray(0, end).toString('latin1');
+    const rest = buffered.subarray(end + 4);
+    const line = head.split('\r\n')[0] || '';
+    const match = /^CONNECT ([A-Za-z0-9.-]+):(\d+) HTTP\/1\.[01]$/.exec(line);
+    if (!match) return refuse('405 Method Not Allowed', null, null, 'not a CONNECT request');
     const host = match[1].toLowerCase();
     const port = Number(match[2]);
-    if (port !== 443 || !ALLOW.has(host)) {
-      log('refused', host, port, 'not allowlisted');
-      client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-      return;
-    }
+    if (port !== 443 || !ALLOW.has(host))
+      return refuse('403 Forbidden', host, port, 'not allowlisted');
     dns.lookup(host, { family: 4 }, (err, address) => {
-      if (err || !address || privateAddress(address)) {
-        log('refused', host, port, err ? 'dns error' : 'resolves to a private address');
-        client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-        return;
-      }
+      if (err || !address || privateAddress(address))
+        return refuse(
+          '403 Forbidden',
+          host,
+          port,
+          err ? 'dns error' : 'resolves to a private address',
+        );
+      // Connect to the address that was checked, not to the name again: a
+      // second resolution could answer differently (DNS rebinding).
       const upstream = net.connect(port, address, () => {
         log('allowed', host, port, null);
         client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (rest.length) upstream.write(rest);
         upstream.pipe(client);
         client.pipe(upstream);
+        client.resume();
       });
+      for (const s of [client, upstream])
+        s.setTimeout(IDLE_TIMEOUT_MS, () => {
+          client.destroy();
+          upstream.destroy();
+        });
       upstream.on('error', () => client.destroy());
       client.on('error', () => upstream.destroy());
+      client.on('close', () => upstream.destroy());
     });
-  });
-  client.on('error', () => {});
+  };
+  client.on('data', onData);
 });
 
 server.listen(PORT, '0.0.0.0', () => log('listening', null, PORT, [...ALLOW].join(',')));

@@ -18,6 +18,22 @@ const repoPath = z
   );
 
 export const splits = ['dev', 'validation', 'reserved'] as const;
+
+// Ids of the static tamper rules (runner.ts TAMPER_RULES). A task whose real
+// fix legitimately needs one of these patterns in application code lists the
+// rule in grader.allowTamperRules; every other task keeps the full screen.
+export const tamperRuleIds = [
+  'test-framework',
+  'dynamic-require',
+  'dynamic-import',
+  'module-system',
+  'node-modules-path',
+  'framework-internals',
+  'global-mutation',
+  'process-hooks',
+  'host-io',
+] as const;
+export type TamperRuleId = (typeof tamperRuleIds)[number];
 export const families = [
   'api-correctness',
   'error-handling',
@@ -73,6 +89,9 @@ export const evalTaskSchema = z
         hidden: z.array(repoPath).min(1),
         // Existing test files that must stay green (preserved behaviour).
         preserved: z.array(repoPath),
+        // Static tamper rules this task's real fix needs to break (see
+        // tamperRuleIds). Empty by default: every rule applies.
+        allowTamperRules: z.array(z.enum(tamperRuleIds)).default([]),
       })
       .strict(),
     budget: z
