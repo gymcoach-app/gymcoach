@@ -39,6 +39,10 @@ export interface PendingSet {
   notes: string | null;
   isWarmup: boolean;
   isDropSet: boolean;
+  // Block of a deliberately repeated exercise (issue #429, see
+  // lib/exercise-blocks.ts). Optional, so rows written before the field
+  // existed stay valid; absent and null read as the first occurrence.
+  block?: number | null;
 
   createdAt: number; // epoch ms
   status: PendingSetStatus;

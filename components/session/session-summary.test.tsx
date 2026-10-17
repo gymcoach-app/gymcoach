@@ -141,6 +141,32 @@ describe('SessionSummary PR section', () => {
   });
 });
 
+// Issue #429: a workout holding the same lift twice (5/3/1 BBB) shows each row
+// with its own block of sets, not both rows counting the shared pool.
+describe('SessionSummary repeated exercise blocks', () => {
+  it('counts each block against its own row', () => {
+    const bbb = { ...pe, id: 'pe-bbb', order: 2, targetSets: 5 };
+    render(
+      <SessionSummary
+        session={session}
+        sets={[
+          pendingSet({ localId: 'a', setNumber: 1, weight: 100, block: 0 }),
+          pendingSet({ localId: 'b', setNumber: 2, weight: 110, block: null }),
+          pendingSet({ localId: 'c', setNumber: 3, weight: 120, block: 0 }),
+          pendingSet({ localId: 'd', setNumber: 1, weight: 60, reps: 10, block: 1 }),
+        ]}
+        programExercises={[pe, bbb]}
+        unit="KG"
+        onBack={() => {}}
+        onFinish={() => {}}
+        finishing={false}
+      />,
+    );
+    expect(screen.getByText(/^3\/3 sets/)).toBeInTheDocument();
+    expect(screen.getByText(/^1\/5 sets/)).toBeInTheDocument();
+  });
+});
+
 // Issue #177: cardio recap shows derived pace and speed in the user's unit,
 // and omits them for a duration-only cardio set (no NaN/Infinity).
 const cardioExo: Exercise = { ...exo, id: 'c1', name: 'Running', category: 'CARDIO' };

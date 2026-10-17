@@ -8,6 +8,7 @@ import {
   MAX_HR_MAX,
   MAX_HR_MIN,
 } from '@/lib/cardio';
+import { MAX_EXERCISE_BLOCK } from '@/lib/exercise-blocks';
 
 export const setInputSchema = z.object({
   exerciseId: z.string().min(1),
@@ -43,6 +44,11 @@ export const setInputSchema = z.object({
   notes: z.string().trim().max(500).optional().nullable(),
   isWarmup: z.boolean().optional().default(false),
   isDropSet: z.boolean().optional().default(false),
+  // Block of a deliberately repeated exercise (issue #429): which occurrence
+  // of the exercise in the session's workout this set was logged against.
+  // Not coerced, so a JSON null stays null. The route normalizes it against
+  // the workout (lib/exercise-blocks.ts).
+  block: z.number().int().min(0).max(MAX_EXERCISE_BLOCK).nullable().optional(),
 });
 
 export type SetInput = z.infer<typeof setInputSchema>;

@@ -6,6 +6,7 @@ import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib
 import { setAchievesGoal } from '@/lib/goals';
 import { effectiveWeight } from '@/lib/stats';
 import { resolveSetEquipmentSnapshot } from '@/lib/set-equipment';
+import { effectiveSetBlock } from '@/lib/exercise-blocks';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -45,6 +46,16 @@ export async function POST(req: Request, props: Params) {
     }
     const isCardio = exercise.category === 'CARDIO';
 
+    // Block of a repeated exercise (issue #429): stored only when the
+    // session's workout holds this exercise more than once, normalized into
+    // range, so a single-occurrence exercise always stores NULL as before.
+    const occurrences = session.workoutId
+      ? await db.programExercise.count({
+          where: { workoutId: session.workoutId, exerciseId: data.exerciseId },
+        })
+      : 0;
+    const block = occurrences > 1 ? effectiveSetBlock(data.block, occurrences) : null;
+
     const created = await db.$transaction(async (tx) => {
       const canonicalWeight = isCardio ? 0 : data.weight;
       const equipmentSnapshot = await resolveSetEquipmentSnapshot(tx, {
@@ -71,6 +82,7 @@ export async function POST(req: Request, props: Params) {
           notes: data.notes ?? null,
           isWarmup: data.isWarmup ?? false,
           isDropSet: data.isDropSet ?? false,
+          block,
         },
       });
     });

@@ -198,6 +198,15 @@ async function seedFullUser(email: string) {
             notes: 'top set',
             completedAt: new Date('2026-06-01T10:10:00.000Z'),
           },
+          // Second block of a repeated lift (issue #429, v8).
+          {
+            exerciseId: bench.id,
+            setNumber: 1,
+            weight: 60,
+            reps: 10,
+            block: 1,
+            completedAt: new Date('2026-06-01T10:30:00.000Z'),
+          },
           {
             exerciseId: running.id,
             setNumber: 1,
@@ -305,7 +314,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/backup - export completeness (issue #168)', () => {
-  it('exports version 7 with exercise favourites and all earlier backup fields', async () => {
+  it('exports version 8 with set blocks and all earlier backup fields', async () => {
     const user = await seedFullUser('a@test.dev');
     actAs(user.id);
 
@@ -313,7 +322,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(7);
+    expect(dump.version).toBe(8);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -362,7 +371,12 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(dump.sessions[0].gymName).toBe('Basement');
 
     const sets = dump.sessions[0].sets as Array<Record<string, unknown>>;
-    const benchSet = sets.find((s) => s.exerciseName === 'Bench Press');
+    const benchSet = sets.find((s) => s.exerciseName === 'Bench Press' && s.block == null);
+    // v8 (issue #429): the block of a repeated lift rides along.
+    expect(sets.find((s) => s.exerciseName === 'Bench Press' && s.block === 1)).toMatchObject({
+      weight: 60,
+      reps: 10,
+    });
     expect(benchSet).toMatchObject({
       gymEquipmentName: 'Competition bench station',
       equipmentNameSnapshot: 'Competition bench station',

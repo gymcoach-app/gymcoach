@@ -19,6 +19,7 @@ import {
 } from '@/lib/cardio';
 import { formatWeight } from '@/lib/units';
 import { formatWorkoutText } from '@/lib/workout-text';
+import { blockKey } from '@/lib/exercise-blocks';
 import { CopyWorkoutButton } from '@/components/history/copy-workout-button';
 import { SaveAsWorkoutButton } from '@/components/history/save-as-workout-button';
 import { DeleteSessionButton } from '@/components/history/delete-session-button';
@@ -65,7 +66,7 @@ export default async function HistorySessionPage(props: Params) {
         workout: { select: { name: true } },
         program: { select: { name: true } },
         sets: {
-          orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }],
+          orderBy: [{ exerciseId: 'asc' }, { block: 'asc' }, { setNumber: 'asc' }],
           include: {
             exercise: {
               select: {
@@ -93,17 +94,21 @@ export default async function HistorySessionPage(props: Params) {
   const unit = user?.unit ?? 'KG';
 
   // Group sets by exercise (keeping the order of the first set per exercise).
+  // A later block of a deliberately repeated exercise (issue #429, 5/3/1 BBB)
+  // is its own group; block 0 and NULL share the bare exerciseId key, so a
+  // session without repeats groups exactly as before.
   const exerciseOrder: string[] = [];
   const setsByExercise = new Map<
     string,
     { exercise: (typeof session.sets)[number]['exercise']; sets: typeof session.sets }
   >();
   for (const s of session.sets) {
-    let entry = setsByExercise.get(s.exerciseId);
+    const key = blockKey(s.exerciseId, s.block ? s.block : null);
+    let entry = setsByExercise.get(key);
     if (!entry) {
       entry = { exercise: s.exercise, sets: [] };
-      setsByExercise.set(s.exerciseId, entry);
-      exerciseOrder.push(s.exerciseId);
+      setsByExercise.set(key, entry);
+      exerciseOrder.push(key);
     }
     entry.sets.push(s);
   }

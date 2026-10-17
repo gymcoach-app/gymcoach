@@ -15,6 +15,7 @@ import { formatWeight } from '@/lib/units';
 import { detectPRs, type PRType } from '@/lib/records';
 import { formatCardioSet, formatPace, formatSpeed } from '@/lib/cardio';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 
 // Prior (previous-session) non-warmup sets per exerciseId, used as the PR
 // baseline. Same source as the in-session badge (getLastPerformances): a PR
@@ -120,8 +121,13 @@ export function SessionSummary({
     0,
   );
 
+  // Per block (issue #429): a deliberately repeated exercise (5/3/1 BBB)
+  // shows each row with its own sets; otherwise the key is the exerciseId.
+  const rowBlocks = blockIndexByRow(programExercises);
+  const occurrences = occurrenceCounts(programExercises);
   const exerciseStats = programExercises.map((pe) => {
-    const exoSets = sets.filter((s) => s.exerciseId === pe.exerciseId && !s.isWarmup);
+    const key = rowBlockKey(pe, rowBlocks);
+    const exoSets = sets.filter((s) => setBlockKey(s, occurrences) === key && !s.isWarmup);
     const targetSets = pe.targetSets;
     const isCardio = pe.exercise.category === 'CARDIO';
     return {

@@ -359,3 +359,58 @@ describe('SessionRunner live equipment weights', () => {
     expect(table().loadConstraints?.weightOptions).toEqual([30, 60]);
   });
 });
+
+describe('SessionRunner repeated exercise blocks (issue #429)', () => {
+  // 5/3/1 BBB: the same lift programmed twice. Each row must read its own
+  // block of sets, and a set logged on the second row carries block 1.
+  function bbbRows() {
+    const main = row('bench', 1);
+    const bbb = { ...row('bench', 2), id: 'pe-bench-bbb', targetSets: 5 };
+    return [main, bbb];
+  }
+  const tableSets = () => (harness.table as { sets: unknown[] }).sets;
+
+  it('gives each occurrence its own sets, reading a set without a block as the first', async () => {
+    harness.liveSets = [
+      { localId: 'l1', exerciseId: 'bench', setNumber: 1, isWarmup: false, block: null },
+      { localId: 'l2', exerciseId: 'bench', setNumber: 2, isWarmup: false, block: 0 },
+      { localId: 'l3', exerciseId: 'bench', setNumber: 1, isWarmup: false, block: 1 },
+    ] as unknown as PendingSet[];
+    const view = await renderRunner(runner(bbbRows()));
+    expect(tableSets()).toHaveLength(2);
+    expect(menu().loggedSetCount).toBe(2);
+    view.unmount();
+
+    await renderRunner(runner(bbbRows(), 'pe-bench-bbb'));
+    expect(tableSets()).toHaveLength(1);
+    expect(menu().loggedSetCount).toBe(1);
+  });
+
+  it('logs a set on the second occurrence as block 1, numbered within its block', async () => {
+    const { queueSet } = await import('@/lib/sync');
+    vi.mocked(queueSet).mockClear();
+    harness.liveSets = [
+      { localId: 'l1', exerciseId: 'bench', setNumber: 1, isWarmup: false, block: 0 },
+      { localId: 'l2', exerciseId: 'bench', setNumber: 2, isWarmup: false, block: 0 },
+    ] as unknown as PendingSet[];
+    await renderRunner(runner(bbbRows(), 'pe-bench-bbb'));
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+    expect(queueSet).toHaveBeenCalledWith(
+      expect.objectContaining({ exerciseId: 'bench', block: 1, setNumber: 1 }),
+    );
+  });
+
+  it('logs a set of an exercise programmed once without a block, as before', async () => {
+    const { queueSet } = await import('@/lib/sync');
+    vi.mocked(queueSet).mockClear();
+    await renderRunner(runner([row('bench', 1), row('fly', 2)]));
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+    expect(queueSet).toHaveBeenCalledWith(
+      expect.objectContaining({ exerciseId: 'bench', block: null, setNumber: 1 }),
+    );
+  });
+});

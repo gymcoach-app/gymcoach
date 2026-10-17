@@ -13,6 +13,7 @@ import {
 } from '@/lib/prisma-client';
 import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
+import { MAX_EXERCISE_BLOCK } from '@/lib/exercise-blocks';
 import {
   AVG_HR_MAX,
   AVG_HR_MIN,
@@ -49,7 +50,7 @@ import {
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
 //   usesBodyweight, equipmentType, isFavorite.
 // - Program / Workout / ProgramExercise: all user content incl supersetGroup.
-// - Session / Set: all user content incl durationSec, distanceM, avgHr.
+// - Session / Set: all user content incl durationSec, distanceM, avgHr, block.
 // - Saved Gym profiles plus physical GymEquipment, equipment-to-exercise links,
 //   and uploaded/external equipment images.
 // - CoachSession, ExerciseGoal, BodyweightEntry, ReadinessCheckin,
@@ -62,7 +63,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 7;
+const VERSION = 8;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -280,6 +281,8 @@ export async function GET() {
           notes: set.notes,
           isWarmup: set.isWarmup,
           isDropSet: set.isDropSet,
+          // New in v8 (issue #429); absent from older backups.
+          block: set.block,
           completedAt: set.completedAt.toISOString(),
         })),
       })),
@@ -463,6 +466,9 @@ const importSchema = z.object({
               notes: z.string().max(2000).nullable().optional(),
               isWarmup: z.boolean(),
               isDropSet: z.boolean(),
+              // v8 (issue #429): block of a deliberately repeated exercise;
+              // absent in older backups, read as NULL.
+              block: z.number().int().min(0).max(MAX_EXERCISE_BLOCK).nullable().optional(),
               completedAt: dateString,
             }),
           )
@@ -889,6 +895,7 @@ export async function POST(req: Request) {
                 notes: set.notes ?? null,
                 isWarmup: set.isWarmup,
                 isDropSet: set.isDropSet,
+                block: set.block ?? null,
                 completedAt: new Date(set.completedAt),
               },
             ];

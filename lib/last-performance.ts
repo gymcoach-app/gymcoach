@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { blockKey } from '@/lib/exercise-blocks';
 
 export interface LastPerformance {
   exerciseId: string;
@@ -18,24 +19,43 @@ export interface LastPerformance {
 // Fetches the previous performances for a list of exerciseIds, excluding the
 // current session. For each exercise, we take the most recent session that
 // contains it, then pull up all of its non-warmup sets.
+//
+// `blocks` (issue #429) adds one entry per block of a deliberately repeated
+// exercise, keyed by blockKey(exerciseId, block): the last session's sets of
+// that block only, so a 5x10 BBB block is not suggested from the heavy 5/3/1
+// sets. Block 0 also reads sets stored without a block (written before the
+// column existed, or in a workout holding the exercise once). The plain
+// per-exercise entries are unchanged.
 export async function getLastPerformances(
   userId: string,
   exerciseIds: string[],
   excludeSessionId: string | null,
+  blocks: readonly { exerciseId: string; block: number }[] = [],
 ): Promise<Map<string, LastPerformance>> {
-  if (exerciseIds.length === 0) return new Map();
+  if (exerciseIds.length === 0 && blocks.length === 0) return new Map();
 
   const result = new Map<string, LastPerformance>();
+  const lookups: { key: string; exerciseId: string; block: number | null }[] = [
+    ...exerciseIds.map((exerciseId) => ({ key: exerciseId, exerciseId, block: null })),
+    ...blocks.map(({ exerciseId, block }) => ({
+      key: blockKey(exerciseId, block),
+      exerciseId,
+      block,
+    })),
+  ];
 
   // For each exercise: find the most recent set (excluding the current session,
   // excluding warmups), get its sessionId, then all the sets of that session
   // for this exercise.
   await Promise.all(
-    exerciseIds.map(async (exerciseId) => {
+    lookups.map(async ({ key, exerciseId, block }) => {
+      const blockWhere =
+        block == null ? {} : block === 0 ? { OR: [{ block: 0 }, { block: null }] } : { block };
       const lastSet = await db.set.findFirst({
         where: {
           exerciseId,
           isWarmup: false,
+          ...blockWhere,
           ...(excludeSessionId ? { sessionId: { not: excludeSessionId } } : {}),
           session: { userId },
         },
@@ -49,6 +69,7 @@ export async function getLastPerformances(
           sessionId: lastSet.sessionId,
           exerciseId,
           isWarmup: false,
+          ...blockWhere,
         },
         orderBy: { setNumber: 'asc' },
         select: {
@@ -85,7 +106,7 @@ export async function getLastPerformances(
         cardio = { durationSec, distanceM, avgHr };
       }
 
-      result.set(exerciseId, {
+      result.set(key, {
         exerciseId,
         sessionStartedAt: lastSet.session.startedAt,
         sets,

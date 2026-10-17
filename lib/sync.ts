@@ -110,6 +110,7 @@ async function doFlush(): Promise<FlushResult> {
           notes: item.notes,
           isWarmup: item.isWarmup,
           isDropSet: item.isDropSet,
+          block: item.block ?? null,
         };
         const post = (gymEquipmentId: string | null) =>
           fetch(`/api/sessions/${item.sessionId}/sets`, {

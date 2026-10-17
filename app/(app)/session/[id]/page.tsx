@@ -7,6 +7,7 @@ import { isDeloadActive } from '@/lib/deload';
 import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-history';
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
+import { blockIndexByRow } from '@/lib/exercise-blocks';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -44,12 +45,19 @@ export default async function SessionRunPage(props: Props) {
   if (!session.workout) notFound();
 
   const exerciseIds = session.workout.exercises.map((pe) => pe.exerciseId);
+  // One extra lookup per block of a deliberately repeated exercise (issue
+  // #429), so each block's "last session" and suggestion read its own sets.
+  const rowBlocks = blockIndexByRow(session.workout.exercises);
+  const blocks = session.workout.exercises.flatMap((pe) => {
+    const block = rowBlocks.get(pe.id);
+    return block == null ? [] : [{ exerciseId: pe.exerciseId, block }];
+  });
   const userPromise = db.user.findUnique({
     where: { id: auth.userId },
     select: { unit: true, deloadUntil: true, bodyweight: true },
   });
   const [lastPerformances, user, latestCheckin, returnRecommendations, catalog] = await Promise.all([
-    getLastPerformances(auth.userId, exerciseIds, session.id),
+    getLastPerformances(auth.userId, exerciseIds, session.id, blocks),
     userPromise,
     db.readinessCheckin.findFirst({
       where: { userId: auth.userId },

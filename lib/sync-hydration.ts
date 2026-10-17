@@ -28,6 +28,7 @@ export async function hydrateFromServerSets(
     notes: s.notes,
     isWarmup: s.isWarmup,
     isDropSet: s.isDropSet,
+    block: s.block,
     createdAt: new Date(s.completedAt).getTime(),
     status: 'synced',
     serverId: s.id,

@@ -398,6 +398,13 @@ model Set {
   notes                          String?
   isWarmup                       Boolean       @default(false)
   isDropSet                      Boolean       @default(false)
+  // Block of a deliberately repeated exercise (issue #429, additive): when a
+  // workout programs the same exercise more than once (5/3/1 BBB: the main
+  // sets, then 5x10 of the same lift), the 0-based occurrence, in workout
+  // order, of the row this set was logged against. NULL when the exercise
+  // appears once, and on every row written before the column existed; readers
+  // treat NULL as the first occurrence (lib/exercise-blocks.ts).
+  block                          Int?
   completedAt                    DateTime      @default(now())
 
   @@index([exerciseId, completedAt])

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -68,6 +68,7 @@ import { SessionExerciseStrip } from '@/components/session/session-exercise-stri
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { useTrainingName } from '@/components/shared/use-training-name';
 import type { GymLoadConstraints } from '@/lib/gym-loads';
+import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 import type { ReturnRecommendation } from '@/lib/return-to-training';
 import {
   exerciseDetailPath,
@@ -315,28 +316,42 @@ export function SessionRunner({
     [] as PendingSet[],
   );
 
+  // Sets are pooled per block (issue #429): the bare exerciseId for an
+  // exercise the workout holds once (unchanged), one pool per occurrence for
+  // a deliberately repeated one (5/3/1 BBB), so each row has its own sets.
+  const rowBlocks = useMemo(() => blockIndexByRow(workout.exercises), [workout.exercises]);
+  const exerciseOccurrences = useMemo(
+    () => occurrenceCounts(workout.exercises),
+    [workout.exercises],
+  );
+  const keyOf = useCallback(
+    (pe: { id: string; exerciseId: string }) => rowBlockKey(pe, rowBlocks),
+    [rowBlocks],
+  );
+
   const setsByExercise = useMemo(() => {
     const out = new Map<string, PendingSet[]>();
     for (const s of liveSets) {
-      if (!out.has(s.exerciseId)) out.set(s.exerciseId, []);
-      out.get(s.exerciseId)!.push(s);
+      const key = setBlockKey(s, exerciseOccurrences);
+      if (!out.has(key)) out.set(key, []);
+      out.get(key)!.push(s);
     }
     for (const arr of out.values()) {
       arr.sort((a, b) => a.setNumber - b.setNumber);
     }
     return out;
-  }, [liveSets]);
+  }, [liveSets, exerciseOccurrences]);
 
-  const programExerciseByExerciseId = useMemo(
-    () => new Map(effectiveProgramExercises.map((pe) => [pe.exerciseId, pe])),
-    [effectiveProgramExercises],
+  const programExerciseByBlockKey = useMemo(
+    () => new Map(effectiveProgramExercises.map((pe) => [rowBlockKey(pe, rowBlocks), pe])),
+    [effectiveProgramExercises, rowBlocks],
   );
 
   function recommendationFor(
     pe: ProgramExerciseWithExercise,
     atMs: number,
   ): IntraSetRecommendation | null {
-    const completedSets = setsByExercise.get(pe.exerciseId) ?? [];
+    const completedSets = setsByExercise.get(keyOf(pe)) ?? [];
     const lastWorkingSet = completedSets.filter((set) => !set.isWarmup && !set.isDropSet).at(-1);
     if (!lastWorkingSet) return null;
 
@@ -345,12 +360,12 @@ export function SessionRunner({
         (set) =>
           !set.isWarmup &&
           !set.isDropSet &&
-          set.exerciseId !== pe.exerciseId &&
+          setBlockKey(set, exerciseOccurrences) !== keyOf(pe) &&
           set.createdAt > lastWorkingSet.createdAt,
       )
       .sort((a, b) => b.createdAt - a.createdAt)[0];
     const interveningPe = interveningSet
-      ? programExerciseByExerciseId.get(interveningSet.exerciseId)
+      ? programExerciseByBlockKey.get(setBlockKey(interveningSet, exerciseOccurrences))
       : undefined;
     const sameMuscleSuperset = Boolean(
       interveningPe &&
@@ -424,23 +439,23 @@ export function SessionRunner({
   const completedExerciseCount = useMemo(() => {
     let count = 0;
     for (const pe of effectiveProgramExercises) {
-      const done = setsByExercise.get(pe.exerciseId)?.filter((s) => !s.isWarmup).length ?? 0;
+      const done = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
       if (done >= pe.targetSets) count += 1;
     }
     return count;
-  }, [effectiveProgramExercises, setsByExercise]);
+  }, [effectiveProgramExercises, setsByExercise, keyOf]);
 
   // Keyed by ProgramExercise row: a workout that programs the same exercise
-  // twice shares one set pool (sets carry only exerciseId), so both rows read
-  // the same count and each is complete once the pool covers its own target.
+  // twice has one set pool per block (issue #429), so each row is complete
+  // once its own block covers its target.
   const completedProgramExerciseIds = useMemo(() => {
     const completed = new Set<string>();
     for (const pe of effectiveProgramExercises) {
-      const done = setsByExercise.get(pe.exerciseId)?.filter((s) => !s.isWarmup).length ?? 0;
+      const done = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
       if (done >= pe.targetSets) completed.add(pe.id);
     }
     return completed;
-  }, [effectiveProgramExercises, setsByExercise]);
+  }, [effectiveProgramExercises, setsByExercise, keyOf]);
 
   const progressPct =
     programExercises.length === 0
@@ -459,7 +474,7 @@ export function SessionRunner({
     gymEquipmentId?: string | null;
   }) {
     if (!currentPE || !currentTarget) return;
-    const existing = setsByExercise.get(currentPE.exerciseId) ?? [];
+    const existing = setsByExercise.get(keyOf(currentPE)) ?? [];
     const setNumber = (existing.at(-1)?.setNumber ?? 0) + 1;
 
     // Optimistic write: immediate insert into IndexedDB (status pending),
@@ -478,6 +493,7 @@ export function SessionRunner({
       notes: values.notes,
       isWarmup: values.isWarmup,
       isDropSet: values.isDropSet,
+      block: rowBlocks.get(currentPE.id) ?? null,
     });
 
     vibrate(VIBRATION_PATTERNS.validate);
@@ -488,8 +504,8 @@ export function SessionRunner({
     // next member of the group that still has sets, the A1/A2 flow.
     const remainingAfterThisSet = (pe: ProgramExerciseWithExercise) => {
       const target = effectiveProgramExerciseById.get(pe.id) ?? pe;
-      const logged = setsByExercise.get(pe.exerciseId)?.filter((s) => !s.isWarmup).length ?? 0;
-      const justLogged = pe.exerciseId === currentPE.exerciseId ? 1 : 0;
+      const logged = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
+      const justLogged = keyOf(pe) === keyOf(currentPE) ? 1 : 0;
       return target.targetSets - logged - justLogged;
     };
     const nextIdx = values.isWarmup
@@ -669,8 +685,7 @@ export function SessionRunner({
   const remainingNow = (pe: ProgramExerciseWithExercise) => {
     const target = effectiveProgramExerciseById.get(pe.id) ?? pe;
     return (
-      target.targetSets -
-      (setsByExercise.get(pe.exerciseId)?.filter((s) => !s.isWarmup).length ?? 0)
+      target.targetSets - (setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0)
     );
   };
   const navNextIdx = nextNavIndex(supersetView, currentIdx, remainingNow);
@@ -703,8 +718,9 @@ export function SessionRunner({
     );
   }
 
-  const lastPerf = lastPerformances[currentPE.exerciseId];
-  const currentSets = setsByExercise.get(currentPE.exerciseId) ?? [];
+  // Per block for a repeated exercise (issue #429), else per exercise.
+  const lastPerf = lastPerformances[keyOf(currentPE)];
+  const currentSets = setsByExercise.get(keyOf(currentPE)) ?? [];
   const currentReturnRecommendation = returnRecommendations[currentPE.id];
   const currentRecommendation = recommendationFor(currentTarget, Date.now());
   const restNextPe =
