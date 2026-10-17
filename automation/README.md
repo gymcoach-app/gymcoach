@@ -280,6 +280,46 @@ Since this change, every Claude Code session in this project also records usage
   npx tsx automation/ledger/collect.ts --dir docs/loops/baseline/<date> --out <dir>
   ```
 
+### Green-gate runs in the ledger
+
+`scripts/verify.sh` records each of its runs in the same ledger, as a `verify`
+line, from its exit handler (`scripts/verify-steps.sh` keeps the step
+bookkeeping, `ledger/record-verify.cjs` writes the line). Same file and same
+switches as the usage hook (`GYMCOACH_USAGE_LEDGER=off`,
+`GYMCOACH_USAGE_LEDGER_PATH`), because a run's evidence is read by joining both;
+the line kind keeps them apart, and the usage attribution ignores it.
+
+- A line holds: the tier (`default` or `full`), the exit code, each step's fixed
+  name (`slot`, `prisma`, `lint`, `typecheck`, `unit`, `script-tests`, `build`,
+  `infra-lock`, `test-db`, `integration`, `e2e`), outcome (`passed`, `failed`,
+  or `interrupted` for a step still open when the shell exited) and duration in
+  ms, the start and end times, HEAD's SHA, whether the tree was dirty, the
+  **tree SHA of the checked files**, a hash of the branch name, and the hashed
+  Claude Code session id (`CLAUDE_CODE_SESSION_ID`, the hook's `sessionKey`) when
+  the gate ran inside Claude Code. No names, paths or output.
+- The tree SHA is the point: the gate usually runs before the commit, so HEAD
+  alone does not say what passed. On a dirty tree it is computed with a temporary
+  index (`read-tree HEAD`, `add -A`, `write-tree`): it stores blob and tree objects
+  that `git gc` later collects, and touches no ref and not the real index. A PR
+  head whose tree is that SHA had exactly that content gated.
+- Fail-open: recording never changes the gate's exit code or output (one stderr
+  line, `record-verify: skipped (<code>)`, when the line cannot be written).
+  Self-tested by `scripts/verify-steps.test.sh` in the default gate.
+- `ledger/verify.ts` - pure: verify lines in, one record per PR run
+  (`verify.jsonl`, written by `ledger/collect.ts` next to `usage.jsonl`, with
+  `verify-meta.json`): the number of gate runs, green runs and green `--full`
+  runs, the last green run (time, tier, HEAD and tree), and whether a green run
+  checked exactly the PR's final head tree, and at which tier. A gate run belongs
+  to a PR run by the hashed head branch or by the head tree, before the PR closed;
+  one that matches two runs is left out and counted. Runs created before the first
+  recorded gate run have unknown counts, never 0; a run with no gate after that
+  has a known 0 (an external PR, whose code is never run locally, should).
+
+Limits: gate runs outside `verify.sh` (a lone `npx vitest`, CI) are not recorded;
+the head tree comes from the local clone or `gh api`, and is unknown when neither
+has it; attempts inside an agent (edits between gate runs) are still not counted,
+only gate runs.
+
 Human interventions: a session's prompts are counted (`ledger.prompts` in the
 meta), split into harness notifications and other prompts. They are not
 attributed to a run, because one orchestrating session spans many runs, so the

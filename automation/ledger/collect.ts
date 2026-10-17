@@ -8,6 +8,7 @@ import { headBranch, skillVersionAt } from '@/automation/usage/enrich';
 import { PRICE_TABLE } from '@/automation/usage/prices';
 import { USAGE_SCHEMA_VERSION, type UsageMeta } from '@/automation/usage/schema';
 import { ledgerLineSchema } from '@/automation/ledger/schema';
+import { localGateRecords } from '@/automation/ledger/verify';
 import {
   countPrompts,
   hashRunBranches,
@@ -22,9 +23,14 @@ import {
 //   npx tsx automation/ledger/collect.ts --dir docs/loops/baseline/<date> \
 //     --out <dir> [--ledger <path>]
 //
-// Read-only towards GitHub (`gh api` GETs for PR head branches) and the
-// ledger. Writes usage.jsonl and usage-meta.json into --out, never into --dir,
-// so a baseline's transcript-derived usage is not overwritten.
+// Read-only towards GitHub (`gh api` GETs for PR head branches and, when the
+// commit is not in the local clone, head trees) and the ledger. Writes
+// usage.jsonl and usage-meta.json, plus the local green-gate evidence per run
+// (verify.jsonl and verify-meta.json, from the ledger's verify lines), into
+// --out, never into --dir, so a baseline's transcript-derived usage is not
+// overwritten.
+
+const REPO = 'gymcoach-app/gymcoach';
 
 function arg(name: string, fallback?: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -37,6 +43,32 @@ function defaultLedger(): string {
   if (process.env.GYMCOACH_USAGE_LEDGER_PATH) return process.env.GYMCOACH_USAGE_LEDGER_PATH;
   const base = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share');
   return join(base, 'gymcoach-runs', 'ledger.jsonl');
+}
+
+// The tree of a PR's final head commit: from the local clone when it has the
+// commit, else from GitHub; null when neither can tell.
+function headTree(headSha: string): string | null {
+  const ok = (v: string) => (/^[0-9a-f]{40}$/.test(v) ? v : null);
+  try {
+    return ok(
+      execFileSync('git', ['rev-parse', '--verify', '-q', `${headSha}^{tree}`], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim(),
+    );
+  } catch {
+    // Not in the local clone.
+  }
+  try {
+    const out = execFileSync('gh', ['api', `repos/${REPO}/git/commits/${headSha}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const tree = (JSON.parse(out) as { tree?: { sha?: string } }).tree?.sha;
+    return typeof tree === 'string' ? ok(tree) : null;
+  } catch {
+    return null;
+  }
 }
 
 function main() {
@@ -59,6 +91,10 @@ function main() {
       createdAt: b.run.timestamps.createdAt,
       closedAt: b.run.timestamps.closedAt,
     })),
+  );
+  const gate = localGateRecords(
+    lines,
+    runs.map((r, i) => ({ ...r, headTreeSha: headTree(bundles[i]!.run.headSha) })),
   );
   const ledger = ledgerToSessions(lines);
   const result = buildUsageRecords({ sessions: ledger.sessions, runs, skillVersionAt });
@@ -92,8 +128,28 @@ function main() {
     result.records.map((r) => JSON.stringify(r)).join('\n') + '\n',
   );
   writeFileSync(join(out, 'usage-meta.json'), JSON.stringify(usageMeta, null, 2) + '\n');
+  writeFileSync(
+    join(out, 'verify.jsonl'),
+    gate.records.map((r) => JSON.stringify(r)).join('\n') + '\n',
+  );
+  writeFileSync(
+    join(out, 'verify-meta.json'),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        generatedAt: usageMeta.generatedAt,
+        recordingFrom: gate.recordingFrom,
+        gateLines: gate.gateLines,
+        attributed: gate.attributed,
+        unattributed: gate.unattributed,
+        ambiguous: gate.ambiguous,
+      },
+      null,
+      2,
+    ) + '\n',
+  );
   console.log(
-    `Ledger: ${lines.length} lines (${invalid} invalid); ${result.subagentsAttributed} agents attributed, ${result.subagentsUnattributed} not; usage known for ${result.records.filter((r) => r.tokens.output.status === 'known').length} of ${result.records.length} runs.`,
+    `Ledger: ${lines.length} lines (${invalid} invalid); ${result.subagentsAttributed} agents attributed, ${result.subagentsUnattributed} not; usage known for ${result.records.filter((r) => r.tokens.output.status === 'known').length} of ${result.records.length} runs; ${gate.gateLines} gate runs (${gate.attributed} attributed, ${gate.unattributed} not, ${gate.ambiguous} ambiguous).`,
   );
 }
 

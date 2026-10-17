@@ -108,7 +108,17 @@ grading code, or reserved evaluation data that determine its own acceptance.
       At run time, the usage hook
       ([`automation/hooks/record-usage.cjs`](../../automation/hooks/record-usage.cjs))
       now records each finished subagent's models, skills and Claude Code version in a
-      local ledger; attempts and verification evidence are still not recorded per run.
+      local ledger. Local verification evidence is recorded at run time too:
+      every `scripts/verify.sh` run appends a `verify` line (tier, per-step outcome
+      and duration, exit code, HEAD and the tree SHA of the checked files;
+      [`automation/ledger/record-verify.cjs`](../../automation/ledger/record-verify.cjs),
+      self-tested by [`scripts/verify-steps.test.sh`](../../scripts/verify-steps.test.sh)),
+      and [`automation/ledger/verify.ts`](../../automation/ledger/verify.ts) gives each
+      PR run its gate runs, green runs, last green tree and whether its final head tree
+      had a green gate, unknown for runs before the recording (tested in
+      [`automation/ledger/verify.test.ts`](../../automation/ledger/verify.test.ts)).
+      Still missing: attempts inside an agent between gate runs, task IDs and stages
+      at run time (only reconstructed from GitHub).
 - [ ] Record token usage, estimated cost, duration, cache usage where available,
       and human interventions. Mark unavailable values as unknown, never zero.
       Partial: [`automation/usage/`](../../automation/usage/) recovers tokens by kind

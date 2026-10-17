@@ -1,9 +1,11 @@
 import { z } from 'zod';
 
 // Lines of the run-time usage ledger written by automation/hooks/record-usage.cjs
-// (roadmap milestone 1). The ledger lives outside the repository; these lines
-// hold numbers, model ids, skill names, public PR numbers, random agent ids and
-// SHA-256 prefixes of session ids and branch names, never text or paths.
+// and, for green-gate runs, automation/ledger/record-verify.cjs (roadmap
+// milestone 1). The ledger lives outside the repository; these lines hold
+// numbers, model ids, skill names, public PR numbers, random agent ids, commit
+// and tree SHAs and SHA-256 prefixes of session ids and branch names, never
+// text or paths.
 
 export const LEDGER_VERSION = 1 as const;
 
@@ -81,12 +83,61 @@ export const promptLineSchema = z
   })
   .strict();
 
+// One green-gate run, written by automation/ledger/record-verify.cjs from
+// scripts/verify.sh's exit handler (not by the usage hook). treeSha is the
+// tree of the files the gate checked: HEAD's tree on a clean checkout, else
+// the tree a commit of the working files would have.
+export const verifyStepNames = [
+  'slot',
+  'prisma',
+  'lint',
+  'typecheck',
+  'unit',
+  'script-tests',
+  'build',
+  'infra-lock',
+  'test-db',
+  'integration',
+  'e2e',
+] as const;
+const sha40 = z.string().regex(/^[0-9a-f]{40}$/);
+
+export const verifyLineSchema = z
+  .object({
+    v: z.literal(LEDGER_VERSION),
+    kind: z.literal('verify'),
+    at: isoDate,
+    startedAt: isoDate.nullable(),
+    // The Claude Code session the gate ran in (same hash as the usage hook's
+    // sessionKey); null outside Claude Code.
+    sessionKey: hash16.nullable(),
+    inClaudeCode: z.boolean(),
+    tier: z.enum(['default', 'full']),
+    exit: z.number().int().min(0).max(255),
+    steps: z.array(
+      z
+        .object({
+          name: z.enum(verifyStepNames),
+          outcome: z.enum(['passed', 'failed', 'interrupted']),
+          ms: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+    headSha: sha40.nullable(),
+    treeSha: sha40.nullable(),
+    dirty: z.boolean().nullable(),
+    branchHash: hash16.nullable(),
+  })
+  .strict();
+
 export const ledgerLineSchema = z.discriminatedUnion('kind', [
   agentLineSchema,
   sessionLineSchema,
   promptLineSchema,
+  verifyLineSchema,
 ]);
 export type AgentLine = z.infer<typeof agentLineSchema>;
 export type SessionLine = z.infer<typeof sessionLineSchema>;
 export type PromptLine = z.infer<typeof promptLineSchema>;
+export type VerifyLine = z.infer<typeof verifyLineSchema>;
 export type LedgerLine = z.infer<typeof ledgerLineSchema>;

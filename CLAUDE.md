@@ -128,7 +128,9 @@ to pass the gate is itself a defect.
 - A usage hook (`automation/hooks/record-usage.cjs`) appends token counts, models and
   prompt counts (never text) per finished agent and session to a local ledger,
   `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`; start Claude Code with
-  `GYMCOACH_USAGE_LEDGER=off` to disable it (`automation/README.md`).
+  `GYMCOACH_USAGE_LEDGER=off` to disable it (`automation/README.md`). `scripts/verify.sh`
+  also appends one `verify` line per run there (tier, per-step outcome and duration, exit
+  code, HEAD and the tree SHA of the checked files; fail-open, same switch).
 - Local limits (`automation/README.md`, "Local limits"): `verify.sh` takes one of
   `GYMCOACH_HEAVY_SLOTS` machine-wide slots (default a quarter of the cores) and waits,
   naming the holders, when all are taken; a session may have at most
