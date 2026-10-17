@@ -130,7 +130,8 @@ to pass the gate is itself a defect.
   `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`; start Claude Code with
   `GYMCOACH_USAGE_LEDGER=off` to disable it (`automation/README.md`). `scripts/verify.sh`
   also appends one `verify` line per run there (tier, per-step outcome and duration, exit
-  code, HEAD and the tree SHA of the checked files; fail-open, same switch).
+  code, HEAD and the tree SHA of the checked files when it did not change during the run;
+  fail-open, same switch).
 - Local limits (`automation/README.md`, "Local limits"): `verify.sh` takes one of
   `GYMCOACH_HEAVY_SLOTS` machine-wide slots (default a quarter of the cores) and waits,
   naming the holders, when all are taken; a session may have at most

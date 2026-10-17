@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Self-test for scripts/verify-steps.sh and automation/ledger/record-verify.cjs
-# (run by the default gate, no Docker, about a second). Uses a throwaway git
+# (run by the default gate, no Docker, a few seconds). Uses a throwaway git
 # repository and a private ledger path, so it never touches the real ledger.
 
 set -uo pipefail
@@ -34,7 +34,8 @@ git -C "$FAKE" -c user.name=t -c user.email=t@example.com commit -q -m init
 
 # Runs a fake gate: steps from the arguments, then exits with the last one.
 # "name:fail" fails that step through a fail()-like path; "name:die" exits
-# without closing the step (an interruption).
+# without closing the step (an interruption); "name:edit" changes a file while
+# the step runs.
 fake_gate() {
   local ledger="$1"
   shift
@@ -47,6 +48,7 @@ fake_gate() {
       case "$s" in
         *:fail) verify_step "${s%:fail}"; verify_step_done failed; exit 1 ;;
         *:die) verify_step "${s%:die}"; exit 130 ;;
+        *:edit) verify_step "${s%:edit}"; echo "edited mid-run" >>"$FAKE/edited.txt" ;;
         *) verify_step "$s" ;;
       esac
     done
@@ -68,6 +70,7 @@ expect "green exit" "$(field "$L1" exit)" "0"
 expect "green steps" "$(field "$L1" 'steps.map(s=>s.name+"="+s.outcome).join(",")')" "prisma=passed,lint=passed,unit=passed"
 expect "green clean" "$(field "$L1" dirty)" "false"
 expect "green tree" "$(field "$L1" treeSha)" "$(git -C "$FAKE" rev-parse 'HEAD^{tree}')"
+expect "green tree unchanged" "$(field "$L1" treeChanged)" "false"
 expect "green head" "$(field "$L1" headSha)" "$(git -C "$FAKE" rev-parse HEAD)"
 expect "no branch name" "$(grep -c 'feat/issue-1-x' "$L1")" "0"
 
@@ -107,6 +110,55 @@ L6="$WORK/no-dir-here/blocked"
 touch "$WORK/no-dir-here"
 fake_gate "$L6" lint 2>/dev/null
 expect "unwritable ledger exit preserved" "$?" "0"
+
+# 7. A file edited while the gate runs: no single tree was checked from start
+#    to end, so the line keeps no tree.
+L7="$WORK/l7.jsonl"
+fake_gate "$L7" prisma lint:edit unit
+expect "edited exit preserved" "$?" "0"
+expect "edited tree dropped" "$(field "$L7" treeSha)" "null"
+expect "edited tree changed" "$(field "$L7" treeChanged)" "true"
+git -C "$FAKE" -c user.name=t -c user.email=t@example.com add -A
+git -C "$FAKE" -c user.name=t -c user.email=t@example.com commit -q -m edited
+
+# 8. Real signals to a gate blocked in a long step: TERM to the shell alone,
+#    and INT to its whole process group (Ctrl-C). The gate must die at once by
+#    the signal itself (so a calling loop stops), with the open step recorded
+#    as interrupted and the exit status as unknown.
+GATE="$WORK/gate.sh"
+cat >"$GATE" <<'GATE_EOF'
+. "$1/scripts/verify-steps.sh"
+verify_record_init "$1" full
+verify_step lint
+verify_step build
+sleep 30
+verify_step_done passed
+GATE_EOF
+signal_case() {
+  local sig="$1" group="$2" ledger="$3"
+  GYMCOACH_USAGE_LEDGER_PATH="$ledger" node -e '
+    const { spawn } = require("child_process");
+    const [gate, root, sig, group] = process.argv.slice(1);
+    const child = spawn("bash", [gate, root], { stdio: "ignore", detached: true });
+    setTimeout(() => {
+      const t0 = Date.now();
+      child.on("exit", (code, signal) => {
+        console.log((signal || "exit" + code) + " " + (Date.now() - t0 < 5000 ? "prompt" : "slow"));
+        try { process.kill(-child.pid, "SIGKILL"); } catch {}
+      });
+      process.kill(group === "group" ? -child.pid : child.pid, sig);
+    }, 1500);
+  ' "$GATE" "$FAKE" "$sig" "$group"
+}
+L8="$WORK/l8.jsonl"
+expect "TERM kills the gate promptly by the signal" "$(signal_case SIGTERM shell "$L8")" "SIGTERM prompt"
+expect "TERM one line" "$(lines "$L8")" "1"
+expect "TERM steps" "$(field "$L8" 'steps.map(s=>s.name+"="+s.outcome).join(",")')" "lint=passed,build=interrupted"
+expect "TERM exit unknown" "$(field "$L8" exit)" "null"
+L9="$WORK/l9.jsonl"
+expect "INT kills the gate promptly by the signal" "$(signal_case SIGINT group "$L9")" "SIGINT prompt"
+expect "INT one line" "$(lines "$L9")" "1"
+expect "INT open step interrupted" "$(field "$L9" 'steps[1].outcome')" "interrupted"
 
 echo "verify-steps self-test: $pass passed, $fail_count failed"
 [ "$fail_count" -eq 0 ]

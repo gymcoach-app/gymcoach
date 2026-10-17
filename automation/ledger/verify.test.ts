@@ -2,19 +2,29 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { ledgerLineSchema, type LedgerLine, type VerifyLine } from '@/automation/ledger/schema';
 import { hash16, ledgerToSessions } from '@/automation/ledger/attribute';
-import { localGateRecords, localGateRecordSchema, type GateRunTarget } from '@/automation/ledger/verify';
+import {
+  localGateRecords,
+  localGateRecordSchema,
+  type GateRunTarget,
+} from '@/automation/ledger/verify';
 
 const require = createRequire(import.meta.url);
 const recorder = require('./record-verify.cjs') as {
   parseSteps: (raw: string) => { name: string; outcome: string; ms: number }[];
   buildLine: (
     opts: Record<string, string>,
-    state: { headSha: string | null; treeSha: string | null; dirty: boolean | null; branchHash: string | null },
+    state: {
+      headSha: string | null;
+      treeSha: string | null;
+      dirty: boolean | null;
+      branchHash: string | null;
+    },
     env: Record<string, string | undefined>,
     nowIso: string,
   ) => Record<string, unknown>;
   hash: (v: string) => string;
   parseArgs: (argv: string[]) => Record<string, string>;
+  parseStartTree: (raw: string | undefined) => string | null;
 };
 
 const sha = (c: string) => c.repeat(40);
@@ -58,6 +68,7 @@ describe('record-verify.cjs', () => {
         exit: '1',
         started: '1760695200000',
         steps: 'slot|passed|5;lint|passed|1200;unit|failed|30000',
+        'start-tree': sha('b'),
       },
       state,
       { CLAUDE_CODE_SESSION_ID: 'abc', CLAUDECODE: '1' },
@@ -69,6 +80,8 @@ describe('record-verify.cjs', () => {
     expect(recorder.hash('abc')).toBe(hash16('abc'));
     expect(raw.startedAt).toBe('2025-10-17T10:00:00.000Z');
     expect(JSON.stringify(raw)).not.toContain(BRANCH);
+    expect(raw.treeSha).toBe(sha('b'));
+    expect(raw.treeChanged).toBe(false);
     expect(raw.steps).toEqual([
       { name: 'slot', outcome: 'passed', ms: 5 },
       { name: 'lint', outcome: 'passed', ms: 1200 },
@@ -81,10 +94,49 @@ describe('record-verify.cjs', () => {
     expect(() => recorder.parseSteps('lint|ok|1')).toThrow();
     expect(() => recorder.parseSteps('lint|passed|-1')).toThrow();
     const good = { tier: 'default', exit: '0', started: '1', steps: '' };
-    expect(() => recorder.buildLine({ ...good, tier: 'x' }, state, {}, '2026-10-17T10:00:00.000Z')).toThrow();
-    expect(() => recorder.buildLine({ ...good, exit: '300' }, state, {}, '2026-10-17T10:00:00.000Z')).toThrow();
-    expect(() => recorder.buildLine({ ...good, exit: 'x' }, state, {}, '2026-10-17T10:00:00.000Z')).toThrow();
+    expect(() =>
+      recorder.buildLine({ ...good, tier: 'x' }, state, {}, '2026-10-17T10:00:00.000Z'),
+    ).toThrow();
+    expect(() =>
+      recorder.buildLine({ ...good, exit: '300' }, state, {}, '2026-10-17T10:00:00.000Z'),
+    ).toThrow();
+    expect(() =>
+      recorder.buildLine({ ...good, exit: 'x' }, state, {}, '2026-10-17T10:00:00.000Z'),
+    ).toThrow();
     expect(() => recorder.parseArgs(['--tier'])).toThrow();
+  });
+
+  it('keeps the tree only when the start and exit trees agree', () => {
+    const opts = { tier: 'default', exit: '0', started: '1', steps: '' };
+    const at = '2026-10-17T10:00:00.000Z';
+    const changed = recorder.buildLine({ ...opts, 'start-tree': sha('9') }, state, {}, at);
+    expect(changed).toMatchObject({ treeSha: null, treeChanged: true });
+    const noStart = recorder.buildLine({ ...opts, 'start-tree': 'none' }, state, {}, at);
+    expect(noStart).toMatchObject({ treeSha: null, treeChanged: null });
+    const noEnd = recorder.buildLine(
+      { ...opts, 'start-tree': sha('b') },
+      { ...state, treeSha: null },
+      {},
+      at,
+    );
+    expect(noEnd).toMatchObject({ treeSha: null, treeChanged: null });
+    expect(() => recorder.parseStartTree('not a sha')).toThrow();
+    for (const raw of [changed, noStart, noEnd])
+      expect(ledgerLineSchema.safeParse(raw).success).toBe(true);
+  });
+
+  it('records an unknown exit status as null, and accepts old lines without treeChanged', () => {
+    const raw = recorder.buildLine(
+      { tier: 'full', exit: 'none', started: '1', steps: 'build|interrupted|9' },
+      state,
+      {},
+      '2026-10-17T10:00:00.000Z',
+    );
+    expect(raw.exit).toBeNull();
+    expect(ledgerLineSchema.safeParse(raw).success).toBe(true);
+    const old = { ...(line() as Record<string, unknown>) };
+    delete old.treeChanged;
+    expect(ledgerLineSchema.safeParse(old).success).toBe(true);
   });
 
   it('is outside Claude Code without a session id', () => {
@@ -111,7 +163,13 @@ describe('local gate attribution', () => {
       line({ at: '2026-10-17T10:00:00.000Z', exit: 1, treeSha: sha('d') }),
       line({ at: '2026-10-17T10:30:00.000Z', exit: 0, treeSha: sha('d') }),
       // A full run on the final head's tree, after a fixup commit.
-      line({ at: '2026-10-17T12:00:00.000Z', exit: 0, tier: 'full', treeSha: sha('c'), dirty: false }),
+      line({
+        at: '2026-10-17T12:00:00.000Z',
+        exit: 0,
+        tier: 'full',
+        treeSha: sha('c'),
+        dirty: false,
+      }),
     ];
     const r = localGateRecords(lines, [run()]);
     const rec = localGateRecordSchema.parse(r.records[0]);
@@ -133,12 +191,49 @@ describe('local gate attribution', () => {
     expect(r.records[0]!.gateRuns).toMatchObject({ value: 1 });
   });
 
-  it('records a known zero for a run with no gate, and none for no green', () => {
+  it('never reports a zero from absence: a run no gate line matches stays unknown', () => {
+    // Recording is per checkout: this run's worktree may predate the recorder.
     const lines = [line({ branchHash: hash16('other'), treeSha: sha('e') })];
     const r = localGateRecords(lines, [run()]);
-    expect(r.records[0]!.gateRuns).toEqual({ status: 'known', value: 0, unit: 'count' });
-    expect(r.records[0]!.lastGreen).toEqual({ status: 'none' });
+    expect(r.records[0]!.gateRuns.status).toBe('unknown');
+    expect(r.records[0]!.lastGreen.status).toBe('unknown');
+    expect(r.records[0]!.finalHeadGreen.status).toBe('unknown');
     expect(r.unattributed).toBe(1);
+  });
+
+  it('reports none when the matching gate runs were all red', () => {
+    const r = localGateRecords([line({ exit: 1, treeSha: sha('d') })], [run()]);
+    expect(r.records[0]!.gateRuns).toEqual({ status: 'known', value: 1, unit: 'count' });
+    expect(r.records[0]!.lastGreen).toEqual({ status: 'none' });
+    expect(r.records[0]!.finalHeadGreen).toEqual({ status: 'known', value: false, tier: null });
+  });
+
+  it('leaves the final head unknown, not false, when a matching green run recorded no tree', () => {
+    const r = localGateRecords([line({ exit: 0, treeSha: null, treeChanged: true })], [run()]);
+    expect(r.records[0]!.gateRuns).toMatchObject({ value: 1 });
+    expect(r.records[0]!.finalHeadGreen.status).toBe('unknown');
+  });
+
+  it('does not count a reused branch name before an earlier run on it closed', () => {
+    const first = run({
+      runId: 'o/r#5@bbbbbbbbbbbb',
+      prNumber: 5,
+      headTreeSha: sha('5'),
+      createdAt: '2026-10-16T08:00:00Z',
+      closedAt: '2026-10-16T12:00:00Z',
+    });
+    const lines = [
+      // Recording started before either run.
+      line({ at: '2026-10-16T07:00:00.000Z', branchHash: hash16('other'), treeSha: sha('e') }),
+      line({ at: '2026-10-16T09:00:00.000Z', treeSha: sha('d') }),
+      line({ at: '2026-10-17T10:30:00.000Z', treeSha: sha('d') }),
+    ];
+    const r = localGateRecords(lines, [first, run()]);
+    expect(r.ambiguous).toBe(0);
+    expect(r.records.map((x) => x.gateRuns)).toEqual([
+      { status: 'known', value: 1, unit: 'count' },
+      { status: 'known', value: 1, unit: 'count' },
+    ]);
   });
 
   it('keeps runs before the recording unknown, never 0', () => {
@@ -152,13 +247,26 @@ describe('local gate attribution', () => {
     expect(none.records[0]!.gateRuns.status).toBe('unknown');
   });
 
-  it('ignores gate runs after the PR closed and leaves ambiguous ones out', () => {
+  it('ignores gate runs after the PR closed and leaves ambiguous ones out, as unknown', () => {
     const late = line({ at: '2026-10-17T16:00:00.000Z' });
     const twin = run({ runId: 'o/r#9@cccccccccccc', prNumber: 9 });
     const r = localGateRecords([line(), late], [run(), twin]);
     expect(r.ambiguous).toBe(1);
     expect(r.unattributed).toBe(1);
-    expect(r.records.every((x) => x.gateRuns.status === 'known' && x.gateRuns.value === 0)).toBe(true);
+    expect(r.records.every((x) => x.gateRuns.status === 'unknown')).toBe(true);
+    expect(r.records.every((x) => x.finalHeadGreen.status === 'unknown')).toBe(true);
+  });
+
+  it('proves the final head green by tree even when the gate run is ambiguous', () => {
+    const onHead = line({ exit: 0, treeSha: sha('c'), branchHash: hash16('elsewhere') });
+    const other = run({
+      runId: 'o/r#9@cccccccccccc',
+      prNumber: 9,
+      headBranch: hash16('elsewhere'),
+    });
+    const r = localGateRecords([onHead], [run(), other]);
+    expect(r.ambiguous).toBe(1);
+    expect(r.records[0]!.finalHeadGreen).toEqual({ status: 'known', value: true, tier: 'default' });
   });
 
   it('leaves the final head unknown when its tree could not be read', () => {

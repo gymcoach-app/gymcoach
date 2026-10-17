@@ -86,7 +86,10 @@ export const promptLineSchema = z
 // One green-gate run, written by automation/ledger/record-verify.cjs from
 // scripts/verify.sh's exit handler (not by the usage hook). treeSha is the
 // tree of the files the gate checked: HEAD's tree on a clean checkout, else
-// the tree a commit of the working files would have.
+// the tree a commit of the working files would have. It is taken before the
+// first step and at exit and kept only when both agree; otherwise treeSha is
+// null and treeChanged true (null when either tree could not be read). exit
+// is null when the shell died from a signal during a step.
 export const verifyStepNames = [
   'slot',
   'prisma',
@@ -113,7 +116,7 @@ export const verifyLineSchema = z
     sessionKey: hash16.nullable(),
     inClaudeCode: z.boolean(),
     tier: z.enum(['default', 'full']),
-    exit: z.number().int().min(0).max(255),
+    exit: z.number().int().min(0).max(255).nullable(),
     steps: z.array(
       z
         .object({
@@ -125,6 +128,8 @@ export const verifyLineSchema = z
     ),
     headSha: sha40.nullable(),
     treeSha: sha40.nullable(),
+    // Absent on lines written before the start-and-exit comparison existed.
+    treeChanged: z.boolean().nullable().optional(),
     dirty: z.boolean().nullable(),
     branchHash: hash16.nullable(),
   })

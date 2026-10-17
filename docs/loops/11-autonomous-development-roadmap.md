@@ -115,7 +115,9 @@ grading code, or reserved evaluation data that determine its own acceptance.
       self-tested by [`scripts/verify-steps.test.sh`](../../scripts/verify-steps.test.sh)),
       and [`automation/ledger/verify.ts`](../../automation/ledger/verify.ts) gives each
       PR run its gate runs, green runs, last green tree and whether its final head tree
-      had a green gate, unknown for runs before the recording (tested in
+      had a green gate (a tree is recorded only when it was the same before the first
+      step and at exit), unknown unless a recorded gate run matches the run, since
+      recording is per checkout (tested in
       [`automation/ledger/verify.test.ts`](../../automation/ledger/verify.test.ts)).
       Still missing: attempts inside an agent between gate runs, task IDs and stages
       at run time (only reconstructed from GitHub).

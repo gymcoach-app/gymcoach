@@ -11,7 +11,15 @@
 // GYMCOACH_USAGE_LEDGER=off disables it, like the hook.
 //
 //   node automation/ledger/record-verify.cjs --root <repo> --tier default|full \
-//     --exit <code> --started <epoch ms> --steps "<name>|<outcome>|<ms>;..."
+//     --exit <code>|none --started <epoch ms> --steps "<name>|<outcome>|<ms>;..." \
+//     --start-tree <sha>|none
+//   node automation/ledger/record-verify.cjs --tree-only <repo>
+//
+// --tree-only prints the tree of the files as they are now (or nothing) and
+// writes no line: verify.sh calls it once before the first step, and passes the
+// result back as --start-tree at exit. --exit none means the exit status is not
+// known: the shell died from a signal while a step was running (its EXIT trap
+// sees the last command's status, not the signal).
 //
 // Privacy: the line holds numbers, step names from a fixed list, commit and
 // tree SHAs, and 16-hex SHA-256 prefixes of the branch name and of the Claude
@@ -19,11 +27,17 @@
 //
 // The tree SHA is what makes the record useful: verify.sh usually runs on an
 // uncommitted change, so HEAD alone does not say what was checked. For a dirty
-// tree the tree SHA is computed with a temporary index (read-tree HEAD, add
-// -A, write-tree): it writes blob and tree objects to the object store, which
-// git gc collects if nothing references them, and changes no ref and not the
-// real index. It is the tree a commit of the checked files would have, so a
-// PR head with the same tree had exactly that content verified.
+// tree the tree SHA is computed with a temporary index (a copy of the real
+// index, else read-tree HEAD; then add -A and write-tree): it writes blob and
+// tree objects to the object store, which git gc collects if nothing
+// references them, and changes no ref and not the real index (the dirty check
+// runs with --no-optional-locks, so it takes no index.lock either). It is the
+// tree a commit of the files would have. The tree is taken twice, before the
+// first step and at exit, and recorded only when both are equal: an edit made
+// while the gate ran (agents often keep editing while it runs in the
+// background) leaves treeSha null and treeChanged true, because no single tree
+// was checked from start to end. A PR head with a recorded tree had exactly
+// that content verified, at the steps the line lists.
 //
 // Failure policy: fail open. Any error ends with exit 0 and no line; this
 // script never changes the gate's outcome (verify.sh ignores its exit code
@@ -83,7 +97,7 @@ function parseSteps(raw) {
 }
 
 function makeGit(root) {
-  return function git(args, env) {
+  const git = function (args, env) {
     return childProcess
       .execFileSync('git', ['-C', root].concat(args), {
         encoding: 'utf8',
@@ -93,6 +107,14 @@ function makeGit(root) {
       })
       .trim();
   };
+  git.root = root;
+  return git;
+}
+
+// The repository root a git runner works in (rev-parse --git-path is relative
+// to it); the current directory for an injected test runner without one.
+function repoRoot(git) {
+  return git.root || process.cwd();
 }
 
 function orNull(fn) {
@@ -114,7 +136,7 @@ function gitState(git) {
     return git(['symbolic-ref', '-q', '--short', 'HEAD']) || null;
   });
   const dirty = orNull(function () {
-    return git(['status', '--porcelain', '--untracked-files=normal']) !== '';
+    return git(['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal']) !== '';
   });
   let treeSha = null;
   if (headSha !== null && dirty === false) {
@@ -124,9 +146,18 @@ function gitState(git) {
   } else if (headSha !== null && dirty === true) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gymcoach-verify-index-'));
     try {
-      const env = Object.assign({}, process.env, { GIT_INDEX_FILE: path.join(dir, 'index') });
+      const index = path.join(dir, 'index');
+      const env = Object.assign({}, process.env, { GIT_INDEX_FILE: index });
       treeSha = orNull(function () {
-        git(['read-tree', 'HEAD'], env);
+        // Seeding the temporary index with a copy of the real one keeps its
+        // stat data, so add -A rehashes only the changed files. git replaces
+        // the real index by rename, so the copy is never a half-written file.
+        const seeded = orNull(function () {
+          const real = path.resolve(repoRoot(git), git(['rev-parse', '--git-path', 'index']));
+          fs.copyFileSync(real, index);
+          return true;
+        });
+        if (seeded !== true) git(['read-tree', 'HEAD'], env);
         git(['add', '-A'], env);
         return git(['write-tree'], env);
       });
@@ -142,11 +173,26 @@ function gitState(git) {
   };
 }
 
+// The start tree as passed back by verify.sh: a SHA, or null for "none".
+function parseStartTree(raw) {
+  if (raw === undefined || raw === 'none') return null;
+  if (!SHA.test(String(raw))) throw new Error('invalid start tree');
+  return raw;
+}
+
 // Pure apart from the injected git state: options in, the ledger line out.
+// state.treeSha is the tree at exit; it is recorded only when it equals the
+// tree taken before the first step.
 function buildLine(opts, state, env, nowIso) {
   if (opts.tier !== 'default' && opts.tier !== 'full') throw new Error('invalid tier');
-  const exit = Number(opts.exit);
-  if (!/^[0-9]+$/.test(String(opts.exit)) || exit > 255) throw new Error('invalid exit');
+  let exit = null;
+  if (opts.exit !== 'none') {
+    exit = Number(opts.exit);
+    if (!/^[0-9]+$/.test(String(opts.exit)) || exit > 255) throw new Error('invalid exit');
+  }
+  const startTree = parseStartTree(opts['start-tree']);
+  const endTree = state.treeSha;
+  const treeChanged = startTree === null || endTree === null ? null : startTree !== endTree;
   const started = Number(opts.started);
   const startedAt =
     /^[0-9]+$/.test(String(opts.started)) && isFinite(started)
@@ -165,7 +211,8 @@ function buildLine(opts, state, env, nowIso) {
     exit: exit,
     steps: parseSteps(opts.steps),
     headSha: state.headSha,
-    treeSha: state.treeSha,
+    treeSha: treeChanged === false ? endTree : null,
+    treeChanged: treeChanged,
     dirty: state.dirty,
     branchHash: state.branchHash,
   };
@@ -181,7 +228,9 @@ function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i];
-    if (!/^--[a-z]+$/.test(key) || i + 1 >= argv.length) throw new Error('invalid arguments');
+    if (!/^--[a-z]+(-[a-z]+)*$/.test(key) || i + 1 >= argv.length) {
+      throw new Error('invalid arguments');
+    }
     out[key.slice(2)] = argv[i + 1];
   }
   return out;
@@ -190,7 +239,14 @@ function parseArgs(argv) {
 function main() {
   try {
     if ((process.env.GYMCOACH_USAGE_LEDGER || '').toLowerCase() === 'off') return;
-    const opts = parseArgs(process.argv.slice(2));
+    const argv = process.argv.slice(2);
+    if (argv[0] === '--tree-only') {
+      if (argv.length !== 2) throw new Error('invalid arguments');
+      const tree = gitState(makeGit(argv[1])).treeSha;
+      if (tree !== null) process.stdout.write(tree + '\n');
+      return;
+    }
+    const opts = parseArgs(argv);
     if (!opts.root) throw new Error('no root');
     const line = buildLine(
       opts,
@@ -214,6 +270,7 @@ module.exports = {
   buildLine,
   ledgerPath,
   parseArgs,
+  parseStartTree,
   hash,
   STEP_NAMES,
   VERIFY_LINE_VERSION,

@@ -289,7 +289,8 @@ switches as the usage hook (`GYMCOACH_USAGE_LEDGER=off`,
 `GYMCOACH_USAGE_LEDGER_PATH`), because a run's evidence is read by joining both;
 the line kind keeps them apart, and the usage attribution ignores it.
 
-- A line holds: the tier (`default` or `full`), the exit code, each step's fixed
+- A line holds: the tier (`default` or `full`), the exit code (null when the shell
+  died from a signal during a step), each step's fixed
   name (`slot`, `prisma`, `lint`, `typecheck`, `unit`, `script-tests`, `build`,
   `infra-lock`, `test-db`, `integration`, `e2e`), outcome (`passed`, `failed`,
   or `interrupted` for a step still open when the shell exited) and duration in
@@ -299,21 +300,42 @@ the line kind keeps them apart, and the usage attribution ignores it.
   the gate ran inside Claude Code. No names, paths or output.
 - The tree SHA is the point: the gate usually runs before the commit, so HEAD
   alone does not say what passed. On a dirty tree it is computed with a temporary
-  index (`read-tree HEAD`, `add -A`, `write-tree`): it stores blob and tree objects
-  that `git gc` later collects, and touches no ref and not the real index. A PR
-  head whose tree is that SHA had exactly that content gated.
+  index (a copy of the real one, else `read-tree HEAD`; then `add -A`, `write-tree`):
+  it stores blob and tree objects that `git gc` later collects, and touches no ref
+  and not the real index (the dirty check runs `git --no-optional-locks status`).
+  The tree is taken before the first step and again at exit, and recorded only when
+  the two agree; a file changed while the gate ran (an agent editing during a
+  background run) leaves `treeSha` null and `treeChanged` true. A PR head whose
+  tree is a recorded `treeSha` had exactly that content gated, at the steps the
+  line lists; for a squash merge, that is the merged content only if the base did
+  not move after the gate.
+- Signals: `verify.sh` sets no INT or TERM trap, because bash defers a trapped
+  signal until the running step ends. A killed gate dies at once with the signal's
+  own status (a calling loop still sees death by SIGINT); bash still runs the EXIT
+  trap, which records the open step as `interrupted` with exit null. The trap
+  closes the heavy slot and the test-infra lock before it starts the recorder, so a
+  waiting run does not wait for it (one node process and a few git calls, usually
+  well under a second; each git call has a 20 s timeout).
 - Fail-open: recording never changes the gate's exit code or output (one stderr
   line, `record-verify: skipped (<code>)`, when the line cannot be written).
-  Self-tested by `scripts/verify-steps.test.sh` in the default gate.
+  Self-tested by `scripts/verify-steps.test.sh` in the default gate, including a
+  file edited mid-run and real TERM and INT signals to a gate blocked in a step.
 - `ledger/verify.ts` - pure: verify lines in, one record per PR run
   (`verify.jsonl`, written by `ledger/collect.ts` next to `usage.jsonl`, with
   `verify-meta.json`): the number of gate runs, green runs and green `--full`
   runs, the last green run (time, tier, HEAD and tree), and whether a green run
   checked exactly the PR's final head tree, and at which tier. A gate run belongs
-  to a PR run by the hashed head branch or by the head tree, before the PR closed;
-  one that matches two runs is left out and counted. Runs created before the first
-  recorded gate run have unknown counts, never 0; a run with no gate after that
-  has a known 0 (an external PR, whose code is never run locally, should).
+  to a PR run by the hashed head branch (after any earlier PR run on the same branch
+  name closed) or by the head tree, before the PR closed; one that matches two runs
+  is left out and counted. Unknown, never 0: recording is per checkout (a worktree
+  created before the recorder merged runs an older `verify.sh` and writes nothing),
+  so counts are known only for a run that at least one recorded gate run matches,
+  created after the first recorded gate run, and touched by no ambiguous gate run;
+  every other run has unknown counts, so a run that was never gated (an external PR,
+  whose code is never run locally) is unknown too, not 0. `finalHeadGreen` is known
+  true whenever a recorded green gate run checked the exact final head tree, and
+  known false only for a run whose counts are known and none of whose green gate
+  runs left its tree unrecorded.
 
 Limits: gate runs outside `verify.sh` (a lone `npx vitest`, CI) are not recorded;
 the head tree comes from the local clone or `gh api`, and is unknown when neither
