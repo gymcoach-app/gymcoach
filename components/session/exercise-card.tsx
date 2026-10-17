@@ -32,6 +32,9 @@ function cardioLastLine(cardio: NonNullable<SerializedLastPerformance['cardio']>
 interface Props {
   programExercise: ProgramExercise & { exercise: Exercise };
   lastPerformance: SerializedLastPerformance | undefined;
+  // Calendar days since this exercise's last working set (issue #459): null
+  // when it was never done, undefined to show no "last done" line.
+  lastDoneDaysAgo?: number | null;
   readiness: ReadinessSignal | null;
   // True while a planned deload week is active (issue #112).
   deloadActive: boolean;
@@ -47,6 +50,7 @@ interface Props {
 export function ExerciseCard({
   programExercise,
   lastPerformance,
+  lastDoneDaysAgo,
   readiness,
   deloadActive,
   unit,
@@ -161,6 +165,11 @@ export function ExerciseCard({
             <Badge variant="destructive">{t('notAvailable')}</Badge>
           )}
         </div>
+        {lastDoneDaysAgo !== undefined && (
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="exercise-last-done">
+            {lastDoneDaysAgo === null ? t('lastDoneNever') : t('lastDone', { days: lastDoneDaysAgo })}
+          </p>
+        )}
         <ExerciseMediaDialog
           exerciseName={exo.name}
           displayName={exerciseName(exo.name)}

@@ -17,7 +17,11 @@ type MenuProps = {
     removedProgramExerciseId?: string;
   }) => void;
 };
-type CardProps = { onOpenMenu?: () => void; menuDisabled?: boolean };
+type CardProps = {
+  onOpenMenu?: () => void;
+  menuDisabled?: boolean;
+  lastDoneDaysAgo?: number | null;
+};
 type EquipmentOption = {
   id: string;
   name: string;
@@ -387,6 +391,20 @@ describe('SessionRunner live equipment weights', () => {
   });
 });
 
+describe('SessionRunner last done (issue #459)', () => {
+  it('passes null for an exercise never done and nothing when the page sends no data', async () => {
+    harness.liveSets = [];
+    const rows = [row('bench', 1), row('fly', 2)];
+    const view = await renderRunner(
+      <SessionRunner {...runner(rows, 'pe-fly').props} lastDoneDays={{ bench: 1 }} />,
+    );
+    expect(card().lastDoneDaysAgo).toBeNull();
+    view.unmount();
+    await renderRunner(runner(rows, 'pe-bench'));
+    expect(card().lastDoneDaysAgo).toBeUndefined();
+  });
+});
+
 describe('SessionRunner repeated exercise blocks (issue #429)', () => {
   // 5/3/1 BBB: the same lift programmed twice. Each row must read its own
   // block of sets, and a set logged on the second row carries block 1.
@@ -427,6 +445,18 @@ describe('SessionRunner repeated exercise blocks (issue #429)', () => {
     expect(queueSet).toHaveBeenCalledWith(
       expect.objectContaining({ exerciseId: 'bench', block: 1, setNumber: 1 }),
     );
+  });
+
+  it('shows the movement freshness per exercise on both occurrences (issue #459)', async () => {
+    harness.liveSets = [];
+    const withDays = (initial?: string) => (
+      <SessionRunner {...runner(bbbRows(), initial).props} lastDoneDays={{ bench: 3 }} />
+    );
+    const view = await renderRunner(withDays());
+    expect(card().lastDoneDaysAgo).toBe(3);
+    view.unmount();
+    await renderRunner(withDays('pe-bench-bbb'));
+    expect(card().lastDoneDaysAgo).toBe(3);
   });
 
   it('logs a set of an exercise programmed once without a block, as before', async () => {

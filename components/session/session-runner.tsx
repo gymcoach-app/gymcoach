@@ -115,6 +115,10 @@ type SessionRunnerProps = {
     gym: (Gym & { exerciseConfigs: GymExerciseConfig[]; equipment: SessionGymEquipment[] }) | null;
   };
   lastPerformances: Record<string, SerializedLastPerformance>;
+  // Calendar days since each exercise's last working set (issue #459), keyed
+  // by exercise id; a missing key means never done. Omitted, the card shows no
+  // "last done" line at all.
+  lastDoneDays?: Record<string, number>;
   returnRecommendations: Record<string, ReturnRecommendation>;
   // Latest in-window readiness check-in (or null). Drives whether the load
   // suggestion is held/reduced and the matching explainer in the UI.
@@ -143,6 +147,7 @@ type Mode =
 export function SessionRunner({
   session,
   lastPerformances,
+  lastDoneDays,
   returnRecommendations,
   readiness,
   deloadActive,
@@ -811,6 +816,7 @@ export function SessionRunner({
         <ExerciseCard
           programExercise={currentPE}
           lastPerformance={lastPerf}
+          lastDoneDaysAgo={lastDoneDays ? (lastDoneDays[currentPE.exerciseId] ?? null) : undefined}
           readiness={effectiveReadiness}
           deloadActive={deloadActive}
           unit={unit}

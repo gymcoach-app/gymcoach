@@ -64,6 +64,41 @@ function renderCard(readiness: ReadinessSignal | null, deloadActive = false) {
   );
 }
 
+describe('ExerciseCard last done line (issue #459)', () => {
+  function renderLastDone(lastDoneDaysAgo: number | null | undefined) {
+    return render(
+      <ExerciseCard
+        programExercise={pe}
+        lastPerformance={lastDoneDaysAgo == null ? undefined : lastPerf}
+        lastDoneDaysAgo={lastDoneDaysAgo}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+      />,
+    );
+  }
+
+  it.each([
+    [0, 'Last done today'],
+    [1, 'Last done yesterday'],
+    [2, 'Last done 2 days ago'],
+    [45, 'Last done 45 days ago'],
+  ])('shows %i calendar days as "%s"', (days, text) => {
+    renderLastDone(days);
+    expect(screen.getByTestId('exercise-last-done')).toHaveTextContent(text);
+  });
+
+  it('says never when the exercise has no previous working set', () => {
+    renderLastDone(null);
+    expect(screen.getByTestId('exercise-last-done')).toHaveTextContent('Never done before');
+  });
+
+  it('shows no line when the caller passes no last-done information', () => {
+    renderLastDone(undefined);
+    expect(screen.queryByTestId('exercise-last-done')).not.toBeInTheDocument();
+  });
+});
+
 describe('ExerciseCard mobile title layout', () => {
   it('keeps a long exercise title on one horizontally scrollable line', () => {
     const longName = 'An exceptionally long incline dumbbell press exercise name';

@@ -266,6 +266,9 @@ export const session = {
     strengthPrescription:
       '{sets} подх. × {reps} повт. · RIR {rir} · отдых {seconds} с{tempo, select, none {} other { · темп {tempo}}}',
     lastSession: 'Прошлая тренировка ({date})',
+    lastDone:
+      '{days, plural, =0 {Выполнялось сегодня} =1 {Выполнялось вчера} one {Выполнялось # день назад} few {Выполнялось # дня назад} many {Выполнялось # дней назад} other {Выполнялось # дня назад}}',
+    lastDoneNever: 'Ещё не выполнялось',
     bodyweightReps: '{reps} повт. с собственным весом',
     weightedReps: '{weight} × {reps} повт.',
     suggestion: 'Рекомендация:',

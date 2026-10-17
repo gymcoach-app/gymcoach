@@ -261,6 +261,9 @@ export const session = {
     strengthPrescription:
       '{sets} sets × {reps} reps · RIR {rir} · Rest {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Last session ({date})',
+    lastDone:
+      '{days, plural, =0 {Last done today} =1 {Last done yesterday} other {Last done # days ago}}',
+    lastDoneNever: 'Never done before',
     bodyweightReps: '{reps} reps bodyweight',
     weightedReps: '{weight} × {reps} reps',
     suggestion: 'Suggestion:',

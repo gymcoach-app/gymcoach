@@ -18,6 +18,26 @@ function at(daysAgo: number): Date {
 }
 
 describe('getLastPerformances', () => {
+  it('reports the last working set time as lastDoneAt, ignoring a later warmup (issue #459)', async () => {
+    const user = await makeUser('lp-last-done@test.dev');
+    const exo = await makeExercise(user.id);
+    const lastWorking = new Date(Date.UTC(2026, 0, 28, 18, 40, 0));
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt: new Date(Date.UTC(2026, 0, 28, 18, 0, 0)) },
+    });
+    await db.set.createMany({
+      data: [
+        { sessionId: session.id, exerciseId: exo.id, setNumber: 1, weight: 90, reps: 8, completedAt: new Date(Date.UTC(2026, 0, 28, 18, 20, 0)) },
+        { sessionId: session.id, exerciseId: exo.id, setNumber: 2, weight: 90, reps: 8, completedAt: lastWorking },
+        // A warmup logged afterwards is not a working set.
+        { sessionId: session.id, exerciseId: exo.id, setNumber: 3, weight: 40, reps: 10, isWarmup: true, completedAt: new Date(Date.UTC(2026, 0, 28, 19, 0, 0)) },
+      ],
+    });
+
+    const perf = (await getLastPerformances(user.id, [exo.id], null)).get(exo.id);
+    expect(perf?.lastDoneAt.getTime()).toBe(lastWorking.getTime());
+  });
+
   it('returns the most recent session with its max load and reps at that load', async () => {
     const user = await makeUser('lp-recent@test.dev');
     const exo = await makeExercise(user.id);

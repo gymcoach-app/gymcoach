@@ -8,6 +8,8 @@ import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-his
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
 import { blockIndexByRow } from '@/lib/exercise-blocks';
+import { lastDoneDaysByExercise } from '@/lib/last-done';
+import { getTimeZone } from 'next-intl/server';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -99,11 +101,21 @@ export default async function SessionRunPage(props: Props) {
   // Planned deload week (issue #112): resolved against the clock here so the
   // client never reasons about dates; an expired deloadUntil has no effect.
   const deloadActive = isDeloadActive(user?.deloadUntil ?? null, new Date());
+  // "Last done N days ago" (issue #459), per exercise rather than per block:
+  // it says how fresh the movement is. Counted in calendar days here, in the
+  // zone next-intl formats dates with, so the client never reasons about dates.
+  const lastDoneAt = new Map<string, Date>();
+  for (const exerciseId of exerciseIds) {
+    const perf = lastPerformances.get(exerciseId);
+    if (perf) lastDoneAt.set(exerciseId, perf.lastDoneAt);
+  }
+  const lastDoneDays = lastDoneDaysByExercise(lastDoneAt, new Date(), await getTimeZone());
 
   return (
     <SessionRunner
       session={session}
       lastPerformances={lastPerfRecord}
+      lastDoneDays={lastDoneDays}
       returnRecommendations={returnRecommendations}
       readiness={readiness}
       deloadActive={deloadActive}
