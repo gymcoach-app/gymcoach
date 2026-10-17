@@ -445,8 +445,10 @@ export async function upsertOwnedGymEquipment(
 // linked exercise configs only where the stack already applies to them.
 //
 // The ownership check, the item's type and its links are read inside the same
-// transaction as the writes, so a concurrent type change cannot be paired with
-// a stale read. The result names the exercises whose configs were updated, so
+// transaction as the writes, which narrows the window for a stale read. It does
+// not close it: the reads take no row lock, so under Postgres's default isolation
+// a concurrent type change by the same user can still land between the read and
+// the update (only that user's own data is affected). The result names the exercises whose configs were updated, so
 // a caller can show exactly what a reload would show (#471).
 export async function updateOwnedGymEquipmentWeights(
   userId: string,
