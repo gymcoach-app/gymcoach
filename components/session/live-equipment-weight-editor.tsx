@@ -24,7 +24,60 @@ interface Props {
   equipment: LiveEquipmentOption;
   unit: WeightUnit;
   onOpenChange: (open: boolean) => void;
-  onSaved: (equipment: LiveEquipmentOption) => void;
+  // The item as the server saved it, and the exercises whose gym configs took
+  // the new weights: the session shows exactly what a reload would (#471).
+  onSaved: (equipment: LiveEquipmentOption, updatedExerciseIds: string[]) => void;
+}
+
+// Reads the weights route's response. Anything unexpected falls back to the
+// local item with the saved weights and no exercise updates, which never shows
+// a weight the server did not store on an exercise.
+export function readWeightsSaveResponse(
+  body: unknown,
+  local: LiveEquipmentOption,
+  weightOptions: number[],
+): { equipment: LiveEquipmentOption; updatedExerciseIds: string[] } {
+  const fallback = { equipment: { ...local, weightOptions }, updatedExerciseIds: [] };
+  if (typeof body !== 'object' || body === null) return fallback;
+  const { equipment, updatedExerciseIds } = body as {
+    equipment?: {
+      id?: unknown;
+      name?: unknown;
+      equipmentType?: unknown;
+      weightOptions?: unknown;
+      exerciseLinks?: unknown;
+    };
+    updatedExerciseIds?: unknown;
+  };
+  if (
+    !equipment ||
+    equipment.id !== local.id ||
+    typeof equipment.name !== 'string' ||
+    typeof equipment.equipmentType !== 'string' ||
+    !Array.isArray(equipment.weightOptions) ||
+    !equipment.weightOptions.every((weight) => typeof weight === 'number') ||
+    !Array.isArray(equipment.exerciseLinks) ||
+    !Array.isArray(updatedExerciseIds) ||
+    !updatedExerciseIds.every((id) => typeof id === 'string')
+  ) {
+    return fallback;
+  }
+  const exerciseIds: string[] = [];
+  for (const link of equipment.exerciseLinks as { exercise?: { id?: unknown } }[]) {
+    const id = link?.exercise?.id;
+    if (typeof id !== 'string') return fallback;
+    exerciseIds.push(id);
+  }
+  return {
+    equipment: {
+      id: local.id,
+      name: equipment.name,
+      equipmentType: equipment.equipmentType as EquipmentType,
+      weightOptions: equipment.weightOptions as number[],
+      exerciseLinks: exerciseIds.map((exerciseId) => ({ exerciseId })),
+    },
+    updatedExerciseIds: updatedExerciseIds as string[],
+  };
 }
 
 // Same bounds as gymWeightListSchema (lib/schemas/gym), which the save goes
@@ -100,7 +153,9 @@ export function LiveEquipmentWeightEditor({ open, equipment, unit, onOpenChange,
         body: JSON.stringify({ weightOptions }),
       });
       if (!response.ok) throw new Error('save failed');
-      onSaved({ ...equipment, weightOptions });
+      const body: unknown = await response.json().catch(() => null);
+      const saved = readWeightsSaveResponse(body, equipment, weightOptions);
+      onSaved(saved.equipment, saved.updatedExerciseIds);
       onOpenChange(false);
       toast.success(t('saved'));
     } catch {

@@ -443,48 +443,49 @@ export async function upsertOwnedGymEquipment(
 // type change made since the page loaded. This path therefore writes
 // `weightOptions` and nothing else, and it follows the item's stack onto the
 // linked exercise configs only where the stack already applies to them.
+//
+// The ownership check, the item's type and its links are read inside the same
+// transaction as the writes, so a concurrent type change cannot be paired with
+// a stale read. The result names the exercises whose configs were updated, so
+// a caller can show exactly what a reload would show (#471).
 export async function updateOwnedGymEquipmentWeights(
   userId: string,
   equipmentId: string,
   weightOptions: number[],
 ) {
-  const equipment = await db.gymEquipment.findFirst({
-    where: { id: equipmentId, gym: { userId } },
-    select: {
-      id: true,
-      gymId: true,
-      equipmentType: true,
-      exerciseLinks: { select: { exercise: { select: { id: true, equipmentType: true } } } },
-    },
-  });
-  if (!equipment) throw new ApiError(404, 'Gym equipment not found.');
+  return db.$transaction(async (tx) => {
+    const equipment = await tx.gymEquipment.findFirst({
+      where: { id: equipmentId, gym: { userId } },
+      select: {
+        id: true,
+        gymId: true,
+        equipmentType: true,
+        exerciseLinks: { select: { exercise: { select: { id: true, equipmentType: true } } } },
+      },
+    });
+    if (!equipment) throw new ApiError(404, 'Gym equipment not found.');
 
-  const item = await db.$transaction(async (tx) => {
     const saved = await tx.gymEquipment.update({
       where: { id: equipment.id },
       data: { weightOptions },
+      select: equipmentSelection,
     });
 
+    const updatedExerciseIds: string[] = [];
     for (const link of equipment.exerciseLinks) {
       // A config the lifter never had is not created here: creating one would
       // set isAvailable, which is exactly the surprise #380 is about.
       if (!itemStackAppliesToExercise(link.exercise.equipmentType, equipment.equipmentType)) {
         continue;
       }
-      await tx.gymExerciseConfig.updateMany({
+      const { count } = await tx.gymExerciseConfig.updateMany({
         where: { gymId: equipment.gymId, exerciseId: link.exercise.id },
         data: { weightOptions },
       });
+      if (count > 0) updatedExerciseIds.push(link.exercise.id);
     }
-    return saved;
+    return { equipment: saved, updatedExerciseIds };
   });
-
-  const saved = await db.gymEquipment.findUnique({
-    where: { id: item.id },
-    select: equipmentSelection,
-  });
-  if (!saved) throw new ApiError(500, 'Gym equipment could not be read after saving.');
-  return saved;
 }
 
 export async function deleteOwnedGymEquipment(userId: string, equipmentId: string) {

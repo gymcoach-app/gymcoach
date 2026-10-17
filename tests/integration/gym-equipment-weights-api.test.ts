@@ -109,6 +109,8 @@ describe('gym equipment weights-only API (#380)', () => {
       equipmentType: 'CABLE',
       weightOptions: [15, 30],
     });
+    // Only the cable exercise's config followed the stack (#471).
+    expect(body.updatedExerciseIds).toEqual([cableRow.id]);
 
     // The name and the type are exactly what the server held before the save.
     const item = await db.gymEquipment.findUniqueOrThrow({ where: { id: equipmentId } });
@@ -155,6 +157,7 @@ describe('gym equipment weights-only API (#380)', () => {
       params(equipmentId),
     );
     expect(response.status).toBe(200);
+    expect((await response.json()).updatedExerciseIds).toEqual([]);
 
     expect(await configFor(gym.id, cableRow.id)).toBeNull();
     const item = await db.gymEquipment.findUniqueOrThrow({ where: { id: equipmentId } });
@@ -220,6 +223,77 @@ describe('gym equipment weights-only API (#380)', () => {
       params(equipmentId),
     );
     expect(outOfRange.status).toBe(400);
+
+    const item = await db.gymEquipment.findUniqueOrThrow({ where: { id: equipmentId } });
+    expect(item.weightOptions).toEqual([10, 20]);
+  });
+
+  it('follows a MACHINE item onto a MACHINE exercise config and reports it', async () => {
+    const { user, gym } = await seedUser('machine');
+    const hackSquat = await seedExercise(user.id, 'Hack squat', 'MACHINE');
+    mockUserId.mockResolvedValue(user.id);
+
+    const createdResponse = await createEquipment(
+      request(`http://test.local/api/gyms/${gym.id}/equipment`, 'POST', {
+        name: 'Hack squat machine',
+        equipmentType: 'MACHINE',
+        weightOptions: [20, 40],
+        exerciseIds: [hackSquat.id],
+      }),
+      params(gym.id),
+    );
+    expect(createdResponse.status).toBe(201);
+    const equipmentId = (await createdResponse.json()).equipment.id as string;
+
+    const response = await updateWeights(
+      request(`http://test.local/api/gym-equipment/${equipmentId}/weights`, 'PUT', {
+        weightOptions: [30, 60, 90],
+      }),
+      params(equipmentId),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.updatedExerciseIds).toEqual([hackSquat.id]);
+    expect(
+      body.equipment.exerciseLinks.map((link: { exercise: { id: string } }) => link.exercise.id),
+    ).toEqual([hackSquat.id]);
+    expect(await configFor(gym.id, hackSquat.id)).toMatchObject({ weightOptions: [30, 60, 90] });
+  });
+
+  it('refuses an unauthenticated request and a malformed id, and changes nothing', async () => {
+    const { user, gym } = await seedUser('auth');
+    const cableRow = await seedExercise(user.id, 'Cable row', 'CABLE');
+    mockUserId.mockResolvedValue(user.id);
+    const createdResponse = await createEquipment(
+      request(`http://test.local/api/gyms/${gym.id}/equipment`, 'POST', {
+        name: 'Cable station',
+        equipmentType: 'CABLE',
+        weightOptions: [10, 20],
+        exerciseIds: [cableRow.id],
+      }),
+      params(gym.id),
+    );
+    const equipmentId = (await createdResponse.json()).equipment.id as string;
+
+    mockUserId.mockResolvedValue(null);
+    const anonymous = await updateWeights(
+      request(`http://test.local/api/gym-equipment/${equipmentId}/weights`, 'PUT', {
+        weightOptions: [99],
+      }),
+      params(equipmentId),
+    );
+    expect(anonymous.status).toBe(401);
+
+    mockUserId.mockResolvedValue(user.id);
+    for (const badId of ['   ', 'x'.repeat(192)]) {
+      const malformed = await updateWeights(
+        request(`http://test.local/api/gym-equipment/bad/weights`, 'PUT', {
+          weightOptions: [99],
+        }),
+        params(badId),
+      );
+      expect(malformed.status).toBe(400);
+    }
 
     const item = await db.gymEquipment.findUniqueOrThrow({ where: { id: equipmentId } });
     expect(item.weightOptions).toEqual([10, 20]);

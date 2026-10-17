@@ -22,13 +22,33 @@ const equipment: LiveEquipmentOption = {
 
 const json = { 'Content-Type': 'application/json' };
 
+// The item as the weights route returns it: the full saved row, with its links
+// carrying the exercise, plus the exercises whose configs took the weights.
+function serverItem(weightOptions: number[], name = equipment.name) {
+  return {
+    id: equipment.id,
+    gymId: 'gym-1',
+    name,
+    equipmentType: equipment.equipmentType,
+    weightOptions,
+    exerciseLinks: [{ exercise: { id: 'exercise-1', name: 'Hack squat' } }],
+  };
+}
+
 // The editor saves the weight list to the item's weights sub-resource (#380):
-// one PUT, carrying nothing but the weights.
-function stubEquipmentApi({ saveStatus = 200 }: { saveStatus?: number } = {}) {
-  const fetchMock = vi.fn(
-    async (_url: string, _init?: RequestInit) =>
-      new Response(JSON.stringify({ equipment }), { status: saveStatus, headers: json }),
-  );
+// one PUT, carrying nothing but the weights. By default the stub answers like
+// the server: the saved item with the sent weights, and exercise-1 updated.
+function stubEquipmentApi({
+  saveStatus = 200,
+  respond,
+}: { saveStatus?: number; respond?: (weightOptions: number[]) => unknown } = {}) {
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+    const sent = JSON.parse(String(init?.body)).weightOptions as number[];
+    const body = respond
+      ? respond(sent)
+      : { equipment: serverItem(sent), updatedExerciseIds: ['exercise-1'] };
+    return new Response(JSON.stringify(body), { status: saveStatus, headers: json });
+  });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
@@ -165,7 +185,9 @@ describe('LiveEquipmentWeightEditor', () => {
     expect(url).toBe('/api/gym-equipment/machine-1/weights');
     expect(init?.method).toBe('PUT');
     expect(JSON.parse(String(init?.body))).toEqual({ weightOptions: [20, 30, 40] });
-    expect(onSaved).toHaveBeenCalledWith({ ...equipment, weightOptions: [20, 30, 40] });
+    expect(onSaved).toHaveBeenCalledWith({ ...equipment, weightOptions: [20, 30, 40] }, [
+      'exercise-1',
+    ]);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -194,8 +216,40 @@ describe('LiveEquipmentWeightEditor', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
     expect(Object.keys(body)).toEqual(['weightOptions']);
-    // Nothing else came back to merge into the session snapshot either.
-    expect(onSaved).toHaveBeenCalledWith(equipment);
+  });
+
+  it('adopts the item and the exercise updates the server reports, as a reload would show', async () => {
+    const user = userEvent.setup();
+    // Renamed since the page loaded, and exercise-1 has no gym config, so the
+    // server updated no exercise.
+    stubEquipmentApi({
+      respond: (sent) => ({ equipment: serverItem(sent, 'Hack Squat v2'), updatedExerciseIds: [] }),
+    });
+    const { onSaved, input, saveButton } = renderEditor();
+
+    await user.clear(input);
+    await user.type(input, '25 50');
+    await user.click(saveButton);
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onSaved).toHaveBeenCalledWith(
+      { ...equipment, name: 'Hack Squat v2', weightOptions: [25, 50] },
+      [],
+    );
+  });
+
+  it('falls back to no exercise updates when the response cannot be read', async () => {
+    const user = userEvent.setup();
+    stubEquipmentApi({ respond: () => ({ unexpected: true }) });
+    const { onSaved, input, saveButton } = renderEditor();
+
+    await user.clear(input);
+    await user.type(input, '25 50');
+    await user.click(saveButton);
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onSaved).toHaveBeenCalledWith({ ...equipment, weightOptions: [25, 50] }, []);
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it('encodes the equipment id in the request path', async () => {

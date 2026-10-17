@@ -29,7 +29,7 @@ type TableProps = {
   programExercise: { id: string };
   equipmentOptions?: EquipmentOption[];
   loadConstraints?: { weightOptions?: number[] } | null;
-  onEquipmentWeightsUpdated?: (equipment: EquipmentOption) => void;
+  onEquipmentWeightsUpdated?: (equipment: EquipmentOption, updatedExerciseIds: string[]) => void;
   onSubmit: (values: Record<string, unknown>) => Promise<void>;
 };
 
@@ -335,13 +335,16 @@ describe('SessionRunner live equipment weights', () => {
     expect(table().loadConstraints?.weightOptions).toEqual([20, 40]);
 
     act(() => {
-      table().onEquipmentWeightsUpdated?.({
-        id: 'm1',
-        name: 'Chest Press',
-        equipmentType: 'MACHINE',
-        weightOptions: [25, 50],
-        exerciseLinks: [{ exerciseId: 'bench' }],
-      });
+      table().onEquipmentWeightsUpdated?.(
+        {
+          id: 'm1',
+          name: 'Chest Press',
+          equipmentType: 'MACHINE',
+          weightOptions: [25, 50],
+          exerciseLinks: [{ exerciseId: 'bench' }],
+        },
+        ['bench'],
+      );
     });
     expect(table().equipmentOptions?.[0]?.weightOptions).toEqual([25, 50]);
     expect(table().loadConstraints?.weightOptions).toEqual([25, 50]);
@@ -357,5 +360,29 @@ describe('SessionRunner live equipment weights', () => {
       expect.objectContaining({ id: 'm1', name: 'Chest Press v2', weightOptions: [30, 60] }),
     ]);
     expect(table().loadConstraints?.weightOptions).toEqual([30, 60]);
+  });
+
+  it('applies new weights only to the exercises the server updated (#471)', async () => {
+    // The save renames the machine, but the server updated no exercise config:
+    // the bench row keeps its own options, as a reload would show.
+    const element = runner([row('bench', 1)], undefined, gym([20, 40]));
+    await renderRunner(element);
+
+    act(() => {
+      table().onEquipmentWeightsUpdated?.(
+        {
+          id: 'm1',
+          name: 'Chest Press v2',
+          equipmentType: 'MACHINE',
+          weightOptions: [25, 50],
+          exerciseLinks: [{ exerciseId: 'bench' }],
+        },
+        [],
+      );
+    });
+    expect(table().equipmentOptions).toEqual([
+      expect.objectContaining({ id: 'm1', name: 'Chest Press v2', weightOptions: [25, 50] }),
+    ]);
+    expect(table().loadConstraints?.weightOptions).toEqual([20, 40]);
   });
 });

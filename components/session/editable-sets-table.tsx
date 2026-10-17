@@ -66,7 +66,10 @@ interface Props {
     notes: null;
     gymEquipmentId?: string | null;
   }) => Promise<void>;
-  onEquipmentWeightsUpdated?: (equipment: LiveEquipmentOption) => void;
+  onEquipmentWeightsUpdated?: (
+    equipment: LiveEquipmentOption,
+    updatedExerciseIds: string[],
+  ) => void;
   onDeleteSet: (set: PendingSet) => Promise<boolean | void> | boolean | void;
   onUpdateSet: (set: PendingSet, values: DraftSet) => Promise<void>;
 }
@@ -485,7 +488,9 @@ export function EditableSetsTable({
           equipment={selectedEquipment}
           unit={unit}
           onOpenChange={setWeightEditorOpen}
-          onSaved={(equipment) => onEquipmentWeightsUpdated?.(equipment)}
+          onSaved={(equipment, updatedExerciseIds) =>
+            onEquipmentWeightsUpdated?.(equipment, updatedExerciseIds)
+          }
         />
       )}
       <div data-testid="editable-sets-scroll" className="overflow-x-auto overscroll-x-contain">

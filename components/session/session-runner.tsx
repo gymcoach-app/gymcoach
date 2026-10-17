@@ -392,7 +392,12 @@ export function SessionRunner({
     };
   }
 
-  function handleEquipmentWeightsUpdated(equipment: LiveEquipmentOption) {
+  // Only the exercises whose configs the server updated take the new weights,
+  // so the screen matches a reload (#471).
+  function handleEquipmentWeightsUpdated(
+    equipment: LiveEquipmentOption,
+    updatedExerciseIds: string[],
+  ) {
     setLiveEquipmentEdits((current) => {
       const edits =
         current.base === serverEquipment
@@ -404,7 +409,7 @@ export function SessionRunner({
         weightOptions: {
           ...edits.weightOptions,
           ...Object.fromEntries(
-            equipment.exerciseLinks.map((link) => [link.exerciseId, equipment.weightOptions]),
+            updatedExerciseIds.map((exerciseId) => [exerciseId, equipment.weightOptions]),
           ),
         },
       };
