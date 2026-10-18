@@ -53,6 +53,19 @@ describe('GymCoach MCP server', () => {
     expect(byName.has('upsert_gym_equipment')).toBe(true);
     expect(byName.has('set_gym_equipment_image')).toBe(true);
     expect(byName.has('get_training_context')).toBe(true);
+    expect(byName.has('update_user_properties')).toBe(true);
+    expect(byName.get('update_user_properties')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
+    expect(byName.get('update_user_properties')?.inputSchema).toMatchObject({
+      required: expect.arrayContaining(['confirmed']),
+    });
+    expect(
+      Object.keys(byName.get('update_user_properties')?.inputSchema.properties ?? {}),
+    ).toContain('currentWeightKg');
     expect(byName.has('create_program')).toBe(true);
     expect(byName.has('update_program_exercise')).toBe(true);
     expect(byName.get('list_gyms')?.annotations?.readOnlyHint).toBe(true);
@@ -125,6 +138,9 @@ describe('GymCoach MCP server', () => {
         discovery: { tools: ['get_mcp_capability_index'] },
         trainingContext: { tools: ['get_training_context'] },
         exerciseCatalog: { tools: ['list_exercises'] },
+        profile: {
+          write: ['update_user_properties'],
+        },
         gyms: {
           read: ['list_gyms', 'get_gym_inventory', 'get_gym_equipment_image'],
           write: ['update_gym_free_weights', 'upsert_gym_equipment', 'set_gym_equipment_image'],
@@ -161,7 +177,7 @@ describe('GymCoach MCP server', () => {
       ...(group.write ?? []).map((name) => ({ name, write: true })),
     ]);
     const groupedNames = grouped.map((entry) => entry.name);
-    expect(groupedNames).toHaveLength(22);
+    expect(groupedNames).toHaveLength(23);
     // No tool sits in two groups, and none is listed without a group.
     expect(new Set(groupedNames).size).toBe(groupedNames.length);
     expect([...allTools].sort()).toEqual([...groupedNames].sort());
@@ -182,7 +198,10 @@ describe('GymCoach MCP server', () => {
     expect(instructions.contents[0]).toMatchObject({ text: GYMCOACH_MCP_INSTRUCTIONS });
     // Write tools are no longer program-only: the rule must name every domain.
     expect(GYMCOACH_MCP_INSTRUCTIONS).toMatch(
-      /Write tools \(programs, gym inventory, equipment history\) change saved data/,
+      /Write tools \(programs, gym inventory, equipment history, profile properties\) change saved data/,
+    );
+    expect(GYMCOACH_MCP_INSTRUCTIONS).toMatch(
+      /Update bodyweight only through update_user_properties/,
     );
     expect(GYMCOACH_MCP_INSTRUCTIONS).not.toMatch(/Program-writing tools/);
     // The confirmation rule covers every destructive write, not only program exercises.
@@ -213,5 +232,6 @@ describe('GymCoach MCP server', () => {
     // Same index either way: the flag, not a filtered list, carries the scope.
     expect(structured.capabilities.allTools).toEqual(GYMCOACH_MCP_TOOL_NAMES);
     expect(structured.capabilities.programs?.write).toContain('create_program');
+    expect(structured.capabilities.profile?.write).toContain('update_user_properties');
   });
 });

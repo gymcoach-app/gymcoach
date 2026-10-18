@@ -250,9 +250,10 @@ on your own key - all self-hosted.
 - **ChatGPT / MCP connector** - external agents can analyse your training data
   and, when you enable "Allow changes to saved data" on the connection, change
   it: create or edit programs, maintain your gym inventory (free weights,
-  equipment and its photos), and backfill the equipment on past sets with an
-  audited undo. Every write asks for confirmation, and a capability index tool
-  tells a client which tools exist and whether it can write. Details in
+  equipment and its photos), backfill the equipment on past sets with an
+  audited undo, and update your current bodyweight. Every write asks for
+  confirmation, and a capability index tool tells a client which tools exist
+  and whether it can write. Details in
   [docs/chatgpt-mcp.md](docs/chatgpt-mcp.md).
 - **Import and export** - bring history in from a Strong or Hevy CSV, or from
   GymCoach's own history CSV (a spreadsheet with the same columns works too;
@@ -504,7 +505,8 @@ than CI reaching in to a small VPS.
       offline included)
 - [x] Gym-aware weight picker and in-session exercise actions (replace, add,
       remove)
-- [x] MCP gym inventory, equipment backfill and capability index tools
+- [x] MCP gym inventory, equipment backfill, bodyweight update and capability
+      index tools
 - [x] Favourite exercises, duplicate a program or workout, and save a finished
       session as a workout
 

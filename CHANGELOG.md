@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- MCP bodyweight updates: `update_user_properties` lets a write-enabled MCP
+  connection set the current bodyweight in kg after explicit confirmation. The
+  value is appended to the bodyweight history and mirrors the profile value the
+  rest of the app reads, so the effective-load and progress views stay
+  consistent. The tool is shaped for further user properties, such as goal
+  weight and body measurements, to be added without a new tool.
 - Rest timer controls: a running rest can be paused and resumed, and adjusted
   by -15 s or +15 s (replacing the single +30 s button). An optional device
   setting, off by default, flashes the screen when a rest ends; with reduced

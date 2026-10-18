@@ -40,6 +40,7 @@ import {
   undoHistoricalEquipmentBackfill,
 } from '@/lib/mcp/historical-equipment-backfill';
 import { guardToolHandler } from '@/lib/mcp/errors';
+import { updateUserProperties } from '@/lib/user-properties';
 
 export const GYMCOACH_MCP_INSTRUCTIONS = `GymCoach stores the trainee's profile, gyms, equipment, programs, workout history, sets, RIR, goals and recovery signals.
 
@@ -49,7 +50,7 @@ For MCP tool discovery, inspect the complete tool list once before guessing name
 
 Before changing gym inventory, read the saved gym first, explain the proposed additions or corrections, and require explicit confirmation. Do not guess machine identity, exercise links or selectable weights from ambiguous information.
 
-Write tools (programs, gym inventory, equipment history) change saved data. Explain the proposed change before calling a write tool. Newly created programs are inactive so the trainee can review them. Activate a program only when the trainee explicitly asks. To add a session (for example a cardio day) to the program the trainee already follows, call add_workout on that program rather than creating a new program. Never delete, remove or undo saved data (a program exercise, an equipment image, a historical equipment backfill) without explicit confirmation.`;
+Write tools (programs, gym inventory, equipment history, profile properties) change saved data. Explain the proposed change before calling a write tool. Update bodyweight only through update_user_properties: it appends a history entry and syncs the current value the rest of the app reads. Newly created programs are inactive so the trainee can review them. Activate a program only when the trainee explicitly asks. To add a session (for example a cardio day) to the program the trainee already follows, call add_workout on that program rather than creating a new program. Never delete, remove or undo saved data (a program exercise, an equipment image, a historical equipment backfill) without explicit confirmation.`;
 
 interface ServerOptions {
   principal: McpPrincipal;
@@ -110,6 +111,9 @@ const MCP_CAPABILITY_GROUPS = {
   exerciseCatalog: {
     tools: ['list_exercises'],
   },
+  profile: {
+    write: ['update_user_properties'],
+  },
   gyms: {
     read: ['list_gyms', 'get_gym_inventory', 'get_gym_equipment_image'],
     write: ['update_gym_free_weights', 'upsert_gym_equipment', 'set_gym_equipment_image'],
@@ -133,7 +137,7 @@ const MCP_CAPABILITY_GROUPS = {
 } as const;
 
 export const GYMCOACH_MCP_TOOL_NAMES = Object.values(MCP_CAPABILITY_GROUPS).flatMap((group) =>
-  'tools' in group ? [...group.tools] : [...group.read, ...group.write],
+  'tools' in group ? [...group.tools] : [...('read' in group ? group.read : []), ...group.write],
 );
 
 const MCP_CAPABILITY_INDEX = {
@@ -419,6 +423,35 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
         activeGym: user?.activeGym ?? null,
         coach,
       });
+    }),
+  );
+
+  server.registerTool(
+    'update_user_properties',
+    {
+      title: 'Update user properties',
+      description:
+        'Updates user-specific saved properties after the trainee confirms the change. Only currentWeightKg (bodyweight in kg) is supported today: it appends a bodyweight history entry and syncs the profile value the rest of the app reads. Goal weight and body measurements will be added as further properties.',
+      inputSchema: {
+        confirmed: explicitConfirmation,
+        currentWeightKg: z
+          .number()
+          .min(20, 'Too low')
+          .max(300, 'Too high')
+          .optional()
+          .describe('Current bodyweight in kg. At least one supported property must be supplied.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    guardToolHandler(async ({ currentWeightKg }) => {
+      requireWrite(principal);
+      const updated = await updateUserProperties(principal.userId, { currentWeightKg });
+      return result({ ok: true, ...updated });
     }),
   );
 
