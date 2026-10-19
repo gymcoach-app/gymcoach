@@ -469,6 +469,23 @@ subagent may reach the ledger about 2 s after its `SubagentStop`: the 2 s cap pl
 150 ms poll and a read); turn,
 retry and wall-time budgets are not enforced yet.
 
+## Changelog fragments (milestone 4, lesson L47)
+
+- `changelog/assemble.ts` - folds the fragments in `changelog.d/` (one file per change,
+  `<issue-or-pr>-<slug>.md` with a `section` front matter; format in
+  [`changelog.d/README.md`](../changelog.d/README.md)) into `CHANGELOG.md`:
+  `npx tsx automation/changelog/assemble.ts`. Each entry goes at the top of its section
+  under `## [Unreleased]`, newest number first; a missing section is created at its Keep a
+  Changelog position; existing entries are kept as they are; the folded files are deleted.
+  `--check` only validates the fragments (name, known section, one non-empty entry without
+  a bullet or blank lines, no em or en dash) and runs in the green gate's script
+  self-tests step. Exit codes: 0 done, 1 an invalid fragment, 2 usage error. `--dir` and
+  `--changelog` point it at other paths.
+- Why: with a stale base refused (L39), every merge makes the next PRs merge `main`; when
+  they all edit the same `## [Unreleased]` lines that merge conflicts, a hand-resolved
+  conflict is not a pure base update, and every review record must be posted again. New
+  files never conflict, so the merge stays one the gate can prove.
+
 ## Related: replayable evaluation tasks
 
 The maintainer's evaluation harness (roadmap milestone 3) lives in

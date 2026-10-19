@@ -76,6 +76,9 @@ step script-tests "script self-tests"
 bash scripts/test-db.test.sh 8>&- || fail "script self-tests"
 bash scripts/heavy-slot.test.sh 8>&- || fail "script self-tests"
 bash scripts/verify-steps.test.sh 8>&- || fail "script self-tests"
+# Changelog fragments (changelog.d/, lesson L47): each one parses and names a
+# known section. Recorded under the same step, so the ledger's step names stay.
+npx tsx automation/changelog/assemble.ts --check 8>&- || fail "changelog fragments (see changelog.d/README.md)"
 
 step build "production build"
 # Build needs these set but never connects; placeholders are fine and are NOT

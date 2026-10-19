@@ -24,7 +24,12 @@ commit on an existing docs branch.
 
 1. **CHANGELOG.md** - move shipped, user-facing changes into the right `Unreleased`
    group (Added / Changed / Fixed). One terse line per change, no marketing. Skip
-   internal-only churn unless it is itself the story (loop infra often is).
+   internal-only churn unless it is itself the story (loop infra often is). PRs record
+   their entry as a fragment in `changelog.d/` (lesson L47): fold the merged ones with
+   `npx tsx automation/changelog/assemble.ts` (it inserts each at the top of its section
+   and deletes the file), then edit the result. The write-up PR is then the only PR that
+   edits `CHANGELOG.md`; open PRs only add new files to `changelog.d/`, so neither side
+   conflicts.
 2. **docs/loops/** - when a *new loop or skill* shipped, add or update its numbered
    playbook entry so anyone can reproduce it. The playbook is the content; keep it
    honest (document what actually runs, including failure modes you hit).

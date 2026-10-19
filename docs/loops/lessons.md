@@ -832,3 +832,24 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 - **Status:** graduated -> `ship-pr` step 4 ("A hardening race has a budget"). Applied in
   #455 / #468.
 
+
+### L47 - Every PR editing the same changelog block turns each sequential merge into a re-review
+- **Trigger:** 2026-10-19, the #485-#489 wave. Each PR added its entry under
+  `CHANGELOG.md` `## [Unreleased]` / `### Fixed`. Since the merge gate refuses a stale base
+  (L39), every merge forced the next PRs to merge `main`; GitHub's update-branch could not,
+  because the new entries sat on the same lines. That gave 3 hand-resolved merges (#487
+  once, #489 twice), all conflicts in `CHANGELOG.md` only. The gate carries review records
+  across a pure base update but, by design, not across a hand-resolved conflict
+  (`automation/publish/base-update.ts`), so the reviewers re-attested 5 times (one record on
+  #487, two lenses twice on #489), each a diff-equality check that found nothing, plus a
+  fresh CI cycle per merge.
+- **Lesson:** a file that every PR appends to at the same place is a serialization point
+  once merges are sequential. Give each PR its own file instead: a fragment in
+  `changelog.d/` that a maintainer folds into `CHANGELOG.md` in the write-up PR. A merge of
+  `main` then stays a pure update that GitHub can write and the gate can prove, so records
+  carry over with no re-review.
+- **Status:** graduated -> `changelog.d/` (format in its README), the assembler
+  `automation/changelog/assemble.ts` (`--check` runs in the green gate's script self-tests
+  step), `implement-issue` step 3, `ship-pr` step 5 (base-stale remedy), `write-up` item 1,
+  `CONTRIBUTING.md`. Entries written before this PR stay in `CHANGELOG.md`; an older open
+  PR that still conflicts moves its entry into a fragment in its merge commit.

@@ -387,7 +387,12 @@ evaluations; report the limitations of a small sample.
       formatter cache in [`lib/units.ts`](../../lib/units.ts) with a cache-key test and a
       worker cap in [`vitest.config.ts`](../../vitest.config.ts), with before/after timings
       in [L42](lessons.md). L15 and L38 (shared-checkout incidents) became the git guard
-      hook above. The other lessons are not yet reviewed for this.
+      hook above. L47 (every PR editing the same `CHANGELOG.md` block, so each
+      sequential merge forced a hand-resolved conflict and a re-review: 3 conflicts and 5
+      re-attestations in the #485-#489 wave) became per-PR fragments in
+      [`changelog.d/`](../../changelog.d/README.md) folded by
+      [`assemble.ts`](../../automation/changelog/assemble.ts), checked in the green gate.
+      The other lessons are not yet reviewed for this.
 
 Acceptance: a reviewer catches a seeded defect without the author's explanation;
 fixups invalidate or refresh the relevant review evidence; a task retrieves the

@@ -212,7 +212,11 @@ changes on.
    true and the tier rules of `docs/loops/10-external-contributions.md` allow it, GitHub
    writes that merge itself:
    `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/<n>/update-branch -f expected_head_sha=<head>`,
-   otherwise ask the contributor to merge `main`), or git in the gate tree could not verify
+   otherwise ask the contributor to merge `main`; a merge with a hand-resolved conflict is
+   not a pure base update, so every record must be posted again for the new head, which is
+   why a PR adds a `changelog.d/` fragment instead of editing `CHANGELOG.md` (lesson L47);
+   when an older PR still edits `CHANGELOG.md` and conflicts, move its entry into a
+   fragment in the same merge commit), or git in the gate tree could not verify
    the base updates (`base-update-unverified`); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
    unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
    apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are

@@ -61,6 +61,10 @@ for repo conventions; this skill assumes them.
    grep the built-in templates, the seed and the demo data for a legitimate repeat (5/3/1
    Boring But Big repeats the main lift in one workout on purpose), and prefer fixing the
    consumer that cannot handle the repeat over forbidding it (lesson L37).
+   **A user-facing change gets a changelog fragment, never a `CHANGELOG.md` edit**: a new
+   `changelog.d/<issue>-<slug>.md` with its `section` front matter (format in
+   `changelog.d/README.md`). Two PRs that both edit `## [Unreleased]` conflict after the
+   first merges, and a hand-resolved conflict voids every review record (lesson L47).
 
 4. **Test.** Add or update tests for the change (unit/component colocated as
    `*.test.ts`; integration in `tests/`). A behavior change with no test is not done.

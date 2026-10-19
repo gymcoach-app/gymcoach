@@ -104,3 +104,10 @@ npm run build
 ```
 
 Keep pull requests focused and describe the change and how you tested it.
+
+If the change is user-facing, add a changelog fragment instead of editing
+`CHANGELOG.md`: a new file `changelog.d/<issue-or-pr>-<slug>.md` with the
+section it belongs to (format in `changelog.d/README.md`), checked with
+`npx tsx automation/changelog/assemble.ts --check`. Fragments are folded into
+`CHANGELOG.md` by a maintainer write-up or release PR, so two open PRs never
+conflict on it.
