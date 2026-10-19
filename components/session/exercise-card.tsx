@@ -35,6 +35,13 @@ interface Props {
   // Calendar days since this exercise's last working set (issue #459): null
   // when it was never done, undefined to show no "last done" line.
   lastDoneDaysAgo?: number | null;
+  // True while the days are not counted yet (before mount): the line is kept
+  // empty at its height so the set inputs do not shift down when it fills.
+  lastDonePending?: boolean;
+  // The zone the "Last session" date is shown in: the browser's, once the
+  // runner has mounted. Until then the request zone, so the first client
+  // render matches the server's (issue #480).
+  timeZone?: string | null;
   readiness: ReadinessSignal | null;
   // True while a planned deload week is active (issue #112).
   deloadActive: boolean;
@@ -51,6 +58,8 @@ export function ExerciseCard({
   programExercise,
   lastPerformance,
   lastDoneDaysAgo,
+  lastDonePending = false,
+  timeZone = null,
   readiness,
   deloadActive,
   unit,
@@ -124,6 +133,7 @@ export function ExerciseCard({
     ? format.dateTime(new Date(lastPerformance.sessionStartedAt), {
         day: '2-digit',
         month: '2-digit',
+        ...(timeZone ? { timeZone } : {}),
       })
     : null;
 
@@ -165,10 +175,18 @@ export function ExerciseCard({
             <Badge variant="destructive">{t('notAvailable')}</Badge>
           )}
         </div>
-        {lastDoneDaysAgo !== undefined && (
-          <p className="mt-1 text-xs text-muted-foreground" data-testid="exercise-last-done">
+        {lastDoneDaysAgo !== undefined ? (
+          <p className="mt-1 min-h-4 text-xs text-muted-foreground" data-testid="exercise-last-done">
             {lastDoneDaysAgo === null ? t('lastDoneNever') : t('lastDone', { days: lastDoneDaysAgo })}
           </p>
+        ) : (
+          lastDonePending && (
+            <p
+              className="mt-1 min-h-4 text-xs"
+              aria-hidden
+              data-testid="exercise-last-done-placeholder"
+            />
+          )
         )}
         <ExerciseMediaDialog
           exerciseName={exo.name}

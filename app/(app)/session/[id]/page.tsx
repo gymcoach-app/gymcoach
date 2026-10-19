@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { getLastPerformances, type LastPerformance } from '@/lib/last-performance';
+import { lastDoneAtByExercise } from '@/lib/last-done';
 import { READINESS_RECENCY_HOURS, type ReadinessSignal } from '@/lib/progression';
 import { isDeloadActive } from '@/lib/deload';
 import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-history';
@@ -104,11 +105,7 @@ export default async function SessionRunPage(props: Props) {
   // "Last session ({date})" box next to it. Only the timestamp is sent: the
   // runner counts the days in the browser's zone after mount (review of #476),
   // since the server zone is not the lifter's and a cached page outlives the day.
-  const lastDoneAt: Record<string, string> = {};
-  for (const exerciseId of exerciseIds) {
-    const perf = lastPerformances.get(exerciseId);
-    if (perf) lastDoneAt[exerciseId] = perf.sessionStartedAt.toISOString();
-  }
+  const lastDoneAt = lastDoneAtByExercise(exerciseIds, lastPerformances);
 
   return (
     <SessionRunner
