@@ -477,8 +477,9 @@ retry and wall-time budgets are not enforced yet.
   `npx tsx automation/changelog/assemble.ts`. Each entry goes at the top of its section
   under `## [Unreleased]`, newest number first; a missing section is created at its Keep a
   Changelog position; existing entries are kept as they are; the folded files are deleted.
-  An entry already present in its section is skipped, so a rerun after a partial fold adds
-  no duplicate, and CRLF line endings are kept.
+  An entry already present in its section, as a whole entry (a one-line fragment does not
+  match the first line of a longer entry), is skipped and named in the output, so a rerun
+  after a partial fold adds no duplicate; CRLF line endings are kept.
   `--check` only validates the fragments (name, known section, one non-empty entry without
   a bullet or blank lines, no em or en dash) and runs in the green gate's script
   self-tests step. Exit codes: 0 done, 1 an invalid fragment, 2 usage error. `--dir` and

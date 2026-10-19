@@ -70,10 +70,15 @@ function bullet(f: Fragment): string[] {
   return f.lines.map((l, i) => (i === 0 ? `- ${l}` : `  ${l}`));
 }
 
-// Whether `block` appears as consecutive lines of lines[from, to).
-function containsBlock(lines: string[], from: number, to: number, block: string[]): boolean {
+// Whether the bulleted entry `block` is one whole entry of lines[from, to): the
+// match starts on a bullet line and the line after it does not continue the
+// entry, so a one-line entry never matches the first line of a longer one.
+export function containsEntry(lines: string[], from: number, to: number, block: string[]): boolean {
   for (let i = from; i + block.length <= to; i += 1) {
-    if (block.every((l, j) => lines[i + j] === l)) return true;
+    if (!lines[i]!.startsWith('- ')) continue;
+    if (!block.every((l, j) => lines[i + j] === l)) continue;
+    if (lines[i + block.length]?.startsWith('  ')) continue;
+    return true;
   }
   return false;
 }
@@ -85,6 +90,16 @@ function containsBlock(lines: string[], from: number, to: number, block: string[
 // wrote the changelog but failed to delete every fragment adds no duplicate.
 // CRLF line endings are kept as they were.
 export function assemble(changelog: string, fragments: Fragment[]): string {
+  return fold(changelog, fragments).text;
+}
+
+// assemble, plus which fragments were inserted and which were already there.
+export function fold(
+  changelog: string,
+  fragments: Fragment[],
+): { text: string; folded: string[]; skipped: string[] } {
+  const folded: string[] = [];
+  const skipped: string[] = [];
   const eol = changelog.includes('\r\n') ? '\r\n' : '\n';
   const lines = changelog.split(/\r?\n/);
   let start = lines.indexOf('## [Unreleased]');
@@ -104,11 +119,16 @@ export function assemble(changelog: string, fragments: Fragment[]): string {
       const next = lines.findIndex((l, i) => i > heading && i < end && l.startsWith('### '));
       if (next !== -1) sectionEnd = next;
     }
-    const entries = ordered
-      .filter((f) => f.section === section)
-      .map(bullet)
-      .filter((b) => heading === -1 || !containsBlock(lines, heading + 1, sectionEnd, b))
-      .flat();
+    const entries: string[] = [];
+    for (const f of ordered.filter((x) => x.section === section)) {
+      const b = bullet(f);
+      if (heading !== -1 && containsEntry(lines, heading + 1, sectionEnd, b)) {
+        skipped.push(f.name);
+      } else {
+        folded.push(f.name);
+        entries.push(...b);
+      }
+    }
     if (!entries.length) continue;
     if (heading !== -1) {
       let at = heading + 1;
@@ -131,7 +151,7 @@ export function assemble(changelog: string, fragments: Fragment[]): string {
       lines.splice(at, 0, `### ${section}`, '', ...entries, '');
     }
   }
-  return lines.join(eol);
+  return { text: lines.join(eol), folded, skipped };
 }
 
 export interface AssembleArgs {
@@ -190,9 +210,13 @@ export function run(argv: string[]): number {
     console.log('No changelog fragments to fold.');
     return 0;
   }
-  writeFileSync(args.changelog, assemble(readFileSync(args.changelog, 'utf8'), fragments));
+  const result = fold(readFileSync(args.changelog, 'utf8'), fragments);
+  writeFileSync(args.changelog, result.text);
   for (const f of fragments) unlinkSync(join(args.dir, f.name));
-  console.log(`Folded ${fragments.length} fragment(s) into ${args.changelog}.`);
+  const skipped = result.skipped.length
+    ? `, skipped ${result.skipped.length} already present: ${result.skipped.join(', ')}`
+    : '';
+  console.log(`Folded ${result.folded.length} fragment(s) into ${args.changelog}${skipped}.`);
   return 0;
 }
 

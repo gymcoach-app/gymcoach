@@ -6,6 +6,8 @@ import {
   type Fragment,
   UsageError,
   assemble,
+  containsEntry,
+  fold,
   fragmentFiles,
   orderFragments,
   parseAssembleArgs,
@@ -146,6 +148,36 @@ describe('assemble', () => {
     expect(assemble(assemble(CHANGELOG, [fragments[0]!]), fragments)).toBe(once);
   });
 
+  it('matches only a whole entry, never the first line of a longer one', () => {
+    const lines = ['- Short.', '  continued.', '- Other,', '  wrapped.', '  - not a bullet.'];
+    expect(containsEntry(lines, 0, lines.length, ['- Short.'])).toBe(false);
+    expect(containsEntry(lines, 0, lines.length, ['- Short.', '  continued.'])).toBe(true);
+    expect(containsEntry(lines, 0, lines.length, ['- Other,'])).toBe(false);
+    expect(containsEntry(lines, 0, lines.length, ['- Other,', '  wrapped.'])).toBe(false);
+    expect(
+      containsEntry(lines, 0, lines.length, ['- Other,', '  wrapped.', '  - not a bullet.']),
+    ).toBe(true);
+    expect(containsEntry(['- A.', '- B.'], 0, 2, ['- B.'])).toBe(true);
+    // A one-line fragment equal to the first line of an existing longer entry
+    // is a new entry and gets folded.
+    const out = fold(CHANGELOG, [ok('20-a.md', frag('Added', 'Old added entry,'))]);
+    expect(out.folded).toEqual(['20-a.md']);
+    expect(out.skipped).toEqual([]);
+    expect(out.text).toContain('### Added\n\n- Old added entry,\n- Old added entry,\n  wrapped.');
+  });
+
+  it('reports folded and skipped fragments', () => {
+    const fragments = [
+      ok('10-a.md', frag('Fixed', 'New fix.')),
+      ok('11-b.md', frag('Added', 'New added.')),
+    ];
+    const once = fold(CHANGELOG, [fragments[0]!]);
+    expect(once.folded).toEqual(['10-a.md']);
+    const again = fold(once.text, fragments);
+    expect(again.folded).toEqual(['11-b.md']);
+    expect(again.skipped).toEqual(['10-a.md']);
+  });
+
   it('keeps CRLF line endings', () => {
     const crlf = CHANGELOG.replace(/\n/g, '\r\n');
     const fragments = [ok('10-a.md', frag('Fixed', 'New fix.'))];
@@ -211,6 +243,15 @@ describe('run', () => {
     expect(run(args)).toBe(0);
     expect(readdirSync(dir).sort()).toEqual(['README.md']);
     expect(readFileSync(join(root, 'CHANGELOG.md'), 'utf8')).toContain('### Fixed\n\n- A fix.\n- Old fix.');
+  });
+
+  it('reports a fragment already present as skipped and still deletes it', () => {
+    const args = setup({ '5-a.md': frag('Fixed', 'Old fix.'), '6-b.md': frag('Fixed', 'B.') });
+    const log = vi.mocked(console.log);
+    expect(run(args)).toBe(0);
+    expect(readdirSync(dir)).toEqual([]);
+    expect(log.mock.calls.at(-1)?.[0]).toMatch(/^Folded 1 fragment\(s\) into .*, skipped 1 already present: 5-a\.md\.$/);
+    expect(readFileSync(join(root, 'CHANGELOG.md'), 'utf8')).toContain('### Fixed\n\n- B.\n- Old fix.\n\n');
   });
 
   it('writes nothing and deletes nothing when a fragment is invalid', () => {
