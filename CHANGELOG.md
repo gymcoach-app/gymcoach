@@ -102,11 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Shared devices: logging out now deletes the service-worker caches that hold
   one user's data (`api-get`, `pages`, `start-url`; every cache except the
-  build-asset ones), so the next person on the same browser is never served the
-  previous user's cached API responses or pages. Logging in or signing up purges
-  them too, which covers a session that expired without a logout. An offline
-  logout still purges the caches but no longer throws; it keeps the user on the
-  page, since the session may still be live (#357).
+  build-asset ones), before and after the logout call, and the synced sets kept
+  in the offline queue, so the next person on the same browser is not served
+  the previous user's cached API responses, pages or sets. Unsynced sets are
+  kept, so no work is lost. Logging in or signing up purges the caches too,
+  which covers a session that expired without a logout. A logout that fails
+  (offline or refused) now says so and keeps the user on the page, since the
+  session is still live (#357).
 - MCP tool errors no longer leak raw database errors: every tool handler is
   registered through one guard that maps Prisma errors to fixed wording
   (conflict, related record missing, not found) or a generic "Server error.",

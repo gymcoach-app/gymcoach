@@ -292,6 +292,18 @@ export async function pruneSyncedSets(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promi
     .delete();
 }
 
+// Deletes every synced set on logout (#357), so the next user of the device
+// does not inherit them. Synced rows are copies of server data, so nothing is
+// lost; pending, syncing and failed rows are unsynced work and are kept.
+// Best-effort: never throws, so it cannot block a logout.
+export async function deleteSyncedSets(): Promise<void> {
+  try {
+    await getDB().pendingSets.where('status').equals('synced').delete();
+  } catch {
+    // IndexedDB unavailable (private mode, blocked storage): nothing to clear.
+  }
+}
+
 // Hook event listener to start/stop the auto-sync on online/offline.
 export function bindAutoSync(): () => void {
   if (typeof window === 'undefined') return () => {};
