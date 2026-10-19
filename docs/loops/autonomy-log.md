@@ -3403,3 +3403,55 @@ subagents not counted, and the ledger only started when #451 merged, partway thr
 hardening race; narrow the claim and file the rest), graduated into `ship-pr` step 4.
 
 **Media.** No app page changed; no screenshot or clip work this batch.
+
+## 2026-10-19 - a stale base refused, changelog fragments, an unvetted MCP PR on a hard-block path, and the issue list cut to 20
+
+**Context.** Since the 2026-10-14 write-up (#469), in merge order: **#470** (@Retsumdk,
+weights-only equipment save, closes #380), **#446** (docs), **#472** (#470 follow-ups,
+closes #471), **#474** (repeated-exercise blocks, closes #429), **#473** (gate runs in the
+ledger, roadmap M1), **#477** (@f1dot4, MCP bodyweight update), **#476** (last-done line,
+closes #459), **#481** and **#483** (base-stale gate and record carry-over, roadmap M2,
+closes #479, #482), **#485** (#477 polish, closes #478), **#486** (#476 follow-ups, closes
+#480), **#488** (@Retsumdk, coach context per block, first item of #475), **#487**
+(shared-device cache purge, closes #357), **#489** (`/mcp` body cap and write rate limit,
+closes #376), **#491** and **#492** (changelog fragments, lesson L47). Every merge went
+through the merge gate on a ready record for its final head and base.
+
+**External work.** #477 is from an unvetted contributor and touches group A paths
+(`lib/mcp/**`): it merged after every pass was clean, the security lenses included, with
+the rollback tag `autonomy-baseline-2026-10-19` pushed first (at `8961054`, the #473
+merge). Its follow-ups (#478) were the loop's own PR, #485. #470 and #488 are from the
+vetted @Retsumdk.
+
+**What changed in the loop.**
+- **Base-stale refusal (#481, #483).** The gate refuses a PR whose base is not the live
+  tip of `main`, and carries records only across a pure base update proven with git. Two
+  needs-changes records on #481 before the ready ones; #483 took the round-2 minors (NUL
+  separated `ls-tree`, an absent record base counts as not on `main`).
+- **The cost it exposed (L47).** In the #485-#489 wave every PR edited the same lines of
+  `CHANGELOG.md`, so each merge left the next PRs with a conflict: 3 hand-resolved merges
+  (#487 once, #489 twice) and 5 re-attestation rounds (#489 holds six records). #491 moved
+  entries into `changelog.d/` fragments; #492 fixed a re-run guard that could drop a
+  one-line fragment.
+- **A slip the gate caught.** On #492 the record post failed on a transient GitHub API
+  error; the gate refused with `no-review` and the merge waited for the re-posted record.
+  No new lesson: the control worked as designed.
+- **Open-issue cap (operator directive, 2026-10-19).** The tracker is kept at 20 or fewer
+  open issues. The backlog was triaged down that day (18 open at this write-up); ideas not
+  planned for now were closed and listed in the parked backlog #484. Now in
+  `03-triage-loop.md` and the `triage` and `ideate` skills.
+
+**Green gate.** `bash scripts/verify.sh` green before each merge; CI ran all five jobs on
+every merged head. The ledger holds 24 `verify` lines since #473 merged, 22 green.
+
+**One metric.** 16 PRs merged (12 loop-authored, 3 external, 1 docs), 0 abandoned, 0
+reverted. Token spend, from the ledger (subagents only, attributed by one PR number in the
+task prompt, API-list-price estimate, a lower bound): #481 $8.11, #485 $5.41, #473 $3.58,
+#476 $2.72, #477 $1.65, #483 $1.58, #491 $1.54, #487 $1.51, #489 $1.51, #474 $1.45, #486
+$0.79, #472 $0.71, #488 $0.64, #446 $0.34; one subagent named #485 and #489 ($2.43); nine
+named no PR ($31.14); #470 and #492 have no attributed subagent line.
+
+**Lessons.** L47 (in #491). No new lesson in this write-up.
+
+**Media.** The live-session card gained one muted text line (#476); no captured page
+(home, progress, generator, catalog) visibly changed, so no screenshot or clip work.

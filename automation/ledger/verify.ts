@@ -22,7 +22,10 @@ import type { LedgerLine, VerifyLine } from '@/automation/ledger/schema';
 // gate run touches it. finalHeadGreen is known true whenever a recorded green
 // gate run checked the exact final head tree; known false only under the same
 // conditions as the counts and when no matching green run left its tree
-// unrecorded (an edit during the run, or an unreadable tree).
+// unrecorded (an edit during the run, or an unreadable tree). A known
+// gateRuns is therefore never 0: the records with known counts are exactly the
+// gated runs, so any rollup over them (a share of PR runs gated, a mean
+// gateRuns) is biased upward by construction and must not be built on them.
 
 export const LOCAL_GATE_SCHEMA_VERSION = 1 as const;
 

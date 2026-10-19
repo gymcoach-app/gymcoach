@@ -35,9 +35,12 @@
 // tree a commit of the files would have. The tree is taken twice, before the
 // first step and at exit, and recorded only when both are equal: an edit made
 // while the gate ran (agents often keep editing while it runs in the
-// background) leaves treeSha null and treeChanged true, because no single tree
-// was checked from start to end. A PR head with a recorded tree had exactly
-// that content verified, at the steps the line lists.
+// background) leaves treeSha null and treeChanged true, because the start and
+// exit trees differ. Equal trees do not prove that nothing
+// changed in between: an edit reverted before exit (or a stash or checkout
+// round trip) leaves them equal although some steps saw other content. With
+// that caveat, a PR head with a recorded tree had that content verified, at
+// the steps the line lists.
 //
 // Failure policy: fail open. Any error ends with exit 0 and no line; this
 // script never changes the gate's outcome (verify.sh ignores its exit code

@@ -95,6 +95,8 @@ ideas on top of unstarted ones.
 
 - Not starved, or an open actionable issue exists -> STOP (implement first).
 - >= 3 open `enhancement`/`idea` issues -> STOP (anti-flood).
+- 20 or more open issues -> STOP (open-issue cap, operator directive 2026-10-19); an idea
+  worth keeping goes into the parked backlog #484, not onto the open list.
 - No genuinely new, single-PR, non-duplicate idea -> file fewer or none. "Idea backlog
   healthy" is a valid, good outcome; never invent low-value busywork to fill the tracker.
 - An idea that genuinely needs the heavy deep-research workflow -> out of scope here; note

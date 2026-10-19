@@ -30,6 +30,17 @@ one triage pass.
    full of make-work.
 3. **Budget ceiling** - a token target on the turn, like every loop.
 
+## The open-issue cap (operator directive, 2026-10-19)
+
+Keep **20 or fewer open issues**, so the list stays short and actionable. On 2026-10-19
+the backlog was triaged down to that size: ideas not planned for now were closed as "not
+planned" and listed in the parked backlog
+[#484](https://github.com/gymcoach-app/gymcoach/issues/484). Nothing is rejected: each
+closed issue keeps its write-up and is reopened when it is picked up, and demand (a comment
+on #484, a thumbs-up on the closed issue) moves an idea back onto the open list. A triage or
+ideation run that would take the count past 20 files nothing new, or parks the idea in
+#484 instead.
+
 ## Why issues, not code
 
 Triage deliberately stops at the issue. Separating *deciding what to do* from *doing it*

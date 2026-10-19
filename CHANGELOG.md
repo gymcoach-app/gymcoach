@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Live session "last done" line: each exercise card says "Last done today",
+  "yesterday", "N days ago" or "Never done before", counted in calendar days in
+  the browser's time zone from the previous session with a working set of that
+  exercise (#476, closes #459).
+- A deliberate repeat of an exercise in a workout, such as the main lift of 5/3/1
+  Boring But Big, is logged as its own block: each row has its own sets, set
+  numbers, completion and "last session", and the summary and history detail
+  group sets per block. Stored as one nullable `Set.block` column (additive
+  migration), NULL for an exercise programmed once, so existing history reads as
+  before; backups move to format v8 and older backups still import (#474, closes
+  #429).
+- Green-gate runs in the local run ledger: every `scripts/verify.sh` run appends
+  one `verify` line (tier, exit code, per-step outcome and duration, HEAD, and the
+  tree SHA of the checked files when it was the same at start and exit), and
+  `automation/ledger/verify.ts` attributes those lines to PR runs. Fail-open, and
+  unknown is never reported as 0 (#473, roadmap milestone 1).
+- Weights-only save for a gym equipment item: the in-session weight editor now
+  saves through `PUT /api/gym-equipment/[id]/weights`, which changes the item's
+  load options and nothing else (name, type and every linked exercise's
+  availability stay as they are). Linked exercise configs take the new weights
+  only where one exists and the item's stack applies, and the session shows
+  exactly the exercises the server updated, so no weight appears that a reload
+  would drop. Community contribution by @Retsumdk (#470, closes #380); the
+  session sync and in-transaction checks followed in #472 (closes #471).
 - Merge gate: a stale base is refused (lesson L39, roadmap milestone 2). The
   gate reads the live tip of `main` and refuses a PR whose base is behind it,
   so CI must pass on a head that already contains the current `main`. Review
@@ -17,13 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trusted gate tree). Stops always carry; a ready record carries only when its
   base is on `main`, so a stacked PR retargeted to `main` carries nothing. A
   record base that was never fetched counts as not on `main` rather than
-  refusing the merge. Anything else still needs a fresh review.
+  refusing the merge. Anything else still needs a fresh review (#481,
+  #483, closes #482).
 - MCP bodyweight updates: `update_user_properties` lets a write-enabled MCP
   connection set the current bodyweight in kg after explicit confirmation. The
   value is appended to the bodyweight history and mirrors the profile value the
   rest of the app reads, so the effective-load and progress views stay
   consistent. The tool is shaped for further user properties, such as goal
-  weight and body measurements, to be added without a new tool.
+  weight and body measurements, to be added without a new tool. Community
+  contribution by @f1dot4 (#477).
 - Rest timer controls: a running rest can be paused and resumed, and adjusted
   by -15 s or +15 s (replacing the single +30 s button). An optional device
   setting, off by default, flashes the screen when a rest ends; with reduced
@@ -100,7 +126,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `/mcp` is no longer unbounded (#376). A request body over 8 MiB is refused
+- The in-session coach context splits a repeated exercise's sets per block, like
+  the live runner: each row of a 5/3/1 Boring But Big lift carries only its own
+  sets and a `block` index, so the coach no longer reads a 5x10 back-off set as
+  more of the top set. Community contribution by @Retsumdk (#488, first item of
+  #475).
+- `/mcp` is no longer unbounded (#489, closes #376). A request body over 8 MiB is refused
   with `413`, counted on the bytes read so a missing or understated
   `Content-Length` does not get past it, before the SDK transport parses it.
   A body that fails mid-read (a client abort) gets `400` with the JSON-RPC
@@ -115,12 +146,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   kept, so no work is lost. Logging in or signing up purges the caches too,
   which covers a session that expired without a logout. A logout that fails
   (offline or refused) now says so and keeps the user on the page, since the
-  session is still live (#357).
+  session is still live (#487, closes #357).
 - Live session "last done" line: its height is kept while the days are being
   counted, so the set inputs no longer shift down after the page loads, and a
   page left open overnight recounts at local midnight. The "Last session" box
   next to it is now dated in the browser's time zone, like "last done", instead
-  of the server's (closes #480).
+  of the server's (#486, closes #480).
 - MCP tool errors no longer leak raw database errors: every tool handler is
   registered through one guard that maps Prisma errors to fixed wording
   (conflict, related record missing, not found) or a generic "Server error.",
@@ -162,10 +193,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Changelog entries are now fragments: a pull request adds
+  `changelog.d/<issue-or-pr>-<slug>.md` instead of editing `CHANGELOG.md`, and
+  `automation/changelog/assemble.ts` folds them into the Unreleased section in
+  the write-up PR (`--check` validates them in the green gate). Sibling PRs no
+  longer conflict on the changelog after each merge, so a merge of `main` stays a
+  pure base update whose review records carry over (lesson L47, #491; a
+  rerun skips only whole entries already folded, #492).
 - MCP `update_user_properties` now returns the previous profile bodyweight
   (`previousWeightKg`) and advertises only the property it supports. Its kg
   bounds come from the shared bodyweight schema, and the bodyweight POST and
-  DELETE routes share one locked re-sync helper (#478).
+  DELETE routes share one locked re-sync helper (#485, closes #478).
 - The repository moved to the `gymcoach-app` GitHub organization. The image is
   now published as `ghcr.io/gymcoach-app/gymcoach`; the old
   `ghcr.io/julien-au/gymcoach` path no longer receives updates. Old GitHub

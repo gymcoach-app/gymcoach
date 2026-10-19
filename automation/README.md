@@ -331,10 +331,13 @@ the line kind keeps them apart, and the usage attribution ignores it.
   and not the real index (the dirty check runs `git --no-optional-locks status`).
   The tree is taken before the first step and again at exit, and recorded only when
   the two agree; a file changed while the gate ran (an agent editing during a
-  background run) leaves `treeSha` null and `treeChanged` true. A PR head whose
-  tree is a recorded `treeSha` had exactly that content gated, at the steps the
-  line lists; for a squash merge, that is the merged content only if the base did
-  not move after the gate.
+  background run) leaves `treeSha` null and `treeChanged` true. A recorded
+  `treeSha` means the same tree at start and at exit, not that nothing changed in
+  between: an edit reverted before the gate ended (or a stash or checkout round
+  trip) leaves the two equal although some steps saw other content. With that
+  caveat, a PR head whose tree is a recorded `treeSha` had that content gated, at
+  the steps the line lists; for a squash merge, that is the merged content only if
+  the base did not move after the gate.
 - Signals: `verify.sh` sets no INT or TERM trap, because bash defers a trapped
   signal until the running step ends. A killed gate dies at once with the signal's
   own status (a calling loop still sees death by SIGINT); bash still runs the EXIT
@@ -361,7 +364,10 @@ the line kind keeps them apart, and the usage attribution ignores it.
   whose code is never run locally) is unknown too, not 0. `finalHeadGreen` is known
   true whenever a recorded green gate run checked the exact final head tree, and
   known false only for a run whose counts are known and none of whose green gate
-  runs left its tree unrecorded.
+  runs left its tree unrecorded. So a known `gateRuns` is never 0: the records
+  with known counts are exactly the gated runs, and a rollup over them (a share of
+  PR runs gated, a mean `gateRuns`) is biased upward by construction; do not build
+  such a metric on these records.
 
 Limits: gate runs outside `verify.sh` (a lone `npx vitest`, CI) are not recorded;
 the head tree comes from the local clone or `gh api`, and is unknown when neither

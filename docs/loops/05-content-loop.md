@@ -48,6 +48,19 @@ periodically (re-shoot a screenshot when its page visibly changed; re-record the
 before they lag more than ~3 batches or misrepresent a flagship flow). The write-up skill
 carries the full procedure.
 
+## Changelog fragments (since 2026-10-19)
+
+PRs no longer edit `CHANGELOG.md`. Each adds one file in
+[`changelog.d/`](../../changelog.d/README.md) (`<issue-or-pr>-<slug>.md`, a `section`
+front matter, one entry), checked by `npx tsx automation/changelog/assemble.ts --check` in
+the green gate. The write-up PR runs `npx tsx automation/changelog/assemble.ts`, which
+inserts each fragment at the top of its Unreleased section, skips an entry already present
+as a whole entry (#492) and deletes the files; the write-up then edits the result like any
+other text (dedupe, add the PR and issue numbers). The write-up PR is the only one that
+edits `CHANGELOG.md`, so sibling PRs stop conflicting on it (lesson L47, #491). A PR that
+records no fragment (maintainer tooling, nothing user-visible) gets a changelog line only
+when the infrastructure is itself the story.
+
 ## How it chains
 
 It reads the output of `ship-pr` (`04`) - the merged commits - and feeds the public story.

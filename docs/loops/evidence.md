@@ -2,7 +2,7 @@
 
 What the agents maintaining GymCoach have done, measured from public GitHub data
 and local agent transcripts, with links to the files and PRs behind every
-number. Last updated 2026-10-14.
+number. Last updated 2026-10-19.
 
 [Back to the overview](README.md) ·
 [Baseline report](baseline/2026-10-13/report.md) ·
@@ -126,6 +126,9 @@ exposed.
 | Run-time usage ledger written by Claude Code hooks ([`record-usage.cjs`](../../automation/hooks/record-usage.cjs)) | [#451](https://github.com/gymcoach-app/gymcoach/pull/451) | The baseline could only see transcripts not yet cleaned up |
 | Machine-wide heavy-work slots for `verify.sh` and a per-session subagent limit (default 3, optional token budget) ([`heavy-slot.sh`](../../scripts/heavy-slot.sh), [`dispatch-limit.cjs`](../../automation/hooks/dispatch-limit.cjs)) | [#454](https://github.com/gymcoach-app/gymcoach/pull/454), [#456](https://github.com/gymcoach-app/gymcoach/pull/456) | L42: load about 20 crashed Playwright pages and timed out tests |
 | Eval runs contained: the agent's network limited to the model API by a proxy, grading in throwaway containers, an allowlist of files the agent may change, and a canary that records the test framework's functions before any agent code loads ([`evals/maintainer/`](../../evals/maintainer/README.md)) | [#455](https://github.com/gymcoach-app/gymcoach/pull/455) | [#453](https://github.com/gymcoach-app/gymcoach/issues/453): the #452 reviews found the Docker API reachable and grading gameable. L45 |
+| Every `verify.sh` run appends one line to the local ledger: tier, exit code, per-step outcome, HEAD and the tree SHA of the checked files when it was the same at start and exit ([`record-verify.cjs`](../../automation/ledger/record-verify.cjs), [`verify.ts`](../../automation/ledger/verify.ts)) | [#473](https://github.com/gymcoach-app/gymcoach/pull/473) | Roadmap M1: local verification evidence was not recorded per run |
+| The merge gate refuses a PR whose base is not the live tip of `main` (`base-stale`), and carries review records only across a pure base update proven with git ([`base-update.ts`](../../automation/publish/base-update.ts)) | [#481](https://github.com/gymcoach-app/gymcoach/pull/481), [#483](https://github.com/gymcoach-app/gymcoach/pull/483) | L39: a sibling's merge made a green CI stale |
+| Changelog entries are per-PR fragments in `changelog.d/`, checked in the green gate and folded by the write-up PR ([`assemble.ts`](../../automation/changelog/assemble.ts)) | [#491](https://github.com/gymcoach-app/gymcoach/pull/491), [#492](https://github.com/gymcoach-app/gymcoach/pull/492) | L47: 3 hand-resolved `CHANGELOG.md` conflicts and 5 re-attestation rounds in one wave |
 
 Lessons are in [`lessons.md`](lessons.md). Details and limits of each control are
 in [`automation/README.md`](../../automation/README.md). Two limits matter most.
@@ -200,6 +203,11 @@ Each example links to the record or lesson where it can be checked.
    [Round-6 record](https://github.com/gymcoach-app/gymcoach/pull/455#issuecomment-6167439664),
    [ready record](https://github.com/gymcoach-app/gymcoach/pull/455#issuecomment-6167655776),
    L45, L46.
+9. **A missing review record refused a merge.** On #492, the post of the
+   review record failed on a transient GitHub API error. The merge gate found
+   no record for the head and refused with `no-review`; the record was posted
+   again and the merge went through on it.
+   [#492](https://github.com/gymcoach-app/gymcoach/pull/492).
 
 ## What is not shown yet, and why
 

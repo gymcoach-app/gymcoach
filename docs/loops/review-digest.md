@@ -924,3 +924,38 @@ capability off), now in `ship-pr` step 4.
 
 **Trust the gate (lower risk):** #457 (a docs page, every number copied from the baseline
 report), the `heavy-slot.sh` self-test, the CHANGELOG, roadmap and evidence lines.
+
+## 2026-10-19 - base-stale gate, changelog fragments, MCP bodyweight and limits, repeated-exercise blocks
+
+Merged: **#470**, **#472** (weights-only equipment save), **#474** (repeated-exercise
+blocks, migration), **#473** (gate runs in the ledger), **#477**, **#485** (MCP bodyweight),
+**#476**, **#486** (last-done line), **#481**, **#483** (base-stale gate, record
+carry-over), **#488** (coach context per block), **#487** (logout cache purge), **#489**
+(`/mcp` body cap, write rate limit), **#491**, **#492** (changelog fragments), **#446**
+(docs). Triage: open issues cut to 20 or fewer, parked ideas in #484. In this PR: changelog
+fold, playbook (03, 04, 05, evidence), the cap in the `triage` and `ideate` skills, README,
+#473's wording minors.
+
+**Read first:**
+
+1. **#481, #483 - what lets a review survive a merge of `main`.** `gh pr diff 481`, then
+   `gh pr diff 483`. Read `automation/publish/base-update.ts`: it decides when a ready
+   record still counts after the head changed. A false "pure update" lets unreviewed code
+   merge on an old record, so check the `.gitattributes` rule and the absent-base case.
+2. **#477, #485 - an unvetted contributor in `lib/mcp/**`.** `gh pr diff 477`, then
+   `gh pr diff 485`. A write tool on user data, merged by the loop on clean security lenses
+   with a rollback tag (`autonomy-baseline-2026-10-19`). Check the confirmation gate and
+   the bodyweight lock and re-sync in `lib/bodyweight-record.ts`.
+3. **#489 - `/mcp` request handling.** `gh pr diff 489`. The body is now read by the app
+   before the SDK sees it (`lib/mcp/limits.ts`); a mistake there is a denial of service or
+   a parse bypass on the external entry point.
+4. **#474 - a migration and the progression input.** `gh pr diff 474`. `Set.block`
+   (nullable, additive), backup format v8, and `getLastPerformances` keyed per block: the
+   numbers the next suggested load comes from.
+5. **#487 - logout on a shared device.** `gh pr diff 487`. Which caches are deleted and
+   which offline sets are kept (`lib/pwa-cache.ts`, `lib/sync.ts`).
+
+**Trust the gate (lower risk):** #476, #486 (one text line, day counting with DST tests),
+#470, #472 (narrow route with integration tests), #488 (additive payload field, negative
+control in the PR), #473 (local ledger, fail-open), #491, #492 (tooling, unit tests), the
+docs here.

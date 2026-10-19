@@ -137,6 +137,9 @@ on your own key - all self-hosted.
   drum-style picker limited to the loads your equipment can actually make, with
   a barbell preview of the pending load; nothing changes until you press Apply,
   and typing an exact decimal still works.
+- **Last done, at a glance** - each exercise card in the live session says when
+  you last trained that movement ("Last done yesterday", "3 days ago", "Never
+  done before"), counted in calendar days in your own time zone.
 - **Pick your table metrics** - the live sets table shows estimated 1RM,
   estimated 10RM or volume (volume alongside either), and remembers the choice.
 - **Double-progression suggestions** - the next working load is computed from
@@ -168,10 +171,13 @@ on your own key - all self-hosted.
   equipment you used is recorded on every set you log. If a selection cannot be
   recorded (the item was deleted or unlinked while you trained), the set is
   still saved and the logger says so instead of dropping it silently. A
-  machine's selectable weights can be corrected from the live session itself.
+  machine's selectable weights can be corrected from the live session itself,
+  without touching the item's name, type or exercise links.
 - **Quality-of-life** - kilograms or pounds per user, an interface in English,
   French or Russian (extensible message catalogs), multi-user with strict
-  per-user data isolation, and an installable PWA with offline logging.
+  per-user data isolation, and an installable PWA with offline logging. On a
+  shared device, logging out (or the next login) clears the previous user's
+  cached data from the browser.
 
 ### Track progress
 
@@ -231,7 +237,9 @@ on your own key - all self-hosted.
 
 - **Built-in templates** - 5/3/1 BBB, GZCLP, nSuns, PPL, Upper/Lower, Starting
   Strength, StrongLifts 5x5, Madcow, PHUL, PHAT, Full Body - runnable as written
-  and editable like any program.
+  and editable like any program. A lift a workout programs twice (the 5/3/1
+  BBB main lift) is logged as two blocks, each with its own sets and last
+  session.
 - **Exercise catalog** - searchable by name, on top of your custom exercises and
   muscle-group grouping. Star your favourites: they get their own section at
   the top of the catalog and come first in the in-session pickers.
@@ -252,8 +260,8 @@ on your own key - all self-hosted.
   it: create or edit programs, maintain your gym inventory (free weights,
   equipment and its photos), backfill the equipment on past sets with an
   audited undo, and update your current bodyweight. Every write asks for
-  confirmation, and a capability index tool tells a client which tools exist
-  and whether it can write. Details in
+  confirmation and is rate limited per connection token, and a capability
+  index tool tells a client which tools exist and whether it can write. Details in
   [docs/chatgpt-mcp.md](docs/chatgpt-mcp.md).
 - **Import and export** - bring history in from a Strong or Hevy CSV, or from
   GymCoach's own history CSV (a spreadsheet with the same columns works too;
@@ -509,6 +517,8 @@ than CI reaching in to a small VPS.
       index tools
 - [x] Favourite exercises, duplicate a program or workout, and save a finished
       session as a workout
+- [x] Repeated-exercise blocks (5/3/1 BBB) and a "last done" day in the live
+      session
 
 ## Contributing
 
@@ -548,7 +558,12 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   exercise already in a workout (#425), the first PR merged under the vetted
   tier. Then routed every MCP tool handler through one guard that maps
   database errors to fixed wording, so a client never sees a raw query error
-  (#432).
+  (#432). Then a weights-only save for a gym equipment item that leaves its
+  name, type and exercise links alone (#470), and a per-block split of a
+  repeated lift's sets in the in-session coach context (#488).
+- [@f1dot4](https://github.com/f1dot4) - first contribution: updating the
+  current bodyweight from an MCP client, through a user-properties tool built
+  to take more properties later (#477).
 - [@shaurya703](https://github.com/shaurya703) - picked up three of the loop's
   own follow-up issues within hours of their filing and turned each into a
   clean PR, including the persisted dropped-equipment notice (#342).
