@@ -66,6 +66,14 @@ describe('GymCoach MCP server', () => {
     expect(
       Object.keys(byName.get('update_user_properties')?.inputSchema.properties ?? {}),
     ).toContain('currentWeightKg');
+    // The weight bounds come from the shared bodyweight schema (issue #478).
+    expect(
+      byName.get('update_user_properties')?.inputSchema.properties?.currentWeightKg,
+    ).toMatchObject({ minimum: 20, maximum: 300 });
+    // Only supported properties are advertised to the LLM.
+    expect(byName.get('update_user_properties')?.description).not.toMatch(
+      /goal weight|measurement|will be added|planned/i,
+    );
     expect(byName.has('create_program')).toBe(true);
     expect(byName.has('update_program_exercise')).toBe(true);
     expect(byName.get('list_gyms')?.annotations?.readOnlyHint).toBe(true);

@@ -82,10 +82,9 @@ Write tools:
 - `update_program_exercise`
 - `remove_program_exercise`
 - `activate_program`
-- `update_user_properties` (currently sets the current bodyweight in kg; the
-  value is appended to the bodyweight history and mirrors the profile value the
-  rest of the app reads. Goal weight and body measurements are planned
-  properties)
+- `update_user_properties` (sets the current bodyweight in kg; the value is
+  appended to the bodyweight history and mirrors the profile value the rest of
+  the app reads, and the result includes the previous value)
 - `apply_historical_equipment_backfill` (assign one confirmed equipment item to
   up to 500 past sets that have none; never overwrites an existing assignment)
 - `undo_historical_equipment_backfill` (revert one audited backfill, only while
