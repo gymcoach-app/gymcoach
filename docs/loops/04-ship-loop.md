@@ -50,12 +50,17 @@ flaky-looking failure cannot loop forever.
 
 ## Sequential merges: a stale base is refused, records carry over a pure update
 
-Every merge goes through the merge gate
+The `ship-pr` skill merges through the merge gate
 ([`automation/publish/merge.ts`](../../automation/publish/merge.ts)). Since #481 (lesson
-L39, follow-ups in #483) the gate reads the live tip of `main` and refuses a PR whose base
-is behind it (`base-stale`). The PR merges `origin/main`, CI runs again on the new head,
-and only then may it merge. So a green CI always describes a tree that already holds every
-sibling that merged first.
+L39, follow-ups in #483) a merge done through `merge.ts` reads the live tip of `main` and
+refuses a PR whose base is not that tip (`base-stale`). The PR merges `origin/main`, CI runs
+again on the new head, and only then may it merge, so CI must be green on a head that
+already contains the current `main`. Two residuals stay open (the roadmap's milestone 2
+item says the same): the merge call pins the head, not the base, so a merge by another
+session or a human in the seconds between the gate's read of `main` and the merge call is
+not caught (no merge queue, no lock across sessions); and a merge from the GitHub UI or a
+plain `gh` call bypasses the gate, because the `protect-main` ruleset does not require
+up-to-date branches (`strict_required_status_checks_policy: false`).
 
 Re-reviewing after every such merge would make a wave of N PRs cost about N squared
 reviews. The gate avoids that: it carries review records across a **pure base update**, a

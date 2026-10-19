@@ -17,7 +17,10 @@ later `implement-issue` run can pick up unattended.
 - File **at most 3 issues** per run.
 - **Open-issue cap** (operator directive 2026-10-19): keep **20 or fewer open issues**.
   File only up to the cap; an idea that does not fit goes into the parked backlog #484
-  (closed as "not planned", listed there) instead of the open list.
+  instead of the open list. To park an open issue: append a line for it to #484, then
+  close it as "not planned" with a comment linking #484. Never park an issue opened by an
+  external contributor without a maintainer decision, and never park an issue labelled
+  `adopted` or `help wanted` without operator approval.
 - Before filing, list open issues (`gh issue list --state open --limit 50 --json number,title`)
   and **do not duplicate** an existing one (match on intent, not exact title).
 - Every issue must be **small, self-contained, and verifiable** by the green-gate -

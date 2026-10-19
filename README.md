@@ -176,8 +176,9 @@ on your own key - all self-hosted.
 - **Quality-of-life** - kilograms or pounds per user, an interface in English,
   French or Russian (extensible message catalogs), multi-user with strict
   per-user data isolation, and an installable PWA with offline logging. On a
-  shared device, logging out (or the next login) clears the previous user's
-  cached data from the browser.
+  shared device, logging out (or the next login) clears the cached pages and
+  API responses and the already synced offline data of the previous user;
+  their unsynced offline sets are kept, so no work is lost (tracked in #490).
 
 ### Track progress
 

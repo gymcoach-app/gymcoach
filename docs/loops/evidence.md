@@ -205,9 +205,9 @@ Each example links to the record or lesson where it can be checked.
    L45, L46.
 9. **A missing review record refused a merge.** On #492, the post of the
    review record failed on a transient GitHub API error. The merge gate found
-   no record for the head and refused with `no-review`; the record was posted
-   again and the merge went through on it.
-   [#492](https://github.com/gymcoach-app/gymcoach/pull/492).
+   no record for the head and refused with `no-review`, as seen in the local
+   `merge.ts` output (not kept on GitHub); the record was posted again and the
+   merge went through on it.
 
 ## What is not shown yet, and why
 

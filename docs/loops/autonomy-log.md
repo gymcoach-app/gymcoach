@@ -3415,7 +3415,10 @@ closes #479, #482), **#485** (#477 polish, closes #478), **#486** (#476 follow-u
 #480), **#488** (@Retsumdk, coach context per block, first item of #475), **#487**
 (shared-device cache purge, closes #357), **#489** (`/mcp` body cap and write rate limit,
 closes #376), **#491** and **#492** (changelog fragments, lesson L47). Every merge went
-through the merge gate on a ready record for its final head and base.
+through `merge.ts`. #473, #474 and #476 merged on ready records whose base was stale,
+before #481 added the base-stale refusal (#476 merged 27 minutes before it). #486, #487
+and #488 merged on records carried over a git-proven pure base update. The rest merged on
+records for their exact final head and base.
 
 **External work.** #477 is from an unvetted contributor and touches group A paths
 (`lib/mcp/**`): it merged after every pass was clean, the security lenses included, with
@@ -3441,8 +3444,11 @@ vetted @Retsumdk.
   planned for now were closed and listed in the parked backlog #484. Now in
   `03-triage-loop.md` and the `triage` and `ideate` skills.
 
-**Green gate.** `bash scripts/verify.sh` green before each merge; CI ran all five jobs on
-every merged head. The ledger holds 24 `verify` lines since #473 merged, 22 green.
+**Green gate.** `bash scripts/verify.sh` ran green locally before the merge of each
+maintainer and vetted PR; #477 (unvetted) was never run locally, only in CI. CI ran all five
+jobs on every merged head. Ledger count: `verify` lines whose end time is strictly after the
+#473 merge (2026-10-17T17:23:13Z), excluding this write-up's own run: 21 lines, 19 green
+(one `--full` run interrupted, exit null; one `--full` run failed, exit 1).
 
 **One metric.** 16 PRs merged (12 loop-authored, 3 external, 1 docs), 0 abandoned, 0
 reverted. Token spend, from the ledger (subagents only, attributed by one PR number in the

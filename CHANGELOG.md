@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   base is on `main`, so a stacked PR retargeted to `main` carries nothing. A
   record base that was never fetched counts as not on `main` rather than
   refusing the merge. Anything else still needs a fresh review (#481,
-  #483, closes #482).
+  closes #479; #483, closes #482).
 - MCP bodyweight updates: `update_user_properties` lets a write-enabled MCP
   connection set the current bodyweight in kg after explicit confirmation. The
   value is appended to the bodyweight history and mirrors the profile value the
