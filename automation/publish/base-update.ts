@@ -120,10 +120,11 @@ function isAncestor(git: Git, ancestor: string, of: string): boolean {
   throw new GitFailure(`git merge-base --is-ancestor: ${r.stderr.split('\n')[0] || `exit ${r.status}`}`);
 }
 
-// Every .gitattributes file of a commit, as "path blob" lines. NUL-separated
-// output (`-z`) keeps paths unquoted: without it git quotes a path with
-// non-ASCII or special characters, and a nested attributes file there would
-// slip past the comparison.
+// Every .gitattributes file of a commit, as NUL-joined "path blob" entries.
+// NUL-separated output (`-z`) keeps paths unquoted: without it git quotes a
+// path with non-ASCII or special characters, and a nested attributes file
+// there would slip past the comparison. NUL is also the join, since a path may
+// contain a newline but never a NUL.
 function attributesOf(git: Git, commit: string): string {
   return must(git, ['ls-tree', '-r', '-z', commit])
     .split('\0')
@@ -134,7 +135,7 @@ function attributesOf(git: Git, commit: string): string {
     .filter(({ path }) => /(^|\/)\.gitattributes$/.test(path))
     .map(({ path, blob }) => `${path} ${blob}`)
     .sort()
-    .join('\n');
+    .join('\0');
 }
 
 // The pure hops ending at `approvedSha`, newest first, and which of the given

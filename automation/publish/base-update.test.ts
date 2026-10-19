@@ -241,6 +241,15 @@ describe('pure base update verification', () => {
         ? { status: 128, stdout: '', stderr: 'fatal: bad object' }
         : git(args, opts);
     expect(verifyBaseUpdates(catFileBroken, head, tip, [base]).error).toMatch(/cat-file/);
+    // A record base that exists but is not a commit (a blob): merge-base
+    // cannot answer, which is an error too, never "not on main".
+    const blob = sh('rev-parse', `${head}:feature.ts`);
+    expect(verifyBaseUpdates(git, head, tip, [blob]).error).toMatch(/merge-base/);
+    const mergeBaseBroken: Git = (args, opts) =>
+      args[0] === 'merge-base'
+        ? { status: 128, stdout: '', stderr: 'fatal: bad revision' }
+        : git(args, opts);
+    expect(verifyBaseUpdates(mergeBaseBroken, head, tip, [base]).error).toMatch(/merge-base/);
     const broken: Git = () => ({ status: 128, stdout: '', stderr: 'fatal: not a git repository' });
     expect(verifyBaseUpdates(broken, head, tip)).toEqual({
       hops: [],
