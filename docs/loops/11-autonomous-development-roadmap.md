@@ -240,8 +240,18 @@ remain attributable after a model or skill upgrade.
       a merge queue or an equivalent serialized integration check.
       Partial, pin delivered: every merge in the
       [`ship-pr` skill](../../.claude/skills/ship-pr/SKILL.md) goes through the gate
-      with `sha=<reviewed head>`, loop-authored PRs included. A base update is not yet
-      revalidated mechanically (lesson L39 is still a procedure).
+      with `sha=<reviewed head>`, loop-authored PRs included. Base updates are
+      revalidated mechanically since #479: the gate reads the live tip of `main` and
+      refuses a PR whose base is not that tip (`base-stale`), so CI must be green on a
+      head that already contains the current `main`; review records cross only a pure
+      base update that git proves in the trusted gate tree
+      ([`automation/publish/base-update.ts`](../../automation/publish/base-update.ts),
+      tested against real git in
+      [`base-update.test.ts`](../../automation/publish/base-update.test.ts) and in
+      [`gate.test.ts`](../../automation/publish/gate.test.ts)). Still open: the merge
+      call pins the head, not the base, so a merge by another session or a human in the
+      seconds between the gate's read and the merge call is not caught (no merge queue,
+      no lock across sessions), and a merge outside the gate (the GitHub UI) bypasses it.
 - [x] Bootstrap the test database and migrations automatically; retire procedural
       workarounds once the scripts enforce their intent.
       Evidence (PR #441): [`scripts/test-db.sh`](../../scripts/test-db.sh) starts, waits

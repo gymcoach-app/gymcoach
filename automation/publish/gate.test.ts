@@ -64,6 +64,8 @@ function input(over: Partial<GateInput> = {}): GateInput {
     baseBranch: 'main',
     reviews: [evidence()],
     invalidReviews: [],
+    baseTipSha: BASE,
+    baseUpdates: { hops: [], error: null },
     ...over,
   };
 }
@@ -347,6 +349,123 @@ describe('merge gate', () => {
         }),
       );
       expect(decision.mergeable).toBe(true);
+    });
+  });
+
+  // Lesson L39: the pulls API base only moves on a push, so the gate compares
+  // it with the live tip of main, and records cross a pure base update only.
+  describe('base freshness and pure base updates', () => {
+    const OLD_HEAD = 'd'.repeat(40);
+    const TIP = 'e'.repeat(40);
+    const OLDER_HEAD = 'f'.repeat(40);
+    // The PR after `origin/main` (TIP) was merged into OLD_HEAD, giving SHA.
+    const updated = (over: Partial<GateInput> = {}): Partial<GateInput> => ({
+      pull: { ...pull, baseSha: TIP },
+      baseTipSha: TIP,
+      reviews: [evidence({ headSha: OLD_HEAD, baseSha: BASE })],
+      baseUpdates: { hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }], error: null },
+      ...over,
+    });
+
+    it('refuses when main moved after the PR was last pushed', () => {
+      const decision = evaluateMergeGate(input({ baseTipSha: TIP }));
+      expect(decision.mergeable).toBe(false);
+      if (!decision.mergeable) {
+        expect(decision.refusals.map((r) => r.code)).toEqual(['base-stale']);
+        expect(decision.refusals[0]!.detail).toContain(TIP);
+        expect(decision.refusals[0]!.detail).toContain('merge origin/main');
+      }
+    });
+
+    it('accepts a PR whose base is the live tip', () => {
+      expect(evaluateMergeGate(input()).mergeable).toBe(true);
+    });
+
+    it('carries a ready record across a verified pure base update', () => {
+      const decision = evaluateMergeGate(input(updated()));
+      expect(decision).toMatchObject({
+        mergeable: true,
+        reviews: [{ commentId: 900, carriedFrom: OLD_HEAD }],
+      });
+    });
+
+    it('carries nothing when the merge was not proven pure (hand edit, conflict, extra commit)', () => {
+      // base-update.ts lists no hop for such a head; the old record is stale.
+      expect(codes(updated({ baseUpdates: { hops: [], error: null } }))).toEqual([
+        'review-for-other-head',
+      ]);
+    });
+
+    it('carries nothing when the newest hop merged in something other than the live tip', () => {
+      const hops = [{ head: SHA, reviewedHead: OLD_HEAD, base: OTHER }];
+      expect(codes(updated({ baseUpdates: { hops, error: null } }))).toEqual([
+        'review-for-other-head',
+      ]);
+    });
+
+    it('ignores hops that do not start at the approved head', () => {
+      const hops = [{ head: OTHER, reviewedHead: OLD_HEAD, base: TIP }];
+      expect(codes(updated({ baseUpdates: { hops, error: null } }))).toEqual([
+        'review-for-other-head',
+      ]);
+    });
+
+    it('refuses when git could not verify the base updates', () => {
+      expect(codes(updated({ baseUpdates: { hops: [], error: 'git fetch failed' } }))).toEqual([
+        'base-update-unverified',
+        'review-for-other-head',
+      ]);
+      // Even with hops listed, an error carries nothing and refuses.
+      const decision = evaluateMergeGate(
+        input(updated({ baseUpdates: { ...updated().baseUpdates!, error: 'boom' } })),
+      );
+      expect(decision.mergeable).toBe(false);
+    });
+
+    it('carries a stop too, so merging main can never erase one', () => {
+      const stop = evidence(
+        {
+          headSha: OLD_HEAD,
+          lenses: ['security'],
+          verdict: 'needs-changes',
+          findings: [{ severity: 'major', file: 'lib/a.ts', line: 1, claim: 'x' }],
+        },
+        901,
+      );
+      // Another lens's ready record on the new head does not clear it.
+      const freshReady = evidence({ baseSha: TIP }, 902);
+      expect(codes(updated({ reviews: [evidence({ headSha: OLD_HEAD }), stop, freshReady] }))).toEqual(
+        ['review-not-ready'],
+      );
+      // The same lens re-reviewing the new head retracts it.
+      const securityReady = evidence({ baseSha: TIP, lenses: ['security'] }, 903);
+      expect(
+        evaluateMergeGate(input(updated({ reviews: [stop, freshReady, securityReady] }))).mergeable,
+      ).toBe(true);
+    });
+
+    it('follows a chain of pure updates and stops at the first broken link', () => {
+      const older = evidence({ headSha: OLDER_HEAD }, 900);
+      const chain = [
+        { head: SHA, reviewedHead: OLD_HEAD, base: TIP },
+        { head: OLD_HEAD, reviewedHead: OLDER_HEAD, base: BASE },
+      ];
+      expect(
+        evaluateMergeGate(input(updated({ reviews: [older], baseUpdates: { hops: chain, error: null } })))
+          .mergeable,
+      ).toBe(true);
+      const broken = [chain[0]!, { head: OTHER, reviewedHead: OLDER_HEAD, base: BASE }];
+      expect(
+        codes(updated({ reviews: [older], baseUpdates: { hops: broken, error: null } })),
+      ).toEqual(['review-for-other-head']);
+    });
+
+    it('still needs a record on the current base for the approved head itself', () => {
+      // A record for the new head but an old base is not carried: only older
+      // heads cross a hop.
+      expect(codes(updated({ reviews: [evidence({ baseSha: BASE })] }))).toEqual([
+        'review-for-other-base',
+      ]);
     });
   });
 });

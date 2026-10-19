@@ -87,6 +87,19 @@ Claude Code sessions in this project, not humans or other tools.
   `review-not-ready`). A maintainer comment with the review marker that was edited after
   posting or does not parse refuses the merge (`review-comment-invalid`): an edit must not
   erase a stop. Post a fresh record and delete the broken comment.
+  The PR's base must be the live tip of `main` (`base-stale`, lesson L39): the pulls API
+  base only moves on a push, so the CLI reads `refs/heads/main` itself. Merging
+  `origin/main` into the branch is the remedy, and CI must then pass on that new head.
+- `publish/base-update.ts` - proves with git, in the trusted gate tree, which updates
+  of the approved head were pure base updates: a merge commit with exactly two parents,
+  the second one the live tip of `main` (a commit on `main` for an older hop, up to 5
+  hops), and a tree equal to a clean re-merge of the two parents done in a throwaway
+  worktree (hooks off). Records on the head before such a hop carry over to the new
+  head, stops included, so merging `main` never erases a stop. A hand edit, a conflict
+  resolution or an extra commit ends the chain (the old records are stale, as before);
+  any git failure refuses the merge (`base-update-unverified`). Tested against real git
+  in a throwaway repository (`base-update.test.ts`). Needs a git that can `fetch
+  refs/pull/<n>/head` from `origin`.
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
   disagrees with the repository's required status checks; when the rules cannot be

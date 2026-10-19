@@ -677,7 +677,10 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   `origin/main` into the sibling, re-run `verify.sh`, push, and merge only on a fresh green
   CI for the new head. #436 was merged that way. Same family as L31/L32 (stacked fork PRs),
   but for independent loop branches that share a type.
-- **Status:** graduated -> "Guardrails" of the `ship-pr` skill.
+- **Status:** graduated -> "Guardrails" of the `ship-pr` skill; mechanical since #479:
+  the merge gate refuses a PR whose base is not the live tip of `main` (`base-stale`),
+  for any sibling change, not only shared types, and carries review records across a pure
+  base update proven with git (`automation/publish/base-update.ts`).
 
 ### L40 - A new `[param]` API route must join the ownership coverage ratchet in the same PR
 - **Trigger:** 2026-10-13, #436. Its three new routes (`programs/[id]/duplicate`,

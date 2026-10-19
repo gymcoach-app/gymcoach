@@ -14,6 +14,14 @@
 // record decides, and it must be ready with no blocking or major finding. A
 // fixup push or a rebase therefore leaves no matching record until a fresh
 // review is posted.
+//
+// The base must be the live tip of the base branch (lesson L39): the pulls API
+// base only moves on a push, so a PR reviewed and tested before a sibling
+// merged still looks current. Merging `origin/main` into the branch is the
+// remedy. That merge is a new head; the records of the head before it carry
+// over only across pure base updates (base-update.ts proves each hop: two
+// parents, the second one on `main`, a tree equal to a clean re-merge), and CI
+// must still pass on the new head itself.
 
 import type { ReviewEvidence } from '@/automation/review/comment';
 import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';
@@ -73,6 +81,28 @@ export interface GateInput {
   // edited after posting. Any one refuses the merge: dropping it silently
   // would let an edit erase a stop.
   invalidReviews: { commentId: number; reason: string }[];
+  // The live tip of the base branch (refs/heads/<baseBranch>), read at gate
+  // time. The PR's base must be this commit.
+  baseTipSha: string;
+  // Pure base updates ending at the approved head, verified with git in the
+  // trusted gate tree (base-update.ts).
+  baseUpdates: BaseUpdateEvidence;
+}
+
+// One verified hop: `head` is a merge commit whose first parent is
+// `reviewedHead` and whose second parent is `base` (a commit on the base
+// branch), and whose tree is exactly the clean merge of the two.
+export interface PureBaseUpdate {
+  head: string;
+  reviewedHead: string;
+  base: string;
+}
+
+export interface BaseUpdateEvidence {
+  // Newest first: hops[0].head is the approved head.
+  hops: PureBaseUpdate[];
+  // Set when git could not answer. The gate refuses: it never guesses.
+  error: string | null;
 }
 
 export type RefusalCode =
@@ -80,6 +110,8 @@ export type RefusalCode =
   | 'pr-not-open'
   | 'pr-draft'
   | 'wrong-base'
+  | 'base-stale'
+  | 'base-update-unverified'
   | 'head-moved'
   | 'allowlist-mismatch'
   | 'required-app-mismatch'
@@ -112,6 +144,9 @@ export interface PassedReview {
   author: string;
   reviewer: string;
   lenses: string[];
+  // The head the record was posted for, when it reached the approved head
+  // through pure base updates.
+  carriedFrom?: string;
 }
 
 // A reviewer's identity for the gate: who reviewed (kind and model) and what
@@ -158,6 +193,18 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
   }
   if (pull.headSha !== approvedSha) {
     refuse('head-moved', `head is ${pull.headSha}, approved ${approvedSha}`);
+  }
+  if (pull.baseSha !== input.baseTipSha) {
+    refuse(
+      'base-stale',
+      `the PR's base is ${pull.baseSha}, but ${baseBranch} is now at ${input.baseTipSha}: merge origin/${baseBranch} into the branch, push, and wait for CI on the new head`,
+    );
+  }
+  if (input.baseUpdates.error !== null) {
+    refuse(
+      'base-update-unverified',
+      `could not verify base updates with git: ${input.baseUpdates.error}`,
+    );
   }
 
   // The repository's rules and the committed allowlist must name the same
@@ -265,12 +312,36 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
   };
 }
 
-// The review evidence for (approved head, current base). Records for another
-// head or base are stale, never a fallback. For the exact pair, the latest
-// record of each reviewer identity counts, and every one of them must be ready
-// with no blocking or major finding: one lens cannot override another lens's
-// stop (multi-lens unanimity, docs/loops/10), only the same reviewer can
-// retract its own verdict with a later record.
+// The older heads whose review records also count for the approved head:
+// walking the verified pure base updates from the approved head backwards,
+// each hop linked to the previous one, the head each hop was merged from. The
+// newest hop must have merged in the PR's current base, which the gate
+// separately requires to be the live tip. Anything that does not link ends
+// the walk, so a gap never widens what counts.
+export function carriedHeads(input: GateInput): string[] {
+  const { pull, approvedSha, baseUpdates } = input;
+  const carried: string[] = [];
+  if (baseUpdates.error !== null) return carried;
+  let head = approvedSha;
+  for (const [i, hop] of baseUpdates.hops.entries()) {
+    if (hop.head !== head) break;
+    if (i === 0 && (hop.base !== pull.baseSha || hop.base !== input.baseTipSha)) break;
+    if (hop.reviewedHead === approvedSha || carried.includes(hop.reviewedHead)) break;
+    carried.push(hop.reviewedHead);
+    head = hop.reviewedHead;
+  }
+  return carried;
+}
+
+// The review evidence for the approved head. A record counts when it is for
+// (approved head, current base), or for a head that reached the approved head
+// through pure base updates only (carriedHeads); every other record is stale,
+// never a fallback. A carried record keeps its verdict either way: a stop on
+// the older head still stops, so merging `main` can never erase it. Among the
+// records that count, the latest of each reviewer identity decides, and every
+// one must be ready with no blocking or major finding: one lens cannot
+// override another lens's stop (multi-lens unanimity, docs/loops/10), only the
+// same reviewer can retract its own verdict with a later record.
 function evaluateReviews(
   input: GateInput,
   refuse: (code: RefusalCode, detail: string) => void,
@@ -282,7 +353,10 @@ function evaluateReviews(
     refuse('no-review', `no review record on PR #${pull.number}`);
     return null;
   }
-  const forHead = reviews.filter((r) => r.review.headSha === approvedSha);
+  const carried = new Set(carriedHeads(input));
+  const forHead = reviews.filter(
+    (r) => r.review.headSha === approvedSha || carried.has(r.review.headSha),
+  );
   if (forHead.length === 0) {
     const heads = [...new Set(reviews.map((r) => r.review.headSha.slice(0, 12)))];
     refuse(
@@ -291,7 +365,13 @@ function evaluateReviews(
     );
     return null;
   }
-  const matching = forHead.filter((r) => r.review.baseSha === pull.baseSha);
+  // A record for the approved head itself must be on the current base. A
+  // carried record was bound to its own head's live base when it was posted
+  // (record.ts refuses any other), and the hops prove that only `main` was
+  // merged in since.
+  const matching = forHead.filter(
+    (r) => carried.has(r.review.headSha) || r.review.baseSha === pull.baseSha,
+  );
   if (matching.length === 0) {
     const bases = [...new Set(forHead.map((r) => r.review.baseSha.slice(0, 12)))];
     refuse(
@@ -319,6 +399,7 @@ function evaluateReviews(
       author: r.author,
       reviewer: r.review.reviewer.model ?? r.review.reviewer.kind,
       lenses: r.review.lenses,
+      ...(r.review.headSha === approvedSha ? {} : { carriedFrom: r.review.headSha }),
     });
   }
   return stopped ? null : passed;
