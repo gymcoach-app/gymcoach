@@ -103,9 +103,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/mcp` is no longer unbounded (#376). A request body over 8 MiB is refused
   with `413`, counted on the bytes read so a missing or understated
   `Content-Length` does not get past it, before the SDK transport parses it.
-  Each token may make at most 60 write calls per minute across all write
-  tools; the next one returns a tool error with a retry delay. Reads are not
-  limited.
+  A body that fails mid-read (a client abort) gets `400` with the JSON-RPC
+  parse-error shape instead of a server error. Each token may make at most 60
+  write calls per minute across all write tools; the next one returns a tool
+  error with a retry delay. Reads are not limited.
+- Live session "last done" line: its height is kept while the days are being
+  counted, so the set inputs no longer shift down after the page loads, and a
+  page left open overnight recounts at local midnight. The "Last session" box
+  next to it is now dated in the browser's time zone, like "last done", instead
+  of the server's (closes #480).
 - MCP tool errors no longer leak raw database errors: every tool handler is
   registered through one guard that maps Prisma errors to fixed wording
   (conflict, related record missing, not found) or a generic "Server error.",
