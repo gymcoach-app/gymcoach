@@ -189,11 +189,116 @@ describe('buildCurrentSessionContext', () => {
         exerciseName: 'Curl',
         muscleGroup: 'BICEPS',
         usesBodyweight: false,
+        block: null,
         target: null,
         setsLogged: [
           { setNumber: 1, weight: 20, reps: 12, rir: null, isWarmup: false, isDropSet: false },
         ],
       },
+    ]);
+  });
+
+  it('splits a repeated exercise into one entry per block, each with its own sets', async () => {
+    const user = await makeUser('ctx-blocks@test.dev');
+    const squat = await db.exercise.create({
+      data: { userId: user.id, name: 'Back squat', muscleGroup: 'QUADS', category: 'COMPOUND' },
+    });
+    const program = await db.program.create({
+      data: { userId: user.id, name: '5/3/1 BBB', phase: 'Base', isActive: true },
+    });
+    const workout = await db.workout.create({
+      data: { programId: program.id, name: 'Squat day', order: 1 },
+    });
+    // The same lift twice, as the Boring But Big template programs it: the
+    // 5/3/1 top sets, then 5x10 back-off sets of the same exercise.
+    await db.programExercise.create({
+      data: {
+        workoutId: workout.id,
+        exerciseId: squat.id,
+        order: 1,
+        targetSets: 3,
+        targetRepsMin: 3,
+        targetRepsMax: 5,
+        targetRIR: 1,
+        restSec: 180,
+      },
+    });
+    await db.programExercise.create({
+      data: {
+        workoutId: workout.id,
+        exerciseId: squat.id,
+        order: 2,
+        targetSets: 5,
+        targetRepsMin: 10,
+        targetRepsMax: 10,
+        targetRIR: 2,
+        restSec: 90,
+      },
+    });
+    const session = await db.session.create({
+      data: { userId: user.id, workoutId: workout.id, startedAt: new Date('2026-06-11T10:00:00Z') },
+    });
+    // The top set carries no block, the shape of every set written before the
+    // column existed: it must read as the first occurrence, not vanish and not
+    // be counted against both rows.
+    await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: squat.id,
+        setNumber: 1,
+        weight: 140,
+        reps: 5,
+        rir: 1,
+      },
+    });
+    await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: squat.id,
+        block: 1,
+        setNumber: 1,
+        weight: 80,
+        reps: 10,
+        rir: 2,
+      },
+    });
+    await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: squat.id,
+        block: 1,
+        setNumber: 2,
+        weight: 80,
+        reps: 10,
+        rir: 2,
+      },
+    });
+
+    const ctx = await buildCurrentSessionContext(user.id, session.id);
+
+    // Two entries, same exercise name, one per program row in workout order,
+    // each carrying its own block and its own targets.
+    expect(ctx!.exercises.map((e) => [e.exerciseName, e.block])).toEqual([
+      ['Back squat', 0],
+      ['Back squat', 1],
+    ]);
+    const [topSets, backOff] = ctx!.exercises;
+    expect(topSets!.target).toEqual({
+      targetSets: 3,
+      targetRepsMin: 3,
+      targetRepsMax: 5,
+      targetRIR: 1,
+      restSec: 180,
+    });
+    expect(topSets!.setsLogged).toEqual([
+      { setNumber: 1, weight: 140, reps: 5, rir: 1, isWarmup: false, isDropSet: false },
+    ]);
+    expect(backOff!.target!.targetRepsMin).toBe(10);
+    // The 5x10 sets are not handed to the top-set row, and the block's own set
+    // numbers (which restart per block) survive intact.
+    expect(backOff!.setsLogged).toEqual([
+      { setNumber: 1, weight: 80, reps: 10, rir: 2, isWarmup: false, isDropSet: false },
+      { setNumber: 2, weight: 80, reps: 10, rir: 2, isWarmup: false, isDropSet: false },
     ]);
   });
 });

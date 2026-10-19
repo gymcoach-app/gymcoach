@@ -24,6 +24,7 @@ import {
 import { COACH_SYSTEM_PROMPT } from '@/lib/prompts/coach-system-prompt';
 import { exerciseRecords, type ExerciseRecord } from '@/lib/records';
 import { getLlmProvider } from '@/lib/llm';
+import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 
 // ============================================================
 // Structured payload sent to the coach
@@ -185,7 +186,14 @@ export interface CurrentSessionContext {
       targetRIR: number;
       restSec: number;
     } | null;
-    // Sets logged so far in this session, in order.
+    // Which occurrence of the exercise this row is, 0-based in workout order,
+    // when the workout programs it more than once (5/3/1 Boring But Big does
+    // the main lift twice); null when the workout holds the exercise once.
+    // Two rows can therefore share an exerciseName and still be told apart,
+    // each carrying only its own sets. Additive input signal; the output
+    // contract is unchanged.
+    block: number | null;
+    // Sets logged so far in this session for this block, in order.
     setsLogged: Array<{
       setNumber: number;
       weight: number;
@@ -896,11 +904,23 @@ export async function buildCurrentSessionContext(
   if (!session) return null;
   const bodyweight = user?.bodyweight ?? null;
 
-  const setsByExercise = new Map<string, typeof session.sets>();
+  // Sets are pooled per block (issue #429), exactly as the live runner pools
+  // them (components/session/session-runner.tsx): the bare exerciseId for an
+  // exercise the workout holds once, one pool per occurrence for a
+  // deliberately repeated one. Before #475 both rows of a repeated lift were
+  // handed the same interleaved list, so the coach read a 5/3/1 workout's
+  // 5x10 back-off sets as more of the top set and could not tell the two
+  // targets apart.
+  const plannedExercises = session.workout?.exercises ?? [];
+  const rowBlocks = blockIndexByRow(plannedExercises);
+  const exerciseOccurrences = occurrenceCounts(plannedExercises);
+
+  const setsByBlockKey = new Map<string, typeof session.sets>();
   for (const s of session.sets) {
-    const arr = setsByExercise.get(s.exerciseId);
+    const key = setBlockKey(s, exerciseOccurrences);
+    const arr = setsByBlockKey.get(key);
     if (arr) arr.push(s);
-    else setsByExercise.set(s.exerciseId, [s]);
+    else setsByBlockKey.set(key, [s]);
   }
 
   const serializeSets = (sets: typeof session.sets, usesBodyweight: boolean) =>
@@ -916,13 +936,15 @@ export async function buildCurrentSessionContext(
 
   // Planned exercises first, in workout order, then anything logged ad hoc.
   const exercises: CurrentSessionContext['exercises'] = [];
-  const covered = new Set<string>();
-  for (const pe of session.workout?.exercises ?? []) {
-    covered.add(pe.exerciseId);
+  const claimed = new Set<string>();
+  for (const pe of plannedExercises) {
+    const key = rowBlockKey(pe, rowBlocks);
+    claimed.add(key);
     exercises.push({
       exerciseName: pe.exercise.name,
       muscleGroup: pe.exercise.muscleGroup,
       usesBodyweight: pe.exercise.usesBodyweight,
+      block: rowBlocks.get(pe.id) ?? null,
       target: {
         targetSets: pe.targetSets,
         targetRepsMin: pe.targetRepsMin,
@@ -931,19 +953,20 @@ export async function buildCurrentSessionContext(
         restSec: pe.restSec,
       },
       setsLogged: serializeSets(
-        setsByExercise.get(pe.exerciseId) ?? [],
+        setsByBlockKey.get(key) ?? [],
         pe.exercise.usesBodyweight,
       ),
     });
   }
-  for (const [exerciseId, sets] of setsByExercise) {
-    if (covered.has(exerciseId)) continue;
+  for (const [key, sets] of setsByBlockKey) {
+    if (claimed.has(key)) continue;
     const first = sets[0];
     if (!first) continue;
     exercises.push({
       exerciseName: first.exercise.name,
       muscleGroup: first.exercise.muscleGroup,
       usesBodyweight: first.exercise.usesBodyweight,
+      block: null,
       target: null,
       setsLogged: serializeSets(sets, first.exercise.usesBodyweight),
     });
