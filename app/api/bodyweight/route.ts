@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   try {
     const userId = await requireApiUserId();
     const data = await parseJsonBody(req, bodyweightEntryInputSchema);
-    const entry = await recordBodyweightEntry(userId, data);
+    const { entry } = await recordBodyweightEntry(userId, data);
     return NextResponse.json(entry, { status: 201 });
   } catch (err) {
     return handleApiError(err);

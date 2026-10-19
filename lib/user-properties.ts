@@ -1,15 +1,18 @@
 import { recordBodyweightEntry } from '@/lib/bodyweight-record';
 
 // User-specific profile properties writable by external agents. Only the
-// current bodyweight is supported today; goal weight and the body-measurement
-// sites are intended additions. Keeping the dispatch in one place means the
-// MCP tool path does not need to change when another property is added.
+// current bodyweight is supported today. Keeping the dispatch in one place
+// means the MCP tool path does not need to change when another property is
+// added; advertise a property to the LLM only once it is supported here.
 export interface UserPropertiesUpdate {
   currentWeightKg?: number;
 }
 
 export interface UpdatedUserProperty {
   currentWeightKg: number;
+  // User.bodyweight before this update (null when it was never set), so the
+  // agent can report the change, like update_gym_free_weights does.
+  previousWeightKg: number | null;
   entry: {
     id: string;
     weightKg: number;
@@ -22,9 +25,12 @@ export async function updateUserProperties(
   update: UserPropertiesUpdate,
 ): Promise<UpdatedUserProperty> {
   if (update.currentWeightKg !== undefined) {
-    const entry = await recordBodyweightEntry(userId, { weightKg: update.currentWeightKg });
+    const { entry, previousBodyweightKg } = await recordBodyweightEntry(userId, {
+      weightKg: update.currentWeightKg,
+    });
     return {
       currentWeightKg: entry.weightKg,
+      previousWeightKg: previousBodyweightKg,
       entry: {
         id: entry.id,
         weightKg: entry.weightKg,

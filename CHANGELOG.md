@@ -150,6 +150,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- MCP `update_user_properties` now returns the previous profile bodyweight
+  (`previousWeightKg`) and advertises only the property it supports. Its kg
+  bounds come from the shared bodyweight schema, and the bodyweight POST and
+  DELETE routes share one locked re-sync helper (#478).
 - The repository moved to the `gymcoach-app` GitHub organization. The image is
   now published as `ghcr.io/gymcoach-app/gymcoach`; the old
   `ghcr.io/julien-au/gymcoach` path no longer receives updates. Old GitHub

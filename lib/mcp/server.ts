@@ -23,6 +23,7 @@ import {
 import { programInputSchema } from '@/lib/schemas/program';
 import { gymWeightListSchema } from '@/lib/schemas/gym';
 import { databaseIdSchema } from '@/lib/schemas/gym-equipment';
+import { bodyweightKgSchema } from '@/lib/schemas/bodyweight';
 import {
   EquipmentType,
   ExerciseCategory,
@@ -431,13 +432,10 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
     {
       title: 'Update user properties',
       description:
-        'Updates user-specific saved properties after the trainee confirms the change. Only currentWeightKg (bodyweight in kg) is supported today: it appends a bodyweight history entry and syncs the profile value the rest of the app reads. Goal weight and body measurements will be added as further properties.',
+        'Updates user-specific saved properties after the trainee confirms the change. Only currentWeightKg (bodyweight in kg) is supported: it appends a bodyweight history entry and syncs the profile value the rest of the app reads. The result includes the previous profile value (previousWeightKg, null when it was never set).',
       inputSchema: {
         confirmed: explicitConfirmation,
-        currentWeightKg: z
-          .number()
-          .min(20, 'Too low')
-          .max(300, 'Too high')
+        currentWeightKg: bodyweightKgSchema
           .optional()
           .describe('Current bodyweight in kg. At least one supported property must be supplied.'),
       },
