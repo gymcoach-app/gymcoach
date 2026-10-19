@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { ApiError, handleApiError, requireApiUserId } from '@/lib/api';
-import { currentBodyweightFromEntries } from '@/lib/bodyweight';
+import { mutateBodyweightHistory } from '@/lib/bodyweight-record';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -24,24 +24,11 @@ export async function DELETE(_req: Request, props: Params) {
       throw new ApiError(404, 'Entry not found.');
     }
 
-    await db.$transaction(async (tx) => {
-      // Lock the user row first so the re-sync serializes with concurrent
-      // bodyweight mutations (issue #107), matching the POST route.
-      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
-      await tx.bodyweightEntry.delete({ where: { id: params.id, userId } });
-      const remaining = await tx.bodyweightEntry.findMany({
-        where: { userId },
-        orderBy: [{ measuredAt: 'asc' }, { id: 'asc' }],
-        select: { weightKg: true, measuredAt: true },
-      });
-      const current = currentBodyweightFromEntries(remaining);
-      if (current !== null) {
-        await tx.user.update({
-          where: { id: userId },
-          data: { bodyweight: current },
-        });
-      }
-    });
+    // The shared helper locks the user row so the re-sync serializes with
+    // concurrent bodyweight mutations (issue #107), matching the POST route.
+    await mutateBodyweightHistory(userId, (tx) =>
+      tx.bodyweightEntry.delete({ where: { id: params.id, userId } }),
+    );
     return NextResponse.json({ ok: true });
   } catch (err) {
     return handleApiError(err);
