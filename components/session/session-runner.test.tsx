@@ -42,6 +42,7 @@ type TableProps = {
 const harness = vi.hoisted(() => ({
   liveSets: [] as unknown[],
   card: null as unknown,
+  cardRenders: [] as unknown[],
   menu: null as unknown,
   table: null as unknown,
   tableUnmounts: 0,
@@ -85,6 +86,7 @@ vi.mock('@/components/shared/use-training-name', () => ({
 vi.mock('@/components/session/exercise-card', () => ({
   ExerciseCard: (props: CardProps) => {
     harness.card = props;
+    harness.cardRenders.push(props);
     return null;
   },
 }));
@@ -207,6 +209,7 @@ const loggedSet = { weight: 60, reps: 8, rir: 2, durationSec: null, distanceM: n
 beforeEach(() => {
   harness.liveSets = [];
   harness.card = null;
+  harness.cardRenders = [];
   harness.menu = null;
   harness.table = null;
   harness.tableUnmounts = 0;
@@ -433,6 +436,46 @@ describe('SessionRunner last done (issue #459)', () => {
       <SessionRunner {...runner([row('bench', 1)]).props} lastDoneAt={{ bench: lastBench }} />,
     );
     expect(card().timeZone).toBe('Pacific/Auckland');
+  });
+
+  it('renders the line as pending before mount, so the first render matches the server', async () => {
+    inAuckland();
+    harness.liveSets = [];
+    await renderRunner(
+      <SessionRunner {...runner([row('bench', 1)]).props} lastDoneAt={{ bench: lastBench }} />,
+    );
+    const first = harness.cardRenders[0] as CardProps;
+    expect(first.lastDonePending).toBe(true);
+    expect(first.lastDoneDaysAgo).toBeUndefined();
+    expect(first.timeZone).toBeNull();
+    expect(card().lastDonePending).toBe(false);
+  });
+
+  it('is not pending when the page sends no last-done data', async () => {
+    harness.liveSets = [];
+    await renderRunner(runner([row('bench', 1)]));
+    expect((harness.cardRenders[0] as CardProps).lastDonePending).toBe(false);
+  });
+
+  it('clears the midnight timer on unmount (issue #480)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 9, 17, 23, 0, 0));
+    harness.liveSets = [];
+    const view = await renderRunner(
+      <SessionRunner
+        {...runner([row('bench', 1)]).props}
+        lastDoneAt={{ bench: new Date(2026, 9, 17, 9, 0, 0).toISOString() }}
+      />,
+    );
+    const pendingWithPage = vi.getTimerCount();
+    expect(pendingWithPage).toBeGreaterThan(0);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(pendingWithPage - 1);
+    const rendersAtUnmount = harness.cardRenders.length;
+    await act(async () => {
+      vi.advanceTimersByTime(60 * 60 * 1000 + 1000);
+    });
+    expect(harness.cardRenders).toHaveLength(rendersAtUnmount);
   });
 
   it('recounts the days at local midnight for a page left open (issue #480)', async () => {

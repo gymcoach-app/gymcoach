@@ -124,17 +124,13 @@ describe('ExerciseCard last done line (issue #459)', () => {
 });
 
 describe('ExerciseCard last session date (issue #480)', () => {
-  // 23:30 UTC on 16 October is already 17 October in Auckland.
-  const lateEvening: SerializedLastPerformance = {
-    ...lastPerf,
-    sessionStartedAt: '2026-10-16T23:30:00Z',
-  };
-
-  function renderInZone(timeZone: string | null) {
+  // The tests' request zone is UTC (vitest.setup.ts), so each instant falls on
+  // a different calendar day in UTC and in the zone under test.
+  function renderInZone(sessionStartedAt: string, timeZone: string | null) {
     return render(
       <ExerciseCard
         programExercise={pe}
-        lastPerformance={lateEvening}
+        lastPerformance={{ ...lastPerf, sessionStartedAt }}
         timeZone={timeZone}
         readiness={null}
         deloadActive={false}
@@ -144,13 +140,20 @@ describe('ExerciseCard last session date (issue #480)', () => {
   }
 
   it('dates the last session in the browser zone it is given', () => {
-    renderInZone('Pacific/Auckland');
+    // 23:30 UTC on 16 October is already 17 October in Auckland.
+    renderInZone('2026-10-16T23:30:00Z', 'Pacific/Auckland');
     expect(screen.getByText(/Last session/)).toHaveTextContent('(10/17)');
   });
 
   it('uses the given zone, not the request zone, for the same instant', () => {
-    renderInZone('America/Los_Angeles');
+    // 03:00 UTC on 17 October is still 16 October in Los Angeles.
+    renderInZone('2026-10-17T03:00:00Z', 'America/Los_Angeles');
     expect(screen.getByText(/Last session/)).toHaveTextContent('(10/16)');
+  });
+
+  it('keeps the request zone until a zone is given', () => {
+    renderInZone('2026-10-17T03:00:00Z', null);
+    expect(screen.getByText(/Last session/)).toHaveTextContent('(10/17)');
   });
 });
 
