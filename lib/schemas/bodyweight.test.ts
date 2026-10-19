@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { bodyweightEntryInputSchema } from './bodyweight';
+import {
+  BODYWEIGHT_MAX_KG,
+  BODYWEIGHT_MIN_KG,
+  bodyweightEntryInputSchema,
+  bodyweightKgSchema,
+} from './bodyweight';
 
 describe('bodyweightEntryInputSchema', () => {
   it('accepts a plain weight in kg', () => {
@@ -38,5 +43,20 @@ describe('bodyweightEntryInputSchema', () => {
       note: 'x'.repeat(501),
     });
     expect(res.success).toBe(false);
+  });
+});
+
+describe('bodyweightKgSchema (shared with the MCP tool, issue #478)', () => {
+  it('uses the profile-route bounds', () => {
+    expect(BODYWEIGHT_MIN_KG).toBe(20);
+    expect(BODYWEIGHT_MAX_KG).toBe(300);
+  });
+
+  it.each([20, 81.4, 300])('accepts %p kg', (kg) => {
+    expect(bodyweightKgSchema.safeParse(kg).success).toBe(true);
+  });
+
+  it.each([19.9, 300.1, '80', null])('rejects %p (no coercion)', (kg) => {
+    expect(bodyweightKgSchema.safeParse(kg).success).toBe(false);
   });
 });

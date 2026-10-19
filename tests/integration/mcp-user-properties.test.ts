@@ -63,7 +63,11 @@ describe('GymCoach MCP user properties', () => {
     });
 
     expect(res.isError).toBeFalsy();
-    expect(res.structuredContent).toMatchObject({ ok: true, currentWeightKg: 81.4 });
+    expect(res.structuredContent).toMatchObject({
+      ok: true,
+      currentWeightKg: 81.4,
+      previousWeightKg: 75,
+    });
     const entries = await db.bodyweightEntry.findMany({ where: { userId: user.id } });
     expect(entries).toHaveLength(1);
     expect(entries[0]?.weightKg).toBe(81.4);
@@ -102,6 +106,62 @@ describe('GymCoach MCP user properties', () => {
     });
 
     expect(res.isError).toBe(true);
+    expect(await db.bodyweightEntry.count({ where: { userId: user.id } })).toBe(0);
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).bodyweight).toBe(75);
+  });
+
+  it('reports a null previous weight when the profile value was never set', async () => {
+    const user = await db.user.create({
+      data: { email: 'mcp-weight-first@test.dev', passwordHash: 'x' },
+    });
+    const client = await connect(user.id, true);
+
+    const res = await client.callTool({
+      name: 'update_user_properties',
+      arguments: { confirmed: true, currentWeightKg: 70 },
+    });
+
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toMatchObject({
+      ok: true,
+      currentWeightKg: 70,
+      previousWeightKg: null,
+    });
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).bodyweight).toBe(70);
+  });
+
+  it.each([300.1, 301])('rejects %p kg above the upper bound before any write', async (kg) => {
+    const user = await db.user.create({
+      data: { email: `mcp-weight-high-${kg}@test.dev`, passwordHash: 'x', bodyweight: 75 },
+    });
+    const client = await connect(user.id, true);
+
+    const res = await client.callTool({
+      name: 'update_user_properties',
+      arguments: { confirmed: true, currentWeightKg: kg },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(await db.bodyweightEntry.count({ where: { userId: user.id } })).toBe(0);
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).bodyweight).toBe(75);
+  });
+
+  it.each([
+    ['missing', {}],
+    ['false', { confirmed: false }],
+  ])('refuses the update when confirmed is %s and writes nothing', async (label, confirmation) => {
+    const user = await db.user.create({
+      data: { email: `mcp-weight-unconfirmed-${label}@test.dev`, passwordHash: 'x', bodyweight: 75 },
+    });
+    const client = await connect(user.id, true);
+
+    const res = await client.callTool({
+      name: 'update_user_properties',
+      arguments: { ...confirmation, currentWeightKg: 81 },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain('confirmed');
     expect(await db.bodyweightEntry.count({ where: { userId: user.id } })).toBe(0);
     expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).bodyweight).toBe(75);
   });
