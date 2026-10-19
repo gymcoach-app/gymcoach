@@ -4,7 +4,10 @@ import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { LogOut } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { purgeUserCaches } from '@/lib/pwa-cache';
+import { deleteSyncedSets } from '@/lib/sync';
 
 export function LogoutButton() {
   const t = useTranslations('auth');
@@ -13,7 +16,29 @@ export function LogoutButton() {
 
   function handleLogout() {
     startTransition(async () => {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      // Purge first, so the cached data is gone even when the call below fails
+      // and the device is handed on anyway (#357).
+      await purgeUserCaches();
+
+      let loggedOut = false;
+      try {
+        const res = await fetch('/api/auth/logout', { method: 'POST' });
+        loggedOut = res.ok;
+      } catch {
+        // Offline: handled below like a refused call.
+      }
+      if (!loggedOut) {
+        // The session cookie is still valid, so do not pretend otherwise.
+        toast.error(t('logoutFailed'));
+        return;
+      }
+
+      // Purge again: a GET started before the first purge can complete and be
+      // cached in between. This removes everything cached up to this point; a
+      // response still in flight afterwards can still land, and expires on its
+      // own schedule or is purged by the next login.
+      await purgeUserCaches();
+      await deleteSyncedSets();
       router.replace('/login');
       router.refresh();
     });

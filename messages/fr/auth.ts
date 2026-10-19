@@ -23,6 +23,7 @@ export const auth = {
     error: 'Erreur lors de l’inscription.',
   },
   logout: 'Se déconnecter',
+  logoutFailed: 'Déconnexion impossible. Vous êtes toujours connecté ; réessayez une fois en ligne.',
   validation: {
     invalidEmail: 'Email invalide',
     nameRequired: 'Nom requis',

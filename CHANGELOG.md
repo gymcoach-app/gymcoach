@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parse-error shape instead of a server error. Each token may make at most 60
   write calls per minute across all write tools; the next one returns a tool
   error with a retry delay. Reads are not limited.
+- Shared devices: logging out now deletes the service-worker caches that hold
+  one user's data (`api-get`, `pages`, `start-url`; every cache except the
+  build-asset ones), before and after the logout call, and the synced sets kept
+  in the offline queue, so the next person on the same browser is not served
+  the previous user's cached API responses, pages or sets. Unsynced sets are
+  kept, so no work is lost. Logging in or signing up purges the caches too,
+  which covers a session that expired without a logout. A logout that fails
+  (offline or refused) now says so and keeps the user on the page, since the
+  session is still live (#357).
 - Live session "last done" line: its height is kept while the days are being
   counted, so the set inputs no longer shift down after the page loads, and a
   page left open overnight recounts at local midnight. The "Last session" box

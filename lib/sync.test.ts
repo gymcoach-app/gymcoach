@@ -9,6 +9,7 @@ vi.mock('@/lib/indexeddb', async (importOriginal) => {
 });
 
 import {
+  deleteSyncedSets,
   drainDroppedEquipment,
   flushPendingSets,
   onEquipmentDropped,
@@ -394,5 +395,54 @@ describe('dropped equipment survives a flush nobody was listening to', () => {
 
     expect(item.equipmentDroppedNotice).toBeUndefined();
     expect(await drainDroppedEquipment('session-1')).toEqual([]);
+  });
+});
+
+describe('deleteSyncedSets (#357)', () => {
+  // A table of rows filtered by `where('status').equals(...)`, like Dexie.
+  function rowsDB(rows: PendingSet[]) {
+    return {
+      pendingSets: {
+        where: vi.fn((index: string) => ({
+          equals: vi.fn((value: string) => ({
+            delete: vi.fn(async () => {
+              const keep = rows.filter(
+                (row) => row[index as keyof PendingSet] !== value,
+              );
+              const removed = rows.length - keep.length;
+              rows.splice(0, rows.length, ...keep);
+              return removed;
+            }),
+          })),
+        })),
+      },
+    };
+  }
+
+  it('deletes synced rows and keeps unsynced work', async () => {
+    const rows: PendingSet[] = [
+      { ...pendingSet(), localId: 'srv_1', status: 'synced', serverId: '1' },
+      { ...pendingSet(), localId: 'loc_synced', status: 'synced', serverId: '2' },
+      { ...pendingSet(), localId: 'loc_pending', status: 'pending' },
+      { ...pendingSet(), localId: 'loc_syncing', status: 'syncing' },
+      { ...pendingSet(), localId: 'loc_failed', status: 'failed' },
+    ];
+    mockGetDB.mockReturnValue(rowsDB(rows));
+
+    await deleteSyncedSets();
+
+    expect(rows.map((row) => row.localId)).toEqual([
+      'loc_pending',
+      'loc_syncing',
+      'loc_failed',
+    ]);
+  });
+
+  it('resolves without throwing when IndexedDB is unavailable', async () => {
+    mockGetDB.mockImplementation(() => {
+      throw new Error('IndexedDB is only available client-side.');
+    });
+
+    await expect(deleteSyncedSets()).resolves.toBeUndefined();
   });
 });
