@@ -20,8 +20,9 @@
 // merged still looks current. Merging `origin/main` into the branch is the
 // remedy. That merge is a new head; the records of the head before it carry
 // over only across pure base updates (base-update.ts proves each hop: two
-// parents, the second one on `main`, a tree equal to a clean re-merge), and CI
-// must still pass on the new head itself.
+// parents, the second one on `main`, the same .gitattributes files on both
+// parents, a tree equal to a clean re-merge), and CI must still pass on the
+// new head itself.
 
 import type { ReviewEvidence } from '@/automation/review/comment';
 import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';

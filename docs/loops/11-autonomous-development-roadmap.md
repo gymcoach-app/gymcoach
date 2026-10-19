@@ -247,7 +247,8 @@ remain attributable after a model or skill upgrade.
       base update that git proves in the trusted gate tree
       ([`automation/publish/base-update.ts`](../../automation/publish/base-update.ts),
       tested against real git in
-      [`base-update.test.ts`](../../automation/publish/base-update.test.ts) and in
+      [`base-update.test.ts`](../../automation/publish/base-update.test.ts), with the
+      gate's decisions unit-tested in
       [`gate.test.ts`](../../automation/publish/gate.test.ts)). Still open: the merge
       call pins the head, not the base, so a merge by another session or a human in the
       seconds between the gate's read and the merge call is not caught (no merge queue,

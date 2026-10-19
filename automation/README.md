@@ -93,14 +93,18 @@ Claude Code sessions in this project, not humans or other tools.
 - `publish/base-update.ts` - proves with git, in the trusted gate tree, which updates
   of the approved head were pure base updates: a merge commit with exactly two parents,
   the second one the live tip of `main` (a commit on `main` for an older hop, up to 5
-  hops), the same `.gitattributes` files on both parents (so the reviewed head cannot
-  pick a merge driver such as `merge=union` for the re-merge), and a tree equal to a
-  clean re-merge of the two parents done in a throwaway worktree. Git runs without the
-  host's global or system config (`GIT_CONFIG_GLOBAL=/dev/null`,
-  `GIT_CONFIG_NOSYSTEM=1`), with hooks and rerere off and a fixed identity. Records on
-  the head before such a hop carry over to the new head: stops always, so merging
-  `main` never erases one, and ready records only when git proves their base is on
-  `main` (a stacked PR retargeted to `main` carries nothing). A hand edit, a conflict
+  hops), the same `.gitattributes` files on both parents, nested ones included and
+  compared from NUL-separated `ls-tree -z` output so a quoted (non-ASCII) path is not
+  missed (the reviewed head therefore cannot pick a built-in merge driver such as
+  `merge=union` for the re-merge), and a tree equal to a clean re-merge of the two
+  parents done in a throwaway worktree. Git runs without the host's global or system
+  config or attributes files (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`,
+  `GIT_ATTR_NOSYSTEM=1`, `core.attributesFile=/dev/null`), with hooks and rerere off
+  and a fixed identity. Records on the head before such a hop carry over to the new
+  head: stops always, so merging `main` never erases one, and ready records only when
+  git proves their base is on `main` (a stacked PR retargeted to `main` carries
+  nothing; a base never fetched is not on `main`, since all of `main` is fetched, and
+  no longer refuses the merge). A hand edit, a conflict
   resolution or an extra commit ends the chain (the old records are stale, as before).
   The CLI only runs git when the approved head is a two-parent merge and some record is
   for another head, fetching into a ref namespace private to the run and deleting it

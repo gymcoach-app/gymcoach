@@ -21,8 +21,8 @@ import { FULL_SHA, type BaseUpdateEvidence, type PureBaseUpdate } from '@/automa
 // Anything else ends the chain, which keeps the older rule (the records of
 // the older head are stale). It also proves which review record bases are on
 // `main`: a record bound to another branch (a stacked PR later retargeted)
-// never carries. A git failure is reported as an error, and the gate refuses
-// on it rather than guess.
+// never carries; a base absent locally is not on `main`. Any other git failure
+// is reported as an error, and the gate refuses on it rather than guess.
 
 export const MAX_HOPS = 5;
 
@@ -36,12 +36,18 @@ export type Git = (args: string[], opts?: { cwd?: string }) => GitResult;
 
 // The re-merge must not depend on, or be steered through, the host's git
 // configuration: no global or system config (no user filters, merge drivers,
-// rerere or url rewrites), hooks off, and a fixed identity because `git merge`
-// wants one even when it writes no commit.
-export const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } as const;
+// rerere or url rewrites), no system or user attributes file, hooks off, and a
+// fixed identity because `git merge` wants one even when it writes no commit.
+export const GIT_ENV = {
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_ATTR_NOSYSTEM: '1',
+} as const;
 const SAFE_CONFIG = [
   '-c',
   'core.hooksPath=/dev/null',
+  '-c',
+  'core.attributesFile=/dev/null',
   '-c',
   'rerere.enabled=false',
   '-c',
@@ -98,6 +104,15 @@ function cleanMergeTree(git: Git, first: string, second: string): string | null 
   }
 }
 
+// Whether the object is in the local repository. Exit 1 is "absent"; any
+// other failure is an error.
+function hasObject(git: Git, sha: string): boolean {
+  const r = git(['cat-file', '-e', sha]);
+  if (r.status === 0) return true;
+  if (r.status === 1) return false;
+  throw new GitFailure(`git cat-file -e: ${r.stderr.split('\n')[0] || `exit ${r.status}`}`);
+}
+
 function isAncestor(git: Git, ancestor: string, of: string): boolean {
   const r = git(['merge-base', '--is-ancestor', ancestor, of]);
   if (r.status === 0) return true;
@@ -105,12 +120,19 @@ function isAncestor(git: Git, ancestor: string, of: string): boolean {
   throw new GitFailure(`git merge-base --is-ancestor: ${r.stderr.split('\n')[0] || `exit ${r.status}`}`);
 }
 
-// Every .gitattributes file of a commit, as "path blob" lines.
+// Every .gitattributes file of a commit, as "path blob" lines. NUL-separated
+// output (`-z`) keeps paths unquoted: without it git quotes a path with
+// non-ASCII or special characters, and a nested attributes file there would
+// slip past the comparison.
 function attributesOf(git: Git, commit: string): string {
-  return must(git, ['ls-tree', '-r', commit])
-    .split('\n')
-    .filter((line) => /(^|\/)\.gitattributes$/.test(line.split('\t')[1] ?? ''))
-    .map((line) => `${line.split('\t')[1]} ${line.split('\t')[0]!.split(' ')[2]}`)
+  return must(git, ['ls-tree', '-r', '-z', commit])
+    .split('\0')
+    .map((entry) => {
+      const tab = entry.indexOf('\t');
+      return { path: entry.slice(tab + 1), blob: entry.slice(0, tab).split(' ')[2] };
+    })
+    .filter(({ path }) => /(^|\/)\.gitattributes$/.test(path))
+    .map(({ path, blob }) => `${path} ${blob}`)
     .sort()
     .join('\n');
 }
@@ -144,8 +166,11 @@ export function verifyBaseUpdates(
       hops.push({ head, reviewedHead: first, base: second });
       head = first;
     }
+    // The whole of `main` is fetched, so a record base absent from the local
+    // repository cannot be on `main`: it counts as "not on main" rather than
+    // as an error (a stacked PR's old parent tip is never fetched).
     const basesOnMain = [...new Set(recordBases)].filter(
-      (b) => FULL_SHA.test(b) && isAncestor(git, b, baseTip),
+      (b) => FULL_SHA.test(b) && hasObject(git, b) && isAncestor(git, b, baseTip),
     );
     return { hops, basesOnMain, error: null };
   } catch (err) {

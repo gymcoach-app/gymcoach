@@ -161,6 +161,12 @@ describe('pure base update verification', () => {
     const tip2 = advanceMain();
     const nested = mergeInto('nested-attributes', tip2);
     expect(verifyBaseUpdates(git, nested, tip2).hops).toEqual([]);
+    // A path git quotes in plain ls-tree output (non-ASCII) is compared too.
+    sh('checkout', '-q', '-b', 'quoted-attributes', head);
+    commitFile('café/.gitattributes', '*.ts merge=union\n', 'quoted-path attributes');
+    const tip3 = advanceMain();
+    const quoted = mergeInto('quoted-attributes', tip3);
+    expect(verifyBaseUpdates(git, quoted, tip3).hops).toEqual([]);
     expect(withAttrs).toMatch(/^[0-9a-f]{40}$/);
   });
 
@@ -210,14 +216,31 @@ describe('pure base update verification', () => {
     expect(result.error).toBeNull();
   });
 
+  it('treats a record base absent from the repository as not on main', () => {
+    // A stacked PR's old parent tip is never fetched; all of main is, so an
+    // absent base cannot be on main. Not an error: the other bases still count.
+    const tip = advanceMain();
+    const absent = '1'.repeat(40);
+    expect(verifyBaseUpdates(git, head, tip, [absent, base])).toEqual({
+      hops: [],
+      basesOnMain: [base],
+      error: null,
+    });
+  });
+
   it('fails closed when git cannot answer', () => {
     const tip = advanceMain();
     const missing = '0'.repeat(40);
     const result = verifyBaseUpdates(git, missing, tip);
     expect(result).toMatchObject({ hops: [], basesOnMain: [] });
     expect(result.error).toMatch(/git rev-list/);
-    // An unknown record base is an error too, never "not on main".
-    expect(verifyBaseUpdates(git, head, tip, [missing]).error).toMatch(/merge-base/);
+    // Checking a record base fails for another reason than absence: an error,
+    // never "not on main".
+    const catFileBroken: Git = (args, opts) =>
+      args[0] === 'cat-file'
+        ? { status: 128, stdout: '', stderr: 'fatal: bad object' }
+        : git(args, opts);
+    expect(verifyBaseUpdates(catFileBroken, head, tip, [base]).error).toMatch(/cat-file/);
     const broken: Git = () => ({ status: 128, stdout: '', stderr: 'fatal: not a git repository' });
     expect(verifyBaseUpdates(broken, head, tip)).toEqual({
       hops: [],

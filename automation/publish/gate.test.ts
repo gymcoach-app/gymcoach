@@ -475,6 +475,17 @@ describe('merge gate', () => {
       expect(evaluateMergeGate(input(proven)).mergeable).toBe(true);
     });
 
+    it('merges on a fresh record when an old record base was never fetched', () => {
+      // git reports a base absent locally as not on main (basesOnMain omits it,
+      // no error): the old record does not carry, the current one decides.
+      const ABSENT = '1'.repeat(40);
+      const old = evidence({ headSha: OLD_HEAD, baseSha: ABSENT, lenses: ['security'] }, 901);
+      const fresh = evidence({ headSha: SHA, baseSha: TIP, lenses: ['security'] }, 902);
+      expect(evaluateMergeGate(input(updated({ reviews: [old, fresh] }))).mergeable).toBe(true);
+      // Alone, the old record on that base still does not carry.
+      expect(codes(updated({ reviews: [old] }))).toEqual(['review-for-other-base']);
+    });
+
     it('still carries a stop made on a base that is not on main', () => {
       const A_TIP = '1'.repeat(40);
       const stop = evidence(
