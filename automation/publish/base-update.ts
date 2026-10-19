@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,12 +12,17 @@ import { FULL_SHA, type BaseUpdateEvidence, type PureBaseUpdate } from '@/automa
 // nothing but `main`: this module proves it, hop by hop, from the approved
 // head backwards. A hop is pure when the commit has exactly two parents, its
 // second parent is `main` (the live tip for the newest hop, a commit on `main`
-// for an older one), and its tree equals a clean re-merge of its two parents
-// computed here, in the trusted gate tree. Tree equality is what keeps code out
-// of a "merge": a hand edit, a conflict resolution or an extra file changes the
-// tree. Anything else ends the chain, which keeps today's rule (the records of
-// the older head are stale). A git failure is reported as an error, and the
-// gate refuses on it rather than guess.
+// for an older one), both parents carry the same .gitattributes files, and
+// its tree equals a clean re-merge of its two parents computed here, in the
+// trusted gate tree. Tree equality is what keeps code out of a "merge": a
+// hand edit, a conflict resolution or an extra file changes the tree. The
+// attributes rule keeps the reviewed head from choosing how the re-merge
+// resolves (a built-in `merge=union` makes a conflicting update look clean).
+// Anything else ends the chain, which keeps the older rule (the records of
+// the older head are stale). It also proves which review record bases are on
+// `main`: a record bound to another branch (a stacked PR later retargeted)
+// never carries. A git failure is reported as an error, and the gate refuses
+// on it rather than guess.
 
 export const MAX_HOPS = 5;
 
@@ -28,8 +34,21 @@ export interface GitResult {
 
 export type Git = (args: string[], opts?: { cwd?: string }) => GitResult;
 
-// Hooks and the user's rerere cache must not influence or observe the check.
-const SAFE_CONFIG = ['-c', 'core.hooksPath=/dev/null', '-c', 'rerere.enabled=false'];
+// The re-merge must not depend on, or be steered through, the host's git
+// configuration: no global or system config (no user filters, merge drivers,
+// rerere or url rewrites), hooks off, and a fixed identity because `git merge`
+// wants one even when it writes no commit.
+export const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } as const;
+const SAFE_CONFIG = [
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'rerere.enabled=false',
+  '-c',
+  'user.name=merge-gate',
+  '-c',
+  'user.email=merge-gate@invalid',
+];
 
 export function runGit(cwd: string): Git {
   return (args, opts) => {
@@ -37,7 +56,7 @@ export function runGit(cwd: string): Git {
       cwd: opts?.cwd ?? cwd,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      env: { ...process.env, ...GIT_ENV, GIT_TERMINAL_PROMPT: '0' },
     });
     return {
       status: r.status ?? 1,
@@ -62,8 +81,8 @@ function must(git: Git, args: string[], cwd?: string): string {
 function cleanMergeTree(git: Git, first: string, second: string): string | null {
   const dir = mkdtempSync(join(tmpdir(), 'gymcoach-gate-merge-'));
   const tree = join(dir, 'tree');
-  must(git, ['worktree', 'add', '--detach', '--quiet', tree, first]);
   try {
+    must(git, ['worktree', 'add', '--detach', '--quiet', tree, first]);
     const merged = git(['merge', '--no-ff', '--no-commit', '--quiet', second], { cwd: tree });
     if (merged.status !== 0) {
       // A conflict leaves unmerged index entries; anything else is a failure.
@@ -75,6 +94,7 @@ function cleanMergeTree(git: Git, first: string, second: string): string | null 
   } finally {
     git(['worktree', 'remove', '--force', tree]);
     rmSync(dir, { recursive: true, force: true });
+    git(['worktree', 'prune']);
   }
 }
 
@@ -85,9 +105,25 @@ function isAncestor(git: Git, ancestor: string, of: string): boolean {
   throw new GitFailure(`git merge-base --is-ancestor: ${r.stderr.split('\n')[0] || `exit ${r.status}`}`);
 }
 
-// The pure hops ending at `approvedSha`, newest first. The commits must already
-// be in the local repository (see fetchForBaseUpdates).
-export function verifyBaseUpdates(git: Git, approvedSha: string, baseTip: string): BaseUpdateEvidence {
+// Every .gitattributes file of a commit, as "path blob" lines.
+function attributesOf(git: Git, commit: string): string {
+  return must(git, ['ls-tree', '-r', commit])
+    .split('\n')
+    .filter((line) => /(^|\/)\.gitattributes$/.test(line.split('\t')[1] ?? ''))
+    .map((line) => `${line.split('\t')[1]} ${line.split('\t')[0]!.split(' ')[2]}`)
+    .sort()
+    .join('\n');
+}
+
+// The pure hops ending at `approvedSha`, newest first, and which of the given
+// review record bases are on `main` (ancestors of the live tip). The commits
+// must already be in the local repository (see collectBaseUpdates).
+export function verifyBaseUpdates(
+  git: Git,
+  approvedSha: string,
+  baseTip: string,
+  recordBases: readonly string[] = [],
+): BaseUpdateEvidence {
   const hops: PureBaseUpdate[] = [];
   try {
     if (!FULL_SHA.test(approvedSha) || !FULL_SHA.test(baseTip)) {
@@ -101,43 +137,49 @@ export function verifyBaseUpdates(git: Git, approvedSha: string, baseTip: string
       // The newest hop must bring in the live tip itself; an older one, a
       // commit that is on `main`. Never an unmerged branch.
       if (i === 0 ? second !== baseTip : !isAncestor(git, second, baseTip)) break;
+      if (attributesOf(git, first) !== attributesOf(git, second)) break;
       const expected = cleanMergeTree(git, first, second);
       if (expected === null) break;
       if (must(git, ['rev-parse', `${head}^{tree}`]) !== expected) break;
       hops.push({ head, reviewedHead: first, base: second });
       head = first;
     }
-    return { hops, error: null };
+    const basesOnMain = [...new Set(recordBases)].filter(
+      (b) => FULL_SHA.test(b) && isAncestor(git, b, baseTip),
+    );
+    return { hops, basesOnMain, error: null };
   } catch (err) {
-    return { hops: [], error: err instanceof Error ? err.message : String(err) };
+    return { hops: [], basesOnMain: [], error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-// Brings the PR head and the base branch into the gate's repository, so the
-// commits verifyBaseUpdates walks are present. Fork PRs included: GitHub
-// serves every PR head under refs/pull/<n>/head.
-export function fetchForBaseUpdates(git: Git, pr: number, baseBranch: string): void {
-  must(git, [
-    'fetch',
-    '--quiet',
-    '--no-tags',
-    'origin',
-    `+refs/pull/${pr}/head:refs/gymcoach-gate/pr-${pr}`,
-    `+refs/heads/${baseBranch}:refs/gymcoach-gate/${baseBranch}`,
-  ]);
-}
-
+// Fetches the PR head and the base branch into a ref namespace private to this
+// run (two gate runs never contend for one ref lock), verifies, and deletes
+// the refs again. Fork PRs included: GitHub serves every PR head under
+// refs/pull/<n>/head.
 export function collectBaseUpdates(
   git: Git,
   pr: number,
   baseBranch: string,
   approvedSha: string,
   baseTip: string,
+  recordBases: readonly string[],
 ): BaseUpdateEvidence {
+  const ns = `refs/gymcoach-gate/${process.pid}-${randomBytes(4).toString('hex')}`;
+  const refs = [`${ns}/pr-${pr}`, `${ns}/${baseBranch}`];
   try {
-    fetchForBaseUpdates(git, pr, baseBranch);
+    must(git, [
+      'fetch',
+      '--quiet',
+      '--no-tags',
+      'origin',
+      `+refs/pull/${pr}/head:${refs[0]}`,
+      `+refs/heads/${baseBranch}:${refs[1]}`,
+    ]);
+    return verifyBaseUpdates(git, approvedSha, baseTip, recordBases);
   } catch (err) {
-    return { hops: [], error: err instanceof Error ? err.message : String(err) };
+    return { hops: [], basesOnMain: [], error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    for (const ref of refs) git(['update-ref', '-d', ref]);
   }
-  return verifyBaseUpdates(git, approvedSha, baseTip);
 }

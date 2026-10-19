@@ -163,9 +163,11 @@ changes on.
    fixup push changes the head: the old record no longer matches, and a fresh review of
    the delta must post a new one. A pure base update is the one exception (lesson L39,
    #479): when the new head is a merge commit whose first parent is the reviewed head,
-   whose second parent is `main`, and whose tree equals a clean re-merge of the two, the
-   gate proves it with git and the old records carry over, stops included. A conflict
-   resolution, a hand edit in the merge or any extra commit is a fixup like any other.
+   whose second parent is `main`, whose `.gitattributes` files match `main`'s, and whose
+   tree equals a clean re-merge of the two, the gate proves it with git and the old
+   records carry over, stops always, ready records only when made on a base that is on
+   `main` (a retargeted stacked PR's records never carry). A conflict resolution, a hand
+   edit in the merge or any extra commit is a fixup like any other.
 
 5. **Merge.** Only if CI is green AND review is clean. **Every merge, loop-authored or
    external, goes through the merge gate pinned to the SHA the review covered**, run from
@@ -206,8 +208,12 @@ changes on.
    base is not the live tip of `main` (`base-stale`: the pulls API base only moves on a
    push, so a PR reviewed and tested before a sibling merged still looks current; merge
    `origin/main` into the branch with no hand edits, push, wait for CI on the new head,
-   then run the gate again with the new SHA), or git in the gate tree could not verify the
-   base updates (`base-update-unverified`); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
+   then run the gate again with the new SHA; for a fork PR, when `maintainerCanModify` is
+   true and the tier rules of `docs/loops/10-external-contributions.md` allow it, GitHub
+   writes that merge itself:
+   `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/<n>/update-branch -f expected_head_sha=<head>`,
+   otherwise ask the contributor to merge `main`), or git in the gate tree could not verify
+   the base updates (`base-update-unverified`); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
    unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
    apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are
    refused by design, so a red non-required check also blocks a merge. Then it merges with
@@ -274,11 +280,14 @@ changes on.
 - Per run, ship at most the PRs you were given (or cap "ship the ready PRs" at a small
   batch so a bad change cannot cascade). One merge at a time; re-check the next PR's CI
   after each merge in case `main` moved.
-- **A merge invalidates every sibling's green CI; the gate enforces it.** After any merge,
-  the next PR's green run was against a `main` that no longer exists, and the gate refuses
-  it (`base-stale`) until `origin/main` is merged into it, the result is pushed and CI is
-  green on the new head (lesson L39: #435 changed the `Exercise` type under the open
-  #436; mechanical since #479). Merge `main` in without hand edits so the review records
+- **A merge invalidates every sibling's green CI; the gate checks it at read time.** After
+  any merge, the next PR's green run was against a `main` that no longer exists, and the
+  gate refuses it (`base-stale`) until `origin/main` is merged into it, the result is
+  pushed and CI is green on the new head (lesson L39: #435 changed the `Exercise` type
+  under the open #436; mechanical since #479). The check covers the gate's own read only:
+  the merge call pins the head, not the base, so a merge by another session or a human in
+  the seconds between that read and the merge call is not caught. Keep merges one at a
+  time. Merge `main` in without hand edits so the review records
   carry over; re-run `verify.sh` on the result when it is loop-authored code. A merge
   that needs a conflict resolution is a fixup: review the delta and post fresh records.
 - Inherited deny-list still applies (no force-push, no hard reset).

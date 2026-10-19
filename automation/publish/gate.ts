@@ -101,6 +101,10 @@ export interface PureBaseUpdate {
 export interface BaseUpdateEvidence {
   // Newest first: hops[0].head is the approved head.
   hops: PureBaseUpdate[];
+  // Review record bases git proved to be ancestors of the live tip. A carried
+  // record counts only when its base is listed: a record bound to another
+  // branch (a stacked PR later retargeted to main) never carries.
+  basesOnMain: string[];
   // Set when git could not answer. The gate refuses: it never guesses.
   error: string | null;
 }
@@ -312,6 +316,15 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
   };
 }
 
+// A record that stops the merge: not ready, or ready with a blocking or major
+// finding (the schema rejects that shape; the gate does not rely on it).
+function isStop(review: StructuredReview): boolean {
+  return (
+    review.verdict !== 'ready' ||
+    review.findings.some((f) => STOPPING_SEVERITIES.includes(f.severity))
+  );
+}
+
 // The older heads whose review records also count for the approved head:
 // walking the verified pure base updates from the approved head backwards,
 // each hop linked to the previous one, the head each hop was merged from. The
@@ -366,11 +379,16 @@ function evaluateReviews(
     return null;
   }
   // A record for the approved head itself must be on the current base. A
-  // carried record was bound to its own head's live base when it was posted
-  // (record.ts refuses any other), and the hops prove that only `main` was
-  // merged in since.
-  const matching = forHead.filter(
-    (r) => carried.has(r.review.headSha) || r.review.baseSha === pull.baseSha,
+  // carried record must have been made on a base that is on `main` (git proves
+  // it, basesOnMain): otherwise the commits between that base and `main` (a
+  // stacked PR's parent branch, say) would merge unreviewed. A carried stop
+  // counts whatever its base: dropping it could only widen what merges. The
+  // hops prove that only `main` was merged in since.
+  const onMain = new Set(input.baseUpdates.basesOnMain);
+  const matching = forHead.filter((r) =>
+    carried.has(r.review.headSha)
+      ? onMain.has(r.review.baseSha) || isStop(r.review)
+      : r.review.baseSha === pull.baseSha,
   );
   if (matching.length === 0) {
     const bases = [...new Set(forHead.map((r) => r.review.baseSha.slice(0, 12)))];
@@ -386,7 +404,7 @@ function evaluateReviews(
   let stopped = false;
   for (const [identity, r] of latestByReviewer) {
     const stopping = r.review.findings.filter((f) => STOPPING_SEVERITIES.includes(f.severity));
-    if (r.review.verdict !== 'ready' || stopping.length > 0) {
+    if (isStop(r.review)) {
       refuse(
         'review-not-ready',
         `reviewer ${identity} (comment ${r.commentId}) says ${r.review.verdict} with ${stopping.length} blocking or major finding(s)`,

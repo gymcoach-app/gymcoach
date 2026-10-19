@@ -65,7 +65,7 @@ function input(over: Partial<GateInput> = {}): GateInput {
     reviews: [evidence()],
     invalidReviews: [],
     baseTipSha: BASE,
-    baseUpdates: { hops: [], error: null },
+    baseUpdates: { hops: [], basesOnMain: [], error: null },
     ...over,
   };
 }
@@ -363,7 +363,7 @@ describe('merge gate', () => {
       pull: { ...pull, baseSha: TIP },
       baseTipSha: TIP,
       reviews: [evidence({ headSha: OLD_HEAD, baseSha: BASE })],
-      baseUpdates: { hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }], error: null },
+      baseUpdates: { hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }], basesOnMain: [BASE], error: null },
       ...over,
     });
 
@@ -391,27 +391,27 @@ describe('merge gate', () => {
 
     it('carries nothing when the merge was not proven pure (hand edit, conflict, extra commit)', () => {
       // base-update.ts lists no hop for such a head; the old record is stale.
-      expect(codes(updated({ baseUpdates: { hops: [], error: null } }))).toEqual([
+      expect(codes(updated({ baseUpdates: { hops: [], basesOnMain: [BASE], error: null } }))).toEqual([
         'review-for-other-head',
       ]);
     });
 
     it('carries nothing when the newest hop merged in something other than the live tip', () => {
       const hops = [{ head: SHA, reviewedHead: OLD_HEAD, base: OTHER }];
-      expect(codes(updated({ baseUpdates: { hops, error: null } }))).toEqual([
+      expect(codes(updated({ baseUpdates: { hops, basesOnMain: [BASE], error: null } }))).toEqual([
         'review-for-other-head',
       ]);
     });
 
     it('ignores hops that do not start at the approved head', () => {
       const hops = [{ head: OTHER, reviewedHead: OLD_HEAD, base: TIP }];
-      expect(codes(updated({ baseUpdates: { hops, error: null } }))).toEqual([
+      expect(codes(updated({ baseUpdates: { hops, basesOnMain: [BASE], error: null } }))).toEqual([
         'review-for-other-head',
       ]);
     });
 
     it('refuses when git could not verify the base updates', () => {
-      expect(codes(updated({ baseUpdates: { hops: [], error: 'git fetch failed' } }))).toEqual([
+      expect(codes(updated({ baseUpdates: { hops: [], basesOnMain: [], error: 'git fetch failed' } }))).toEqual([
         'base-update-unverified',
         'review-for-other-head',
       ]);
@@ -451,13 +451,39 @@ describe('merge gate', () => {
         { head: OLD_HEAD, reviewedHead: OLDER_HEAD, base: BASE },
       ];
       expect(
-        evaluateMergeGate(input(updated({ reviews: [older], baseUpdates: { hops: chain, error: null } })))
+        evaluateMergeGate(input(updated({ reviews: [older], baseUpdates: { hops: chain, basesOnMain: [BASE], error: null } })))
           .mergeable,
       ).toBe(true);
       const broken = [chain[0]!, { head: OTHER, reviewedHead: OLDER_HEAD, base: BASE }];
       expect(
-        codes(updated({ reviews: [older], baseUpdates: { hops: broken, error: null } })),
+        codes(updated({ reviews: [older], baseUpdates: { hops: broken, basesOnMain: [BASE], error: null } })),
       ).toEqual(['review-for-other-head']);
+    });
+
+    it('never carries a ready record made on a base that is not on main (retargeted stack)', () => {
+      // Reviewed while stacked on branch A (base = A's tip), then retargeted to
+      // main and updated with a pure merge: A's own commits were never reviewed
+      // against main, so the record must not carry.
+      const A_TIP = '1'.repeat(40);
+      const stacked = evidence({ headSha: OLD_HEAD, baseSha: A_TIP });
+      expect(codes(updated({ reviews: [stacked] }))).toEqual(['review-for-other-base']);
+      // The same record carries once git proves its base is on main.
+      const proven = updated({
+        reviews: [stacked],
+        baseUpdates: { ...updated().baseUpdates!, basesOnMain: [A_TIP] },
+      });
+      expect(evaluateMergeGate(input(proven)).mergeable).toBe(true);
+    });
+
+    it('still carries a stop made on a base that is not on main', () => {
+      const A_TIP = '1'.repeat(40);
+      const stop = evidence(
+        { headSha: OLD_HEAD, baseSha: A_TIP, lenses: ['security'], verdict: 'needs-changes' },
+        901,
+      );
+      expect(codes(updated({ reviews: [evidence({ headSha: OLD_HEAD }), stop] }))).toEqual([
+        'review-not-ready',
+      ]);
     });
 
     it('still needs a record on the current base for the approved head itself', () => {

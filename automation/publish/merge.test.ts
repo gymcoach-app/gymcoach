@@ -5,6 +5,7 @@ import {
   collectPages,
   fetchSettledPull,
   mergeRequestArgs,
+  needsBaseUpdateCheck,
   parseArgs,
   type RawPull,
   toIssueComment,
@@ -14,6 +15,30 @@ import {
 
 const SHA = 'c'.repeat(40);
 const BASE = 'd'.repeat(40);
+
+describe('base update verification trigger', () => {
+  const OLD = 'e'.repeat(40);
+  const merge = () => [OLD, BASE];
+  const plain = () => [OLD];
+
+  it('runs git for a merge head when a record is on another head', () => {
+    expect(needsBaseUpdateCheck(SHA, [OLD], merge)).toBe(true);
+    expect(needsBaseUpdateCheck(SHA, [SHA, OLD], merge)).toBe(true);
+  });
+
+  it('skips git when nothing could carry, so no fetch can refuse such a PR', () => {
+    const never = () => {
+      throw new Error('parents must not be read');
+    };
+    // Every record is on the approved head itself.
+    expect(needsBaseUpdateCheck(SHA, [SHA], never)).toBe(false);
+    expect(needsBaseUpdateCheck(SHA, [], never)).toBe(false);
+    // Not a two-parent merge: it cannot be a pure base update.
+    expect(needsBaseUpdateCheck(SHA, [OLD], plain)).toBe(false);
+    expect(needsBaseUpdateCheck(SHA, [OLD], () => [OLD, BASE, SHA])).toBe(false);
+    expect(needsBaseUpdateCheck('not-a-sha', [OLD], never)).toBe(false);
+  });
+});
 
 describe('merge CLI argument parsing', () => {
   it('parses a dry run and a full merge', () => {

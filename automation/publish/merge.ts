@@ -246,6 +246,25 @@ export function fetchBaseTip(): string {
   return sha;
 }
 
+export function fetchCommitParents(sha: string): string[] {
+  const commit = gh<{ parents?: { sha: string }[] }>([`repos/${REPO}/git/commits/${sha}`]);
+  return (commit.parents ?? []).map((p) => p.sha);
+}
+
+// Whether git must verify base updates. Only a two-parent merge commit can be
+// a pure base update, and a carry only matters when some record is for
+// another head; otherwise the evidence is empty and nothing carries, so a PR
+// without a base update never depends on a git fetch.
+export function needsBaseUpdateCheck(
+  approvedSha: string,
+  recordHeads: readonly string[],
+  parents: () => string[],
+): boolean {
+  if (!FULL_SHA.test(approvedSha)) return false;
+  if (!recordHeads.some((h) => h !== approvedSha)) return false;
+  return parents().length === 2;
+}
+
 export interface RawComment {
   id: number;
   user: { login: string; id: number } | null;
@@ -309,10 +328,22 @@ async function run(argv: string[]): Promise<number> {
   const reviews = parseReviewComments(fetchIssueComments(args.pr), args.pr, MAINTAINERS);
   const baseTipSha = fetchBaseTip();
   // Git runs in the current tree: the trusted origin/main worktree the skill
-  // runs this from. An invalid approved SHA is refused before git sees it.
-  const baseUpdates = FULL_SHA.test(args.sha)
-    ? collectBaseUpdates(runGit(process.cwd()), args.pr, BASE_BRANCH, args.sha, baseTipSha)
-    : { hops: [], error: null };
+  // runs this from, and only when a carry could matter (needsBaseUpdateCheck).
+  // When it runs, any failure refuses the merge.
+  const baseUpdates = needsBaseUpdateCheck(
+    args.sha,
+    reviews.records.map((r) => r.review.headSha),
+    () => fetchCommitParents(args.sha),
+  )
+    ? collectBaseUpdates(
+        runGit(process.cwd()),
+        args.pr,
+        BASE_BRANCH,
+        args.sha,
+        baseTipSha,
+        reviews.records.map((r) => r.review.baseSha),
+      )
+    : { hops: [], basesOnMain: [], error: null };
   const decision = evaluateMergeGate({
     pull: live.pull,
     approvedSha: args.sha,
