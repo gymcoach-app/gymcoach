@@ -832,7 +832,6 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 - **Status:** graduated -> `ship-pr` step 4 ("A hardening race has a budget"). Applied in
   #455 / #468.
 
-
 ### L47 - Every PR editing the same changelog block turns each sequential merge into a re-review
 - **Trigger:** 2026-10-19, the #485-#489 wave. Each PR added its entry under
   `CHANGELOG.md` `## [Unreleased]` / `### Fixed`. Since the merge gate refuses a stale base
@@ -847,7 +846,9 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   once merges are sequential. Give each PR its own file instead: a fragment in
   `changelog.d/` that a maintainer folds into `CHANGELOG.md` in the write-up PR. A merge of
   `main` then stays a pure update that GitHub can write and the gate can prove, so records
-  carry over with no re-review.
+  carry over with no re-review. `docs/loops/lessons.md` itself, where every lesson is
+  appended at the end of the file, is a remaining hotspot of the same class that this
+  change does not fix.
 - **Status:** graduated -> `changelog.d/` (format in its README), the assembler
   `automation/changelog/assemble.ts` (`--check` runs in the green gate's script self-tests
   step), `implement-issue` step 3, `ship-pr` step 5 (base-stale remedy), `write-up` item 1,

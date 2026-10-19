@@ -1,6 +1,7 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type Fragment,
   UsageError,
@@ -9,6 +10,7 @@ import {
   orderFragments,
   parseAssembleArgs,
   parseFragment,
+  run,
 } from './assemble';
 
 function frag(section: string, body: string): string {
@@ -132,6 +134,34 @@ describe('assemble', () => {
   it('is the identity with no fragments', () => {
     expect(assemble(CHANGELOG, [])).toBe(CHANGELOG);
   });
+
+  it('skips an entry already folded, so a rerun adds no duplicate', () => {
+    const fragments = [
+      ok('10-a.md', frag('Fixed', 'New fix,\nwrapped.')),
+      ok('11-s.md', frag('Security', 'Secured.')),
+    ];
+    const once = assemble(CHANGELOG, fragments);
+    expect(assemble(once, fragments)).toBe(once);
+    // Only the missing one is added when the first fold was partial.
+    expect(assemble(assemble(CHANGELOG, [fragments[0]!]), fragments)).toBe(once);
+  });
+
+  it('keeps CRLF line endings', () => {
+    const crlf = CHANGELOG.replace(/\n/g, '\r\n');
+    const fragments = [ok('10-a.md', frag('Fixed', 'New fix.'))];
+    expect(assemble(crlf, fragments)).toBe(assemble(CHANGELOG, fragments).replace(/\n/g, '\r\n'));
+  });
+
+  it('keeps a blank line before the next heading when the section was empty', () => {
+    const empty = CHANGELOG.replace('### Fixed\n\n- Old fix.\n', '### Fixed\n');
+    expect(empty).toContain('### Fixed\n\n## [1.0.0]');
+    const out = assemble(empty, [ok('3-x.md', frag('Fixed', 'Fix.'))]);
+    expect(out).toContain('### Fixed\n\n- Fix.\n\n## [1.0.0]');
+    const between = '## [Unreleased]\n\n### Added\n\n### Fixed\n\n- Old.\n';
+    expect(assemble(between, [ok('4-y.md', frag('Added', 'New.'))])).toBe(
+      '## [Unreleased]\n\n### Added\n\n- New.\n\n### Fixed\n\n- Old.\n',
+    );
+  });
 });
 
 describe('CLI arguments', () => {
@@ -154,6 +184,47 @@ describe('CLI arguments', () => {
 
   it('skips the README and non-markdown files', () => {
     expect(fragmentFiles(['README.md', 'b-2.txt', '2-b.md', '1-a.md'])).toEqual(['1-a.md', '2-b.md']);
+  });
+});
+
+describe('run', () => {
+  let root: string;
+  let dir: string;
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  function setup(files: Record<string, string>) {
+    root = mkdtempSync(join(tmpdir(), 'changelog-'));
+    dir = join(root, 'changelog.d');
+    mkdirSync(dir);
+    writeFileSync(join(root, 'CHANGELOG.md'), CHANGELOG);
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    return ['--dir', dir, '--changelog', join(root, 'CHANGELOG.md')];
+  }
+
+  it('folds the fragments and deletes only them', () => {
+    const args = setup({ 'README.md': 'readme', '5-a.md': frag('Fixed', 'A fix.') });
+    expect(run(args)).toBe(0);
+    expect(readdirSync(dir).sort()).toEqual(['README.md']);
+    expect(readFileSync(join(root, 'CHANGELOG.md'), 'utf8')).toContain('### Fixed\n\n- A fix.\n- Old fix.');
+  });
+
+  it('writes nothing and deletes nothing when a fragment is invalid', () => {
+    const args = setup({ '5-a.md': frag('Fixed', 'A fix.'), '6-b.md': frag('Nope', 'x') });
+    expect(run(args)).toBe(1);
+    expect(readdirSync(dir).sort()).toEqual(['5-a.md', '6-b.md']);
+    expect(readFileSync(join(root, 'CHANGELOG.md'), 'utf8')).toBe(CHANGELOG);
+  });
+
+  it('only validates with --check', () => {
+    const args = setup({ '5-a.md': frag('Fixed', 'A fix.') });
+    expect(run(['--check', ...args])).toBe(0);
+    expect(readdirSync(dir).sort()).toEqual(['5-a.md']);
+    expect(readFileSync(join(root, 'CHANGELOG.md'), 'utf8')).toBe(CHANGELOG);
   });
 });
 

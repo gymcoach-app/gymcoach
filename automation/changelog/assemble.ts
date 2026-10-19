@@ -70,11 +70,23 @@ function bullet(f: Fragment): string[] {
   return f.lines.map((l, i) => (i === 0 ? `- ${l}` : `  ${l}`));
 }
 
+// Whether `block` appears as consecutive lines of lines[from, to).
+function containsBlock(lines: string[], from: number, to: number, block: string[]): boolean {
+  for (let i = from; i + block.length <= to; i += 1) {
+    if (block.every((l, j) => lines[i + j] === l)) return true;
+  }
+  return false;
+}
+
 // Pure: the changelog with the fragments inserted. Existing entries, sections
 // and their order are kept; a missing section is created at its Keep a
-// Changelog position among the sections that exist.
+// Changelog position among the sections that exist. A fragment whose entry is
+// already in its Unreleased section is skipped, so a rerun after a fold that
+// wrote the changelog but failed to delete every fragment adds no duplicate.
+// CRLF line endings are kept as they were.
 export function assemble(changelog: string, fragments: Fragment[]): string {
-  const lines = changelog.split('\n');
+  const eol = changelog.includes('\r\n') ? '\r\n' : '\n';
+  const lines = changelog.split(/\r?\n/);
   let start = lines.indexOf('## [Unreleased]');
   if (start === -1) {
     const firstRelease = lines.findIndex((l) => l.startsWith('## '));
@@ -84,15 +96,27 @@ export function assemble(changelog: string, fragments: Fragment[]): string {
   }
   const ordered = orderFragments(fragments);
   for (const section of SECTIONS) {
-    const entries = ordered.filter((f) => f.section === section).flatMap(bullet);
-    if (!entries.length) continue;
     let end = lines.findIndex((l, i) => i > start && l.startsWith('## '));
     if (end === -1) end = lines.length;
     const heading = lines.findIndex((l, i) => i > start && i < end && l === `### ${section}`);
+    let sectionEnd = end;
+    if (heading !== -1) {
+      const next = lines.findIndex((l, i) => i > heading && i < end && l.startsWith('### '));
+      if (next !== -1) sectionEnd = next;
+    }
+    const entries = ordered
+      .filter((f) => f.section === section)
+      .map(bullet)
+      .filter((b) => heading === -1 || !containsBlock(lines, heading + 1, sectionEnd, b))
+      .flat();
+    if (!entries.length) continue;
     if (heading !== -1) {
       let at = heading + 1;
       while (at < end && lines[at] === '') at += 1;
       lines.splice(at, 0, ...entries);
+      // An empty section: keep a blank line before the heading that follows.
+      const after = lines[at + entries.length];
+      if (after !== undefined && after.startsWith('#')) lines.splice(at + entries.length, 0, '');
       continue;
     }
     const later = SECTIONS.slice(SECTIONS.indexOf(section) + 1);
@@ -107,7 +131,7 @@ export function assemble(changelog: string, fragments: Fragment[]): string {
       lines.splice(at, 0, `### ${section}`, '', ...entries, '');
     }
   }
-  return lines.join('\n');
+  return lines.join(eol);
 }
 
 export interface AssembleArgs {
@@ -143,7 +167,7 @@ export function fragmentFiles(names: string[]): string[] {
   return names.filter((n) => n.endsWith('.md') && n !== 'README.md').sort();
 }
 
-function run(argv: string[]): number {
+export function run(argv: string[]): number {
   const args = parseAssembleArgs(argv);
   const names = fragmentFiles(readdirSync(args.dir));
   const fragments: Fragment[] = [];

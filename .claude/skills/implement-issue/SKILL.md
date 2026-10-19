@@ -62,7 +62,7 @@ for repo conventions; this skill assumes them.
    Boring But Big repeats the main lift in one workout on purpose), and prefer fixing the
    consumer that cannot handle the repeat over forbidding it (lesson L37).
    **A user-facing change gets a changelog fragment, never a `CHANGELOG.md` edit**: a new
-   `changelog.d/<issue>-<slug>.md` with its `section` front matter (format in
+   `changelog.d/<issue-or-pr>-<slug>.md` with its `section` front matter (format in
    `changelog.d/README.md`). Two PRs that both edit `## [Unreleased]` conflict after the
    first merges, and a hand-resolved conflict voids every review record (lesson L47).
 
