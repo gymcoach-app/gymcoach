@@ -8,8 +8,6 @@ import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-his
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
 import { blockIndexByRow } from '@/lib/exercise-blocks';
-import { lastDoneDaysByExercise } from '@/lib/last-done';
-import { getTimeZone } from 'next-intl/server';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -102,20 +100,21 @@ export default async function SessionRunPage(props: Props) {
   // client never reasons about dates; an expired deloadUntil has no effect.
   const deloadActive = isDeloadActive(user?.deloadUntil ?? null, new Date());
   // "Last done N days ago" (issue #459), per exercise rather than per block:
-  // it says how fresh the movement is. Counted in calendar days here, in the
-  // zone next-intl formats dates with, so the client never reasons about dates.
-  const lastDoneAt = new Map<string, Date>();
+  // it says how fresh the movement is. Dated by the session start, like the
+  // "Last session ({date})" box next to it. Only the timestamp is sent: the
+  // runner counts the days in the browser's zone after mount (review of #476),
+  // since the server zone is not the lifter's and a cached page outlives the day.
+  const lastDoneAt: Record<string, string> = {};
   for (const exerciseId of exerciseIds) {
     const perf = lastPerformances.get(exerciseId);
-    if (perf) lastDoneAt.set(exerciseId, perf.lastDoneAt);
+    if (perf) lastDoneAt[exerciseId] = perf.sessionStartedAt.toISOString();
   }
-  const lastDoneDays = lastDoneDaysByExercise(lastDoneAt, new Date(), await getTimeZone());
 
   return (
     <SessionRunner
       session={session}
       lastPerformances={lastPerfRecord}
-      lastDoneDays={lastDoneDays}
+      lastDoneAt={lastDoneAt}
       returnRecommendations={returnRecommendations}
       readiness={readiness}
       deloadActive={deloadActive}

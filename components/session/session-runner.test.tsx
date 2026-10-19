@@ -392,11 +392,43 @@ describe('SessionRunner live equipment weights', () => {
 });
 
 describe('SessionRunner last done (issue #459)', () => {
+  // A morning session in Auckland (UTC+13 in October): the last bench was the
+  // previous evening there. Both instants fall on 2026-10-17 in every zone from
+  // UTC-10 to UTC+12 (the server's zone in Docker, or this machine's), so only
+  // the browser's zone gives "yesterday" (review of #476).
+  const lastBench = '2026-10-17T10:30:00Z'; // 23:30 on the 17th in Auckland
+  const now = new Date('2026-10-17T11:30:00Z'); // 00:30 on the 18th in Auckland
+
+  function inAuckland() {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    const resolved = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (
+      this: Intl.DateTimeFormat,
+    ) {
+      return { ...resolved.call(this), timeZone: 'Pacific/Auckland' };
+    });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('counts the days in the browser zone, not the server zone', async () => {
+    inAuckland();
+    harness.liveSets = [];
+    await renderRunner(
+      <SessionRunner {...runner([row('bench', 1)]).props} lastDoneAt={{ bench: lastBench }} />,
+    );
+    expect(card().lastDoneDaysAgo).toBe(1);
+  });
+
   it('passes null for an exercise never done and nothing when the page sends no data', async () => {
+    inAuckland();
     harness.liveSets = [];
     const rows = [row('bench', 1), row('fly', 2)];
     const view = await renderRunner(
-      <SessionRunner {...runner(rows, 'pe-fly').props} lastDoneDays={{ bench: 1 }} />,
+      <SessionRunner {...runner(rows, 'pe-fly').props} lastDoneAt={{ bench: lastBench }} />,
     );
     expect(card().lastDoneDaysAgo).toBeNull();
     view.unmount();
@@ -449,14 +481,20 @@ describe('SessionRunner repeated exercise blocks (issue #429)', () => {
 
   it('shows the movement freshness per exercise on both occurrences (issue #459)', async () => {
     harness.liveSets = [];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
     const withDays = (initial?: string) => (
-      <SessionRunner {...runner(bbbRows(), initial).props} lastDoneDays={{ bench: 3 }} />
+      <SessionRunner
+        {...runner(bbbRows(), initial).props}
+        lastDoneAt={{ bench: '2026-10-14T12:00:00Z' }}
+      />
     );
     const view = await renderRunner(withDays());
     expect(card().lastDoneDaysAgo).toBe(3);
     view.unmount();
     await renderRunner(withDays('pe-bench-bbb'));
     expect(card().lastDoneDaysAgo).toBe(3);
+    vi.useRealTimers();
   });
 
   it('logs a set of an exercise programmed once without a block, as before', async () => {

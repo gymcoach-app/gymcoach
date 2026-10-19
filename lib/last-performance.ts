@@ -5,9 +5,6 @@ export interface LastPerformance {
   exerciseId: string;
   // The most recent previous session for this exercise (excluding the current session).
   sessionStartedAt: Date;
-  // When the last working set of that session was completed (issue #459): the
-  // "last done" date the live session shows.
-  lastDoneAt: Date;
   sets: { weight: number; reps: number; rir: number | null }[];
   // Best load of the session (handy for a quick display).
   maxWeight: number;
@@ -112,7 +109,6 @@ export async function getLastPerformances(
       result.set(key, {
         exerciseId,
         sessionStartedAt: lastSet.session.startedAt,
-        lastDoneAt: lastSet.completedAt,
         sets,
         maxWeight,
         repsAtMaxWeight,

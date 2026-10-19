@@ -40,14 +40,26 @@ describe('calendarDaysBetween (issue #459)', () => {
         'UTC',
       ),
     ).toBe(14);
-    // Europe/Paris leaves summer time on 2026-10-25.
+    // Europe/Paris leaves summer time on 2026-10-25, a 25-hour day. 23:30 on
+    // the 24th (CEST, 21:30Z) to 00:30 on the 26th (CET, 23:30Z on the 25th)
+    // is 26 hours: dividing elapsed time by 24 hours says 1, the calendar 2.
     expect(
       calendarDaysBetween(
-        new Date('2026-10-24T10:00:00Z'),
-        new Date('2026-10-26T10:00:00Z'),
+        new Date('2026-10-24T21:30:00Z'),
+        new Date('2026-10-25T23:30:00Z'),
         'Europe/Paris',
       ),
     ).toBe(2);
+    // Spring forward on 2026-03-29, a 23-hour day: 00:30 on the 29th (CET,
+    // 23:30Z on the 28th) to 23:30 the same day (CEST, 21:30Z) is 22 hours
+    // and still the same calendar day.
+    expect(
+      calendarDaysBetween(
+        new Date('2026-03-28T23:30:00Z'),
+        new Date('2026-03-29T21:30:00Z'),
+        'Europe/Paris',
+      ),
+    ).toBe(0);
   });
 
   it('never goes negative', () => {
@@ -65,10 +77,7 @@ describe('lastDoneDaysByExercise', () => {
   it('maps each exercise with a last working set and omits the others', () => {
     const now = new Date('2026-10-17T12:00:00Z');
     const result = lastDoneDaysByExercise(
-      new Map([
-        ['squat', new Date('2026-10-14T18:00:00Z')],
-        ['bench', new Date('2026-10-17T07:00:00Z')],
-      ]),
+      { squat: '2026-10-14T18:00:00Z', bench: '2026-10-17T07:00:00Z' },
       now,
       'UTC',
     );
