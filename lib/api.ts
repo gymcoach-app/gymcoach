@@ -58,7 +58,7 @@ export async function parseJsonBody<T extends z.ZodTypeAny>(
 export async function readBodyBytesWithCap(
   req: Request,
   maxBytes: number,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];

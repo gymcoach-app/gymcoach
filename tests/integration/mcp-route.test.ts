@@ -128,14 +128,53 @@ describe('MCP route body cap', () => {
     expect(res.status).toBe(413);
   });
 
-  it('refuses an unauthenticated oversized body with 401 before reading it', async () => {
+  it('refuses an unauthenticated body with 401 before reading it', async () => {
+    let pulled = false;
+    // highWaterMark 0: pull runs only when someone reads the body.
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled = true;
+          controller.enqueue(new Uint8Array(1024));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
     const res = await POST(
       new Request('http://test.local/mcp', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: 'x'.repeat(MCP_MAX_BODY_BYTES + 1),
-      }),
+        body: stream,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
     );
     expect(res.status).toBe(401);
+    expect(pulled).toBe(false);
+  });
+
+  it('answers 400 with a JSON-RPC parse error when the body stream fails mid-read', async () => {
+    const token = await seedToken();
+    let sent = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent) {
+          controller.error(new Error('client aborted'));
+          return;
+        }
+        sent = true;
+        controller.enqueue(new TextEncoder().encode('{"jsonrpc":'));
+      },
+    });
+    const res = await POST(
+      new Request('http://test.local/mcp', {
+        method: 'POST',
+        headers: mcpHeaders(token),
+        body: stream,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ jsonrpc: '2.0', error: { code: -32700 }, id: null });
   });
 });

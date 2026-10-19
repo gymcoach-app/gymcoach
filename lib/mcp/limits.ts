@@ -1,4 +1,4 @@
-import { Buffer } from 'node:buffer';
+import { ApiError, readBodyBytesWithCap } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 
 // Request body cap for /mcp (issue #376). The largest legitimate call is
@@ -14,31 +14,23 @@ export const MCP_MAX_BODY_BYTES = 8 * 1024 * 1024;
 export const MCP_WRITE_RATE_LIMIT = 60;
 export const MCP_WRITE_RATE_WINDOW_MS = 60_000;
 
-// Reads the body while counting bytes, so a missing or understated
-// Content-Length does not get past the cap. Returns null once the body is over
-// maxBytes (the rest of the stream is cancelled, not read).
-export async function readBodyWithLimit(
-  req: Request,
-  maxBytes: number,
-): Promise<Uint8Array<ArrayBuffer> | null> {
-  const declared = req.headers.get('content-length');
-  if (declared !== null && Number(declared) > maxBytes) return null;
-  if (!req.body) return new Uint8Array();
+export type McpBodyResult =
+  | { ok: true; body: Uint8Array<ArrayBuffer> }
+  | { ok: false; status: 400 | 413 };
 
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
+// Reads the body with the shared capped reader (lib/api.ts), which counts the
+// bytes received, so a missing or understated Content-Length does not get past
+// the cap. A declared length over the cap is refused without reading. A body
+// that cannot be read (the client aborted mid-upload) is a 400, not a 500.
+export async function readMcpBody(req: Request, maxBytes: number): Promise<McpBodyResult> {
+  const declared = req.headers.get('content-length');
+  if (declared !== null && Number(declared) > maxBytes) return { ok: false, status: 413 };
+  try {
+    return { ok: true, body: await readBodyBytesWithCap(req, maxBytes) };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 413) return { ok: false, status: 413 };
+    return { ok: false, status: 400 };
   }
-  return new Uint8Array(Buffer.concat(chunks));
 }
 
 // Consumes one write call from the token's window, or throws the error the
@@ -52,8 +44,6 @@ export function consumeMcpWriteQuota(tokenId: string, now: number = Date.now()):
     now,
   );
   if (!ok) {
-    throw new Error(
-      `Too many write calls for this GymCoach MCP token. Retry in ${retryAfterSec} s.`,
-    );
+    throw new Error(`Too many write calls for this GymCoach MCP token. Retry in ${retryAfterSec}s.`);
   }
 }
