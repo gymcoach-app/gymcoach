@@ -100,6 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Live session "last done" line: its height is kept while the days are being
+  counted, so the set inputs no longer shift down after the page loads, and a
+  page left open overnight recounts at local midnight. The "Last session" box
+  next to it is now dated in the browser's time zone, like "last done", instead
+  of the server's (closes #480).
 - MCP tool errors no longer leak raw database errors: every tool handler is
   registered through one guard that maps Prisma errors to fixed wording
   (conflict, related record missing, not found) or a generic "Server error.",

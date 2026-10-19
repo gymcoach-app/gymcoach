@@ -21,6 +21,8 @@ type CardProps = {
   onOpenMenu?: () => void;
   menuDisabled?: boolean;
   lastDoneDaysAgo?: number | null;
+  lastDonePending?: boolean;
+  timeZone?: string | null;
 };
 type EquipmentOption = {
   id: string;
@@ -420,6 +422,34 @@ describe('SessionRunner last done (issue #459)', () => {
     await renderRunner(
       <SessionRunner {...runner([row('bench', 1)]).props} lastDoneAt={{ bench: lastBench }} />,
     );
+    expect(card().lastDoneDaysAgo).toBe(1);
+    expect(card().lastDonePending).toBe(false);
+  });
+
+  it('dates the last session box in the browser zone once mounted (issue #480)', async () => {
+    inAuckland();
+    harness.liveSets = [];
+    await renderRunner(
+      <SessionRunner {...runner([row('bench', 1)]).props} lastDoneAt={{ bench: lastBench }} />,
+    );
+    expect(card().timeZone).toBe('Pacific/Auckland');
+  });
+
+  it('recounts the days at local midnight for a page left open (issue #480)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 9, 17, 23, 0, 0));
+    harness.liveSets = [];
+    const doneThisMorning = new Date(2026, 9, 17, 9, 0, 0).toISOString();
+    await renderRunner(
+      <SessionRunner
+        {...runner([row('bench', 1)]).props}
+        lastDoneAt={{ bench: doneThisMorning }}
+      />,
+    );
+    expect(card().lastDoneDaysAgo).toBe(0);
+    await act(async () => {
+      vi.advanceTimersByTime(60 * 60 * 1000 + 1000);
+    });
     expect(card().lastDoneDaysAgo).toBe(1);
   });
 

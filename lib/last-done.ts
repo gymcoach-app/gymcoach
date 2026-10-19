@@ -31,6 +31,32 @@ export function lastDoneDaysByExercise(
   return out;
 }
 
+// Per exercise id, the ISO start of the session it was last done in, for the
+// session page to send (issue #459). Keyed by exercise rather than by block:
+// the line says how fresh the movement is, so a lift programmed twice reads
+// the same on both rows. An exercise with no last performance gets no entry.
+export function lastDoneAtByExercise(
+  exerciseIds: readonly string[],
+  lastPerformances: ReadonlyMap<string, { sessionStartedAt: Date }>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const exerciseId of exerciseIds) {
+    const perf = lastPerformances.get(exerciseId);
+    if (perf) out[exerciseId] = perf.sessionStartedAt.toISOString();
+  }
+  return out;
+}
+
+// Milliseconds from `now` to the next local midnight, plus a one-second margin
+// so the recount lands on the new day. Local is the browser's zone, the one
+// the days are counted in, so a page left open overnight turns "today" into
+// "yesterday" at midnight (review of #476).
+export function msUntilNextLocalMidnight(now: Date): number {
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  return next.getTime() - now.getTime() + 1000;
+}
+
 // The lifter's zone, as the browser reports it. Only meaningful client-side:
 // on the server it is the process zone (UTC in Docker), which is exactly the
 // zone the review of #476 ruled out for the day boundary.

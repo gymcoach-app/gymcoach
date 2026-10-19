@@ -96,6 +96,61 @@ describe('ExerciseCard last done line (issue #459)', () => {
   it('shows no line when the caller passes no last-done information', () => {
     renderLastDone(undefined);
     expect(screen.queryByTestId('exercise-last-done')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('exercise-last-done-placeholder')).not.toBeInTheDocument();
+  });
+
+  it('keeps an empty line at the same height while the days are pending (issue #480)', () => {
+    render(
+      <ExerciseCard
+        programExercise={pe}
+        lastPerformance={lastPerf}
+        lastDonePending
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+      />,
+    );
+    const placeholder = screen.getByTestId('exercise-last-done-placeholder');
+    expect(placeholder).toBeEmptyDOMElement();
+    expect(placeholder).toHaveAttribute('aria-hidden', 'true');
+    expect(placeholder).toHaveClass('mt-1', 'min-h-4', 'text-xs');
+    expect(screen.queryByTestId('exercise-last-done')).not.toBeInTheDocument();
+  });
+
+  it('gives the filled line the same box as the placeholder', () => {
+    renderLastDone(2);
+    expect(screen.getByTestId('exercise-last-done')).toHaveClass('mt-1', 'min-h-4', 'text-xs');
+  });
+});
+
+describe('ExerciseCard last session date (issue #480)', () => {
+  // 23:30 UTC on 16 October is already 17 October in Auckland.
+  const lateEvening: SerializedLastPerformance = {
+    ...lastPerf,
+    sessionStartedAt: '2026-10-16T23:30:00Z',
+  };
+
+  function renderInZone(timeZone: string | null) {
+    return render(
+      <ExerciseCard
+        programExercise={pe}
+        lastPerformance={lateEvening}
+        timeZone={timeZone}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+      />,
+    );
+  }
+
+  it('dates the last session in the browser zone it is given', () => {
+    renderInZone('Pacific/Auckland');
+    expect(screen.getByText(/Last session/)).toHaveTextContent('(10/17)');
+  });
+
+  it('uses the given zone, not the request zone, for the same instant', () => {
+    renderInZone('America/Los_Angeles');
+    expect(screen.getByText(/Last session/)).toHaveTextContent('(10/16)');
   });
 });
 

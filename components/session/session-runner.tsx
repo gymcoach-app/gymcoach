@@ -70,7 +70,7 @@ import { useTrainingName } from '@/components/shared/use-training-name';
 import type { GymLoadConstraints } from '@/lib/gym-loads';
 import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 import type { ReturnRecommendation } from '@/lib/return-to-training';
-import { browserTimeZone, lastDoneDaysByExercise } from '@/lib/last-done';
+import { browserTimeZone, lastDoneDaysByExercise, msUntilNextLocalMidnight } from '@/lib/last-done';
 import {
   exerciseDetailPath,
   selectedExerciseIndex,
@@ -231,12 +231,25 @@ export function SessionRunner({
   // browser's zone and against the device clock (review of #476): the server
   // zone is not the lifter's, and a page served from the offline cache the
   // next day must not still say "today". Null until then, so the first render
-  // matches the server output and the card shows no line yet.
+  // matches the server output; the card keeps the line's height meanwhile. The
+  // count is redone at each local midnight for a page left open overnight.
+  // The same zone dates the "Last session" box once mounted (issue #480).
   const [lastDoneDays, setLastDoneDays] = useState<Record<string, number> | null>(null);
+  const [clientTimeZone, setClientTimeZone] = useState<string | null>(null);
   useEffect(() => {
-    setLastDoneDays(
-      lastDoneAt ? lastDoneDaysByExercise(lastDoneAt, new Date(), browserTimeZone()) : null,
-    );
+    setClientTimeZone(browserTimeZone());
+    if (!lastDoneAt) {
+      setLastDoneDays(null);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const recount = () => {
+      const now = new Date();
+      setLastDoneDays(lastDoneDaysByExercise(lastDoneAt, now, browserTimeZone()));
+      timer = setTimeout(recount, msUntilNextLocalMidnight(now));
+    };
+    recount();
+    return () => clearTimeout(timer);
   }, [lastDoneAt]);
 
   const currentPE = programExercises[currentIdx];
@@ -830,6 +843,8 @@ export function SessionRunner({
           programExercise={currentPE}
           lastPerformance={lastPerf}
           lastDoneDaysAgo={lastDoneDays ? (lastDoneDays[currentPE.exerciseId] ?? null) : undefined}
+          lastDonePending={lastDoneAt !== undefined && lastDoneDays === null}
+          timeZone={clientTimeZone}
           readiness={effectiveReadiness}
           deloadActive={deloadActive}
           unit={unit}
