@@ -1,6 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { authenticateMcpRequest } from '@/lib/mcp/auth';
 import { corsHeadersFor, mcpCorsPolicyFromEnv } from '@/lib/mcp/cors';
+import { MCP_MAX_BODY_BYTES, readBodyWithLimit } from '@/lib/mcp/limits';
 import { createGymCoachMcpServer } from '@/lib/mcp/server';
 
 export const runtime = 'nodejs';
@@ -29,6 +30,28 @@ async function handle(req: Request): Promise<Response> {
     );
   }
 
+  // Read the body under a byte cap before the transport parses it: the SDK
+  // reads the whole body with req.json() and has no limit of its own (issue
+  // #376). The buffered copy is what the transport sees.
+  let request = req;
+  if (req.body) {
+    const body = await readBodyWithLimit(req, MCP_MAX_BODY_BYTES);
+    if (!body) {
+      return withCors(
+        req,
+        Response.json(
+          { jsonrpc: '2.0', error: { code: -32000, message: 'Payload Too Large' }, id: null },
+          { status: 413 },
+        ),
+      );
+    }
+    // The length headers describe the original stream, not the buffered copy.
+    const headers = new Headers(req.headers);
+    headers.delete('content-length');
+    headers.delete('transfer-encoding');
+    request = new Request(req.url, { method: req.method, headers, body });
+  }
+
   // With an allowlist configured the transport rejects requests whose Host or
   // Origin header is not allowlisted (DNS rebinding protection); unset keeps
   // the historical open behavior for existing deployments (issue #287).
@@ -49,7 +72,7 @@ async function handle(req: Request): Promise<Response> {
     baseUrl: new URL(req.url).origin,
   });
   await server.connect(transport);
-  return withCors(req, await transport.handleRequest(req));
+  return withCors(req, await transport.handleRequest(request));
 }
 
 export async function POST(req: Request) {

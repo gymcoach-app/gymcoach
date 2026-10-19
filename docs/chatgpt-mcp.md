@@ -29,6 +29,11 @@ The public URL must use HTTPS. A local or LAN URL is not suitable for ChatGPT.
   scope.
 - Every write tool requires an explicit `confirmed: true` argument and is
   annotated as changing saved data.
+- Each token may make at most 60 write calls per minute (all write tools
+  together; reads are not limited). A call past the limit returns a tool error
+  with the seconds to wait. The limiter is in memory, per server process.
+- `/mcp` refuses a request body larger than 8 MiB with `413`, counted on the
+  bytes received, before the request is parsed.
 - The agent never receives direct database, filesystem or shell access.
 - The connector URL carries the token as a query string, so treat the URL
   itself as a secret: query strings routinely end up in reverse-proxy and

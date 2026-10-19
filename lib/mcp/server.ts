@@ -40,6 +40,7 @@ import {
   undoHistoricalEquipmentBackfill,
 } from '@/lib/mcp/historical-equipment-backfill';
 import { guardToolHandler } from '@/lib/mcp/errors';
+import { consumeMcpWriteQuota } from '@/lib/mcp/limits';
 import { updateUserProperties } from '@/lib/user-properties';
 
 export const GYMCOACH_MCP_INSTRUCTIONS = `GymCoach stores the trainee's profile, gyms, equipment, programs, workout history, sets, RIR, goals and recovery signals.
@@ -85,6 +86,9 @@ function requireWrite(principal: McpPrincipal) {
       'This GymCoach MCP token is read-only. Create a write-enabled token in Settings.',
     );
   }
+  // Every write tool calls this once, so the per-token write limit covers them
+  // all (issue #376).
+  consumeMcpWriteQuota(principal.tokenId);
 }
 
 async function getOwnedProgram(userId: string, programId?: string) {

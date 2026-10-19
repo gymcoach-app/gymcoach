@@ -100,6 +100,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `/mcp` is no longer unbounded (#376). A request body over 8 MiB is refused
+  with `413`, counted on the bytes read so a missing or understated
+  `Content-Length` does not get past it, before the SDK transport parses it.
+  Each token may make at most 60 write calls per minute across all write
+  tools; the next one returns a tool error with a retry delay. Reads are not
+  limited.
 - MCP tool errors no longer leak raw database errors: every tool handler is
   registered through one guard that maps Prisma errors to fixed wording
   (conflict, related record missing, not found) or a generic "Server error.",
