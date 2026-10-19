@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // The router is irrelevant to these assertions; stub it so the component mounts.
@@ -61,5 +61,30 @@ describe('LoginForm demo banner', () => {
         }),
       }),
     );
+  });
+
+  it('purges the previous session service-worker caches on a successful login (#357)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_DEMO_MODE', 'true');
+    vi.stubEnv('NEXT_PUBLIC_DEMO_EMAIL', 'demo@gymcoach.app');
+    vi.stubEnv('NEXT_PUBLIC_DEMO_PASSWORD', 'gymcoachdemo');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
+    );
+    const deleted: string[] = [];
+    vi.stubGlobal('caches', {
+      keys: async () => ['api-get', 'static-assets'],
+      delete: async (name: string) => {
+        deleted.push(name);
+        return true;
+      },
+    });
+
+    await renderForm();
+    await userEvent.click(
+      screen.getByRole('button', { name: /log in as demo/i }),
+    );
+
+    await waitFor(() => expect(deleted).toEqual(['api-get']));
   });
 });

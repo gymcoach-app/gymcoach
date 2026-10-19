@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { purgeUserCaches } from '@/lib/pwa-cache';
 
 type FormValues = { email: string; password: string };
 
@@ -67,6 +68,9 @@ export function LoginForm() {
     });
 
     if (res.ok) {
+      // A session that expired without a logout leaves the previous user's
+      // responses in the service-worker caches (#357).
+      await purgeUserCaches();
       router.replace('/');
       router.refresh();
       return;

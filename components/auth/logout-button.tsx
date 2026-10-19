@@ -5,6 +5,7 @@ import { useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { purgeUserCaches } from '@/lib/pwa-cache';
 
 export function LogoutButton() {
   const t = useTranslations('auth');
@@ -13,7 +14,17 @@ export function LogoutButton() {
 
   function handleLogout() {
     startTransition(async () => {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      let loggedOut = true;
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch {
+        // Offline: the session cookie may still be valid, so stay on the page.
+        loggedOut = false;
+      }
+      // After the logout call so no in-flight response refills the cache
+      // (#357); also when the call fails, since the device is being handed on.
+      await purgeUserCaches();
+      if (!loggedOut) return;
       router.replace('/login');
       router.refresh();
     });
