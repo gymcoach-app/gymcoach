@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { CloudOff, RotateCw, Wifi } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getDB } from '@/lib/indexeddb';
-import { flushPendingSets } from '@/lib/sync';
+import { countUnsyncedSets, flushPendingSets } from '@/lib/sync';
 import { Button } from '@/components/ui/button';
 
 // Global online/offline indicator + sync queue.
@@ -16,8 +15,12 @@ import { Button } from '@/components/ui/button';
 //
 // The component is silent during initial hydration (before IndexedDB has been
 // opened) to avoid a "0 pending" flash.
+//
+// Only the signed-in account's sets are counted and retried (issue #490): on a
+// shared device, another account's queued sets stay invisible until it signs
+// in again.
 
-export function OfflineIndicator() {
+export function OfflineIndicator({ userId }: { userId: string | null }) {
   const t = useTranslations('common.offline');
   const [online, setOnline] = useState<boolean | null>(null);
   const [flushing, setFlushing] = useState(false);
@@ -37,13 +40,14 @@ export function OfflineIndicator() {
 
   const pendingCount = useLiveQuery(
     async () => {
+      if (!userId) return 0;
       try {
-        return await getDB().pendingSets.where('status').anyOf(['pending', 'syncing', 'failed']).count();
+        return await countUnsyncedSets(userId);
       } catch {
         return 0;
       }
     },
-    [],
+    [userId],
     0,
   );
 
@@ -53,9 +57,10 @@ export function OfflineIndicator() {
   if (online && pendingCount === 0) return null;
 
   async function handleManualSync() {
+    if (!userId) return;
     setFlushing(true);
     try {
-      await flushPendingSets();
+      await flushPendingSets(userId);
     } finally {
       setFlushing(false);
     }

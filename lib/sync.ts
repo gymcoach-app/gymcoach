@@ -10,8 +10,16 @@
 // 4. No aggressive retry: we wait for the next trigger (online, validation,
 //    startup). If you cut the wifi in the middle, the app will retry when
 //    the network comes back. No background timer, to save battery.
+// 5. Every flush runs for one account (issue #490): it sends that account's
+//    rows and never another account's, and stops as soon as another tab
+//    records a different signed-in account (lib/signed-in-account.ts). Rows
+//    without a `userId` (written before the field existed) are sent too, and
+//    the server decides: a 2xx proves the session is the cookie user's, so the
+//    row is tagged with that user; a 404 means another account's session, so
+//    the row is put back untouched for its owner.
 
 import { getDB, type PendingSet } from '@/lib/indexeddb';
+import { isSignedInAccount } from '@/lib/signed-in-account';
 
 export type PendingSetUpdateState = 'missing' | 'failed' | 'synced' | 'queued';
 
@@ -53,36 +61,90 @@ export function onEquipmentDropped(listener: DroppedEquipmentListener): () => vo
   };
 }
 
-let inFlight: Promise<FlushResult> | null = null;
+// A row `userId` may send: its own, or an untagged legacy one whose owner only
+// the server can tell (see `PendingSet.userId`).
+function sendableBy(row: PendingSet, userId: string): boolean {
+  return row.userId === userId || row.userId === undefined;
+}
 
-export async function flushPendingSets(): Promise<FlushResult> {
-  // Re-entrancy: if a flush is already running, we return its promise.
-  if (inFlight) return inFlight;
-  inFlight = doFlush();
+// Rows the flush may send for `userId`, oldest first.
+async function queuedRowsOf(userId: string): Promise<PendingSet[]> {
+  const rows = await getDB()
+    .pendingSets.where('status')
+    .anyOf(['pending', 'failed'])
+    .sortBy('createdAt');
+  return rows.filter((row) => sendableBy(row, userId));
+}
+
+// Marks a queued row `syncing` for this flush, unless it is no longer queued
+// (another tab's flush claimed it) or now belongs to another account. Read and
+// write share one `rw` transaction, which IndexedDB runs one at a time per
+// store, so two flushes, in this tab or another, never send the same row.
+// Returns the row as claimed, or null to skip it.
+async function claimRow(localId: string, userId: string): Promise<PendingSet | null> {
+  const db = getDB();
+  return db.transaction('rw', db.pendingSets, async () => {
+    const row = await db.pendingSets.get(localId);
+    if (!row || (row.status !== 'pending' && row.status !== 'failed')) return null;
+    if (!sendableBy(row, userId)) return null;
+    await db.pendingSets.update(localId, { status: 'syncing' });
+    return row;
+  });
+}
+
+// Number of `userId`'s sets not yet confirmed by the server, for the offline
+// badge. Counts `syncing` too, unlike the flush, since those are still unsaved.
+// Untagged legacy rows are not counted for anyone: their owner is unknown
+// until a flush hears back from the server, which tags them.
+export async function countUnsyncedSets(userId: string): Promise<number> {
+  return getDB()
+    .pendingSets.where('status')
+    .anyOf(['pending', 'syncing', 'failed'])
+    .filter((row) => row.userId === userId)
+    .count();
+}
+
+let inFlight: { userId: string; run: Promise<FlushResult> } | null = null;
+
+export async function flushPendingSets(userId: string): Promise<FlushResult> {
+  // Re-entrancy: if a flush for the same account is already running, we
+  // return its promise. One for another account (a sign-out and sign-in in
+  // the same tab) is waited for first, so two accounts never flush at once.
+  while (inFlight) {
+    if (inFlight.userId === userId) return inFlight.run;
+    await inFlight.run.catch(() => undefined);
+  }
+  const run = doFlush(userId);
+  inFlight = { userId, run };
   try {
-    return await inFlight;
+    return await run;
   } finally {
-    inFlight = null;
+    if (inFlight?.run === run) inFlight = null;
   }
 }
 
-async function doFlush(): Promise<FlushResult> {
+async function doFlush(userId: string): Promise<FlushResult> {
   const db = getDB();
-  const pending = await db.pendingSets
-    .where('status')
-    .anyOf(['pending', 'failed'])
-    .sortBy('createdAt');
+  const pending = await queuedRowsOf(userId);
 
   let flushed = 0;
   let failed = 0;
   const droppedEquipment: DroppedEquipment[] = [];
 
-  for (const item of pending) {
+  for (const queued of pending) {
     if (!navigator.onLine) {
       // No point trying if we know we are offline.
       break;
     }
-    await db.pendingSets.update(item.localId, { status: 'syncing' });
+    // Another tab signed in a different account (or logged out): this tab's
+    // cookie now belongs to someone else, so stop before sending anything.
+    if (!isSignedInAccount(userId)) break;
+    const item = await claimRow(queued.localId, userId);
+    if (!item) continue;
+    const legacy = item.userId === undefined;
+    // A 2xx proves the session is the cookie user's (the routes scope by
+    // user), so an untagged row becomes this account's.
+    const owner = legacy ? { userId } : {};
 
     try {
       const existingServerId = item.serverId;
@@ -129,6 +191,13 @@ async function doFlush(): Promise<FlushResult> {
         }
       }
 
+      if (legacy && res.status === 404) {
+        // Not this account's session (or set): put the row back exactly as it
+        // was, untagged and not failed, so its owner can still send it.
+        await db.pendingSets.update(item.localId, { status: item.status });
+        continue;
+      }
+
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
         // If the session is closed or the exercise invalid, retrying is
@@ -166,8 +235,8 @@ async function doFlush(): Promise<FlushResult> {
           await db.pendingSets.update(
             item.localId,
             patchStillCurrent
-              ? { status: 'synced', serverId: saved.id, syncedAt: Date.now(), lastError: null }
-              : { status: 'pending', serverId: saved.id, lastError: null },
+              ? { status: 'synced', serverId: saved.id, syncedAt: Date.now(), lastError: null, ...owner }
+              : { status: 'pending', serverId: saved.id, lastError: null, ...owner },
           );
         });
       } else {
@@ -176,6 +245,7 @@ async function doFlush(): Promise<FlushResult> {
           serverId: saved.id,
           syncedAt: Date.now(),
           lastError: null,
+          ...owner,
           // Written before the broadcast below, so a listener that drains
           // immediately still finds the record it is being told about.
           ...(equipmentDropped
@@ -202,7 +272,7 @@ async function doFlush(): Promise<FlushResult> {
     }
   }
 
-  const remaining = await db.pendingSets.where('status').anyOf(['pending', 'failed']).count();
+  const remaining = (await queuedRowsOf(userId)).length;
   if (droppedEquipment.length > 0) {
     for (const listener of droppedEquipmentListeners) {
       listener(droppedEquipment);
@@ -215,8 +285,8 @@ async function doFlush(): Promise<FlushResult> {
 export async function queueSet(
   set: Omit<
     PendingSet,
-    'createdAt' | 'status' | 'serverId' | 'syncedAt' | 'attempts' | 'lastError'
-  >,
+    'userId' | 'createdAt' | 'status' | 'serverId' | 'syncedAt' | 'attempts' | 'lastError'
+  > & { userId: string },
 ): Promise<PendingSet> {
   const db = getDB();
   const record: PendingSet = {
@@ -230,7 +300,7 @@ export async function queueSet(
   };
   await db.pendingSets.add(record);
   // Kick off the flush in the background (not awaited so as not to block the UI).
-  void flushPendingSets();
+  void flushPendingSets(set.userId);
   return record;
 }
 
@@ -294,7 +364,8 @@ export async function pruneSyncedSets(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promi
 
 // Deletes every synced set on logout (#357), so the next user of the device
 // does not inherit them. Synced rows are copies of server data, so nothing is
-// lost; pending, syncing and failed rows are unsynced work and are kept.
+// lost; pending, syncing and failed rows are unsynced work and are kept, out
+// of sight of any other account until their own user signs in again (#490).
 // Best-effort: never throws, so it cannot block a logout.
 export async function deleteSyncedSets(): Promise<void> {
   try {
@@ -304,16 +375,21 @@ export async function deleteSyncedSets(): Promise<void> {
   }
 }
 
-// Hook event listener to start/stop the auto-sync on online/offline.
-export function bindAutoSync(): () => void {
-  if (typeof window === 'undefined') return () => {};
+// Hook event listener to start/stop the auto-sync on online/offline, for the
+// account this page was rendered for. Without one (no session) there is
+// nothing to send. Each flush checks that this account is still the one the
+// browser is signed in to, so a tab left open after another tab switched
+// accounts sends nothing (lib/signed-in-account.ts).
+export function bindAutoSync(userId: string | null): () => void {
+  if (typeof window === 'undefined' || !userId) return () => {};
   const onOnline = () => {
-    void flushPendingSets();
+    void flushPendingSets(userId);
   };
   window.addEventListener('online', onOnline);
-  // First flush on mount (in case some sets remain from the previous session).
+  // First flush on mount: sets left from an earlier visit, including this
+  // account's rows queued before another account used the device.
   if (navigator.onLine) {
-    void flushPendingSets();
+    void flushPendingSets(userId);
   }
   return () => window.removeEventListener('online', onOnline);
 }

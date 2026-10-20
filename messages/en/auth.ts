@@ -20,7 +20,7 @@ export const auth = {
     error: 'Registration error.',
   },
   logout: 'Log out',
-  logoutFailed: 'Could not log out. You are still signed in; try again when online.',
+  logoutFailed: 'Could not log out. You are still signed in; try again.',
   validation: {
     invalidEmail: 'Invalid email',
     nameRequired: 'Name required',
