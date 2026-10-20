@@ -7,6 +7,7 @@ import { LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { purgeUserCaches } from '@/lib/pwa-cache';
+import { recordSignedInAccount } from '@/lib/signed-in-account';
 import { deleteSyncedSets } from '@/lib/sync';
 
 export function LogoutButton() {
@@ -39,6 +40,8 @@ export function LogoutButton() {
       // own schedule or is purged by the next login.
       await purgeUserCaches();
       await deleteSyncedSets();
+      // Tells the other open tabs to stop flushing this account's queue (#490).
+      recordSignedInAccount(null);
       router.replace('/login');
       router.refresh();
     });

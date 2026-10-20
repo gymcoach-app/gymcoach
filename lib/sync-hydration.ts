@@ -10,7 +10,8 @@
 // session scoped to the signed-in user, so this is the one place that knows
 // who owns `sessionId`. Server rows are tagged with that user, and queued rows
 // of this session written before rows carried a `userId` are claimed by them,
-// which lets the sync send those legacy rows again.
+// so they count in that user's offline badge right away. The sync would also
+// tag them on its first 2xx for them (lib/sync.ts).
 
 import type { Set as PrismaSet } from '@/lib/prisma-client';
 import { getDB, type PendingSet } from '@/lib/indexeddb';

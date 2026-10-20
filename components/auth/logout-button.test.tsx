@@ -53,6 +53,7 @@ describe('LogoutButton (#357)', () => {
     toastError.mockReset();
     deleteSyncedSets.mockClear();
     calls.length = 0;
+    window.localStorage.clear();
   });
 
   it('purges the per-user caches before and after the logout call, then clears synced sets', async () => {
@@ -74,6 +75,8 @@ describe('LogoutButton (#357)', () => {
       'dexie',
     ]);
     expect(toastError).not.toHaveBeenCalled();
+    // Other tabs stop flushing this account's queue (#490).
+    expect(window.localStorage.getItem('gymcoach-signed-in-account')).toBe('none');
   });
 
   it('reports an offline logout, keeps the user on the page and keeps the queue', async () => {
@@ -93,6 +96,8 @@ describe('LogoutButton (#357)', () => {
     expect(calls).toEqual(['delete:api-get', 'delete:pages', 'fetch']);
     expect(replace).not.toHaveBeenCalled();
     expect(deleteSyncedSets).not.toHaveBeenCalled();
+    // Still signed in, so the other tabs keep syncing.
+    expect(window.localStorage.getItem('gymcoach-signed-in-account')).toBeNull();
   });
 
   it('treats a refused logout call like a failed one', async () => {

@@ -8,7 +8,9 @@ vi.mock('@/lib/indexeddb', async (importOriginal) => {
   return { ...actual, getDB: mockGetDB };
 });
 
+import { NO_ACCOUNT, recordSignedInAccount } from '@/lib/signed-in-account';
 import {
+  bindAutoSync,
   countUnsyncedSets,
   deleteSyncedSets,
   drainDroppedEquipment,
@@ -122,13 +124,17 @@ describe('offline set sync', () => {
           count: vi.fn(async () => (item.status === 'synced' ? 0 : 1)),
         })),
       })),
+      get: vi.fn(async (id: string) => (id === item.localId ? item : undefined)),
       update: vi.fn(async (_id: string, patch: Partial<PendingSet>) => {
         Object.assign(item, patch);
         updates.push(patch);
         return 1;
       }),
     };
-    mockGetDB.mockReturnValue({ pendingSets: table });
+    mockGetDB.mockReturnValue({
+      pendingSets: table,
+      transaction: vi.fn(<T>(_mode: string, _scope: unknown, body: () => Promise<T>) => body()),
+    });
 
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -454,6 +460,7 @@ describe('deleteSyncedSets (#357)', () => {
 describe('per-account offline queue (#490)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
   });
 
@@ -474,12 +481,18 @@ describe('per-account offline queue (#490)', () => {
             })),
           })),
         })),
+        // A copy, as Dexie returns: later updates do not reach a row already read.
+        get: vi.fn(async (id: string) => {
+          const row = rows.find((candidate) => candidate.localId === id);
+          return row ? { ...row } : undefined;
+        }),
         update: vi.fn(async (id: string, patch: Partial<PendingSet>) => {
           const row = rows.find((candidate) => candidate.localId === id);
           if (row) Object.assign(row, patch);
           return row ? 1 : 0;
         }),
       },
+      transaction: vi.fn(<T>(_mode: string, _scope: unknown, body: () => Promise<T>) => body()),
     };
   }
 
@@ -500,7 +513,7 @@ describe('per-account offline queue (#490)', () => {
   }
 
   it("sends only the signed-in account's rows and counts only those as remaining", async () => {
-    const rows = queue();
+    const rows = queue().filter((row) => row.localId !== 'legacy');
     mockGetDB.mockReturnValue(rowsDB(rows));
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(created('srv-b1'));
 
@@ -510,7 +523,6 @@ describe('per-account offline queue (#490)', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/sessions/session-b/sets');
     expect(result).toMatchObject({ flushed: 1, failed: 0, pending: 0 });
     expect(rows.find((row) => row.localId === 'a1')?.status).toBe('pending');
-    expect(rows.find((row) => row.localId === 'legacy')?.status).toBe('pending');
   });
 
   it("leaves another account's rows dormant, then syncs them when it signs in again", async () => {
@@ -539,16 +551,127 @@ describe('per-account offline queue (#490)', () => {
     });
   });
 
-  it('never sends an untagged legacy row, whoever is signed in', async () => {
+  it('sends a legacy row and tags it with the account once the server accepts it', async () => {
     const rows = queue().filter((row) => row.localId === 'legacy');
     mockGetDB.mockReturnValue(rowsDB(rows));
-    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(created('srv-legacy'));
 
     const result = await flushPendingSets('user-a');
 
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/sessions/session-a/sets');
+    expect(result).toMatchObject({ flushed: 1, failed: 0, pending: 0 });
+    expect(rows[0]).toMatchObject({ status: 'synced', serverId: 'srv-legacy', userId: 'user-a' });
+  });
+
+  it.each(['pending', 'failed'] as const)(
+    'puts a %s legacy row back untouched when the session is not this account (404)',
+    async (status) => {
+      const rows = queue()
+        .filter((row) => row.localId === 'legacy')
+        .map((row) => ({ ...row, status, attempts: 2, lastError: 'earlier' }));
+      mockGetDB.mockReturnValue(rowsDB(rows));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ error: 'Session not found.' }), { status: 404 }),
+      );
+
+      const result = await flushPendingSets('user-b');
+
+      expect(result).toMatchObject({ flushed: 0, failed: 0, pending: 1 });
+      expect(rows[0]).toMatchObject({ status, attempts: 2, lastError: 'earlier' });
+      expect(rows[0]?.userId).toBeUndefined();
+    },
+  );
+
+  it('keeps the usual failed handling for a legacy row refused with 400', async () => {
+    const rows = queue().filter((row) => row.localId === 'legacy');
+    mockGetDB.mockReturnValue(rowsDB(rows));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Session already finished.' }), { status: 400 }),
+    );
+
+    const result = await flushPendingSets('user-a');
+
+    expect(result).toMatchObject({ flushed: 0, failed: 1 });
+    expect(rows[0]).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      lastError: 'Session already finished.',
+    });
+    expect(rows[0]?.userId).toBeUndefined();
+  });
+
+  it('skips a row another flush claimed between the read and the send', async () => {
+    const rows = queue().filter((row) => row.localId === 'a1');
+    const db = rowsDB(rows);
+    // The queue read sees it pending; by the time this flush claims it,
+    // another tab's flush has marked it syncing.
+    db.pendingSets.get.mockImplementation(async (id: string) => {
+      const row = rows.find((candidate) => candidate.localId === id);
+      return row ? { ...row, status: 'syncing' } : undefined;
+    });
+    mockGetDB.mockReturnValue(db);
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    await flushPendingSets('user-a');
+
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ flushed: 0, failed: 0, pending: 0 });
+  });
+
+  it('sends nothing once another tab signed in a different account or logged out', async () => {
+    const rows = queue().filter((row) => row.localId === 'a1');
+    mockGetDB.mockReturnValue(rowsDB(rows));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(created('srv-a1'));
+
+    recordSignedInAccount('user-b');
+    await flushPendingSets('user-a');
+    recordSignedInAccount(null);
+    expect(window.localStorage.getItem('gymcoach-signed-in-account')).toBe(NO_ACCOUNT);
+    await flushPendingSets('user-a');
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(rows[0]?.status).toBe('pending');
+
+    recordSignedInAccount('user-a');
+    await flushPendingSets('user-a');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for another account's flush to finish before starting", async () => {
+    const rows = queue().filter((row) => row.localId !== 'legacy');
+    mockGetDB.mockReturnValue(rowsDB(rows));
+    let releaseA!: (res: Response) => void;
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseA = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(created('srv-b1'));
+
+    const flushA = flushPendingSets('user-a');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const flushB = flushPendingSets('user-b');
+    // B's flush must not start while A's request is still open.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseA(created('srv-a1'));
+    await flushA;
+    await flushB;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/sessions/session-b/sets');
+  });
+
+  it('binds nothing without a signed-in account', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const cleanup = bindAutoSync(null);
+    cleanup();
+
+    expect(add).not.toHaveBeenCalledWith('online', expect.anything());
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("counts only the signed-in account's unsynced rows for the badge", async () => {

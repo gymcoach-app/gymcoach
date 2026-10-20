@@ -585,11 +585,15 @@ describe('SessionRunner repeated exercise blocks (issue #429)', () => {
 
   it('tags queued sets and the hydration with the signed-in account (issue #490)', async () => {
     const { queueSet } = await import('@/lib/sync');
+    const { flushPendingSets } = await import('@/lib/sync');
     const { hydrateFromServerSets } = await import('@/lib/sync-hydration');
     vi.mocked(queueSet).mockClear();
+    vi.mocked(flushPendingSets).mockClear();
     vi.mocked(hydrateFromServerSets).mockClear();
     await renderRunner(runner([row('bench', 1)]));
     expect(hydrateFromServerSets).toHaveBeenCalledWith('s1', [], 'u1');
+    // Legacy rows the hydration claimed are sent right away.
+    expect(flushPendingSets).toHaveBeenCalledWith('u1');
     await act(async () => {
       await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
     });

@@ -10,12 +10,16 @@
 // 4. No aggressive retry: we wait for the next trigger (online, validation,
 //    startup). If you cut the wifi in the middle, the app will retry when
 //    the network comes back. No background timer, to save battery.
-// 5. Every flush runs for one account (issue #490) and only reads that
-//    account's rows, so a shared device never sends one user's queue under
-//    another user's session cookie. Rows without a `userId` (written before
-//    the field existed) are left alone until their session claims them.
+// 5. Every flush runs for one account (issue #490): it sends that account's
+//    rows and never another account's, and stops as soon as another tab
+//    records a different signed-in account (lib/signed-in-account.ts). Rows
+//    without a `userId` (written before the field existed) are sent too, and
+//    the server decides: a 2xx proves the session is the cookie user's, so the
+//    row is tagged with that user; a 404 means another account's session, so
+//    the row is put back untouched for its owner.
 
 import { getDB, type PendingSet } from '@/lib/indexeddb';
+import { isSignedInAccount } from '@/lib/signed-in-account';
 
 export type PendingSetUpdateState = 'missing' | 'failed' | 'synced' | 'queued';
 
@@ -57,18 +61,41 @@ export function onEquipmentDropped(listener: DroppedEquipmentListener): () => vo
   };
 }
 
-// Rows the flush may send for `userId`, oldest first. Untagged legacy rows are
-// not the caller's to send (see `PendingSet.userId`).
+// A row `userId` may send: its own, or an untagged legacy one whose owner only
+// the server can tell (see `PendingSet.userId`).
+function sendableBy(row: PendingSet, userId: string): boolean {
+  return row.userId === userId || row.userId === undefined;
+}
+
+// Rows the flush may send for `userId`, oldest first.
 async function queuedRowsOf(userId: string): Promise<PendingSet[]> {
   const rows = await getDB()
     .pendingSets.where('status')
     .anyOf(['pending', 'failed'])
     .sortBy('createdAt');
-  return rows.filter((row) => row.userId === userId);
+  return rows.filter((row) => sendableBy(row, userId));
+}
+
+// Marks a queued row `syncing` for this flush, unless it is no longer queued
+// (another tab's flush claimed it) or now belongs to another account. Read and
+// write share one `rw` transaction, which IndexedDB runs one at a time per
+// store, so two flushes, in this tab or another, never send the same row.
+// Returns the row as claimed, or null to skip it.
+async function claimRow(localId: string, userId: string): Promise<PendingSet | null> {
+  const db = getDB();
+  return db.transaction('rw', db.pendingSets, async () => {
+    const row = await db.pendingSets.get(localId);
+    if (!row || (row.status !== 'pending' && row.status !== 'failed')) return null;
+    if (!sendableBy(row, userId)) return null;
+    await db.pendingSets.update(localId, { status: 'syncing' });
+    return row;
+  });
 }
 
 // Number of `userId`'s sets not yet confirmed by the server, for the offline
 // badge. Counts `syncing` too, unlike the flush, since those are still unsaved.
+// Untagged legacy rows are not counted for anyone: their owner is unknown
+// until a flush hears back from the server, which tags them.
 export async function countUnsyncedSets(userId: string): Promise<number> {
   return getDB()
     .pendingSets.where('status')
@@ -104,12 +131,20 @@ async function doFlush(userId: string): Promise<FlushResult> {
   let failed = 0;
   const droppedEquipment: DroppedEquipment[] = [];
 
-  for (const item of pending) {
+  for (const queued of pending) {
     if (!navigator.onLine) {
       // No point trying if we know we are offline.
       break;
     }
-    await db.pendingSets.update(item.localId, { status: 'syncing' });
+    // Another tab signed in a different account (or logged out): this tab's
+    // cookie now belongs to someone else, so stop before sending anything.
+    if (!isSignedInAccount(userId)) break;
+    const item = await claimRow(queued.localId, userId);
+    if (!item) continue;
+    const legacy = item.userId === undefined;
+    // A 2xx proves the session is the cookie user's (the routes scope by
+    // user), so an untagged row becomes this account's.
+    const owner = legacy ? { userId } : {};
 
     try {
       const existingServerId = item.serverId;
@@ -156,6 +191,13 @@ async function doFlush(userId: string): Promise<FlushResult> {
         }
       }
 
+      if (legacy && res.status === 404) {
+        // Not this account's session (or set): put the row back exactly as it
+        // was, untagged and not failed, so its owner can still send it.
+        await db.pendingSets.update(item.localId, { status: item.status });
+        continue;
+      }
+
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
         // If the session is closed or the exercise invalid, retrying is
@@ -193,8 +235,8 @@ async function doFlush(userId: string): Promise<FlushResult> {
           await db.pendingSets.update(
             item.localId,
             patchStillCurrent
-              ? { status: 'synced', serverId: saved.id, syncedAt: Date.now(), lastError: null }
-              : { status: 'pending', serverId: saved.id, lastError: null },
+              ? { status: 'synced', serverId: saved.id, syncedAt: Date.now(), lastError: null, ...owner }
+              : { status: 'pending', serverId: saved.id, lastError: null, ...owner },
           );
         });
       } else {
@@ -203,6 +245,7 @@ async function doFlush(userId: string): Promise<FlushResult> {
           serverId: saved.id,
           syncedAt: Date.now(),
           lastError: null,
+          ...owner,
           // Written before the broadcast below, so a listener that drains
           // immediately still finds the record it is being told about.
           ...(equipmentDropped
@@ -333,7 +376,10 @@ export async function deleteSyncedSets(): Promise<void> {
 }
 
 // Hook event listener to start/stop the auto-sync on online/offline, for the
-// signed-in account. Without one (no session) there is nothing to send.
+// account this page was rendered for. Without one (no session) there is
+// nothing to send. Each flush checks that this account is still the one the
+// browser is signed in to, so a tab left open after another tab switched
+// accounts sends nothing (lib/signed-in-account.ts).
 export function bindAutoSync(userId: string | null): () => void {
   if (typeof window === 'undefined' || !userId) return () => {};
   const onOnline = () => {

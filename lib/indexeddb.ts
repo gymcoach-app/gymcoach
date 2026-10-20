@@ -26,10 +26,10 @@ export interface PendingSet {
   // Account that logged the set (issue #490). The sync and the offline badge
   // only see the signed-in user's rows, so a shared device never shows or sends
   // another account's queue; that account's unsynced rows wait until it signs
-  // in again. Optional because rows written before the field have none: such a
-  // row stays out of the sync until a SessionRunner for its own session claims
-  // it (see `hydrateFromServerSets`), since only that page proves which account
-  // owns the session.
+  // in again. Optional because rows written before the field have none: any
+  // account's flush may send such a row and the server decides (a 2xx tags it
+  // with that account, a 404 leaves it for its owner, see lib/sync.ts), and
+  // the SessionRunner of its own session claims it (`hydrateFromServerSets`).
   userId?: string;
 
   exerciseId: string;

@@ -305,6 +305,11 @@ export function SessionRunner({
     void (async () => {
       await hydrateFromServerSets(session.id, session.sets, userId);
       setHydrated(true);
+      // The hydration may have claimed legacy rows of this session (#490):
+      // send them now rather than at the next trigger.
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        void flushPendingSets(userId);
+      }
     })();
     void acquireWakeLock();
     const cleanupVisibility = bindWakeLockToVisibility();
