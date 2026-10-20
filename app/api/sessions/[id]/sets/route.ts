@@ -51,7 +51,13 @@ export async function POST(req: Request, props: Params) {
     // range, so a single-occurrence exercise always stores NULL as before.
     const occurrences = session.workoutId
       ? await db.programExercise.count({
-          where: { workoutId: session.workoutId, exerciseId: data.exerciseId },
+          // Ownership in the query scope itself (issue #317): the session is
+          // the user's, and so must the workout whose rows are counted.
+          where: {
+            workoutId: session.workoutId,
+            exerciseId: data.exerciseId,
+            workout: { program: { userId } },
+          },
         })
       : 0;
     const block = occurrences > 1 ? effectiveSetBlock(data.block, occurrences) : null;

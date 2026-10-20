@@ -6,6 +6,12 @@ import type {
   ProgramExercise,
 } from '@/lib/prisma-client';
 import { db } from '@/lib/db';
+import {
+  blockIndexByRow,
+  blockSetWhere,
+  occurrenceCounts,
+  rowBlockKey,
+} from '@/lib/exercise-blocks';
 import type { GymLoadConstraints } from '@/lib/gym-loads';
 import {
   BASELINE_MUSCLE_VOLUME_DAYS,
@@ -23,6 +29,9 @@ type ProgramExerciseForReturn = Pick<
   ProgramExercise,
   'id' | 'exerciseId' | 'targetSets' | 'targetRepsMin' | 'targetRIR'
 > & {
+  // Row position in the workout, used to rank the blocks of a repeated
+  // exercise (issue #429). Callers without it pass the rows in workout order.
+  order?: number;
   exercise: Pick<Exercise, 'category' | 'equipmentType' | 'usesBodyweight' | 'muscleGroup'>;
 };
 
@@ -62,7 +71,26 @@ export async function getReturnToTrainingRecommendations({
 }: ReturnRecommendationQuery): Promise<Record<string, ReturnRecommendation>> {
   if (programExercises.length === 0) return {};
 
-  const exerciseIds = [...new Set(programExercises.map((item) => item.exerciseId))];
+  // One history per block of a deliberately repeated exercise (issue #475):
+  // a 5x10 Boring But Big row anchors on past 5x10 sets, not on the heavy
+  // 5/3/1 sets of the same lift, like getLastPerformances. An exercise the
+  // workout holds once keeps a single per-exercise history, keyed by its bare
+  // exerciseId exactly as before.
+  const rowBlocks = blockIndexByRow(
+    programExercises.map((pe, index) => ({
+      id: pe.id,
+      exerciseId: pe.exerciseId,
+      order: pe.order ?? index,
+    })),
+  );
+  const counts = occurrenceCounts(programExercises);
+  const lookups = new Map<string, { exerciseId: string; block: number | null }>();
+  for (const pe of programExercises) {
+    const key = rowBlockKey(pe, rowBlocks);
+    if (!lookups.has(key)) {
+      lookups.set(key, { exerciseId: pe.exerciseId, block: rowBlocks.get(pe.id) ?? null });
+    }
+  }
   const muscleGroups = [...new Set(programExercises.map((item) => item.exercise.muscleGroup))];
   const excludedSession = excludeSessionId ? { id: { not: excludeSessionId } } : {};
   const historyStart = new Date(now.getTime() - RETURN_HISTORY_LOOKBACK_DAYS * 86_400_000);
@@ -73,7 +101,7 @@ export async function getReturnToTrainingRecommendations({
 
   const [exerciseEntries, muscleLatestEntries, volumeRows] = await Promise.all([
     Promise.all(
-      exerciseIds.map(async (exerciseId) => {
+      [...lookups].map(async ([key, { exerciseId, block }]) => {
         const workingSetFilter = {
           exerciseId,
           isWarmup: false,
@@ -82,6 +110,13 @@ export async function getReturnToTrainingRecommendations({
           weight: { gte: 0 },
           completedAt: { lt: now },
         } as const;
+        // The anchor sessions read only this block's sets. The latest-set
+        // lookup stays per exercise: how long ago the movement was trained
+        // is the same for every block of it.
+        const blockSetFilter = {
+          ...workingSetFilter,
+          ...(block == null ? {} : blockSetWhere(block, counts.get(exerciseId))),
+        };
 
         // Both queries are bounded in what they return. The indexed latest-set
         // lookup preserves knowledge of arbitrarily old real exercise history,
@@ -107,7 +142,7 @@ export async function getReturnToTrainingRecommendations({
               finishedAt: { not: null },
               ...excludedSession,
               startedAt: { gte: historyStart, lt: now },
-              sets: { some: workingSetFilter },
+              sets: { some: blockSetFilter },
             },
             orderBy: { startedAt: 'desc' },
             take: RETURN_LONG_TERM_ANCHOR_SESSION_LIMIT + RETURN_RECENT_SESSION_LIMIT,
@@ -115,7 +150,7 @@ export async function getReturnToTrainingRecommendations({
               id: true,
               startedAt: true,
               sets: {
-                where: workingSetFilter,
+                where: blockSetFilter,
                 orderBy: { setNumber: 'asc' },
                 select: {
                   setNumber: true,
@@ -148,7 +183,7 @@ export async function getReturnToTrainingRecommendations({
             })),
           })),
         };
-        return [exerciseId, history] as const;
+        return [key, history] as const;
       }),
     ),
     Promise.all(
@@ -200,10 +235,11 @@ export async function getReturnToTrainingRecommendations({
 
   const exerciseHistory = new Map<string, BoundedExerciseHistory>(exerciseEntries);
   for (const pe of programExercises) {
-    if (historiesByExercise.has(pe.exerciseId)) continue;
-    const history = exerciseHistory.get(pe.exerciseId) ?? { lastPerformedAt: null, sessions: [] };
+    const key = rowBlockKey(pe, rowBlocks);
+    if (historiesByExercise.has(key)) continue;
+    const history = exerciseHistory.get(key) ?? { lastPerformedAt: null, sessions: [] };
     const baselineSets = baselineSetsByMuscle.get(pe.exercise.muscleGroup) ?? 0;
-    historiesByExercise.set(pe.exerciseId, {
+    historiesByExercise.set(key, {
       exerciseLastPerformedAt: history.lastPerformedAt,
       muscleLastPerformedAt: latestByMuscle.get(pe.exercise.muscleGroup) ?? null,
       recentMuscleSets: recentSetsByMuscle.get(pe.exercise.muscleGroup) ?? 0,
@@ -218,7 +254,7 @@ export async function getReturnToTrainingRecommendations({
       pe.id,
       calculateReturnRecommendation({
         programExercise: pe,
-        history: historiesByExercise.get(pe.exerciseId)!,
+        history: historiesByExercise.get(rowBlockKey(pe, rowBlocks))!,
         now,
         bodyweight,
         loadConstraints: loadConstraintsFor(pe, gym),

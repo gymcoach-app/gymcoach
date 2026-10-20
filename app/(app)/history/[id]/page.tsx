@@ -19,7 +19,7 @@ import {
 } from '@/lib/cardio';
 import { formatWeight } from '@/lib/units';
 import { formatWorkoutText } from '@/lib/workout-text';
-import { blockKey } from '@/lib/exercise-blocks';
+import { blockKey, distinctExerciseCount } from '@/lib/exercise-blocks';
 import { CopyWorkoutButton } from '@/components/history/copy-workout-button';
 import { SaveAsWorkoutButton } from '@/components/history/save-as-workout-button';
 import { DeleteSessionButton } from '@/components/history/delete-session-button';
@@ -127,6 +127,9 @@ export default async function HistorySessionPage(props: Params) {
   );
   const volume = totalVolume(enrichedAllSets);
   const workingSetCount = session.sets.filter((s) => !s.isWarmup).length;
+  // The Exercises stat counts distinct lifts (issue #475): a 5/3/1 BBB squat
+  // logged as two blocks is two groups below but one exercise here.
+  const exerciseCount = distinctExerciseCount(session.sets);
   // TCX export (issue #175) is offered only for a FINISHED session that has
   // cardio sets; the route 400s on a cardio-less session, and an in-progress
   // session (reachable only by direct URL here) is not a complete export.
@@ -262,7 +265,7 @@ export default async function HistorySessionPage(props: Params) {
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 pt-0 text-sm sm:grid-cols-3">
             <Stat label={detail('sets')} value={String(workingSetCount)} />
-            <Stat label={detail('exercises')} value={String(setsByExercise.size)} />
+            <Stat label={detail('exercises')} value={String(exerciseCount)} />
             <Stat
               label={detail('totalVolume')}
               value={formatWeight(volume, unit, { decimals: 0, locale })}

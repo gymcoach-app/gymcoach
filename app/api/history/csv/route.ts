@@ -102,6 +102,11 @@ export async function GET(req: Request) {
           // cardio logged without a heart-rate reading.
           set.avgHr != null ? String(set.avgHr) : '',
           set.maxHr != null ? String(set.maxHr) : '',
+          // Block of a deliberately repeated exercise (issue #475): which of
+          // the workout's rows of this lift the set was logged against. Empty
+          // when the set stored none (the lift appears once), so a 5/3/1 BBB
+          // day does not export two indistinguishable set 1 rows.
+          set.block != null ? String(set.block) : '',
         ];
         lines.push(row.map(csvEscape).join(','));
       }

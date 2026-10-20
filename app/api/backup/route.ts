@@ -13,7 +13,7 @@ import {
 } from '@/lib/prisma-client';
 import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
-import { MAX_EXERCISE_BLOCK } from '@/lib/exercise-blocks';
+import { effectiveSetBlock, MAX_EXERCISE_BLOCK, occurrenceCounts } from '@/lib/exercise-blocks';
 import {
   AVG_HR_MAX,
   AVG_HR_MIN,
@@ -846,7 +846,7 @@ export async function POST(req: Request) {
         //    but accept leaving them nullable if not found.
         const programs = await tx.program.findMany({
           where: { userId },
-          include: { workouts: true },
+          include: { workouts: { include: { exercises: { select: { exerciseId: true } } } } },
         });
         const programByName = new Map(programs.map((p) => [p.name, p]));
 
@@ -866,6 +866,14 @@ export async function POST(req: Request) {
               gymId: s.gymName ? (gymIdByName.get(s.gymName) ?? null) : null,
             },
           });
+          // Block of a repeated exercise (issue #475), normalized against the
+          // linked workout like POST /api/sessions/[id]/sets: NULL when the
+          // workout holds the exercise once, an index past the last row read
+          // as the first block. A stored NULL stays NULL (it already reads as
+          // the first block, and a lossless round trip keeps it). A session
+          // whose workout is not found keeps the exported block, the only
+          // record of which row the set was logged against.
+          const counts = workout ? occurrenceCounts(workout.exercises) : null;
           const setRows = s.sets.flatMap((set) => {
             const exId = set.exerciseName ? exerciseIdByName.get(set.exerciseName) : undefined;
             if (!exId) return [];
@@ -895,7 +903,10 @@ export async function POST(req: Request) {
                 notes: set.notes ?? null,
                 isWarmup: set.isWarmup,
                 isDropSet: set.isDropSet,
-                block: set.block ?? null,
+                block:
+                  counts && set.block != null
+                    ? effectiveSetBlock(set.block, counts.get(exId) ?? 0)
+                    : (set.block ?? null),
                 completedAt: new Date(set.completedAt),
               },
             ];

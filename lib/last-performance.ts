@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { blockKey } from '@/lib/exercise-blocks';
+import { blockKey, blockSetWhere } from '@/lib/exercise-blocks';
 
 export interface LastPerformance {
   exerciseId: string;
@@ -24,23 +24,31 @@ export interface LastPerformance {
 // exercise, keyed by blockKey(exerciseId, block): the last session's sets of
 // that block only, so a 5x10 BBB block is not suggested from the heavy 5/3/1
 // sets. Block 0 also reads sets stored without a block (written before the
-// column existed, or in a workout holding the exercise once). The plain
+// column existed, or in a workout holding the exercise once) and, when the
+// caller passes the workout's occurrence count, sets whose stored block points
+// past the last row (a row removed since), like effectiveSetBlock. The plain
 // per-exercise entries are unchanged.
 export async function getLastPerformances(
   userId: string,
   exerciseIds: string[],
   excludeSessionId: string | null,
-  blocks: readonly { exerciseId: string; block: number }[] = [],
+  blocks: readonly { exerciseId: string; block: number; occurrences?: number }[] = [],
 ): Promise<Map<string, LastPerformance>> {
   if (exerciseIds.length === 0 && blocks.length === 0) return new Map();
 
   const result = new Map<string, LastPerformance>();
-  const lookups: { key: string; exerciseId: string; block: number | null }[] = [
+  const lookups: {
+    key: string;
+    exerciseId: string;
+    block: number | null;
+    occurrences?: number;
+  }[] = [
     ...exerciseIds.map((exerciseId) => ({ key: exerciseId, exerciseId, block: null })),
-    ...blocks.map(({ exerciseId, block }) => ({
+    ...blocks.map(({ exerciseId, block, occurrences }) => ({
       key: blockKey(exerciseId, block),
       exerciseId,
       block,
+      occurrences,
     })),
   ];
 
@@ -48,9 +56,8 @@ export async function getLastPerformances(
   // excluding warmups), get its sessionId, then all the sets of that session
   // for this exercise.
   await Promise.all(
-    lookups.map(async ({ key, exerciseId, block }) => {
-      const blockWhere =
-        block == null ? {} : block === 0 ? { OR: [{ block: 0 }, { block: null }] } : { block };
+    lookups.map(async ({ key, exerciseId, block, occurrences }) => {
+      const blockWhere = block == null ? {} : blockSetWhere(block, occurrences);
       const lastSet = await db.set.findFirst({
         where: {
           exerciseId,

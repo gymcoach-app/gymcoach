@@ -68,6 +68,7 @@ export async function POST(req: Request) {
               reps: true,
               durationSec: true,
               distanceM: true,
+              block: true,
               exercise: { select: { name: true } },
             },
           },
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
               set.reps,
               set.durationSec,
               set.distanceM,
+              set.block,
             ),
           );
         }

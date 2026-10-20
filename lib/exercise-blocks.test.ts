@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   blockIndexByRow,
   blockKey,
+  blockSetWhere,
+  distinctExerciseCount,
   effectiveSetBlock,
   occurrenceCounts,
   rowBlockKey,
@@ -72,5 +74,34 @@ describe('block keys', () => {
     expect(setBlockKey({ exerciseId: 'bench', block: 1 }, counts)).toBe(rowBlockKey(bbb, blocks));
     expect(setBlockKey({ exerciseId: 'row', block: 1 }, counts)).toBe('row');
     expect(rowBlockKey(other, blocks)).toBe('row');
+  });
+});
+
+describe('blockSetWhere', () => {
+  it('reads a later block by its own index only', () => {
+    expect(blockSetWhere(1, 2)).toEqual({ block: 1 });
+  });
+
+  it('reads block 0, NULL and indexes past the last row as the first block', () => {
+    expect(blockSetWhere(0, 2)).toEqual({
+      OR: [{ block: 0 }, { block: null }, { block: { gte: 2 } }],
+    });
+  });
+
+  it('keeps the historical block 0 filter when the occurrence count is unknown', () => {
+    expect(blockSetWhere(0)).toEqual({ OR: [{ block: 0 }, { block: null }] });
+  });
+});
+
+describe('distinctExerciseCount', () => {
+  it('counts the blocks of a repeated exercise once', () => {
+    expect(
+      distinctExerciseCount([
+        { exerciseId: 'squat' },
+        { exerciseId: 'squat' },
+        { exerciseId: 'row' },
+      ]),
+    ).toBe(2);
+    expect(distinctExerciseCount([])).toBe(0);
   });
 });

@@ -15,6 +15,7 @@ import {
   readCsvRecords,
   type CsvLineError,
 } from '@/lib/import/csv';
+import { MAX_EXERCISE_BLOCK } from '@/lib/exercise-blocks';
 import type { NormalizedImportRow } from '@/lib/import/strong-import';
 
 // ============================================================
@@ -34,7 +35,8 @@ import type { NormalizedImportRow } from '@/lib/import/strong-import';
 // - Honored when present: session_id (keeps two same-day sessions separate),
 //   session_started_at / session_finished_at (real times), workout, rir,
 //   is_warmup, is_drop_set, set_notes, duration_sec, distance_m, avg_hr,
-//   max_hr.
+//   max_hr, block (issue #475; an older export without the column reads as
+//   no block, which is what it meant).
 // - Ignored (derived on export, recomputed after import): duration_min,
 //   program, muscle_group, uses_bodyweight, effective_weight_kg, volume_kg,
 //   estimated_1rm_kg.
@@ -53,6 +55,7 @@ export interface GymcoachCsvRow extends NormalizedImportRow {
   maxHr: number | null;
   startedAtIso: string | null;
   finishedAtIso: string | null;
+  block: number | null;
 }
 
 export interface GymcoachCsvParseResult {
@@ -85,6 +88,8 @@ const commonSchema = z.object({
   workoutName: z.string().trim().min(1).max(200),
   exerciseName: z.string().trim().min(1).max(120),
   setOrder: z.number().int().min(1).max(50),
+  // Same bound as lib/schemas/set.ts.
+  block: z.number().int().min(0).max(MAX_EXERCISE_BLOCK).nullable(),
   rir: z.number().int().min(0).max(5).nullable(),
   notes: z.string().trim().max(500).nullable(),
 });
@@ -107,6 +112,7 @@ interface HeaderMap {
   distanceM: number | null;
   avgHr: number | null;
   maxHr: number | null;
+  block: number | null;
 }
 
 // Recognize the GymCoach export header (extra columns are fine, order does
@@ -150,6 +156,7 @@ function mapHeader(cells: string[]): HeaderMap | null {
     distanceM: find('distance_m'),
     avgHr: find('avg_hr'),
     maxHr: find('max_hr'),
+    block: find('block'),
   };
 }
 
@@ -267,6 +274,7 @@ export function parseGymcoachCsv(text: string): GymcoachCsvParseResult {
       workoutName: stripFormulaGuard(get(map.workout) ?? '').trim() || 'Workout',
       exerciseName: stripFormulaGuard(get(map.exercise) ?? '').trim(),
       setOrder: asNumber(get(map.setNumber)),
+      block: asOptionalNumber(get(map.block)),
       rir: asOptionalNumber(get(map.rir)),
       notes: notesRaw === '' ? null : notesRaw,
     });

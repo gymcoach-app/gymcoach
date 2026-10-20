@@ -86,3 +86,29 @@ export function rowBlockKey(
 ): string {
   return blockKey(row.exerciseId, blocks.get(row.id) ?? null);
 }
+
+// Set filter for one block of a repeated exercise, matching effectiveSetBlock:
+// block 0 also takes sets stored without a block and, when the current
+// occurrence count is known, sets whose stored block points past the last row
+// (a row removed since they were logged). A later block takes its own index
+// only. Plain object so this module stays free of Prisma imports.
+export function blockSetWhere(
+  block: number,
+  occurrences?: number,
+):
+  | { block: number }
+  | { OR: ({ block: number } | { block: null } | { block: { gte: number } })[] } {
+  if (block !== 0) return { block };
+  const or: ({ block: number } | { block: null } | { block: { gte: number } })[] = [
+    { block: 0 },
+    { block: null },
+  ];
+  if (occurrences != null && occurrences > 1) or.push({ block: { gte: occurrences } });
+  return { OR: or };
+}
+
+// How many distinct exercises a list of sets covers. The blocks of a repeated
+// exercise count once: they are one lift logged against several rows.
+export function distinctExerciseCount(sets: readonly { exerciseId: string }[]): number {
+  return new Set(sets.map((set) => set.exerciseId)).size;
+}

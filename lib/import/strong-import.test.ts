@@ -154,6 +154,23 @@ describe('buildStrongImportPlan - cardio sets', () => {
     expect(plan.totalSets).toBe(0);
   });
 
+  it('keeps a later block of a repeated lift apart, block 0 on the historical key', () => {
+    // Issue #475: a 5/3/1 BBB set 1 is not a duplicate of the heavy set 1.
+    expect(setDuplicateKey('2026-05-02', 'Bench', 1, 80, 8, null, null, 1)).toBe(
+      '2026-05-02|bench|1|80|8|b1',
+    );
+    expect(setDuplicateKey('2026-05-02', 'Bench', 1, 80, 8, null, null, 0)).toBe(
+      '2026-05-02|bench|1|80|8',
+    );
+    const plan = buildStrongImportPlan(
+      [0, 1].map((block): NormalizedImportRow => ({ ...row(), block })),
+      [],
+      new Set(),
+    );
+    expect(plan.duplicateCount).toBe(0);
+    expect(plan.sessions[0]?.sets.map((x) => x.block)).toEqual([0, 1]);
+  });
+
   it('keeps strength duplicate keys byte-identical to the pre-cardio format', () => {
     expect(setDuplicateKey('2026-05-02', 'Bench', 1, 80, 8)).toBe(
       '2026-05-02|bench|1|80|8',

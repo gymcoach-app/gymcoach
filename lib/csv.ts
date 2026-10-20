@@ -37,6 +37,7 @@ export const HISTORY_CSV_HEADERS = [
   'distance_m', // cardio sets only (raw meters); empty on strength sets
   'avg_hr', // cardio sets only (bpm); empty on strength sets and cardio without HR
   'max_hr', // cardio sets only (bpm); empty on strength sets and cardio without HR
+  'block', // 0-based block of a deliberately repeated exercise (issue #475); empty otherwise
 ] as const;
 
 export function csvEscape(value: string): string {

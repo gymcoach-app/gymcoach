@@ -30,6 +30,7 @@ describe('HISTORY_CSV_HEADERS', () => {
       'distance_m',
       'avg_hr',
       'max_hr',
+      'block',
     ]);
   });
 });

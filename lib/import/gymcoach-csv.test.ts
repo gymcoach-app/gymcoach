@@ -59,6 +59,7 @@ function exportRow(over: Partial<Record<(typeof HISTORY_CSV_HEADERS)[number], st
     distance_m: '',
     avg_hr: '',
     max_hr: '',
+    block: '',
   };
   const cells = { ...defaults, ...over };
   return HISTORY_CSV_HEADERS.map((h) => csvEscape(cells[h])).join(',');
@@ -124,6 +125,7 @@ describe('parseGymcoachCsv - export round-trip', () => {
       distanceM: null,
       avgHr: null,
       maxHr: null,
+      block: null,
       startedAtIso: '2026-05-02T09:13:00.000Z',
       finishedAtIso: '2026-05-02T10:05:00.000Z',
       sessionKey: 'id:sess-1',
@@ -184,6 +186,35 @@ describe('parseGymcoachCsv - export round-trip', () => {
     );
     expect(res.errors).toEqual([]);
     expect(res.rows[0]?.notes).toBe('line one\nwith, comma');
+  });
+});
+
+describe('parseGymcoachCsv - block column (issue #475)', () => {
+  it('reads back the block of a repeated lift from the export', () => {
+    const res = parseGymcoachCsv([EXPORT_HEADER, exportRow({ block: '1' })].join('\n'));
+    expect(res.errors).toEqual([]);
+    expect(res.rows[0]?.block).toBe(1);
+  });
+
+  it('reads an empty cell or a file without the column as no block', () => {
+    const empty = parseGymcoachCsv([EXPORT_HEADER, exportRow({ block: '' })].join('\n'));
+    expect(empty.rows[0]?.block).toBeNull();
+    // An export written before the column existed (issue #475).
+    const old = parseGymcoachCsv([MIN_HEADER, minRow()].join('\n'));
+    expect(old.errors).toEqual([]);
+    expect(old.rows[0]?.block).toBeNull();
+  });
+
+  it('rejects an out-of-range or malformed block with a per-line error', () => {
+    const res = parseGymcoachCsv(
+      [EXPORT_HEADER, exportRow({ block: '20' }), exportRow({ block: '-1' }), exportRow({ block: 'x' })].join(
+        '\n',
+      ),
+    );
+    expect(res.ok).toBe(true);
+    expect(res.rows).toEqual([]);
+    expect(res.errors).toHaveLength(3);
+    expect(res.errors.every((e) => /block/.test(e.reason))).toBe(true);
   });
 });
 

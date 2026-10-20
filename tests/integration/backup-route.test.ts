@@ -160,6 +160,18 @@ async function seedFullUser(email: string) {
                   restSec: 120,
                   supersetGroup: 1,
                 },
+                // The bench again (issue #429): its 5x10 back-off block, so the
+                // block 1 set below matches a workout that holds the lift twice
+                // and survives the restore's normalization (issue #475).
+                {
+                  exerciseId: bench.id,
+                  order: 3,
+                  targetSets: 5,
+                  targetRepsMin: 10,
+                  targetRepsMax: 10,
+                  targetRIR: 2,
+                  restSec: 90,
+                },
               ],
             },
           },
@@ -394,7 +406,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     const peGroups = dump.programs[0].workouts[0].exercises.map(
       (pe: { supersetGroup: number | null }) => pe.supersetGroup,
     );
-    expect(peGroups).toEqual([1, 1]);
+    expect(peGroups).toEqual([1, 1, null]);
 
     expect(dump.exerciseGoals).toEqual([
       {
@@ -512,6 +524,50 @@ describe('POST /api/backup - restore round trip (issue #168)', () => {
     const activeGymB = await db.gym.findFirst({ where: { id: profileB?.activeGymId ?? '' } });
     expect(activeGymB?.name).toBe('Basement');
     expect(profileB?.email).toBe('b@test.dev');
+  });
+
+  it('normalizes a set block against the restored workout (issue #475)', async () => {
+    const userA = await seedFullUser('blocks-a@test.dev');
+    actAs(userA.id);
+    const dump = await (await getBackup()).json();
+    const session = dump.sessions[0];
+    type DumpSet = { exerciseName: string; block?: number | null };
+    // A hand-edited file: a block on a lift the workout holds once, and a
+    // block past the last row of a lift it holds twice.
+    session.sets.push(
+      { ...session.sets.find((x: DumpSet) => x.exerciseName === 'Bench Press'), setNumber: 2, block: 5 },
+    );
+    const pullupSet = {
+      ...session.sets.find((x: DumpSet) => x.exerciseName === 'Bench Press'),
+      exerciseName: 'Pull-up',
+      setNumber: 1,
+      block: 1,
+    };
+    session.sets.push(pullupSet);
+    // A session whose workout is not in the file keeps the exported block.
+    dump.sessions.push({
+      ...session,
+      workoutName: 'Gone Workout',
+      sets: [{ ...pullupSet, block: 1 }],
+    });
+
+    const userB = await db.user.create({ data: { email: 'blocks-b@test.dev', passwordHash: 'x' } });
+    actAs(userB.id);
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+
+    const sets = await db.set.findMany({
+      where: { session: { userId: userB.id } },
+      include: { exercise: true, session: { include: { workout: true } } },
+    });
+    const linked = sets.filter((x) => x.session.workout?.name === 'Upper A');
+    const bench = linked.filter((x) => x.exercise.name === 'Bench Press');
+    // The seeded NULL stays NULL, the seeded block 1 stays 1, block 5 reads 0.
+    expect(bench.map((x) => x.block)).toEqual(expect.arrayContaining([null, 1, 0]));
+    expect(bench).toHaveLength(3);
+    expect(linked.find((x) => x.exercise.name === 'Pull-up')?.block).toBeNull();
+    const unlinked = sets.filter((x) => x.session.workoutId == null);
+    expect(unlinked.map((x) => [x.exercise.name, x.block])).toEqual([['Pull-up', 1]]);
   });
 
   it('still restores a version 1 backup (fields and models added in v2 absent)', async () => {

@@ -240,8 +240,10 @@ on your own key - all self-hosted.
 - **Built-in templates** - 5/3/1 BBB, GZCLP, nSuns, PPL, Upper/Lower, Starting
   Strength, StrongLifts 5x5, Madcow, PHUL, PHAT, Full Body - runnable as written
   and editable like any program. A lift a workout programs twice (the 5/3/1
-  BBB main lift) is logged as two blocks, each with its own sets and last
-  session.
+  BBB main lift) is logged as two blocks, each with its own sets, last
+  session, return-to-training load and CSV column. A block is the row's
+  position among the workout's copies of that lift, so reordering, removing
+  or replacing one of those rows re-assigns sets logged before.
 - **Exercise catalog** - searchable by name, on top of your custom exercises and
   muscle-group grouping. Star your favourites: they get their own section at
   the top of the catalog and come first in the in-session pickers.

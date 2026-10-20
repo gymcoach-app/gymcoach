@@ -240,6 +240,51 @@ describe('POST /api/import/gymcoach (confirm)', () => {
     });
   });
 
+  it('round-trips the block of a repeated lift through export and import (issue #475)', async () => {
+    const exporter = await seedUser('gymcoach-block-exporter@test.dev');
+    const squat = await db.exercise.create({
+      data: { userId: exporter.id, name: 'Block Squat', muscleGroup: 'QUADS', category: 'COMPOUND' },
+    });
+    const session = await db.session.create({
+      data: {
+        userId: exporter.id,
+        startedAt: new Date('2026-06-02T10:00:00Z'),
+        finishedAt: new Date('2026-06-02T11:00:00Z'),
+      },
+    });
+    // Same set number, weight and reps in both blocks: only the block keeps
+    // them apart, so the importer must not drop the second one as a duplicate.
+    await db.set.createMany({
+      data: [0, 1].map((block) => ({
+        sessionId: session.id,
+        exerciseId: squat.id,
+        setNumber: 1,
+        weight: 60,
+        reps: 10,
+        block,
+      })),
+    });
+
+    actAs(exporter.id);
+    const csvText = await (await getCsv(new Request('http://test.local/api/history/csv'))).text();
+
+    const importer = await seedUser('gymcoach-block-importer@test.dev');
+    actAs(importer.id);
+    const res = await postImport(importReq({ csv: csvText, mode: 'confirm' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ createdSets: 2, duplicatesSkipped: 0 });
+    const blocks = await db.set.findMany({
+      where: { session: { userId: importer.id } },
+      orderBy: { block: 'asc' },
+      select: { block: true },
+    });
+    expect(blocks.map((x) => x.block)).toEqual([0, 1]);
+
+    // A second import of the same file skips both as duplicates.
+    const again = await postImport(importReq({ csv: csvText, mode: 'preview' }));
+    expect(await again.json()).toMatchObject({ sets: 0, duplicatesSkipped: 2 });
+  });
+
   it("never matches or touches another user's exercises", async () => {
     const user = await seedUser();
     const other = await seedUser('gymcoach-other@test.dev');

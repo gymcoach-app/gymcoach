@@ -84,11 +84,13 @@ describe('GET /api/history/csv - cardio columns (issue #144)', () => {
     const distanceIdx = header.indexOf('distance_m');
     const avgHrIdx = header.indexOf('avg_hr');
     const maxHrIdx = header.indexOf('max_hr');
-    // The four cardio columns are pinned at the end in this order.
-    expect(durationIdx).toBe(header.length - 4);
-    expect(distanceIdx).toBe(header.length - 3);
-    expect(avgHrIdx).toBe(header.length - 2);
-    expect(maxHrIdx).toBe(header.length - 1);
+    // The four cardio columns keep their positions, in this order, followed
+    // only by the block column appended after them (issue #475).
+    expect(durationIdx).toBe(header.length - 5);
+    expect(distanceIdx).toBe(header.length - 4);
+    expect(avgHrIdx).toBe(header.length - 3);
+    expect(maxHrIdx).toBe(header.length - 2);
+    expect(header.indexOf('block')).toBe(header.length - 1);
 
     const exerciseIdx = header.indexOf('exercise');
     const strengthRow = rows.find((r) => r[exerciseIdx] === 'Bench');
@@ -112,5 +114,40 @@ describe('GET /api/history/csv - cardio columns (issue #144)', () => {
     expect(strengthRow![header.indexOf('external_load_kg')]).toBe('100');
     expect(strengthRow![header.indexOf('reps')]).toBe('5');
     expect(strengthRow![header.indexOf('volume_kg')]).toBe('500');
+  });
+});
+
+describe('GET /api/history/csv - block column (issue #475)', () => {
+  it('writes the block of a repeated lift and leaves it empty otherwise', async () => {
+    const { user, session } = await seedMixedSession();
+    const bench = await db.exercise.findFirstOrThrow({ where: { userId: user.id, name: 'Bench' } });
+    // The 5x10 back-off block of the same bench, numbered from 1 again.
+    await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: bench.id,
+        setNumber: 1,
+        weight: 60,
+        reps: 10,
+        block: 1,
+      },
+    });
+    actAs(user.id);
+
+    const { header, rows } = await exportRows();
+    const blockIdx = header.indexOf('block');
+    const exerciseIdx = header.indexOf('exercise');
+    const loadIdx = header.indexOf('external_load_kg');
+    const cells = rows
+      .filter((r) => r.length === header.length)
+      .map((r) => [r[exerciseIdx], r[loadIdx], r[blockIdx]]);
+    expect(cells).toEqual(
+      expect.arrayContaining([
+        ['Bench', '100', ''],
+        ['Bench', '60', '1'],
+        ['Running', '0', ''],
+      ]),
+    );
+    expect(cells).toHaveLength(3);
   });
 });

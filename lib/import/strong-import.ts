@@ -37,6 +37,9 @@ export interface NormalizedImportRow {
   // Real session times as ISO strings, when the source export has them.
   startedAtIso?: string | null;
   finishedAtIso?: string | null;
+  // Block of a deliberately repeated exercise (issue #475), from the GymCoach
+  // native CSV. Absent for Strong/Hevy rows.
+  block?: number | null;
   // Explicit session grouping key (issue #270): the GymCoach export carries a
   // session_id, so two same-day sessions with the same workout name stay
   // separate. Absent falls back to the historical (dateKey, workoutName) key.
@@ -56,6 +59,7 @@ export interface PlannedSet {
   notes?: string | null;
   avgHr?: number | null;
   maxHr?: number | null;
+  block?: number | null;
 }
 
 export interface PlannedSession {
@@ -87,7 +91,10 @@ export interface StrongImportPlan {
 // Key for exact-duplicate detection. Strength keys are byte-identical to the
 // pre-#134 format; cardio sets (durationSec != null) append their
 // duration/distance so two different runs logged with the same set order on
-// the same day are not collapsed (they all share weight 0 / reps 1).
+// the same day are not collapsed (they all share weight 0 / reps 1). A later
+// block of a repeated exercise (issue #475) appends its index, so a 5/3/1 BBB
+// set 1 is not collapsed into the heavy block's set 1; block 0 and no block
+// share the historical key, as they share a block everywhere else.
 export function setDuplicateKey(
   dateKey: string,
   exerciseName: string,
@@ -96,10 +103,11 @@ export function setDuplicateKey(
   reps: number,
   durationSec?: number | null,
   distanceM?: number | null,
+  block?: number | null,
 ): string {
   const base = `${dateKey}|${exerciseName.trim().toLowerCase()}|${setOrder}|${weightKg}|${reps}`;
-  if (durationSec == null) return base;
-  return `${base}|d${durationSec}|${distanceM ?? 0}`;
+  const withCardio = durationSec == null ? base : `${base}|d${durationSec}|${distanceM ?? 0}`;
+  return block ? `${withCardio}|b${block}` : withCardio;
 }
 
 export function buildStrongImportPlan(
@@ -127,6 +135,7 @@ export function buildStrongImportPlan(
       row.reps,
       row.durationSec,
       row.distanceM,
+      row.block,
     );
     if (seenKeys.has(dupKey)) {
       duplicateCount++;
@@ -161,6 +170,7 @@ export function buildStrongImportPlan(
       ...(row.notes != null && { notes: row.notes }),
       ...(row.avgHr != null && { avgHr: row.avgHr }),
       ...(row.maxHr != null && { maxHr: row.maxHr }),
+      ...(row.block != null && { block: row.block }),
     });
     totalSets++;
     if (isCardio) cardioSetCount++;
@@ -305,6 +315,9 @@ export async function executeStrongImport(
           notes: s.notes ?? null,
           avgHr: s.avgHr ?? null,
           maxHr: s.maxHr ?? null,
+          // Imported sessions carry no workout, so the stored block is kept
+          // as exported: it still splits history and last performance.
+          block: s.block ?? null,
           completedAt: startedAt,
         };
       }),

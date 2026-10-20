@@ -8,7 +8,7 @@ import { isDeloadActive } from '@/lib/deload';
 import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-history';
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
-import { blockIndexByRow } from '@/lib/exercise-blocks';
+import { blockIndexByRow, occurrenceCounts } from '@/lib/exercise-blocks';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -49,9 +49,12 @@ export default async function SessionRunPage(props: Props) {
   // One extra lookup per block of a deliberately repeated exercise (issue
   // #429), so each block's "last session" and suggestion read its own sets.
   const rowBlocks = blockIndexByRow(session.workout.exercises);
+  const counts = occurrenceCounts(session.workout.exercises);
   const blocks = session.workout.exercises.flatMap((pe) => {
     const block = rowBlocks.get(pe.id);
-    return block == null ? [] : [{ exerciseId: pe.exerciseId, block }];
+    return block == null
+      ? []
+      : [{ exerciseId: pe.exerciseId, block, occurrences: counts.get(pe.exerciseId) ?? 0 }];
   });
   const userPromise = db.user.findUnique({
     where: { id: auth.userId },

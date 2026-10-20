@@ -321,4 +321,95 @@ describe('return-to-training history builder', () => {
       longTermHistorySessionCount: RETURN_LONG_TERM_ANCHOR_SESSION_LIMIT,
     });
   });
+
+  it('anchors each block of a repeated lift on its own past sets', async () => {
+    // Issue #475: a 5/3/1 Boring But Big day holds the squat twice. The heavy
+    // block must anchor on past heavy sets and the 5x10 block on past 5x10
+    // sets, like getLastPerformances. Legacy sets stored without a block, and
+    // sets whose stored block points past the current rows, read as block 0.
+    const user = await db.user.create({
+      data: { email: 'return-history-blocks-' + Date.now() + '@test.dev', passwordHash: 'x' },
+    });
+    const squat = await db.exercise.create({
+      data: {
+        userId: user.id,
+        name: 'Block Squat',
+        muscleGroup: 'QUADS',
+        category: 'COMPOUND',
+        equipmentType: 'BARBELL',
+      },
+    });
+
+    const heavyBlockByAge = new Map<number, number | null>([
+      [60, 0],
+      [70, 2],
+      [80, null],
+    ]);
+    for (const [age, heavyBlock] of heavyBlockByAge) {
+      const session = await db.session.create({
+        data: { userId: user.id, startedAt: daysAgo(age), finishedAt: finishedAt(age) },
+      });
+      await db.set.createMany({
+        data: [
+          ...[1, 2, 3].map((setNumber) => ({
+            sessionId: session.id,
+            exerciseId: squat.id,
+            setNumber,
+            weight: 100,
+            reps: 5,
+            rir: 1,
+            block: heavyBlock,
+            completedAt: daysAgo(age),
+          })),
+          ...[1, 2, 3].map((setNumber) => ({
+            sessionId: session.id,
+            exerciseId: squat.id,
+            setNumber,
+            weight: 60,
+            reps: 10,
+            rir: 2,
+            block: 1,
+            completedAt: daysAgo(age),
+          })),
+        ],
+      });
+    }
+
+    const recommendations = await getReturnToTrainingRecommendations({
+      userId: user.id,
+      programExercises: [
+        {
+          id: 'pe-heavy',
+          exerciseId: squat.id,
+          order: 0,
+          targetSets: 3,
+          targetRepsMin: 5,
+          targetRIR: 1,
+          exercise: squat,
+        },
+        {
+          id: 'pe-bbb',
+          exerciseId: squat.id,
+          order: 1,
+          targetSets: 5,
+          targetRepsMin: 10,
+          targetRIR: 2,
+          exercise: squat,
+        },
+      ],
+      excludeSessionId: null,
+      now,
+    });
+
+    const heavy = recommendations['pe-heavy']!;
+    const bbb = recommendations['pe-bbb']!;
+    expect(heavy.historySessionCount).toBe(3);
+    expect(bbb.historySessionCount).toBe(3);
+    expect(heavy.exerciseGapDays).toBe(60);
+    expect(bbb.exerciseGapDays).toBe(60);
+    expect(heavy.weightCeiling).not.toBeNull();
+    expect(bbb.weightCeiling).not.toBeNull();
+    expect(bbb.weightCeiling!).toBeLessThanOrEqual(60);
+    expect(bbb.weightCeiling!).toBeLessThan(heavy.weightCeiling!);
+  });
 });

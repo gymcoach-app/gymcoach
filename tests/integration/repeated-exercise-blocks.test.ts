@@ -248,4 +248,73 @@ describe('5/3/1 BBB: a repeated lift logs as two blocks (issue #429)', () => {
     expect(perf.get(blockKey(main.exerciseId, 0))?.maxWeight).toBe(50);
     expect(perf.has(blockKey(main.exerciseId, 1))).toBe(false);
   });
+
+  it('reads a set stored on a since-removed row as the first block when the count is known', async () => {
+    // Issue #475: the workout held the press three times when these sets were
+    // logged; it holds it twice now, so a block 2 set has no row of its own.
+    const { user, main } = await seedBbb('bbb-removed-row@test.dev');
+    const old = await db.session.create({
+      data: {
+        userId: user.id,
+        startedAt: new Date('2026-09-02T10:00:00.000Z'),
+        finishedAt: new Date('2026-09-02T11:00:00.000Z'),
+      },
+    });
+    await db.set.create({
+      data: {
+        sessionId: old.id,
+        exerciseId: main.exerciseId,
+        setNumber: 1,
+        weight: 52.5,
+        reps: 5,
+        block: 2,
+        completedAt: new Date('2026-09-02T10:05:00.000Z'),
+      },
+    });
+
+    const withCount = await getLastPerformances(user.id, [], null, [
+      { exerciseId: main.exerciseId, block: 0, occurrences: 2 },
+      { exerciseId: main.exerciseId, block: 1, occurrences: 2 },
+    ]);
+    expect(withCount.get(blockKey(main.exerciseId, 0))?.maxWeight).toBe(52.5);
+    expect(withCount.has(blockKey(main.exerciseId, 1))).toBe(false);
+
+    // Without the count the lookup keeps its historical filter.
+    const without = await getLastPerformances(user.id, [], null, [
+      { exerciseId: main.exerciseId, block: 0 },
+    ]);
+    expect(without.has(blockKey(main.exerciseId, 0))).toBe(false);
+  });
+
+  it("never counts another user's workout rows when normalizing a block (issue #317)", async () => {
+    // A session pointing at a stranger's BBB workout (not reachable through
+    // the session routes, which check ownership) must not let that workout
+    // decide the block: the count query is scoped to the caller's programs.
+    const owner = await seedBbb('bbb-owner@test.dev');
+    const stranger = await db.user.create({
+      data: { email: 'bbb-stranger@test.dev', passwordHash: 'x' },
+    });
+    const press = await db.exercise.create({
+      data: { userId: stranger.id, name: 'Overhead Press', muscleGroup: 'SHOULDERS_FRONT', category: 'COMPOUND' },
+    });
+    await db.programExercise.updateMany({
+      where: { workoutId: owner.workout.id, exerciseId: owner.main.exerciseId },
+      data: { exerciseId: press.id },
+    });
+    const session = await db.session.create({
+      data: { userId: stranger.id, workoutId: owner.workout.id },
+    });
+    actAs(stranger.id);
+
+    const res = await postFor(session.id, {
+      exerciseId: press.id,
+      setNumber: 1,
+      weight: 40,
+      reps: 5,
+      block: 1,
+    });
+    expect(res.status).toBe(201);
+    const stored = await db.set.findFirstOrThrow({ where: { sessionId: session.id } });
+    expect(stored.block).toBeNull();
+  });
 });

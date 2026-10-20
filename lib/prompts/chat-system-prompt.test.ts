@@ -12,6 +12,14 @@ describe('chat system prompt', () => {
     expect(CHAT_SYSTEM_PROMPT).toMatch(/staying within the user's program/i);
   });
 
+  // Issue #475: a repeated lift is one currentSession entry per block (#488);
+  // the prompt names the block field so two entries sharing a name read as
+  // two blocks, not as a duplicate.
+  it('explains the block field of a repeated lift in currentSession', () => {
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/appears once per block in currentSession\.exercises/);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/block is null when the lift appears once/);
+  });
+
   // The chat has no write path: a trainee asked the coach to add a cardio
   // session and the model answered as if it had done it. The prompt must say
   // the coach cannot change saved data and must never claim it did.
