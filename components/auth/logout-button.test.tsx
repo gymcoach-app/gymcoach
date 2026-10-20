@@ -86,7 +86,7 @@ describe('LogoutButton (#357)', () => {
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        'Could not log out. You are still signed in; try again when online.',
+        'Could not log out. You are still signed in; try again.',
       ),
     );
     // Purged before the call, so a device handed on offline holds no cache.

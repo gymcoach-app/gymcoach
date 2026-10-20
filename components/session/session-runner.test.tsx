@@ -67,7 +67,7 @@ vi.mock('@/lib/sync', () => ({
   pendingSetUpdateState: vi.fn(),
   queueSet: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/lib/sync-hydration', () => ({ hydrateFromServerSets: async () => undefined }));
+vi.mock('@/lib/sync-hydration', () => ({ hydrateFromServerSets: vi.fn(async () => undefined) }));
 vi.mock('@/lib/wake-lock', () => ({
   acquireWakeLock: async () => undefined,
   bindWakeLockToVisibility: () => () => undefined,
@@ -193,6 +193,7 @@ function runner(
       unit="KG"
       initialProgramExerciseId={initial}
       catalog={[]}
+      userId="u1"
     />
   );
 }
@@ -579,6 +580,21 @@ describe('SessionRunner repeated exercise blocks (issue #429)', () => {
     });
     expect(queueSet).toHaveBeenCalledWith(
       expect.objectContaining({ exerciseId: 'bench', block: null, setNumber: 1 }),
+    );
+  });
+
+  it('tags queued sets and the hydration with the signed-in account (issue #490)', async () => {
+    const { queueSet } = await import('@/lib/sync');
+    const { hydrateFromServerSets } = await import('@/lib/sync-hydration');
+    vi.mocked(queueSet).mockClear();
+    vi.mocked(hydrateFromServerSets).mockClear();
+    await renderRunner(runner([row('bench', 1)]));
+    expect(hydrateFromServerSets).toHaveBeenCalledWith('s1', [], 'u1');
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+    expect(queueSet).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', userId: 'u1' }),
     );
   });
 });

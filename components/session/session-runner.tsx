@@ -130,6 +130,9 @@ type SessionRunnerProps = {
   unit: WeightUnit;
   initialProgramExerciseId?: string;
   catalog: SessionCatalogExercise[];
+  // The signed-in account, which owns `session` (the page loaded it scoped to
+  // this user). The offline queue is tagged and synced per account (#490).
+  userId: string;
 };
 
 type Mode =
@@ -155,6 +158,7 @@ export function SessionRunner({
   unit,
   initialProgramExerciseId,
   catalog,
+  userId,
 }: SessionRunnerProps) {
   const t = useTranslations('session');
   const exerciseName = useExerciseName();
@@ -299,12 +303,12 @@ export function SessionRunner({
   useEffect(() => {
     setAutoRegulate(isReadinessAutoRegulationEnabled());
     void (async () => {
-      await hydrateFromServerSets(session.id, session.sets);
+      await hydrateFromServerSets(session.id, session.sets, userId);
       setHydrated(true);
     })();
     void acquireWakeLock();
     const cleanupVisibility = bindWakeLockToVisibility();
-    const cleanupSync = bindAutoSync();
+    const cleanupSync = bindAutoSync(userId);
     // The flush runs in the background, so a dropped equipment reference is
     // reported here rather than returned to handleValidate. The set itself is
     // saved; the user only learns that the machine was not recorded.
@@ -518,6 +522,7 @@ export function SessionRunner({
     await queueSet({
       localId: generateLocalId(),
       sessionId: session.id,
+      userId,
       exerciseId: currentPE.exerciseId,
       gymEquipmentId: values.gymEquipmentId ?? null,
       setNumber,
@@ -578,7 +583,7 @@ export function SessionRunner({
     try {
       let current = (await db.pendingSets.get(set.localId)) ?? set;
       if (current.status === 'syncing') {
-        await flushPendingSets();
+        await flushPendingSets(userId);
         current = (await db.pendingSets.get(set.localId)) ?? current;
       }
       const original = {
@@ -598,7 +603,7 @@ export function SessionRunner({
         attempts: 0,
         lastError: null,
       });
-      await flushPendingSets();
+      await flushPendingSets(userId);
       const persisted = await db.pendingSets.get(set.localId);
       const updateState = pendingSetUpdateState(persisted);
       if (updateState === 'missing') {
@@ -626,7 +631,7 @@ export function SessionRunner({
     try {
       let current = (await db.pendingSets.get(set.localId)) ?? set;
       if (!current.serverId && (current.status === 'pending' || current.status === 'syncing')) {
-        await flushPendingSets();
+        await flushPendingSets(userId);
         current = (await db.pendingSets.get(set.localId)) ?? current;
       }
 
@@ -655,7 +660,7 @@ export function SessionRunner({
     try {
       // Attempt one last flush before closing, to minimize the residual queue.
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        await flushPendingSets();
+        await flushPendingSets(userId);
       }
       const res = await fetch(`/api/sessions/${session.id}`, {
         method: 'PUT',

@@ -118,6 +118,7 @@ export default async function SessionRunPage(props: Props) {
       unit={user?.unit ?? 'KG'}
       initialProgramExerciseId={searchParams.programExerciseId}
       catalog={catalog}
+      userId={auth.userId}
     />
   );
 }

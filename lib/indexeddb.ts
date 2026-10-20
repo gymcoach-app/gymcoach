@@ -23,6 +23,15 @@ export interface PendingSet {
   // is created under this sessionId.
   sessionId: string;
 
+  // Account that logged the set (issue #490). The sync and the offline badge
+  // only see the signed-in user's rows, so a shared device never shows or sends
+  // another account's queue; that account's unsynced rows wait until it signs
+  // in again. Optional because rows written before the field have none: such a
+  // row stays out of the sync until a SessionRunner for its own session claims
+  // it (see `hydrateFromServerSets`), since only that page proves which account
+  // owns the session.
+  userId?: string;
+
   exerciseId: string;
   // Concrete physical machine/equipment selected for this set. Optional keeps
   // IndexedDB rows written before equipment selection backward-compatible.
@@ -73,6 +82,8 @@ class GymCoachDB extends Dexie {
     this.version(1).stores({
       // Primary key: localId. Secondary indexes: sessionId (to filter
       // a session's sets), status (to scan the pending ones).
+      // `userId` (#490) is not indexed: every read that needs it already
+      // narrows by status or sessionId first, so no schema version bump.
       pendingSets: 'localId, sessionId, status, createdAt',
     });
   }
