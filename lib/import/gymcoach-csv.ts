@@ -64,6 +64,10 @@ export interface GymcoachCsvParseResult {
   fatalError: string | null;
   rows: GymcoachCsvRow[];
   errors: CsvLineError[];
+  // Whether the header carries the block column (issue #475). An export
+  // written before it existed has none, so its rows say nothing about blocks
+  // and the duplicate check must not use the blocks of existing sets either.
+  hasBlockColumn: boolean;
 }
 
 // Bounds mirror lib/schemas/set.ts so imported sets satisfy the same contract
@@ -228,6 +232,7 @@ export function parseGymcoachCsv(text: string): GymcoachCsvParseResult {
     fatalError,
     rows: [],
     errors: [],
+    hasBlockColumn: false,
   });
 
   if (text.length > GYMCOACH_CSV_MAX_BYTES) {
@@ -359,5 +364,5 @@ export function parseGymcoachCsv(text: string): GymcoachCsvParseResult {
     });
   }
 
-  return { ok: true, fatalError: null, rows, errors };
+  return { ok: true, fatalError: null, rows, errors, hasBlockColumn: map.block !== null };
 }

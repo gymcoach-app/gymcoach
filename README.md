@@ -241,7 +241,8 @@ on your own key - all self-hosted.
   Strength, StrongLifts 5x5, Madcow, PHUL, PHAT, Full Body - runnable as written
   and editable like any program. A lift a workout programs twice (the 5/3/1
   BBB main lift) is logged as two blocks, each with its own sets, last
-  session, return-to-training load and CSV column. A block is the row's
+  session and return-to-training load; the history CSV says which block a
+  set belongs to in its `block` column. A block is the row's
   position among the workout's copies of that lift, so reordering, removing
   or replacing one of those rows re-assigns sets logged before.
 - **Exercise catalog** - searchable by name, on top of your custom exercises and

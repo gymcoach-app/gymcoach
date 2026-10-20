@@ -285,6 +285,43 @@ describe('POST /api/import/gymcoach (confirm)', () => {
     expect(await again.json()).toMatchObject({ sets: 0, duplicatesSkipped: 2 });
   });
 
+  it('does not duplicate block 1 sets when re-importing an export without the block column', async () => {
+    // An export written before issue #475 has no block column. Re-importing it
+    // over the same account, which already holds the BBB back-off sets with
+    // block 1, must skip them as duplicates, not add a second copy.
+    const user = await seedUser('gymcoach-old-export@test.dev');
+    const squat = await db.exercise.create({
+      data: { userId: user.id, name: 'Block Squat', muscleGroup: 'QUADS', category: 'COMPOUND' },
+    });
+    const session = await db.session.create({
+      data: {
+        userId: user.id,
+        startedAt: new Date('2026-06-03T10:00:00Z'),
+        finishedAt: new Date('2026-06-03T11:00:00Z'),
+      },
+    });
+    await db.set.createMany({
+      data: [1, 2].map((setNumber) => ({
+        sessionId: session.id,
+        exerciseId: squat.id,
+        setNumber,
+        weight: 60,
+        reps: 10,
+        block: 1,
+      })),
+    });
+    const oldCsv = [
+      'session_id,session_date,workout,exercise,set_number,external_load_kg,reps',
+      `${session.id},2026-06-03,BBB,Block Squat,1,60,10`,
+      `${session.id},2026-06-03,BBB,Block Squat,2,60,10`,
+    ].join('\n');
+
+    actAs(user.id);
+    const res = await postImport(importReq({ csv: oldCsv, mode: 'preview' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ sets: 0, duplicatesSkipped: 2 });
+  });
+
   it("never matches or touches another user's exercises", async () => {
     const user = await seedUser();
     const other = await seedUser('gymcoach-other@test.dev');

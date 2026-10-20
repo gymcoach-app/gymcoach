@@ -199,10 +199,12 @@ describe('parseGymcoachCsv - block column (issue #475)', () => {
   it('reads an empty cell or a file without the column as no block', () => {
     const empty = parseGymcoachCsv([EXPORT_HEADER, exportRow({ block: '' })].join('\n'));
     expect(empty.rows[0]?.block).toBeNull();
+    expect(empty.hasBlockColumn).toBe(true);
     // An export written before the column existed (issue #475).
     const old = parseGymcoachCsv([MIN_HEADER, minRow()].join('\n'));
     expect(old.errors).toEqual([]);
     expect(old.rows[0]?.block).toBeNull();
+    expect(old.hasBlockColumn).toBe(false);
   });
 
   it('rejects an out-of-range or malformed block with a per-line error', () => {
