@@ -1,40 +1,49 @@
 import ts from 'typescript';
 
 // The syntax-tree half of the `test-globals` tamper rule (runner.ts, issue
-// #468 part b), and the `identifier-escape` rule. The test-globals regex
-// catches a bare test global used as a call or a member (`afterEach(`,
-// `expect.`) in the raw text; it cannot see one reached through the global
-// object, where a hook pair registered from application code could install a
-// cheat before a test and undo it before the canary's own afterEach check.
-// This screen parses the file and reports:
+// #468 part b), the `identifier-escape` rule and the cooked module specifiers
+// the specifier rules also read. The test-globals regex catches a bare test
+// global used as a call or a member (`afterEach(`, `expect.`) in the raw
+// text; it cannot see one reached through the global object, where a hook
+// pair registered from application code could install a cheat before a test
+// and undo it before the canary's own afterEach check. The design is fail
+// closed: what the screen cannot follow is reported, not excused. It reports:
 //
-// - every value use of a bare test global, by its cooked name, so a
-//   unicode-escaped `afterEach(` is caught even though the regex is not;
+// - every value use of a bare test global, by its cooked name, so an escaped
+//   `\u0061fterEach(` is caught although the regex is not;
 // - a test global read off a global object, dotted or by a string key
 //   (`globalThis.beforeEach`, `self['afterEach']`);
-// - a global object indexed by a key that is not a literal
-//   (`globalThis['after' + 'Each']`, `window[name]`);
+// - a global object, `document` or any `.ownerDocument` indexed by a key that
+//   is not a literal (`globalThis['after' + 'Each']`, `document[k]`);
+// - a `Reflect.*` or `Object.getOwnPropertyDescriptor(s)` call on one of them;
 // - a test global destructured from a global object, including a computed key
 //   (`const { beforeEach } = globalThis`);
 // - a global object handed anywhere it cannot be followed: a call argument
-//   (`Reflect.get(globalThis, k)`), a spread, a return, an export, an object
-//   or array element, a property or parameter default;
-// - a test global taken as a value (`const h = afterEach`).
+//   (`fn(globalThis)`), a spread, a return, an export, an object or array
+//   element, a property or parameter default;
+// - a test global taken as a value (`const h = afterEach`);
+// - any declaration (variable, parameter, catch binding, function, class,
+//   import binding, type-only or ambient, namespace member) of a global object
+//   name or a bare test global name (`declare const top: any`,
+//   `import type { parent } from './x'`), so a local cannot shadow a root.
 //
-// Global objects: `globalThis`, `global`, `self`, `window`, and the names that
-// reach the global object under jsdom (vitest copies them onto it): `top`,
-// `parent`, `frames`, as roots and as chain members (`window.top`), and any
-// `.defaultView` (`document.defaultView`, `el.ownerDocument.defaultView`).
-// Aliases are followed by name, ignoring scope: `const g = globalThis`,
-// `g = self`, casts, parentheses, `(0, globalThis)`, `a ?? globalThis`, a
-// branch of a ternary, chains such as `globalThis.window`, and a renamed
-// destructuring of a global member (`const { window: w } = globalThis`).
-// Ignoring scope only adds hits (a local named `window` is treated as the
-// global): fail closed, like the regexes. The exception is `top`, `parent` and
-// `frames`, common local names: a reference to one is the global only when no
-// enclosing scope declares a local of that name (the base's own app code uses
-// all of them as locals). Type positions are skipped
-// (`new globalThis.Set<string>()` reads `Set`, `typeof vi` in a type is erased).
+// Global objects: `globalThis`, `global`, `self`, `window`, `top`, `parent`,
+// `frames`, by name and regardless of scope, as roots and as chain members
+// (`window.top`), and any `.defaultView` (`document.defaultView`,
+// `el.ownerDocument.defaultView`). `top` and `parent` reach the global object
+// under jsdom (vitest copies the window's keys onto it); `frames` is not
+// aliased by vitest and is listed only as a precaution. Aliases are followed
+// by name: `const g = globalThis`, `g = self`, casts, parentheses,
+// `(0, globalThis)`, `a ?? globalThis`, a branch of a ternary, chains such as
+// `globalThis.window`, and a renamed destructuring of a global member
+// (`const { window: w } = globalThis`). Type positions are skipped
+// (`new globalThis.Set<string>()` reads `Set`, `typeof vi` in a type is
+// erased), except for declarations, which are reported wherever they sit.
+//
+// Module specifiers: any backslash in a static or dynamic specifier string
+// (import, export from, import type, import(), require) is an
+// `identifier-escape` violation, and the specifier rules also run on each
+// specifier's cooked text (`'vit\x65st'` reads as `'vitest'`).
 //
 // Parsing: `ts.createSourceFile` never throws. On a syntax error it recovers
 // and returns a partial tree, so a file that does not parse is screened as far
@@ -42,10 +51,11 @@ import ts from 'typescript';
 // `.jsx` files parse as TSX, every other script as TS (JavaScript is a subset
 // for this purpose).
 //
-// Limits: what the tree cannot name stays open. A global object obtained some
-// other way (eval, the Function constructor, a constructor chain) is left to
-// the module-system rule; one imported from a module outside the screened
-// files is not followed.
+// Limits: a screen, not a proof. A global object obtained some other way
+// (eval, the Function constructor, a constructor chain) is left to the
+// module-system rule; one imported from a module outside the screened files is
+// not followed; an object other than a global object, `document` or an
+// `.ownerDocument` that holds a reference to one is not tracked.
 
 // Names test code reads off the global object. The bare-name list is shorter:
 // `it`, `test` or `assert` are ordinary identifiers in application code, but
@@ -95,11 +105,6 @@ const GLOBAL_OBJECTS = new Set([
   'frames',
 ]);
 
-// Roots that are also ordinary local names (`const top = rect.top`, a path's
-// `parent`): a reference to one is the global object only when no enclosing
-// scope declares it. The other roots stay scope-insensitive (fail closed).
-const WEAK_ROOTS = new Set(['top', 'parent', 'frames']);
-
 // A member that is the global object whatever it is read from.
 const GLOBAL_MEMBER_ANYWHERE = 'defaultView';
 
@@ -114,6 +119,10 @@ export interface Hit {
   // 0-based lines the reported node spans.
   startLine: number;
   endLine: number;
+  // Blamed whenever the file has any added or changed line, wherever the hit
+  // sits: a computed or reflective read can be redirected by a change to a
+  // line far from it (the key's value), so its own lines prove nothing.
+  always?: boolean;
 }
 
 // A node whose value is its operand's value (a cast, parentheses, `x!`).
@@ -172,90 +181,93 @@ function visit(node: ts.Node, fn: (n: ts.Node) => void): void {
   ts.forEachChild(node, (child) => visit(child, fn));
 }
 
-function hitOf(source: ts.SourceFile, kind: string, node: ts.Node): Hit {
+function hitOf(source: ts.SourceFile, kind: string, node: ts.Node, always = false): Hit {
   return {
     key: `${kind}: ${node.getText(source).replace(/\s+/g, ' ')}`,
     startLine: source.getLineAndCharacterOfPosition(node.getStart(source)).line,
     endLine: source.getLineAndCharacterOfPosition(node.getEnd()).line,
+    ...(always ? { always } : {}),
   };
 }
 
-// The scope a declaration of a weak root binds in: the function (or file) for
-// `var` and parameters, the nearest block-like node for everything else.
-function isFunctionScope(node: ts.Node): boolean {
-  return ts.isSourceFile(node) || ts.isFunctionLike(node) || ts.isClassStaticBlockDeclaration(node);
+// `document`, `x.document`, `x.ownerDocument` (dotted or by a literal key):
+// objects whose `defaultView` is the global object.
+const DOCUMENT_NAMES = new Set(['document', 'ownerDocument']);
+function isDocument(node: ts.Node): boolean {
+  if (isWrapper(node)) return isDocument(node.expression);
+  if (ts.isIdentifier(node)) return node.text === 'document';
+  if (ts.isPropertyAccessExpression(node)) return DOCUMENT_NAMES.has(node.name.text);
+  if (ts.isElementAccessExpression(node)) {
+    const key = literalKey(node.argumentExpression);
+    return key !== null && DOCUMENT_NAMES.has(key);
+  }
+  return false;
 }
 
-function isBlockScope(node: ts.Node): boolean {
+// `Reflect.get(...)` and every other Reflect method, and the Object methods
+// that read a property without naming it in the source.
+function isReflectiveRead(callee: ts.Expression): boolean {
+  if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.expression)) return false;
+  const owner = callee.expression.text;
+  const method = callee.name.text;
   return (
-    isFunctionScope(node) ||
-    ts.isBlock(node) ||
-    ts.isModuleBlock(node) ||
-    ts.isCaseBlock(node) ||
-    ts.isCatchClause(node) ||
-    ts.isForStatement(node) ||
-    ts.isForInStatement(node) ||
-    ts.isForOfStatement(node)
+    owner === 'Reflect' ||
+    (owner === 'Object' &&
+      (method === 'getOwnPropertyDescriptor' || method === 'getOwnPropertyDescriptors'))
   );
 }
 
-function scopeOf(decl: ts.Node, functionScoped: boolean): ts.Node {
-  let node = decl.parent;
-  while (!(functionScoped ? isFunctionScope(node) : isBlockScope(node))) node = node.parent;
-  return node;
+// Names a declaration may not bind: a global object name (a local would hide
+// the root it shadows) or a bare test global.
+const RESERVED_NAMES = new Set([...GLOBAL_OBJECTS, GLOBAL_MEMBER_ANYWHERE]);
+
+// The declared name of a binding-creating node, or null. Property-like names
+// (object keys, class members, enum members) bind nothing in scope.
+function declaredName(node: ts.Node): ts.Identifier | null {
+  const p = node.parent;
+  if (!ts.isIdentifier(node) || !p) return null;
+  if (
+    (ts.isVariableDeclaration(p) ||
+      ts.isParameter(p) ||
+      ts.isBindingElement(p) ||
+      ts.isFunctionDeclaration(p) ||
+      ts.isFunctionExpression(p) ||
+      ts.isClassDeclaration(p) ||
+      ts.isClassExpression(p) ||
+      ts.isInterfaceDeclaration(p) ||
+      ts.isTypeAliasDeclaration(p) ||
+      ts.isEnumDeclaration(p) ||
+      ts.isModuleDeclaration(p) ||
+      ts.isImportClause(p) ||
+      ts.isImportSpecifier(p) ||
+      ts.isNamespaceImport(p) ||
+      ts.isImportEqualsDeclaration(p) ||
+      ts.isTypeParameterDeclaration(p)) &&
+    p.name === node
+  )
+    return node;
+  return null;
 }
 
-// For each weak root, the scopes that declare a local of that name.
-function weakRootScopes(source: ts.SourceFile): Map<string, Set<ts.Node>> {
-  const out = new Map<string, Set<ts.Node>>();
-  const add = (name: ts.Node, scope: ts.Node) => {
-    if (!ts.isIdentifier(name) || !WEAK_ROOTS.has(name.text)) return;
-    const set = out.get(name.text) ?? new Set<ts.Node>();
-    set.add(scope);
-    out.set(name.text, set);
-  };
-  const bindNames = (name: ts.BindingName, scope: ts.Node) => {
-    if (ts.isIdentifier(name)) add(name, scope);
-    else for (const el of name.elements) if (!ts.isOmittedExpression(el)) bindNames(el.name, scope);
-  };
+function declarationHitsIn(source: ts.SourceFile): Hit[] {
+  const hits: Hit[] = [];
   const walk = (node: ts.Node) => {
-    if (ts.isVariableDeclaration(node)) {
-      const list = node.parent;
-      const isVar =
-        ts.isVariableDeclarationList(list) &&
-        (list.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
-      bindNames(node.name, scopeOf(node, isVar));
-    } else if (ts.isParameter(node)) {
-      bindNames(node.name, node.parent);
-    } else if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) {
-      if (node.name) add(node.name, scopeOf(node, false));
-    } else if (ts.isFunctionExpression(node) || ts.isClassExpression(node)) {
-      if (node.name) add(node.name, node);
-    } else if (ts.isImportClause(node) || ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) {
-      if (node.name) add(node.name, source);
-    } else if (ts.isCatchClause(node) && node.variableDeclaration) {
-      bindNames(node.variableDeclaration.name, node);
-      ts.forEachChild(node.block, walk);
-      return;
-    }
+    const name = declaredName(node);
+    if (name && (RESERVED_NAMES.has(name.text) || BARE_TEST_GLOBALS.has(name.text)))
+      hits.push(hitOf(source, 'test global or global object name declared', node.parent));
     ts.forEachChild(node, walk);
   };
   walk(source);
-  return out;
+  return hits;
 }
 
 function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
-  // Aliases found so far (names bound to a global object expression).
+  // Aliases found so far (names bound to a global object expression). The
+  // roots are matched by name, whatever scope a reference sits in: a local of
+  // the same name is itself a violation (declarationHitsIn), so shadowing
+  // cannot be used to hide one.
   const globals = new Set<string>();
-  const weakScopes = weakRootScopes(source);
-  const isRoot = (id: ts.Identifier): boolean => {
-    if (!GLOBAL_OBJECTS.has(id.text)) return false;
-    const scopes = weakScopes.get(id.text);
-    if (!scopes) return true;
-    for (let node: ts.Node | undefined = id.parent; node; node = node.parent)
-      if (scopes.has(node)) return false;
-    return true;
-  };
+  const isRoot = (id: ts.Identifier): boolean => GLOBAL_OBJECTS.has(id.text);
 
   // Whether an expression is the global object, given the aliases so far.
   const isGlobal = (node: ts.Node): boolean => {
@@ -366,7 +378,8 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
   while (queue.length > 0) for (const i of dependents.get(queue.pop()!) ?? []) settle(i);
 
   const hits: Hit[] = [];
-  const hit = (kind: string, node: ts.Node) => hits.push(hitOf(source, kind, node));
+  const hit = (kind: string, node: ts.Node, always = false) =>
+    hits.push(hitOf(source, kind, node, always));
 
   // A destructuring of a global object: a test global, a computed key, a rest,
   // or a nested pattern under a key that is not a global member.
@@ -412,7 +425,7 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
     }
     if (ts.isElementAccessExpression(parent) && parent.expression === node) {
       const key = literalKey(parent.argumentExpression);
-      if (key === null) hit('global object indexed by a computed key', parent);
+      if (key === null) hit('global object indexed by a computed key', parent, true);
       else if (TEST_GLOBALS.has(key)) hit('test global read off the global object', parent);
       return;
     }
@@ -442,6 +455,17 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       return;
     }
     if (ts.isExpressionStatement(parent)) return;
+    // The target of a destructuring assignment (`({ window: w } = globalThis)`)
+    // is written, not read: the alias pass already bound it.
+    if (
+      ts.isPropertyAssignment(parent) &&
+      parent.initializer === node &&
+      ts.isObjectLiteralExpression(parent.parent) &&
+      ts.isBinaryExpression(parent.parent.parent) &&
+      parent.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      parent.parent.parent.left === parent.parent
+    )
+      return;
     hit('global object passed on', parent);
   };
 
@@ -512,6 +536,15 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       checkPattern(node.initializer);
       return;
     }
+    if (ts.isElementAccessExpression(node) && isDocument(node.expression)) {
+      if (literalKey(node.argumentExpression) === null)
+        hit('document indexed by a computed key (test global reachable)', node, true);
+    }
+    if (ts.isCallExpression(node) && isReflectiveRead(node.expression)) {
+      const target = node.arguments[0];
+      if (target && (isDocument(target) || isGlobal(target)))
+        hit('reflective read of the global object or document (test global reachable)', node, true);
+    }
     if (!ts.isExpression(node)) return;
     if (ts.isIdentifier(node)) {
       // Names in non-value positions (a member name, a declaration) are
@@ -532,8 +565,51 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
 // An identifier spelled with a unicode escape (`afterEach`, `\u{65}val`):
 // no application file needs one, and the lexical rules read raw text, so an
 // escaped `eval`, `Function` or test global would get past them.
+// Every module specifier string of the file: static import and export from,
+// import-equals require, import type (`import('x')` in a type), import() and
+// require() calls with a literal argument.
+function specifierLiterals(source: ts.SourceFile): ts.StringLiteralLike[] {
+  const out: ts.StringLiteralLike[] = [];
+  const take = (node: ts.Node | undefined) => {
+    if (node && ts.isStringLiteralLike(node)) out.push(node);
+  };
+  const walk = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) take(node.moduleSpecifier);
+    else if (ts.isExternalModuleReference(node)) take(node.expression);
+    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
+      take(node.argument.literal);
+    else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    )
+      take(node.arguments[0]);
+    ts.forEachChild(node, walk);
+  };
+  walk(source);
+  return out;
+}
+
+// The file's module specifiers, cooked, each as an `import '<specifier>';`
+// line, for the specifier rules (test-framework, module-system, host-io, ...)
+// whose regexes read raw text: `'vit\x65st'` is matched as `'vitest'`.
+export function specifierHits(
+  file: string,
+  content: string,
+  matches: (line: string) => boolean,
+): Hit[] {
+  const source = parse(file, content);
+  if (!source) return [];
+  return specifierLiterals(source)
+    .filter((lit) => matches(`import '${lit.text}';`))
+    .map((lit) => hitOf(source, `module specifier ${JSON.stringify(lit.text)}`, lit));
+}
+
 function escapedIdentifierHitsIn(source: ts.SourceFile): Hit[] {
   const hits: Hit[] = [];
+  // Any backslash in a module specifier: no import of this repo needs one.
+  for (const lit of specifierLiterals(source))
+    if (lit.getText(source).includes('\\')) hits.push(hitOf(source, 'escaped module specifier', lit));
   const walk = (node: ts.Node) => {
     if (
       (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) &&
@@ -553,7 +629,7 @@ function parse(file: string, content: string): ts.SourceFile | null {
 
 export function testGlobalHits(file: string, content: string): Hit[] {
   const source = parse(file, content);
-  return source ? testGlobalHitsIn(source) : [];
+  return source ? [...testGlobalHitsIn(source), ...declarationHitsIn(source)] : [];
 }
 
 export function escapedIdentifierHits(file: string, content: string): Hit[] {
@@ -592,6 +668,7 @@ export function newHits(
   for (const h of screen(file, after)) {
     let touched = false;
     for (let line = h.startLine; line <= h.endLine && !touched; line++) touched = added.has(line);
+    if (h.always && added.size > 0) touched = true;
     const left = pool.get(h.key) ?? 0;
     if (!touched && left > 0) pool.set(h.key, left - 1);
     else out.push(h);

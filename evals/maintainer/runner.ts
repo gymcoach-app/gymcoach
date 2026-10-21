@@ -1,6 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { escapedIdentifierHits, newHits, testGlobalHits, type Hit } from './test-globals';
+import {
+  escapedIdentifierHits,
+  newHits,
+  specifierHits,
+  testGlobalHits,
+  type Hit,
+} from './test-globals';
 import {
   AGENT_WRITABLE_ROOTS,
   CONFIG_FILE,
@@ -322,7 +328,7 @@ export const TAMPER_RULES: TamperRule[] = [
   },
   {
     id: 'identifier-escape',
-    why: 'spells an identifier with a unicode escape, which the lexical rules cannot read',
+    why: 'spells an identifier with a unicode escape or a module specifier with a backslash, which the lexical rules cannot read',
     // `\u0061fterEach(`, `\u{65}val(`, `F\u0075nction(`: the same names the
     // rules above match, written so their raw text does not. Syntax tree only.
     pattern: /(?!)/,
@@ -335,6 +341,27 @@ export const TAMPER_RULES: TamperRule[] = [
       /['"`](?:node:)?(?:fs|child_process|worker_threads|cluster|inspector|v8|wasi|repl)(?:\/[^'"`]*)?['"`]/,
   },
 ];
+
+// The rules that name a module specifier also read each specifier's cooked
+// text from the syntax tree, so an escaped spelling (`'vit\x65st'`,
+// `'node:\x76m'`) matches like the plain one. An escape is also its own
+// violation (identifier-escape).
+const SPECIFIER_RULES = new Set<TamperRuleId>([
+  'test-framework',
+  'module-system',
+  'node-modules-path',
+  'subpath-import',
+  'host-io',
+]);
+for (const rule of TAMPER_RULES)
+  if (SPECIFIER_RULES.has(rule.id) && !rule.screen)
+    rule.screen = (file, added, source) =>
+      screened(
+        (f, c) => specifierHits(f, c, (line) => rule.pattern.test(line)),
+        file,
+        added,
+        source,
+      );
 
 // The parts of a task the static rules and the grading plan read.
 export interface GraderSpec {
