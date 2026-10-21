@@ -22,7 +22,12 @@ import ts from 'typescript';
 // - any mention of `Reflect` or `getOwnPropertyDescriptor(s)` (an alias, a
 //   destructuring, a computed read, a call);
 // - a non-literal computed member that is then called or read again
-//   (`x[k](...)`, `x[k].y`, `x[k][j]`) on an added or changed line;
+//   (`x[k](...)`, `x[k].y`, `x[k][j]`, through parentheses, casts, `x!`, a
+//   comma or `[x[k]][0]`), or a computed key destructured
+//   (`const { [j]: h } = w`), on an added or changed line;
+// - an assertion API name (`expect`, `vi`, `chai`, `assert`) read or
+//   destructured off a tainted receiver: a non-literal computed read, the
+//   global object, or a name bound to either (`const w = p[k]; w.expect(0)`);
 // - a test global destructured from a global object, including a computed key
 //   (`const { beforeEach } = globalThis`);
 // - a global object handed anywhere it cannot be followed: a call argument
@@ -70,12 +75,14 @@ import ts from 'typescript';
 // Limits: a screen, not a proof. A global object obtained some other way
 // (eval, the Function constructor, a constructor chain) is left to the
 // module-system rule; one imported from a module outside the screened files is
-// not followed; an object other than a global object, `document` or an
-// `.ownerDocument` that holds a reference to one is not tracked, so a global
-// object reached that way, read by a non-literal key into a variable and
-// called later (`const h = o[k]; h(fn)`) is not reported; `expect` and `vi`
-// are not hook names (their effects persist and the canary's identity record
-// sees them).
+// not followed. The main residual: a non-literal read of an object the screen
+// does not track, stored in a variable and then used (called, read, or passed
+// on): `const h = o[k]; h(fn)`. Taint follows such a value through aliases,
+// member reads and destructuring for the assertion API names, but not into a
+// call argument or a return. Only part (a)'s runtime probes and the mandatory
+// diff review of a paid run's patch backstop it. The canary's identity record
+// is compared only around tests, so it does not see an install-and-undo that
+// runs inside a hidden test either: that is part (a)'s job.
 
 // Names test code reads off the global object. The bare-name list is shorter:
 // `it`, `test` or `assert` are ordinary identifiers in application code, but
@@ -218,12 +225,13 @@ function hitOf(
   };
 }
 
-// `document`, `x.document`, `x.ownerDocument` (dotted or by a literal key):
+// `document`, `x.document`, `x.ownerDocument` (dotted or by a literal key),
+// or an alias of one (`const d = document`, `const { ownerDocument: d } = el`):
 // objects whose `defaultView` is the global object.
 const DOCUMENT_NAMES = new Set(['document', 'ownerDocument']);
-function isDocument(node: ts.Node): boolean {
-  if (isWrapper(node)) return isDocument(node.expression);
-  if (ts.isIdentifier(node)) return node.text === 'document';
+function isDocument(node: ts.Node, aliases: ReadonlySet<string>): boolean {
+  if (isWrapper(node)) return isDocument(node.expression, aliases);
+  if (ts.isIdentifier(node)) return node.text === 'document' || aliases.has(node.text);
   if (ts.isPropertyAccessExpression(node)) return DOCUMENT_NAMES.has(node.name.text);
   if (ts.isElementAccessExpression(node)) {
     const key = literalKey(node.argumentExpression);
@@ -233,9 +241,7 @@ function isDocument(node: ts.Node): boolean {
 }
 
 // Test hook names flagged as a member, key or string whatever the receiver
-// (`d[k].afterEach(fn)` on an object the screen cannot prove global). Not
-// `expect` or `vi`: `res.expect(200)` is an ordinary API, and what they
-// reach (matchers, spies) persists, so the canary's identity record sees it.
+// (`d[k].afterEach(fn)` on an object the screen cannot prove global).
 const HOOK_NAMES = new Set([
   'beforeEach',
   'afterEach',
@@ -245,6 +251,16 @@ const HOOK_NAMES = new Set([
   'onTestFailed',
   'vitest',
 ]);
+
+// Assertion API names, flagged as a member, a literal key or a destructuring
+// key when the receiver is tainted: a non-literal computed read, the global
+// object, or a name bound to either (`const w = p[k]; w.expect(0)`). They are
+// not hook names: `res.expect(200)` and `request(app).expect(200)` are
+// ordinary APIs (a call result is never tainted). The canary's identity
+// record is compared only around tests, so a function called inside a hidden
+// test can patch a matcher and undo it before afterEach: that in-test
+// install-and-undo is part (a)'s to catch, not the record's.
+const ASSERTION_NAMES = new Set(['expect', 'vi', 'chai', 'assert']);
 
 // Names that read a property the source does not spell: any mention is
 // reported (`Reflect`, `const R = Reflect`, `Reflect['get']`,
@@ -301,12 +317,13 @@ function declarationHitsIn(source: ts.SourceFile): Hit[] {
   return hits;
 }
 
-// How many declarations of each global object name the file has.
-function globalDeclarationCounts(source: ts.SourceFile): Map<string, number> {
-  const out = new Map<string, number>();
+// The 0-based lines of every declaration of a global object name.
+function globalDeclarationLines(source: ts.SourceFile): number[] {
+  const out: number[] = [];
   const walk = (node: ts.Node) => {
     const name = declaredName(node);
-    if (name && GLOBAL_OBJECTS.has(name.text)) out.set(name.text, (out.get(name.text) ?? 0) + 1);
+    if (name && GLOBAL_OBJECTS.has(name.text))
+      out.push(source.getLineAndCharacterOfPosition(name.getStart(source)).line);
     ts.forEachChild(node, walk);
   };
   walk(source);
@@ -359,75 +376,114 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
     } else if (ts.isBinaryExpression(node) && VALUE_OPERATORS.has(node.operatorToken.kind)) {
       leaves(node.right, out);
       if (node.operatorToken.kind !== ts.SyntaxKind.CommaToken) leaves(node.left, out);
+    } else if (ts.isArrayLiteralExpression(node)) {
+      for (const el of node.elements) leaves(el, out);
     }
     return out;
   };
 
-  // Pass 1: alias edges in one walk. An edge says `name` is global when `expr`
-  // is: a declaration or assignment of a plain name, and a destructuring of a
-  // global member (`const { window: w } = globalThis` makes `w` global when
-  // the initializer is).
-  // A null expr marks a name bound to `.defaultView`, global from any object.
-  const edges: { name: string; expr: ts.Expression | null }[] = [];
-  const addPatternEdges = (pattern: ts.Node, expr: ts.Expression) => {
+  // The names bound to a document (closed with the global aliases below).
+  const docs = new Set<string>();
+  const isDoc = (node: ts.Node) => isDocument(node, docs);
+  // The names bound to a tainted value: a non-literal computed read, the
+  // global object, or a value derived from either by a member read.
+  const taint = new Set<string>();
+  const isTainted = (node: ts.Node): boolean => {
+    if (isWrapper(node)) return isTainted(node.expression);
+    if (isGlobal(node)) return true;
+    if (ts.isIdentifier(node)) return taint.has(node.text);
+    if (ts.isElementAccessExpression(node))
+      return literalKey(node.argumentExpression) === null || isTainted(node.expression);
+    if (ts.isPropertyAccessExpression(node)) return isTainted(node.expression);
+    if (ts.isArrayLiteralExpression(node)) return node.elements.some(isTainted);
+    if (ts.isConditionalExpression(node)) return isTainted(node.whenTrue) || isTainted(node.whenFalse);
+    if (ts.isBinaryExpression(node) && VALUE_OPERATORS.has(node.operatorToken.kind))
+      return (
+        isTainted(node.right) ||
+        (node.operatorToken.kind !== ts.SyntaxKind.CommaToken && isTainted(node.left))
+      );
+    return false;
+  };
+
+  // Pass 1: binding edges in one walk. An edge binds `name` to the value
+  // reached from `expr` through `path`, the destructuring keys from the
+  // outside in (empty for a plain declaration or assignment; null for a
+  // computed key that is not a literal).
+  const edges: { name: string; expr: ts.Expression; path: (string | null)[] }[] = [];
+  const addPatternEdges = (pattern: ts.Node, expr: ts.Expression, path: (string | null)[]) => {
     if (ts.isObjectBindingPattern(pattern)) {
       for (const el of pattern.elements) {
+        if (el.dotDotDotToken) continue;
         const key = keyName(el.propertyName ?? el.name);
-        if (key === null || !isGlobalMember(key)) continue;
-        const from = key === GLOBAL_MEMBER_ANYWHERE ? null : expr;
-        if (ts.isIdentifier(el.name)) edges.push({ name: el.name.text, expr: from });
-        else if (from) addPatternEdges(el.name, from);
+        if (ts.isIdentifier(el.name)) edges.push({ name: el.name.text, expr, path: [...path, key] });
+        else addPatternEdges(el.name, expr, [...path, key]);
       }
     } else if (ts.isObjectLiteralExpression(pattern)) {
       for (const prop of pattern.properties) {
         if (ts.isShorthandPropertyAssignment(prop)) {
-          const name = prop.name.text;
-          if (isGlobalMember(name))
-            edges.push({ name, expr: name === GLOBAL_MEMBER_ANYWHERE ? null : expr });
+          edges.push({ name: prop.name.text, expr, path: [...path, prop.name.text] });
         } else if (ts.isPropertyAssignment(prop)) {
           const key = keyName(prop.name);
-          if (key === null || !isGlobalMember(key)) continue;
-          const from = key === GLOBAL_MEMBER_ANYWHERE ? null : expr;
           if (ts.isIdentifier(prop.initializer))
-            edges.push({ name: prop.initializer.text, expr: from });
-          else if (from) addPatternEdges(prop.initializer, from);
+            edges.push({ name: prop.initializer.text, expr, path: [...path, key] });
+          else addPatternEdges(prop.initializer, expr, [...path, key]);
         }
       }
     }
   };
   visit(source, (node) => {
     if (ts.isVariableDeclaration(node) && node.initializer) {
-      if (ts.isIdentifier(node.name)) edges.push({ name: node.name.text, expr: node.initializer });
-      else addPatternEdges(node.name, node.initializer);
+      if (ts.isIdentifier(node.name))
+        edges.push({ name: node.name.text, expr: node.initializer, path: [] });
+      else addPatternEdges(node.name, node.initializer, []);
     } else if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.EqualsToken
     ) {
-      if (ts.isIdentifier(node.left)) edges.push({ name: node.left.text, expr: node.right });
-      else addPatternEdges(node.left, node.right);
+      if (ts.isIdentifier(node.left)) edges.push({ name: node.left.text, expr: node.right, path: [] });
+      else addPatternEdges(node.left, node.right, []);
     }
   });
 
-  // Close the alias set with a worklist: each edge is checked once up front and
-  // again only when one of its leaves turns global.
+  // What an edge binds, for each alias set. A destructured global member is
+  // global when every key is a global member and either the initializer is
+  // global or a key is `defaultView` (global from any object).
+  const bindsGlobal = ({ expr, path }: (typeof edges)[number]) => {
+    if (path.some((k) => k === null || !isGlobalMember(k))) return false;
+    return path.includes(GLOBAL_MEMBER_ANYWHERE) || isGlobal(expr);
+  };
+  const bindsDocument = ({ expr, path }: (typeof edges)[number]) => {
+    const last = path[path.length - 1];
+    return path.length === 0 ? isDoc(expr) : last !== null && last !== undefined && DOCUMENT_NAMES.has(last);
+  };
+  const bindsTaint = ({ expr, path }: (typeof edges)[number]) =>
+    path.includes(null) || isTainted(expr);
+
+  // Close an alias set with a worklist: each edge is checked once up front and
+  // again only when one of its leaves joins the set.
   const dependents = new Map<string, number[]>();
   edges.forEach((edge, i) => {
-    for (const leaf of new Set(edge.expr ? leaves(edge.expr, []) : [])) {
+    for (const leaf of new Set(leaves(edge.expr, []))) {
       const list = dependents.get(leaf) ?? [];
       list.push(i);
       dependents.set(leaf, list);
     }
   });
-  const queue: string[] = [];
-  const settle = (i: number) => {
-    const { name, expr } = edges[i]!;
-    if (!globals.has(name) && (expr === null || isGlobal(expr))) {
-      globals.add(name);
-      queue.push(name);
-    }
+  const close = (set: Set<string>, binds: (edge: (typeof edges)[number]) => boolean) => {
+    const queue: string[] = [];
+    const settle = (i: number) => {
+      const edge = edges[i]!;
+      if (!set.has(edge.name) && binds(edge)) {
+        set.add(edge.name);
+        queue.push(edge.name);
+      }
+    };
+    edges.forEach((_, i) => settle(i));
+    while (queue.length > 0) for (const i of dependents.get(queue.pop()!) ?? []) settle(i);
   };
-  edges.forEach((_, i) => settle(i));
-  while (queue.length > 0) for (const i of dependents.get(queue.pop()!) ?? []) settle(i);
+  close(globals, bindsGlobal);
+  close(docs, bindsDocument);
+  close(taint, bindsTaint);
 
   const hits: Hit[] = [];
   const hit = (kind: string, node: ts.Node, blame: 'always' | 'lineOnly' | null = null) =>
@@ -598,16 +654,74 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
     if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && REFLECTIVE_NAMES.has(node.text))
       hit('reflective property read (test global reachable)', node.parent ?? node, 'always');
     if (ts.isElementAccessExpression(node) && literalKey(node.argumentExpression) === null) {
-      const p = node.parent;
-      if (isDocument(node.expression))
+      if (isDoc(node.expression))
         hit('document indexed by a computed key (test global reachable)', node, 'always');
-      else if (
-        !isGlobal(node.expression) &&
-        ((ts.isCallExpression(p) && p.expression === node) ||
+      else if (!isGlobal(node.expression)) {
+        // Climb through what keeps the value: parentheses, casts, `x!`, the
+        // right of a comma, a literal index into an array literal
+        // (`[w[j]][0]`).
+        let value: ts.Node = node;
+        for (;;) {
+          const up: ts.Node = value.parent;
+          if (isWrapper(up)) value = up;
+          else if (
+            ts.isBinaryExpression(up) &&
+            up.operatorToken.kind === ts.SyntaxKind.CommaToken &&
+            up.right === value
+          )
+            value = up;
+          else if (
+            ts.isArrayLiteralExpression(up) &&
+            ts.isElementAccessExpression(up.parent) &&
+            up.parent.expression === up &&
+            literalKey(up.parent.argumentExpression) !== null
+          )
+            value = up.parent;
+          else break;
+        }
+        const p = value.parent;
+        if (
+          (ts.isCallExpression(p) && p.expression === value) ||
           ((ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) &&
-            p.expression === node))
-      )
-        hit('computed member used on an unknown receiver (test global reachable)', p, 'lineOnly');
+            p.expression === value)
+        )
+          hit('computed member used on an unknown receiver (test global reachable)', p, 'lineOnly');
+      }
+    }
+    // `const { [j]: h } = w`: a computed read by destructuring.
+    if (
+      (ts.isBindingElement(node) &&
+        node.propertyName &&
+        ts.isComputedPropertyName(node.propertyName) &&
+        literalKey(node.propertyName.expression) === null) ||
+      (ts.isPropertyAssignment(node) &&
+        ts.isComputedPropertyName(node.name) &&
+        literalKey(node.name.expression) === null &&
+        ts.isObjectLiteralExpression(node.parent) &&
+        ts.isBinaryExpression(node.parent.parent) &&
+        node.parent.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        node.parent.parent.left === node.parent)
+    )
+      hit('computed key destructured from an unknown object (test global reachable)', node, 'lineOnly');
+    // An assertion API name read off a tainted receiver.
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ASSERTION_NAMES.has(node.name.text) &&
+      isTainted(node.expression)
+    )
+      hit('assertion API read off an untracked object', node);
+    if (ts.isElementAccessExpression(node)) {
+      const key = literalKey(node.argumentExpression);
+      if (key !== null && ASSERTION_NAMES.has(key) && isTainted(node.expression))
+        hit('assertion API read off an untracked object', node);
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer && !ts.isIdentifier(node.name)) {
+      if (isTainted(node.initializer))
+        for (const el of ts.isObjectBindingPattern(node.name) ? node.name.elements : []) {
+          const key = keyName(el.propertyName ?? el.name);
+          if (key !== null && ASSERTION_NAMES.has(key))
+            hit('assertion API destructured from an untracked object', el);
+        }
     }
     if (!ts.isExpression(node)) return;
     if (ts.isIdentifier(node)) {
@@ -745,18 +859,21 @@ export function newHits(
 }
 
 // The test-globals hits blamed on the agent. Defence in depth for the
-// text-based excuse: when the head drops a declaration of a global object
-// name the base had (a local `top` deleted, so an unchanged `{ top }` now
-// passes the real global), every hit of the file is blamed.
+// text-based excuse: when a declaration of a global object name sits on an
+// added or changed line of the head, or its base line is gone (a local `top`
+// deleted or moved, so an unchanged `{ top }` now passes the real global),
+// every hit of the file is blamed. Compared by position, not by count, so a
+// move that keeps the count (delete one `top`, add a `top` parameter
+// elsewhere) is caught.
 export function newTestGlobalHits(file: string, before: string, after: string): Hit[] {
   const b = parse(file, before);
   const a = parse(file, after);
   if (!a) return [];
-  if (b) {
-    const was = globalDeclarationCounts(b);
-    const now = globalDeclarationCounts(a);
-    for (const [name, count] of was)
-      if ((now.get(name) ?? 0) < count) return testGlobalHits(file, after);
-  }
+  const added = addedLineNumbers(before, after);
+  const removed = addedLineNumbers(after, before);
+  const moved =
+    globalDeclarationLines(a).some((line) => added.has(line)) ||
+    (b !== null && globalDeclarationLines(b).some((line) => removed.has(line)));
+  if (moved) return testGlobalHits(file, after);
   return newHits(testGlobalHits, file, before, after);
 }

@@ -284,15 +284,26 @@ generate` runs in a container with no network.
      Calibration on the base's 345 app files (base against base): 0 blamed;
      11 raw hits, 6 locals named `parent`, `top` or `window` passed on and 5
      `x[k]` uses (`loaders[locale]()`, `exercises[index - 1]?.supersetGroup`,
-     ...), which an agent editing those lines will be blamed for. It does not
-     follow a global object obtained some other way (the module-system rule
-     covers eval and the Function constructor), imported from a module it
-     does not read, or held by an object other than a global object,
-     `document` or an `.ownerDocument` and then read by a non-literal key into
-     a variable and called (`const h = o[k]; h(fn)`); `expect` and `vi` are
-     not hook names (`res.expect(200)` is ordinary, and their effects persist
-     where the canary's identity record sees them); a file that does not
-     parse is screened as far as the parser's recovered tree goes;
+     ...), which an agent editing those lines will be blamed for. An
+     assertion API name (`expect`, `vi`, `chai`, `assert`) is rejected when
+     read or destructured off a tainted receiver (a non-literal computed
+     read, the global object, or a name bound to either, as in
+     `const w = p[k]; w.expect(0)`); a call result is never tainted, so
+     `res.expect(200)` and `request(app).expect(200)` stay accepted. Document
+     aliases (`const d = document`, `const { ownerDocument: d } = el`) feed
+     the computed-key rule, and the deleted-declaration safeguard compares
+     positions, so moving a `top` declaration elsewhere blames the file. It
+     does not follow a global object obtained some other way (the
+     module-system rule covers eval and the Function constructor) or
+     imported from a module it does not read. The main residual is a
+     non-literal read of an object the screen does not track, stored in a
+     variable and then used (called, read, or passed on), as in
+     `const h = o[k]; h(fn)`; only part (a)'s runtime probes and the
+     mandatory diff review of a paid run's patch backstop it. The canary's
+     identity record is compared only around tests, so it does not see an
+     install-and-undo that runs inside a hidden test either; that is part
+     (a)'s job. A file that does not parse is screened as far as the parser's
+     recovered tree goes;
    - spelling an identifier with a unicode escape (`\u0065val`,
      `F\u0075nction`), or a module specifier with any backslash
      (`'vit\x65st'`), which the lexical rules cannot read (syntax tree only).
@@ -563,9 +574,11 @@ What a paid run would still accept, stated plainly:
     aliased, destructured and escaped access, the jsdom names and
     `.defaultView`, a hook name on any receiver, and the global object handed
     on. It is a screen, not a proof: a global object obtained in a form it
-    does not name (outside the module-system rule), imported from a module it
-    does not read, or held by another object and read by a non-literal key
-    into a variable, stays open;
+    does not name (outside the module-system rule) or imported from a module
+    it does not read stays open, and so does a non-literal read of an object
+    the screen does not track, stored in a variable and then used (called,
+    read, or passed on); only part (a)'s runtime probes and the mandatory
+    diff review of a paid run's patch backstop it;
   - any other change installed and fully undone between two checks.
 
   These stay a validity risk within one run, which is why a paid run's result

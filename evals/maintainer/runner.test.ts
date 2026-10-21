@@ -516,6 +516,84 @@ describe('tamperViolations', () => {
     );
   });
 
+  it('rejects an assertion API read off an untracked object', () => {
+    for (const content of [
+      'const w = p[k];\nconst P = Object.getPrototypeOf(w.expect(0));',
+      'const w = p[k].x;\nw.expect.extend({});',
+      'p[k].vi.fn();',
+      "p[k]['chai'].Assertion;",
+      'const { assert } = p[k];',
+      'const w = (p[k] as any) ?? fallback;\nw.chai.use(plugin);',
+      'globalThis.top.expect(1);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+    for (const content of [
+      'request(app).expect(200);',
+      'const t = { expect: 200 };',
+      'res.status(201).expect(200);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toEqual([]);
+  });
+
+  it('follows document aliases into the computed-key rule', () => {
+    for (const content of [
+      'const d: any = document;\nconst x = d[a];',
+      'const { ownerDocument: d } = el;\nconst x = d[a];',
+      'const d = window.document;\nconst e = d;\nconst x = e[a];',
+    ]) {
+      const hits = testGlobalHits('lib/b.ts', content).filter((h) =>
+        h.key.startsWith('document indexed by a computed key'),
+      );
+      expect(hits.map((h) => h.always), content).toEqual([true]);
+    }
+  });
+
+  it('rejects a computed member reached through wrappers or a literal array index', () => {
+    for (const content of [
+      '(w[j])(fn);',
+      '(w[j] as any).x;',
+      'w[j]!.x;',
+      '(0, w[j])(fn);',
+      '[w[j]][0](fn);',
+      'const { [j]: h } = w;',
+      'let h;\n({ [j]: h } = w);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+  });
+
+  it('blames a computed member on an added line of a real base file', () => {
+    const file = 'lib/cardio.ts';
+    const before = readFileSync(path.join(__dirname, '..', '..', file), 'utf8');
+    const after = `${before}\nw2[k](fn);\n`;
+    expect(
+      tamperViolations([{ ...ch(file, addedLines(before, after)), source: { before, after } }], task),
+    ).toContainEqual(expect.stringContaining('test global'));
+  });
+
+  it('blames a count-preserving move of a global-name declaration', () => {
+    const before =
+      'export function center(list: HTMLElement, element: HTMLElement) {\n' +
+      '  const top = element.offsetTop - list.clientHeight / 2;\n' +
+      "  list.scrollTo?.({ top, behavior: 'smooth' });\n" +
+      '}\n';
+    const after =
+      'export function center(list: HTMLElement, element: HTMLElement) {\n' +
+      '  const offset = element.offsetTop - list.clientHeight / 2;\n' +
+      "  list.scrollTo?.({ top, behavior: 'smooth' });\n" +
+      '}\n' +
+      'export function zz(top?: number) {}\n';
+    expect(
+      tamperViolations(
+        [{ ...ch('components/x.tsx', addedLines(before, after)), source: { before, after } }],
+        task,
+      ),
+    ).toContainEqual(expect.stringContaining('test global'));
+  });
+
   it('excuses base locals named like a global on unchanged lines of real app files', () => {
     for (const file of [
       'lib/progress-photo.ts',
