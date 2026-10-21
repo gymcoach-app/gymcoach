@@ -55,6 +55,7 @@ export const tamperRuleIds = [
   'host-io',
   'subpath-import',
   'test-globals',
+  'identifier-escape',
 ] as const;
 export type TamperRuleId = (typeof tamperRuleIds)[number];
 export const families = [

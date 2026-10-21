@@ -30,8 +30,9 @@ npx tsx evals/maintainer/run.ts --task <id> \
 for (issue #453) is in place and proven below. Grading validity is not: the
 harness canary is a tripwire that catches the known in-process cheats, not a
 guarantee, and concrete bypasses are known (issue #468, "Residual risks"
-below; part (b), the lexical `test-globals` rule, is closed by its syntax-tree
-screen, part (a) is still open). **`PAID_AGENT_ENABLED` must stay `false` until #468 is closed or the
+below; part (b), the lexical `test-globals` rule, is now screened by a
+syntax-tree check with the residual limits listed there, and part (a) is still
+open). **`PAID_AGENT_ENABLED` must stay `false` until #468 is closed or the
 operator explicitly accepts those risks.** Even then, a paid run's result is
 audited by a diff review of the agent's patch before it is counted: grading
 alone cannot prove the absence of grader tampering. A paid run needs all of:
@@ -253,18 +254,27 @@ generate` runs in a container with no network.
    - calling a test global or hook from application code (`expect`, `vi`,
      `beforeEach`, `afterEach`, ...). A regex catches the bare name used as a
      call or a member; a syntax-tree screen ([`test-globals.ts`](test-globals.ts),
-     issue #468 part b) parses the whole changed file and also catches one
+     issue #468 part b) parses the whole changed file and also catches every
+     use by the cooked name (an escaped `\u0061fterEach(` included), one
      reached through the global object (`globalThis.beforeEach`,
      `self['afterEach']`), a global object indexed by a non-literal key
      (`globalThis['after' + 'Each']`), aliases by name (`const g = globalThis`,
-     casts, `??`, `globalThis.window`), destructuring
-     (`const { afterEach } = globalThis`), the global object handed on where it
+     casts, `??`, a ternary, `globalThis.window`), destructuring, renamed
+     included (`const { afterEach } = globalThis`,
+     `const { window: w } = globalThis`), the global object handed on where it
      cannot be followed (a call argument such as `Reflect.get(globalThis, k)`,
      a spread, a return, an export) and a test global taken as a value
-     (`const h = afterEach`). Only what the base does not already contain is
-     blamed. It does not follow a global object obtained some other way (the
-     module-system rule covers eval and the Function constructor) or imported
-     from a module it does not read;
+     (`const h = afterEach`). Global objects are `globalThis`, `global`,
+     `self`, `window`, the jsdom names `top`, `parent` and `frames` (as roots
+     only when no enclosing scope declares a local of that name) and any
+     `.defaultView`. A hit on an added or changed line is always blamed; one on
+     unchanged lines only when the base does not already have it. It does not
+     follow a global object obtained some other way (the module-system rule
+     covers eval and the Function constructor) or imported from a module it
+     does not read, and a file that does not parse is screened as far as the
+     parser's recovered tree goes;
+   - spelling an identifier with a unicode escape (`\u0065val`,
+     `F\u0075nction`), which the lexical rules cannot read (syntax tree only);
    - importing a file system, process or low-level runtime module (`fs`,
      `fs/promises`, `child_process`, `worker_threads`, `cluster`, `inspector`,
      `v8`, `wasi`, `repl`);
@@ -526,10 +536,11 @@ What a paid run would still accept, stated plainly:
     #468 part (b) the `test-globals` rule matched bare names only, so hooks
     reached through `globalThis` could patch a matcher before each test and
     restore it after, ordered so the restore runs before the canary's own
-    check. The syntax-tree screen now catches member, computed, aliased and
-    destructured access and the global object handed on; a global object
-    obtained in a form it does not name (outside the module-system rule) stays
-    open;
+    check. The syntax-tree screen now catches member, computed, aliased,
+    destructured and escaped access, the jsdom names and `.defaultView`, and
+    the global object handed on. It is a screen, not a proof: a global object
+    obtained in a form it does not name (outside the module-system rule), or
+    imported from a module it does not read, stays open;
   - any other change installed and fully undone between two checks.
 
   These stay a validity risk within one run, which is why a paid run's result

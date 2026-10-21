@@ -13,7 +13,8 @@ recurring mechanical lessons converted into code (L42 in #447; L15 and L38 in th
 `evals/maintainer/` (#452), validated with reference, broken and tamper fixes. Its
 network and grading containment (egress proxy, containerised grading, #453) is in
 place and checked by an isolation probe without a model call (#455); tamper
-detection is a tripwire canary, not a guarantee, with known bypasses (#468; part b is closed).
+detection is a tripwire canary, not a guarantee, with known bypasses (#468;
+part b is screened, with residual limits, not closed).
 The paid agent stays hard-disabled until #468 is closed or accepted and the
 operator accepts the credential risk and sets a budget. A public evidence page
 (`evidence.md`, #457) starts the public-evidence section. Milestones 5 and 6 and
@@ -310,8 +311,9 @@ changes within the charter.
       hidden tests' own inputs; built-ins outside the list (a caller-selective
       built-in is open in
       [#468](https://github.com/gymcoach-app/gymcoach/issues/468) part a; hooks
-      reached through `globalThis`, part b, are now caught by a syntax-tree
-      `test-globals` screen); a change undone
+      reached through the global object, part b, are screened by a syntax-tree
+      `test-globals` rule that does not follow a global object obtained in a
+      form it does not name or imported from an unread module); a change undone
       between two checks; every grading run gets its own fresh copy of the
       grading tree, checked right before it runs against the hashes of every
       protected file computed from the base and the fix commit's hidden tests before

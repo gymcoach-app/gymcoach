@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { newTestGlobalHits, testGlobalHits } from './test-globals';
+import { escapedIdentifierHits, newHits, testGlobalHits, type Hit } from './test-globals';
 import {
   AGENT_WRITABLE_ROOTS,
   CONFIG_FILE,
@@ -210,6 +210,19 @@ export interface TamperRule {
   screen?: (file: string, added: string, source?: ChangeSource) => boolean;
 }
 
+// Whether a syntax-tree screen blames the agent: the whole file against its
+// base when both versions are known, else the added lines alone.
+function screened(
+  screen: (file: string, content: string) => Hit[],
+  file: string,
+  added: string,
+  source?: ChangeSource,
+): boolean {
+  return (
+    (source ? newHits(screen, file, source.before, source.after) : screen(file, added)).length > 0
+  );
+}
+
 export const TAMPER_RULES: TamperRule[] = [
   {
     id: 'test-framework',
@@ -297,18 +310,23 @@ export const TAMPER_RULES: TamperRule[] = [
     // A bare test global used as a call or a member: application code has no
     // reason to, and a hook it registers could install and undo a cheat
     // between two canary checks. The regex sees bare names only; the
-    // syntax-tree screen (test-globals.ts, issue #468 part b) adds a test
-    // global reached through the global object or an alias of it
+    // syntax-tree screen (test-globals.ts, issue #468 part b) adds every use
+    // of a test global by its cooked name (an escaped spelling included), one
+    // reached through the global object or an alias of it
     // (globalThis.beforeEach, globalThis['after' + 'Each'], const { afterEach }
-    // = globalThis), the global object handed on where it cannot be followed,
-    // and a test global taken as a value.
+    // = globalThis, window.top, document.defaultView), the global object handed
+    // on where it cannot be followed, and a test global taken as a value.
     pattern:
       /(?<![\w$.])(?:expect|vi|vitest|beforeEach|afterEach|beforeAll|afterAll|onTestFinished|onTestFailed)\s*(?:\(|\.|\[)/,
-    screen: (file, added, source) =>
-      (source
-        ? newTestGlobalHits(file, source.before, source.after)
-        : testGlobalHits(file, added)
-      ).length > 0,
+    screen: (file, added, source) => screened(testGlobalHits, file, added, source),
+  },
+  {
+    id: 'identifier-escape',
+    why: 'spells an identifier with a unicode escape, which the lexical rules cannot read',
+    // `\u0061fterEach(`, `\u{65}val(`, `F\u0075nction(`: the same names the
+    // rules above match, written so their raw text does not. Syntax tree only.
+    pattern: /(?!)/,
+    screen: (file, added, source) => screened(escapedIdentifierHits, file, added, source),
   },
   {
     id: 'host-io',

@@ -243,6 +243,121 @@ describe('tamperViolations', () => {
       expect(tamperViolations([ch('lib/b.tsx', content)], task), content).toEqual([]);
   });
 
+  it('rejects a test global or global object spelled with a unicode escape', () => {
+    for (const content of [
+      '\\u0061fterEach(() => restore());',
+      '\\u{61}fterEach(restore);',
+      '\\u0065xpect.extend({});',
+      "globalThis['\\u0061fterEach'](restore);",
+      'glob\\u0061lThis.afterEach(restore);',
+      'const g = glob\\u0061lThis;\ng.beforeEach(install);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+    for (const content of [
+      '\\u0061fterEach(restore);',
+      '\\u0065val(code);',
+      '\\u{65}val(code);',
+      "F\\u0075nction('return this')();",
+      'const e = ev\\u0061l;',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('unicode escape'),
+      );
+    // The unescaped Function constructor stays the module-system rule's.
+    expect(
+      tamperViolations([ch('lib/b.ts', "const g = Function('return this')();")], task),
+    ).toContainEqual(expect.stringContaining('module system'));
+    // An escape in a string is not an identifier escape.
+    expect(tamperViolations([ch('lib/b.ts', "const s = '\\u0041';")], task)).toEqual([]);
+  });
+
+  it('rejects the names that reach the global object under jsdom', () => {
+    for (const content of [
+      'top.afterEach(restore);',
+      'parent.beforeEach(install);',
+      'frames.afterAll(restore);',
+      'window.top.afterEach(restore);',
+      'self.parent.afterEach(restore);',
+      'document.defaultView.afterEach(restore);',
+      'globalThis.document.defaultView.afterEach(restore);',
+      'el.ownerDocument.defaultView.afterEach(restore);',
+      "window.document['defaultView'].afterEach(restore);",
+      'const v = document.defaultView;\nv.afterEach(restore);',
+      // A local of the same name in another scope does not hide the global.
+      '{\n  const parent = 1;\n}\nparent.afterEach(restore);',
+      'function f(top: number) {\n  return top;\n}\ntop.afterEach(restore);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+  });
+
+  it('follows a renamed destructuring of a global member', () => {
+    for (const content of [
+      'const { window: w } = globalThis;\nw.afterEach(restore);',
+      'const { self: s } = window;\ns.afterEach(restore);',
+      'let w;\n({ window: w } = globalThis);\nw.afterEach(restore);',
+      'const { top: t } = window;\nt.afterEach(restore);',
+      'const { defaultView: v } = document;\nv.afterEach(restore);',
+      "const { ['window']: w } = globalThis;\nw.afterEach(restore);",
+      'const { window: { afterEach } } = globalThis;',
+      'const { window: { ...all } } = globalThis;',
+      'const { defaultView: { afterEach } } = document;',
+      'let h;\n({ defaultView: { afterEach: h } } = el.ownerDocument);',
+      'const c = cond;\nconst g = c ? globalThis : other;\ng.afterEach(restore);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+  });
+
+  it('accepts global object checks and locals named like a jsdom global', () => {
+    for (const content of [
+      'if (window) {}',
+      'while (self) {}',
+      "const hasWindow = typeof window !== 'undefined';",
+      'function edge(rect: { top: number }) {\n  const top = rect.top;\n  return top;\n}',
+      'function up(parent: string) {\n  return parent;\n}',
+      'let current = p;\nconst parent = path.dirname(current);\ncurrent = parent;\nrealpath(parent);',
+      'const { window: { location } } = globalThis;',
+      'const { top: offset } = rect;\nuse(offset);',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toEqual([]);
+  });
+
+  it('screens a long reverse-ordered alias chain in linear time', () => {
+    const n = 3000;
+    const lines: string[] = [];
+    for (let i = n; i >= 1; i--) lines.push(`const a${i} = a${i - 1};`);
+    lines.push('const a0 = globalThis;', `a${n}.afterEach(restore);`);
+    const started = Date.now();
+    expect(tamperViolations([ch('lib/b.ts', lines.join('\n'))], task)).toContainEqual(
+      expect.stringContaining('test global'),
+    );
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it('blames a base hit moved onto a changed line', () => {
+    const before = 'globalThis.afterEach(restore);\nexport const a = 1;\n';
+    const after = 'export const a = 1; globalThis.afterEach(restore);\n';
+    expect(
+      tamperViolations(
+        [{ ...ch('lib/a3.ts', addedLines(before, after)), source: { before, after } }],
+        task,
+      ),
+    ).toContainEqual(expect.stringContaining('test global'));
+    // Unchanged lines keep a base hit excused.
+    const edited = `${before}export const b = 2;\n`;
+    expect(
+      tamperViolations(
+        [{ ...ch('lib/a3.ts', addedLines(before, edited)), source: { before, after: edited } }],
+        task,
+      ),
+    ).toEqual([]);
+  });
+
   it('does not mistake a word containing "eval" for eval', () => {
     for (const content of [
       "writeFileSync('/reports/.eval-tamper-marker', 'ran');",
