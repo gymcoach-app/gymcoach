@@ -252,7 +252,7 @@ describe('tamperViolations', () => {
       'const first = window[0];',
       'const { crypto } = globalThis;',
       'const test = /x/.test(s);\nconst it = items[0];\nconst describe = (x: string) => x;',
-      'const opts = { expect: 200, afterEach: false };',
+      'const opts = { expect: 200 };',
       'type Spy = typeof vi;',
       'self.addEventListener("fetch", onFetch);',
     ])
@@ -342,24 +342,16 @@ describe('tamperViolations', () => {
       expect(tamperViolations([ch('lib/b.ts', content)], task), content).toEqual([]);
   });
 
-  it('rejects a local declared with a global object or test global name', () => {
+  it('rejects a local declared with a test global or defaultView name', () => {
     for (const content of [
-      // Accepted by the scope-aware version of this PR, rejected since round 3.
+      // A local named like a global object is a root by name: passing it on
+      // is reported whatever its scope.
       'function edge(rect: { top: number }) {\n  const top = rect.top;\n  return top;\n}',
       'function up(parent: string) {\n  return parent;\n}',
       'let current = p;\nconst parent = path.dirname(current);\ncurrent = parent;\nrealpath(parent);',
-      // Erased or ambient declarations used as decoys.
+      // Erased or ambient declarations as decoys do not hide the root.
       'declare const top: any;\ntop.afterEach(restore);',
-      'declare var parent: any;',
-      'declare function top(): void;',
-      'declare global {\n  var top: any;\n}',
-      "import type { top } from './y';",
-      "import { type parent } from './y';",
       'namespace N {\n  var top = 1;\n}\ntop.afterEach(restore);',
-      'try {} catch (frames) {}',
-      'class window {}',
-      'const { a: self } = opts;',
-      'function f(...globalThis: unknown[]) {}',
       'const defaultView = 1;',
       'let afterEach = () => {};',
       "import { expect } from './assert';",
@@ -424,9 +416,104 @@ describe('tamperViolations', () => {
     for (const content of [
       "const title = document['title'];",
       'const el = document.getElementById(id);',
-      'const v = Reflect.get(opts, key);',
     ])
       expect(tamperViolations([ch('lib/b.ts', content)], task), content).toEqual([]);
+  });
+
+  it('accepts a declaration of a global object name that is not used as one', () => {
+    for (const content of [
+      'declare var parent: any;',
+      'declare function top(): void;',
+      'declare global {\n  var top: any;\n}',
+      "import type { top } from './y';",
+      "import { type parent } from './y';",
+      'try {} catch (frames) {}',
+      'class window {}',
+      'const { a: self } = opts;',
+      'function f(...globalThis: unknown[]) {}',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toEqual([]);
+  });
+
+  it('rejects a test hook named on a receiver it cannot prove global', () => {
+    for (const content of [
+      'const d: any = document;\nd[k].afterEach(fn);',
+      'const { ownerDocument: d } = el;\nd[k].afterEach(restore);',
+      "(Reflect as any)['get'](document, k).afterEach(fn);",
+      "const R = Reflect;\nR.get(document, 'defaultView').afterEach(restore);",
+      "const { get } = Reflect;\nget(document, 'defaultView').afterEach(restore);",
+      '(document.documentElement.parentNode as any)[k].afterEach(fn);',
+      '(document.body.getRootNode() as any)[k].afterEach(fn);',
+      'const o = load();\no.top.afterEach(fn);',
+      "o['afterEach'](fn);",
+      'const { afterEach: later } = anything;',
+      'const { beforeAll } = x;',
+      "const name = 'onTestFinished';",
+      'const hooks = { afterAll: restore };',
+      'x.vitest.fn();',
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+  });
+
+  it('rejects any alias, destructuring or computed read of Reflect', () => {
+    for (const content of [
+      'const R = Reflect;',
+      'const { get } = Reflect;',
+      "const g = Reflect['get'];",
+      'const w = Reflect.get(opts, key);',
+      "const r = globalThis['Reflect'];",
+      'const d = Object.getOwnPropertyDescriptor;',
+      "const d = Object['getOwnPropertyDescriptors'];",
+      'const { getOwnPropertyDescriptor } = Object;',
+      "Object.getOwnPropertyDescriptor(proto, 'x');",
+    ])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+  });
+
+  it('rejects a computed member used on an unknown receiver on an added line', () => {
+    for (const content of ['w2[k](fn);', 'node[k].afterwards(fn);', 'node[k][j](fn);'])
+      expect(tamperViolations([ch('lib/b.ts', content)], task), content).toContainEqual(
+        expect.stringContaining('test global'),
+      );
+    // The same pattern on an unchanged base line is excused.
+    const before = 'export const v = rows[i].weight;\n';
+    const after = `${before}export const other = 1;\n`;
+    expect(
+      tamperViolations(
+        [{ ...ch('lib/a4.ts', addedLines(before, after)), source: { before, after } }],
+        task,
+      ),
+    ).toEqual([]);
+  });
+
+  it('blames the set-value-picker scenario: a deleted local turns an unchanged line into a cheat', () => {
+    // Shape of components/session/set-value-picker.tsx: a local `top` passed in
+    // an unchanged call. Deleting the local makes `top` the jsdom global there.
+    const before =
+      'export function center(list: HTMLElement, element: HTMLElement) {\n' +
+      '  const top = element.offsetTop - list.clientHeight / 2;\n' +
+      "  list.scrollTo?.({ top, behavior: 'smooth' });\n" +
+      '}\n';
+    const after =
+      'export function center(list: HTMLElement, element: HTMLElement) {\n' +
+      '  (list as any).scrollTo = (o: any) => o.top.afterEach(fn);\n' +
+      "  list.scrollTo?.({ top, behavior: 'smooth' });\n" +
+      '}\n';
+    const change = (a: string) => [
+      { ...ch('components/x.tsx', addedLines(before, a)), source: { before, after: a } },
+    ];
+    expect(tamperViolations(change(after), task)).toContainEqual(
+      expect.stringContaining('test global'),
+    );
+    // Without the hook name, the deleted declaration alone blames the file.
+    const quiet = after.replace('o.top.afterEach(fn)', 'keep(o)');
+    expect(tamperViolations(change(quiet), task)).toContainEqual(
+      expect.stringContaining('test global'),
+    );
   });
 
   it('excuses base locals named like a global on unchanged lines of real app files', () => {

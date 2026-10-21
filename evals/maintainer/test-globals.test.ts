@@ -6,7 +6,8 @@ const kinds = (content: string) => testGlobalHits('lib/x.ts', content).map((h) =
 describe('testGlobalHits', () => {
   it('reaches a test global through a ternary alias, not through a passed-on value', () => {
     const content = 'const c = cond;\nconst g = c ? globalThis : other;\ng.afterEach(restore);';
-    expect(kinds(content)).toEqual(['test global read off the global object: g.afterEach']);
+    expect(kinds(content)).toContain('test global read off the global object: g.afterEach');
+    expect(kinds(content).some((k) => k.startsWith('global object passed on'))).toBe(false);
   });
 
   it('reaches a test global through each alias form by the alias path', () => {
@@ -18,14 +19,15 @@ describe('testGlobalHits', () => {
       ['let w;\n({ window: w } = globalThis);\nw.afterEach(r);', 'w.afterEach'],
       ['const { defaultView: v } = document;\nv.afterEach(r);', 'v.afterEach'],
     ])
-      expect(kinds(content!), content).toEqual([
+      expect(kinds(content!), content).toContain(
         `test global read off the global object: ${member}`,
-      ]);
+      );
   });
 
   it('marks computed and reflective reads to be blamed on any change', () => {
     const hits = testGlobalHits('lib/x.ts', "const w = document[k];\nReflect.get(document, 'x');");
     expect(hits.map((h) => h.always)).toEqual([true, true]);
+    expect(testGlobalHits('lib/x.ts', 'node[k](fn);').map((h) => h.lineOnly)).toEqual([true]);
   });
 
   it('blames nothing when the file is unchanged', () => {

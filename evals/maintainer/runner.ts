@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   escapedIdentifierHits,
   newHits,
+  newTestGlobalHits,
   specifierHits,
   testGlobalHits,
   type Hit,
@@ -324,7 +325,11 @@ export const TAMPER_RULES: TamperRule[] = [
     // on where it cannot be followed, and a test global taken as a value.
     pattern:
       /(?<![\w$.])(?:expect|vi|vitest|beforeEach|afterEach|beforeAll|afterAll|onTestFinished|onTestFailed)\s*(?:\(|\.|\[)/,
-    screen: (file, added, source) => screened(testGlobalHits, file, added, source),
+    screen: (file, added, source) =>
+      (source
+        ? newTestGlobalHits(file, source.before, source.after)
+        : testGlobalHits(file, added)
+      ).length > 0,
   },
   {
     id: 'identifier-escape',

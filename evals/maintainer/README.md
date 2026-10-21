@@ -264,27 +264,35 @@ generate` runs in a container with no network.
      `const { window: w } = globalThis`), the global object handed on where it
      cannot be followed (a call argument such as `Reflect.get(globalThis, k)`,
      a spread, a return, an export) and a test global taken as a value
-     (`const h = afterEach`). It also rejects a computed-key read of a global
-     object, `document` or any `.ownerDocument` (`document[k]`), any
-     `Reflect.*` or `Object.getOwnPropertyDescriptor(s)` call on one of them,
-     and any declaration (variable, parameter, catch binding, function, class,
-     import binding, type-only or ambient, namespace member) of a global object
-     name or a bare test global name, so a local cannot shadow a root. The
-     design is fail closed: global objects are `globalThis`, `global`, `self`,
-     `window`, `top`, `parent` and `frames`, matched by name whatever the scope
-     (`top` and `parent` reach the global object under jsdom; vitest does not
-     alias `frames`, which is listed only as a precaution), plus any
-     `.defaultView`. A hit on an added or changed line is always blamed, and a
-     computed-key or reflective hit is blamed whenever the file has any changed
-     line; any other hit on unchanged lines is excused only when the base
-     already has it, which leaves a residual: a change on one line that turns
-     an unchanged base hit into a different cheat with the same text is not
-     blamed (the base's app files have 10 such hits, all locals named `parent`,
-     `top` or `window`). It does not follow a global object obtained some other
-     way (the module-system rule covers eval and the Function constructor),
-     imported from a module it does not read, or held by an object other than
-     a global object, `document` or an `.ownerDocument`, and a file that does
-     not parse is screened as far as the parser's recovered tree goes;
+     (`const h = afterEach`). It also rejects, whatever the receiver, a test
+     hook name (`afterEach`, `beforeEach`, `beforeAll`, `afterAll`,
+     `onTestFinished`, `onTestFailed`, `vitest`) as a member, a key or a
+     string (`d[k].afterEach(fn)`); any mention of `Reflect` or
+     `getOwnPropertyDescriptor(s)`; a computed-key read of a global object,
+     `document` or any `.ownerDocument` (`document[k]`); a non-literal computed
+     member then called or read again (`x[k](...)`, `x[k].y`, `x[k][j]`) on an
+     added or changed line; and any declaration of a bare test global name or
+     `defaultView`. The design is fail closed: global objects are
+     `globalThis`, `global`, `self`, `window`, `top`, `parent` and `frames`,
+     matched by name whatever the scope (`top` and `parent` reach the global
+     object under jsdom; vitest does not alias `frames`, which is listed only
+     as a precaution), plus any `.defaultView`. A hit on an added or changed
+     line is always blamed, a computed-key or reflective hit whenever the file
+     has any changed line, and every hit of a file whose head drops a
+     declaration of a global object name the base had; any other hit on
+     unchanged lines is excused only when the base already has its text.
+     Calibration on the base's 345 app files (base against base): 0 blamed;
+     11 raw hits, 6 locals named `parent`, `top` or `window` passed on and 5
+     `x[k]` uses (`loaders[locale]()`, `exercises[index - 1]?.supersetGroup`,
+     ...), which an agent editing those lines will be blamed for. It does not
+     follow a global object obtained some other way (the module-system rule
+     covers eval and the Function constructor), imported from a module it
+     does not read, or held by an object other than a global object,
+     `document` or an `.ownerDocument` and then read by a non-literal key into
+     a variable and called (`const h = o[k]; h(fn)`); `expect` and `vi` are
+     not hook names (`res.expect(200)` is ordinary, and their effects persist
+     where the canary's identity record sees them); a file that does not
+     parse is screened as far as the parser's recovered tree goes;
    - spelling an identifier with a unicode escape (`\u0065val`,
      `F\u0075nction`), or a module specifier with any backslash
      (`'vit\x65st'`), which the lexical rules cannot read (syntax tree only).
@@ -553,10 +561,11 @@ What a paid run would still accept, stated plainly:
     restore it after, ordered so the restore runs before the canary's own
     check. The syntax-tree screen now catches member, computed, reflective,
     aliased, destructured and escaped access, the jsdom names and
-    `.defaultView`, locals that shadow a global name, and the global object
-    handed on. It is a screen, not a proof: a global object obtained in a form
-    it does not name (outside the module-system rule), imported from a module
-    it does not read, or held by another object, stays open;
+    `.defaultView`, a hook name on any receiver, and the global object handed
+    on. It is a screen, not a proof: a global object obtained in a form it
+    does not name (outside the module-system rule), imported from a module it
+    does not read, or held by another object and read by a non-literal key
+    into a variable, stays open;
   - any other change installed and fully undone between two checks.
 
   These stay a validity risk within one run, which is why a paid run's result

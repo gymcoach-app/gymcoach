@@ -15,7 +15,14 @@ import ts from 'typescript';
 //   (`globalThis.beforeEach`, `self['afterEach']`);
 // - a global object, `document` or any `.ownerDocument` indexed by a key that
 //   is not a literal (`globalThis['after' + 'Each']`, `document[k]`);
-// - a `Reflect.*` or `Object.getOwnPropertyDescriptor(s)` call on one of them;
+// - a test hook name (`afterEach`, `beforeEach`, `beforeAll`, `afterAll`,
+//   `onTestFinished`, `onTestFailed`, `vitest`) as a member, a literal key, a
+//   destructuring key, an object key or a string, whatever the receiver
+//   (`d[k].afterEach(fn)` on an object the screen cannot prove global);
+// - any mention of `Reflect` or `getOwnPropertyDescriptor(s)` (an alias, a
+//   destructuring, a computed read, a call);
+// - a non-literal computed member that is then called or read again
+//   (`x[k](...)`, `x[k].y`, `x[k][j]`) on an added or changed line;
 // - a test global destructured from a global object, including a computed key
 //   (`const { beforeEach } = globalThis`);
 // - a global object handed anywhere it cannot be followed: a call argument
@@ -23,9 +30,10 @@ import ts from 'typescript';
 //   element, a property or parameter default;
 // - a test global taken as a value (`const h = afterEach`);
 // - any declaration (variable, parameter, catch binding, function, class,
-//   import binding, type-only or ambient, namespace member) of a global object
-//   name or a bare test global name (`declare const top: any`,
-//   `import type { parent } from './x'`), so a local cannot shadow a root.
+//   import binding, type-only or ambient, namespace member) of a bare test
+//   global name or `defaultView`. A declaration of a global object name is
+//   allowed: those names are roots by name, so a local of that name only adds
+//   hits and hides nothing.
 //
 // Global objects: `globalThis`, `global`, `self`, `window`, `top`, `parent`,
 // `frames`, by name and regardless of scope, as roots and as chain members
@@ -39,6 +47,14 @@ import ts from 'typescript';
 // (`const { window: w } = globalThis`). Type positions are skipped
 // (`new globalThis.Set<string>()` reads `Set`, `typeof vi` in a type is
 // erased), except for declarations, which are reported wherever they sit.
+//
+// Blame (newHits, newTestGlobalHits): a hit on an added or changed line is
+// always blamed; a computed-key on a global object or `document` and any
+// reflective hit whenever the file has a changed line; a computed member on
+// an unknown receiver only on a changed line (the base uses the pattern); any
+// other hit on unchanged lines only when the base does not already have its
+// text, except that a head dropping a declaration of a global object name the
+// base had blames every hit of the file.
 //
 // Module specifiers: any backslash in a static or dynamic specifier string
 // (import, export from, import type, import(), require) is an
@@ -55,7 +71,11 @@ import ts from 'typescript';
 // (eval, the Function constructor, a constructor chain) is left to the
 // module-system rule; one imported from a module outside the screened files is
 // not followed; an object other than a global object, `document` or an
-// `.ownerDocument` that holds a reference to one is not tracked.
+// `.ownerDocument` that holds a reference to one is not tracked, so a global
+// object reached that way, read by a non-literal key into a variable and
+// called later (`const h = o[k]; h(fn)`) is not reported; `expect` and `vi`
+// are not hook names (their effects persist and the canary's identity record
+// sees them).
 
 // Names test code reads off the global object. The bare-name list is shorter:
 // `it`, `test` or `assert` are ordinary identifiers in application code, but
@@ -123,6 +143,9 @@ export interface Hit {
   // sits: a computed or reflective read can be redirected by a change to a
   // line far from it (the key's value), so its own lines prove nothing.
   always?: boolean;
+  // Blamed only when it touches an added or changed line, never by text: an
+  // ordinary pattern (`rows[i].weight`) the base already uses legitimately.
+  lineOnly?: boolean;
 }
 
 // A node whose value is its operand's value (a cast, parentheses, `x!`).
@@ -181,12 +204,17 @@ function visit(node: ts.Node, fn: (n: ts.Node) => void): void {
   ts.forEachChild(node, (child) => visit(child, fn));
 }
 
-function hitOf(source: ts.SourceFile, kind: string, node: ts.Node, always = false): Hit {
+function hitOf(
+  source: ts.SourceFile,
+  kind: string,
+  node: ts.Node,
+  blame: 'always' | 'lineOnly' | null = null,
+): Hit {
   return {
     key: `${kind}: ${node.getText(source).replace(/\s+/g, ' ')}`,
     startLine: source.getLineAndCharacterOfPosition(node.getStart(source)).line,
     endLine: source.getLineAndCharacterOfPosition(node.getEnd()).line,
-    ...(always ? { always } : {}),
+    ...(blame ? { [blame]: true } : {}),
   };
 }
 
@@ -204,22 +232,34 @@ function isDocument(node: ts.Node): boolean {
   return false;
 }
 
-// `Reflect.get(...)` and every other Reflect method, and the Object methods
-// that read a property without naming it in the source.
-function isReflectiveRead(callee: ts.Expression): boolean {
-  if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.expression)) return false;
-  const owner = callee.expression.text;
-  const method = callee.name.text;
-  return (
-    owner === 'Reflect' ||
-    (owner === 'Object' &&
-      (method === 'getOwnPropertyDescriptor' || method === 'getOwnPropertyDescriptors'))
-  );
-}
+// Test hook names flagged as a member, key or string whatever the receiver
+// (`d[k].afterEach(fn)` on an object the screen cannot prove global). Not
+// `expect` or `vi`: `res.expect(200)` is an ordinary API, and what they
+// reach (matchers, spies) persists, so the canary's identity record sees it.
+const HOOK_NAMES = new Set([
+  'beforeEach',
+  'afterEach',
+  'beforeAll',
+  'afterAll',
+  'onTestFinished',
+  'onTestFailed',
+  'vitest',
+]);
 
-// Names a declaration may not bind: a global object name (a local would hide
-// the root it shadows) or a bare test global.
-const RESERVED_NAMES = new Set([...GLOBAL_OBJECTS, GLOBAL_MEMBER_ANYWHERE]);
+// Names that read a property the source does not spell: any mention is
+// reported (`Reflect`, `const R = Reflect`, `Reflect['get']`,
+// `Object.getOwnPropertyDescriptor`), since an alias of either is as good as
+// the original. The base's app code uses none of them.
+const REFLECTIVE_NAMES = new Set([
+  'Reflect',
+  'getOwnPropertyDescriptor',
+  'getOwnPropertyDescriptors',
+]);
+
+// Names a declaration may not bind: a bare test global or `defaultView`.
+// Global object names may be declared: they are roots by name, so a local of
+// that name only adds hits (fail closed) and hides nothing.
+const RESERVED_NAMES = new Set([...BARE_TEST_GLOBALS, GLOBAL_MEMBER_ANYWHERE]);
 
 // The declared name of a binding-creating node, or null. Property-like names
 // (object keys, class members, enum members) bind nothing in scope.
@@ -253,12 +293,24 @@ function declarationHitsIn(source: ts.SourceFile): Hit[] {
   const hits: Hit[] = [];
   const walk = (node: ts.Node) => {
     const name = declaredName(node);
-    if (name && (RESERVED_NAMES.has(name.text) || BARE_TEST_GLOBALS.has(name.text)))
-      hits.push(hitOf(source, 'test global or global object name declared', node.parent));
+    if (name && RESERVED_NAMES.has(name.text))
+      hits.push(hitOf(source, 'test global or defaultView name declared', node.parent));
     ts.forEachChild(node, walk);
   };
   walk(source);
   return hits;
+}
+
+// How many declarations of each global object name the file has.
+function globalDeclarationCounts(source: ts.SourceFile): Map<string, number> {
+  const out = new Map<string, number>();
+  const walk = (node: ts.Node) => {
+    const name = declaredName(node);
+    if (name && GLOBAL_OBJECTS.has(name.text)) out.set(name.text, (out.get(name.text) ?? 0) + 1);
+    ts.forEachChild(node, walk);
+  };
+  walk(source);
+  return out;
 }
 
 function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
@@ -378,8 +430,8 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
   while (queue.length > 0) for (const i of dependents.get(queue.pop()!) ?? []) settle(i);
 
   const hits: Hit[] = [];
-  const hit = (kind: string, node: ts.Node, always = false) =>
-    hits.push(hitOf(source, kind, node, always));
+  const hit = (kind: string, node: ts.Node, blame: 'always' | 'lineOnly' | null = null) =>
+    hits.push(hitOf(source, kind, node, blame));
 
   // A destructuring of a global object: a test global, a computed key, a rest,
   // or a nested pattern under a key that is not a global member.
@@ -425,7 +477,7 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
     }
     if (ts.isElementAccessExpression(parent) && parent.expression === node) {
       const key = literalKey(parent.argumentExpression);
-      if (key === null) hit('global object indexed by a computed key', parent, true);
+      if (key === null) hit('global object indexed by a computed key', parent, 'always');
       else if (TEST_GLOBALS.has(key)) hit('test global read off the global object', parent);
       return;
     }
@@ -536,14 +588,26 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       checkPattern(node.initializer);
       return;
     }
-    if (ts.isElementAccessExpression(node) && isDocument(node.expression)) {
-      if (literalKey(node.argumentExpression) === null)
-        hit('document indexed by a computed key (test global reachable)', node, true);
+    // A test hook name anywhere but a bare value use (reported below): a
+    // member, a key, a destructuring key, a string.
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && HOOK_NAMES.has(node.text)) {
+      const p = node.parent;
+      const bareUse = ts.isIdentifier(node) && isValueReference(node);
+      if (!bareUse) hit('test global hook named on any receiver', p ?? node);
     }
-    if (ts.isCallExpression(node) && isReflectiveRead(node.expression)) {
-      const target = node.arguments[0];
-      if (target && (isDocument(target) || isGlobal(target)))
-        hit('reflective read of the global object or document (test global reachable)', node, true);
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && REFLECTIVE_NAMES.has(node.text))
+      hit('reflective property read (test global reachable)', node.parent ?? node, 'always');
+    if (ts.isElementAccessExpression(node) && literalKey(node.argumentExpression) === null) {
+      const p = node.parent;
+      if (isDocument(node.expression))
+        hit('document indexed by a computed key (test global reachable)', node, 'always');
+      else if (
+        !isGlobal(node.expression) &&
+        ((ts.isCallExpression(p) && p.expression === node) ||
+          ((ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) &&
+            p.expression === node))
+      )
+        hit('computed member used on an unknown receiver (test global reachable)', p, 'lineOnly');
     }
     if (!ts.isExpression(node)) return;
     if (ts.isIdentifier(node)) {
@@ -562,9 +626,6 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
   return hits;
 }
 
-// An identifier spelled with a unicode escape (`afterEach`, `\u{65}val`):
-// no application file needs one, and the lexical rules read raw text, so an
-// escaped `eval`, `Function` or test global would get past them.
 // Every module specifier string of the file: static import and export from,
 // import-equals require, import type (`import('x')` in a type), import() and
 // require() calls with a literal argument.
@@ -605,6 +666,9 @@ export function specifierHits(
     .map((lit) => hitOf(source, `module specifier ${JSON.stringify(lit.text)}`, lit));
 }
 
+// An identifier spelled with a unicode escape (`\u0061fterEach`, `\u{65}val`):
+// no application file needs one, and the lexical rules read raw text, so an
+// escaped `eval`, `Function` or test global would get past them.
 function escapedIdentifierHitsIn(source: ts.SourceFile): Hit[] {
   const hits: Hit[] = [];
   // Any backslash in a module specifier: no import of this repo needs one.
@@ -669,9 +733,30 @@ export function newHits(
     let touched = false;
     for (let line = h.startLine; line <= h.endLine && !touched; line++) touched = added.has(line);
     if (h.always && added.size > 0) touched = true;
+    if (h.lineOnly) {
+      if (touched) out.push(h);
+      continue;
+    }
     const left = pool.get(h.key) ?? 0;
     if (!touched && left > 0) pool.set(h.key, left - 1);
     else out.push(h);
   }
   return out;
+}
+
+// The test-globals hits blamed on the agent. Defence in depth for the
+// text-based excuse: when the head drops a declaration of a global object
+// name the base had (a local `top` deleted, so an unchanged `{ top }` now
+// passes the real global), every hit of the file is blamed.
+export function newTestGlobalHits(file: string, before: string, after: string): Hit[] {
+  const b = parse(file, before);
+  const a = parse(file, after);
+  if (!a) return [];
+  if (b) {
+    const was = globalDeclarationCounts(b);
+    const now = globalDeclarationCounts(a);
+    for (const [name, count] of was)
+      if ((now.get(name) ?? 0) < count) return testGlobalHits(file, after);
+  }
+  return newHits(testGlobalHits, file, before, after);
 }
