@@ -278,26 +278,37 @@ generate` runs in a container with no network.
      object under jsdom; vitest does not alias `frames`, which is listed only
      as a precaution), plus any `.defaultView`. A hit on an added or changed
      line is always blamed, a computed-key or reflective hit whenever the file
-     has any changed line, and every hit of a file whose head drops a
-     declaration of a global object name the base had; any other hit on
-     unchanged lines is excused only when the base already has its text.
-     Calibration on the base's 345 app files (base against base): 0 blamed;
-     11 raw hits, 6 locals named `parent`, `top` or `window` passed on and 5
-     `x[k]` uses (`loaders[locale]()`, `exercises[index - 1]?.supersetGroup`,
-     ...), which an agent editing those lines will be blamed for. An
+     has any changed line, and every hit of a file whose base declares a
+     global object name (or whose head adds one on a changed line) as soon as
+     the file has any changed line, since a change anywhere can move that
+     local out of scope; any other hit on unchanged lines is excused only when
+     the base already has its text. Calibration on the base's 345 app files
+     (base against base): 0 blamed; 16 raw hits, 6 locals named `parent` or
+     `top` passed on and 10 `x[k]` uses (`loaders[locale]()`,
+     `points[i]!.t`, ...), which an agent editing those lines will be blamed
+     for; any edit at all to `lib/progress-photo.ts`,
+     `components/session/set-value-picker.tsx` or
+     `components/progress/body-paths.ts` is blamed. An
      assertion API name (`expect`, `vi`, `chai`, `assert`) is rejected when
      read or destructured off a tainted receiver (a non-literal computed
      read, the global object, or a name bound to either, as in
      `const w = p[k]; w.expect(0)`); a call result is never tainted, so
-     `res.expect(200)` and `request(app).expect(200)` stay accepted. Document
+     `res.expect(200)` and `request(app).expect(200)` stay accepted. Taint
+     follows declarations and parameter defaults (object and array patterns,
+     defaults, rest), assignments (`=`, `||=`, `??=`, `&&=`, destructuring
+     targets), object and array literals holding a tainted value, `await`,
+     for-of and for-in over a tainted iterable, every catch binding in a file
+     with any taint source, and stores into a member (`o.w = v` taints `o`,
+     `this.w = v` and class fields taint `this`); it does not follow call
+     arguments into a callee, return values, getters, closures read through a
+     call or values round-tripped through a container method. Document
      aliases (`const d = document`, `const { ownerDocument: d } = el`) feed
-     the computed-key rule, and the deleted-declaration safeguard compares
-     positions, so moving a `top` declaration elsewhere blames the file. It
-     does not follow a global object obtained some other way (the
-     module-system rule covers eval and the Function constructor) or
-     imported from a module it does not read. The main residual is a
+     the computed-key rule. It does not follow a global object obtained
+     some other way (the module-system rule covers eval and the Function
+     constructor) or imported from a module it does not read. The main residual is a
      non-literal read of an object the screen does not track, stored in a
-     variable and then used (called, read, or passed on), as in
+     variable and then used (called, read, or passed on) along a path the
+     taint list above does not name, as in
      `const h = o[k]; h(fn)`; only part (a)'s runtime probes and the
      mandatory diff review of a paid run's patch backstop it. The canary's
      identity record is compared only around tests, so it does not see an

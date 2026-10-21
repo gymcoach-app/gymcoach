@@ -14,7 +14,9 @@ computed member called or read again on a changed line, an alias or
 destructuring (renamed included) of `globalThis`, `global`, `self`, `window`,
 `top`, `parent`, `frames` (by name, whatever the scope) or any `.defaultView`,
 the global object handed to a call, a spread or an export, a test global taken
-as a value, and any declaration of a test global name. A new
+as a value, and any declaration of a test global name; any change to a file
+whose base declares a local named like a global object blames all of its
+hits. A new
 `identifier-escape` rule fails an identifier spelled with a unicode escape and
 a module specifier with a backslash, and the specifier rules also read each
 specifier's cooked text (`'vit\x65st'`). Part (b) of the known canary bypasses

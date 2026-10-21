@@ -58,8 +58,8 @@ import ts from 'typescript';
 // reflective hit whenever the file has a changed line; a computed member on
 // an unknown receiver only on a changed line (the base uses the pattern); any
 // other hit on unchanged lines only when the base does not already have its
-// text, except that a head dropping a declaration of a global object name the
-// base had blames every hit of the file.
+// text. In a file whose base declares a global object name, or whose head adds
+// one on a changed line, any changed line blames every hit of the file.
 //
 // Module specifiers: any backslash in a static or dynamic specifier string
 // (import, export from, import type, import(), require) is an
@@ -77,12 +77,26 @@ import ts from 'typescript';
 // module-system rule; one imported from a module outside the screened files is
 // not followed. The main residual: a non-literal read of an object the screen
 // does not track, stored in a variable and then used (called, read, or passed
-// on): `const h = o[k]; h(fn)`. Taint follows such a value through aliases,
-// member reads and destructuring for the assertion API names, but not into a
-// call argument or a return. Only part (a)'s runtime probes and the mandatory
-// diff review of a paid run's patch backstop it. The canary's identity record
+// on): `const h = o[k]; h(fn)`, and any taint path the list below does not
+// name. Only part (a)'s runtime probes and the mandatory diff review of a
+// paid run's patch backstop it. The canary's identity record
 // is compared only around tests, so it does not see an install-and-undo that
 // runs inside a hidden test either: that is part (a)'s job.
+
+// Taint (for the assertion API names): a value is tainted when it is a
+// non-literal computed read, the global object, a member read, array or
+// object literal containing a tainted value, an `await` of one, or a name
+// bound to one. Bindings followed: declarations and parameter defaults
+// (plain, object and array patterns, defaults, rest elements), assignments
+// (`=`, `||=`, `??=`, `&&=`, object and array destructuring targets),
+// for-of and for-in variables over a tainted iterable, every catch binding
+// when the file has any taint source (what a try block throws is not
+// followed), and a store of a tainted value into a member (`o.w = v` taints
+// `o`; `this.w = v` and a class field initializer taint `this`). Not
+// followed: a call argument into the callee's parameter, a return value into
+// the caller (a call result is never tainted), a getter, a closure capture
+// read through a call, a value round-tripped through a container method
+// (`m.set(k, v); m.get(k)`), and anything not listed above.
 
 // Names test code reads off the global object. The bare-name list is shorter:
 // `it`, `test` or `assert` are ordinary identifiers in application code, but
@@ -363,11 +377,13 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
     return false;
   };
 
-  // The identifiers an expression's global-ness depends on (the leaves isGlobal
-  // reads), so an alias is re-checked only when one of them becomes global.
+  // The names an expression's value depends on (the leaves isGlobal, isDoc
+  // and isTainted read; `this` for a class instance), so a binding is
+  // re-checked only when one of them joins a set.
   const leaves = (node: ts.Node, out: string[]): string[] => {
     if (isWrapper(node)) return leaves(node.expression, out);
     if (ts.isIdentifier(node)) out.push(node.text);
+    else if (node.kind === ts.SyntaxKind.ThisKeyword) out.push('this');
     else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
       leaves(node.expression, out);
     else if (ts.isConditionalExpression(node)) {
@@ -378,6 +394,14 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       if (node.operatorToken.kind !== ts.SyntaxKind.CommaToken) leaves(node.left, out);
     } else if (ts.isArrayLiteralExpression(node)) {
       for (const el of node.elements) leaves(el, out);
+    } else if (ts.isSpreadElement(node) || ts.isAwaitExpression(node)) {
+      leaves(node.expression, out);
+    } else if (ts.isObjectLiteralExpression(node)) {
+      for (const prop of node.properties) {
+        if (ts.isPropertyAssignment(prop)) leaves(prop.initializer, out);
+        else if (ts.isShorthandPropertyAssignment(prop)) out.push(prop.name.text);
+        else if (ts.isSpreadAssignment(prop)) leaves(prop.expression, out);
+      }
     }
     return out;
   };
@@ -386,16 +410,25 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
   const docs = new Set<string>();
   const isDoc = (node: ts.Node) => isDocument(node, docs);
   // The names bound to a tainted value: a non-literal computed read, the
-  // global object, or a value derived from either by a member read.
+  // global object, or a value derived from either (see the edges below).
   const taint = new Set<string>();
   const isTainted = (node: ts.Node): boolean => {
     if (isWrapper(node)) return isTainted(node.expression);
     if (isGlobal(node)) return true;
     if (ts.isIdentifier(node)) return taint.has(node.text);
+    if (node.kind === ts.SyntaxKind.ThisKeyword) return taint.has('this');
     if (ts.isElementAccessExpression(node))
       return literalKey(node.argumentExpression) === null || isTainted(node.expression);
     if (ts.isPropertyAccessExpression(node)) return isTainted(node.expression);
     if (ts.isArrayLiteralExpression(node)) return node.elements.some(isTainted);
+    if (ts.isSpreadElement(node) || ts.isAwaitExpression(node)) return isTainted(node.expression);
+    if (ts.isObjectLiteralExpression(node))
+      return node.properties.some(
+        (prop) =>
+          (ts.isPropertyAssignment(prop) && isTainted(prop.initializer)) ||
+          (ts.isShorthandPropertyAssignment(prop) && taint.has(prop.name.text)) ||
+          (ts.isSpreadAssignment(prop) && isTainted(prop.expression)),
+      );
     if (ts.isConditionalExpression(node)) return isTainted(node.whenTrue) || isTainted(node.whenFalse);
     if (ts.isBinaryExpression(node) && VALUE_OPERATORS.has(node.operatorToken.kind))
       return (
@@ -406,58 +439,131 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
   };
 
   // Pass 1: binding edges in one walk. An edge binds `name` to the value
-  // reached from `expr` through `path`, the destructuring keys from the
-  // outside in (empty for a plain declaration or assignment; null for a
-  // computed key that is not a literal).
-  const edges: { name: string; expr: ts.Expression; path: (string | null)[] }[] = [];
+  // reached from `expr` through `path`, the keys from the outside in: empty
+  // for a plain binding, a key name for an object destructuring, null for a
+  // computed key that is not a literal, '#idx' for an array element or a
+  // for-of/for-in variable, '#rest' for a rest element. A `taintOnly` edge
+  // (a store into a member, a class field) feeds the taint set only.
+  type Edge = { name: string; expr: ts.Expression; path: (string | null)[]; taintOnly?: boolean };
+  const edges: Edge[] = [];
+  // The identifier (or `this`) at the root of a member chain (`o.a[b].c`).
+  const rootName = (node: ts.Expression): string | null => {
+    let n: ts.Node = node;
+    while (isWrapper(n) || ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n))
+      n = n.expression;
+    if (ts.isIdentifier(n)) return n.text;
+    if (n.kind === ts.SyntaxKind.ThisKeyword) return 'this';
+    return null;
+  };
+  const addTarget = (target: ts.Node, expr: ts.Expression, path: (string | null)[]) => {
+    if (ts.isIdentifier(target)) edges.push({ name: target.text, expr, path });
+    else if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+      const root = rootName(target);
+      if (root) edges.push({ name: root, expr, path, taintOnly: true });
+    } else if (
+      ts.isBinaryExpression(target) &&
+      target.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      // `[w = fallback] = x`, `({ a: w = fallback } = x)`: either value.
+      addTarget(target.left, expr, path);
+      addTarget(target.left, target.right, []);
+    } else addPatternEdges(target, expr, path);
+  };
   const addPatternEdges = (pattern: ts.Node, expr: ts.Expression, path: (string | null)[]) => {
-    if (ts.isObjectBindingPattern(pattern)) {
+    if (ts.isObjectBindingPattern(pattern) || ts.isArrayBindingPattern(pattern)) {
+      const array = ts.isArrayBindingPattern(pattern);
       for (const el of pattern.elements) {
-        if (el.dotDotDotToken) continue;
-        const key = keyName(el.propertyName ?? el.name);
-        if (ts.isIdentifier(el.name)) edges.push({ name: el.name.text, expr, path: [...path, key] });
-        else addPatternEdges(el.name, expr, [...path, key]);
+        if (ts.isOmittedExpression(el)) continue;
+        const key = el.dotDotDotToken
+          ? '#rest'
+          : array
+            ? '#idx'
+            : keyName(el.propertyName ?? el.name);
+        if (ts.isIdentifier(el.name)) {
+          edges.push({ name: el.name.text, expr, path: [...path, key] });
+          if (el.initializer) edges.push({ name: el.name.text, expr: el.initializer, path: [] });
+        } else addPatternEdges(el.name, expr, [...path, key]);
       }
     } else if (ts.isObjectLiteralExpression(pattern)) {
       for (const prop of pattern.properties) {
         if (ts.isShorthandPropertyAssignment(prop)) {
           edges.push({ name: prop.name.text, expr, path: [...path, prop.name.text] });
+          if (prop.objectAssignmentInitializer)
+            edges.push({ name: prop.name.text, expr: prop.objectAssignmentInitializer, path: [] });
         } else if (ts.isPropertyAssignment(prop)) {
-          const key = keyName(prop.name);
-          if (ts.isIdentifier(prop.initializer))
-            edges.push({ name: prop.initializer.text, expr, path: [...path, key] });
-          else addPatternEdges(prop.initializer, expr, [...path, key]);
+          addTarget(prop.initializer, expr, [...path, keyName(prop.name)]);
+        } else if (ts.isSpreadAssignment(prop)) {
+          addTarget(prop.expression, expr, [...path, '#rest']);
         }
+      }
+    } else if (ts.isArrayLiteralExpression(pattern)) {
+      for (const el of pattern.elements) {
+        if (ts.isOmittedExpression(el)) continue;
+        if (ts.isSpreadElement(el)) addTarget(el.expression, expr, [...path, '#rest']);
+        else addTarget(el, expr, [...path, '#idx']);
       }
     }
   };
+  const ASSIGNMENTS = new Set([
+    ts.SyntaxKind.EqualsToken,
+    ts.SyntaxKind.BarBarEqualsToken,
+    ts.SyntaxKind.QuestionQuestionEqualsToken,
+    ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ]);
+  // Whether the file reads anything that can taint (a non-literal computed
+  // read or a global object name): then every catch binding is tainted, since
+  // what a try block throws is not followed.
+  let taintSource = false;
+  const catchNames: string[] = [];
   visit(source, (node) => {
+    if (ts.isElementAccessExpression(node) && literalKey(node.argumentExpression) === null)
+      taintSource = true;
+    else if (ts.isIdentifier(node) && GLOBAL_OBJECTS.has(node.text)) taintSource = true;
+    if (ts.isCatchClause(node) && node.variableDeclaration) {
+      const collect = (name: ts.BindingName) => {
+        if (ts.isIdentifier(name)) catchNames.push(name.text);
+        else
+          for (const el of name.elements) if (!ts.isOmittedExpression(el)) collect(el.name);
+      };
+      collect(node.variableDeclaration.name);
+    }
     if (ts.isVariableDeclaration(node) && node.initializer) {
       if (ts.isIdentifier(node.name))
         edges.push({ name: node.name.text, expr: node.initializer, path: [] });
       else addPatternEdges(node.name, node.initializer, []);
-    } else if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-    ) {
-      if (ts.isIdentifier(node.left)) edges.push({ name: node.left.text, expr: node.right, path: [] });
-      else addPatternEdges(node.left, node.right, []);
+    } else if (ts.isParameter(node) && node.initializer) {
+      if (ts.isIdentifier(node.name))
+        edges.push({ name: node.name.text, expr: node.initializer, path: [] });
+      else addPatternEdges(node.name, node.initializer, []);
+    } else if (ts.isBinaryExpression(node) && ASSIGNMENTS.has(node.operatorToken.kind)) {
+      addTarget(node.left, node.right, []);
+    } else if (ts.isForOfStatement(node) || ts.isForInStatement(node)) {
+      const init = node.initializer;
+      if (ts.isVariableDeclarationList(init)) {
+        for (const decl of init.declarations) {
+          if (ts.isIdentifier(decl.name))
+            edges.push({ name: decl.name.text, expr: node.expression, path: ['#idx'] });
+          else addPatternEdges(decl.name, node.expression, ['#idx']);
+        }
+      } else addTarget(init, node.expression, ['#idx']);
+    } else if (ts.isPropertyDeclaration(node) && node.initializer) {
+      edges.push({ name: 'this', expr: node.initializer, path: [], taintOnly: true });
     }
   });
 
   // What an edge binds, for each alias set. A destructured global member is
   // global when every key is a global member and either the initializer is
   // global or a key is `defaultView` (global from any object).
-  const bindsGlobal = ({ expr, path }: (typeof edges)[number]) => {
-    if (path.some((k) => k === null || !isGlobalMember(k))) return false;
+  const bindsGlobal = ({ expr, path, taintOnly }: Edge) => {
+    if (taintOnly || path.some((k) => k === null || !isGlobalMember(k))) return false;
     return path.includes(GLOBAL_MEMBER_ANYWHERE) || isGlobal(expr);
   };
-  const bindsDocument = ({ expr, path }: (typeof edges)[number]) => {
+  const bindsDocument = ({ expr, path, taintOnly }: Edge) => {
+    if (taintOnly) return false;
     const last = path[path.length - 1];
     return path.length === 0 ? isDoc(expr) : last !== null && last !== undefined && DOCUMENT_NAMES.has(last);
   };
-  const bindsTaint = ({ expr, path }: (typeof edges)[number]) =>
-    path.includes(null) || isTainted(expr);
+  const bindsTaint = ({ expr, path }: Edge) => path.includes(null) || isTainted(expr);
 
   // Close an alias set with a worklist: each edge is checked once up front and
   // again only when one of its leaves joins the set.
@@ -469,8 +575,13 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       dependents.set(leaf, list);
     }
   });
-  const close = (set: Set<string>, binds: (edge: (typeof edges)[number]) => boolean) => {
+  const close = (set: Set<string>, binds: (edge: Edge) => boolean, seeds: string[] = []) => {
     const queue: string[] = [];
+    for (const name of seeds)
+      if (!set.has(name)) {
+        set.add(name);
+        queue.push(name);
+      }
     const settle = (i: number) => {
       const edge = edges[i]!;
       if (!set.has(edge.name) && binds(edge)) {
@@ -483,7 +594,7 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
   };
   close(globals, bindsGlobal);
   close(docs, bindsDocument);
-  close(taint, bindsTaint);
+  close(taint, bindsTaint, taintSource ? catchNames : []);
 
   const hits: Hit[] = [];
   const hit = (kind: string, node: ts.Node, blame: 'always' | 'lineOnly' | null = null) =>
@@ -859,21 +970,22 @@ export function newHits(
 }
 
 // The test-globals hits blamed on the agent. Defence in depth for the
-// text-based excuse: when a declaration of a global object name sits on an
-// added or changed line of the head, or its base line is gone (a local `top`
-// deleted or moved, so an unchanged `{ top }` now passes the real global),
-// every hit of the file is blamed. Compared by position, not by count, so a
-// move that keeps the count (delete one `top`, add a `top` parameter
-// elsewhere) is caught.
+// text-based excuse, fail closed: in a file whose base declares a global
+// object name (a local `top`, `parent` or `window`; 6 such locals in 3 files
+// of the base today), any changed line blames every hit of the file, since a
+// change anywhere can move that local out of scope (deleted, moved, wrapped
+// in a block) and turn an unchanged `{ top }` into the real global. A head
+// that adds such a declaration on a changed line is treated the same way.
 export function newTestGlobalHits(file: string, before: string, after: string): Hit[] {
   const b = parse(file, before);
   const a = parse(file, after);
   if (!a) return [];
   const added = addedLineNumbers(before, after);
   const removed = addedLineNumbers(after, before);
-  const moved =
-    globalDeclarationLines(a).some((line) => added.has(line)) ||
-    (b !== null && globalDeclarationLines(b).some((line) => removed.has(line)));
-  if (moved) return testGlobalHits(file, after);
+  const changed = added.size > 0 || removed.size > 0;
+  const blameAll =
+    (changed && b !== null && globalDeclarationLines(b).length > 0) ||
+    globalDeclarationLines(a).some((line) => added.has(line));
+  if (blameAll) return testGlobalHits(file, after);
   return newHits(testGlobalHits, file, before, after);
 }

@@ -24,6 +24,42 @@ describe('testGlobalHits', () => {
       );
   });
 
+  it('reaches an assertion API only through the taint path', () => {
+    const KIND = 'assertion API read off an untracked object';
+    for (const [content, member] of [
+      ['const w = q ?? p[k];\nw.expect(0);', 'w.expect'],
+      ['const [w] = [p[k]];\nw.expect(0);', 'w.expect'],
+      ['const { [k]: w } = p;\nw.vi.fn();', 'w.vi'],
+      ['let w;\n[w] = [p[k]];\nw.expect(0);', 'w.expect'],
+      ['const { ...w } = p[k];\nw.expect(0);', 'w.expect'],
+      ['const [...w] = [p[k]];\nw.expect(0);', 'w.expect'],
+      ['const { a = p[k] } = opts;\na.expect(0);', 'a.expect'],
+      ['const o = { a: p[k] };\no.a.expect(0);', 'o.a.expect'],
+      ['const o = { ...p[k] };\no.expect(0);', 'o.expect'],
+      ['const s = p[k];\nconst o = { s };\no.s.expect(0);', 'o.s.expect'],
+      ['let w;\nw ??= p[k];\nw.expect(0);', 'w.expect'],
+      ['let w;\nw ||= p[k];\nw.expect(0);', 'w.expect'],
+      ['let w = x;\nw &&= p[k];\nw.expect(0);', 'w.expect'],
+      ['for (const w of [p[k]]) w.expect(0);', 'w.expect'],
+      ['for (const w in p[k]) w.expect(0);', 'w.expect'],
+      ['let w;\nfor (w of [p[k]]) w.expect(0);', 'w.expect'],
+      ['function f(w = p[k]) {\n  w.expect(0);\n}', 'w.expect'],
+      ['try {\n  run(p[k]);\n} catch (w) {\n  w.expect(0);\n}', 'w.expect'],
+      ['async function f() {\n  const w = await p[k];\n  w.expect(0);\n}', 'w.expect'],
+      ['const o = {};\no.w = p[k];\no.w.expect(0);', 'o.w.expect'],
+      ['class C {\n  w = p[k];\n  m() {\n    this.w.expect(0);\n  }\n}', 'this.w.expect'],
+      ['class C {\n  m() {\n    this.w = p[k];\n    this.w.chai.use(x);\n  }\n}', 'this.w.chai'],
+    ])
+      expect(kinds(content!), content).toContain(`${KIND}: ${member}`);
+    // Untainted receivers stay accepted.
+    for (const content of [
+      'const w = q ?? fallback;\nw.expect(0);',
+      'const [w] = [res];\nw.expect(200);',
+      'try {\n  run();\n} catch (w) {\n  w.expect(0);\n}',
+    ])
+      expect(kinds(content), content).toEqual([]);
+  });
+
   it('marks computed and reflective reads to be blamed on any change', () => {
     const hits = testGlobalHits('lib/x.ts', "const w = document[k];\nReflect.get(document, 'x');");
     expect(hits.map((h) => h.always)).toEqual([true, true]);

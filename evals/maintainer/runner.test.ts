@@ -594,7 +594,8 @@ describe('tamperViolations', () => {
     ).toContainEqual(expect.stringContaining('test global'));
   });
 
-  it('excuses base locals named like a global on unchanged lines of real app files', () => {
+  it('blames any change to a real app file whose base declares a global-name local', () => {
+    const grader = { grader: { hidden: [], preserved: [] } };
     for (const file of [
       'lib/progress-photo.ts',
       'components/progress/body-paths.ts',
@@ -603,15 +604,44 @@ describe('tamperViolations', () => {
       const before = readFileSync(path.join(__dirname, '..', '..', file), 'utf8');
       // The base has hits of its own (locals named parent or top)...
       expect(testGlobalHits(file, before).length, file).toBeGreaterThan(0);
-      // ...which an unrelated added line does not blame on the agent.
-      const after = `${before}\nexport const zzAdded = 1;\n`;
+      // ...excused while the file is unchanged...
       expect(
-        tamperViolations([{ ...ch(file, addedLines(before, after)), source: { before, after } }], {
-          grader: { hidden: [], preserved: [] },
-        }),
+        tamperViolations([{ ...ch(file, ''), source: { before, after: before } }], grader),
         file,
       ).toEqual([]);
+      // ...and all blamed on any change: the change can move the local out of
+      // scope without touching its line.
+      const after = `${before}\nexport const zzAdded = 1;\n`;
+      expect(
+        tamperViolations(
+          [{ ...ch(file, addedLines(before, after)), source: { before, after } }],
+          grader,
+        ),
+        file,
+      ).toContainEqual(expect.stringContaining('test global'));
     }
+  });
+
+  it('blames a global-name local moved out of scope by a new block', () => {
+    const before =
+      'export function center(list: HTMLElement, element: HTMLElement) {\n' +
+      '  const top = element.offsetTop - list.clientHeight / 2;\n' +
+      "  list.scrollTo?.({ top, behavior: 'smooth' });\n" +
+      '}\n';
+    const after =
+      'export function center(list: HTMLElement, element: HTMLElement) {\n' +
+      '  {\n' +
+      '  const top = element.offsetTop - list.clientHeight / 2;\n' +
+      '  }\n' +
+      '  (list as any).scrollTo = (o: any) => { const h = o.top[a + b]; h(fn); };\n' +
+      "  list.scrollTo?.({ top, behavior: 'smooth' });\n" +
+      '}\n';
+    expect(
+      tamperViolations(
+        [{ ...ch('components/x.tsx', addedLines(before, after)), source: { before, after } }],
+        task,
+      ),
+    ).toContainEqual(expect.stringContaining('test global'));
   });
 
   it('screens a long reverse-ordered alias chain in linear time', () => {
