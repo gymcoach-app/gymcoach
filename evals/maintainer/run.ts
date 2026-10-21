@@ -1041,7 +1041,7 @@ function readChanges(pristine: string, work: string, before: Map<string, TreeEnt
     const basePath = path.join(pristine, c.file);
     const base =
       existsSync(basePath) && lstatSync(basePath).isFile() ? readFileSync(basePath, 'utf8') : '';
-    return { ...c, content: addedLines(base, after) };
+    return { ...c, content: addedLines(base, after), source: { before: base, after } };
   });
 }
 

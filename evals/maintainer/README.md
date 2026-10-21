@@ -29,8 +29,9 @@ npx tsx evals/maintainer/run.ts --task <id> \
 [`runner.ts`](runner.ts). The container and network containment it was waiting
 for (issue #453) is in place and proven below. Grading validity is not: the
 harness canary is a tripwire that catches the known in-process cheats, not a
-guarantee, and two concrete bypasses are known (issue #468, "Residual risks"
-below). **`PAID_AGENT_ENABLED` must stay `false` until #468 is closed or the
+guarantee, and concrete bypasses are known (issue #468, "Residual risks"
+below; part (b), the lexical `test-globals` rule, is closed by its syntax-tree
+screen, part (a) is still open). **`PAID_AGENT_ENABLED` must stay `false` until #468 is closed or the
 operator explicitly accepts those risks.** Even then, a paid run's result is
 audited by a diff review of the agent's patch before it is counted: grading
 alone cannot prove the absence of grader tampering. A paid run needs all of:
@@ -249,10 +250,21 @@ generate` runs in a container with no network.
      `defineProperty`, `defineProperties`, `setPrototypeOf`, `assign` or `set`
      on a built-in, a global or a prototype;
    - hooking the process exit or its output streams;
-   - calling a test global or hook by its bare name from application code
-     (`expect`, `vi`, `beforeEach`, `afterEach`, ...). This rule is lexical: it
-     does not match a property access such as `globalThis.beforeEach`, so it
-     does not stop a cheat from registering hooks (issue #468);
+   - calling a test global or hook from application code (`expect`, `vi`,
+     `beforeEach`, `afterEach`, ...). A regex catches the bare name used as a
+     call or a member; a syntax-tree screen ([`test-globals.ts`](test-globals.ts),
+     issue #468 part b) parses the whole changed file and also catches one
+     reached through the global object (`globalThis.beforeEach`,
+     `self['afterEach']`), a global object indexed by a non-literal key
+     (`globalThis['after' + 'Each']`), aliases by name (`const g = globalThis`,
+     casts, `??`, `globalThis.window`), destructuring
+     (`const { afterEach } = globalThis`), the global object handed on where it
+     cannot be followed (a call argument such as `Reflect.get(globalThis, k)`,
+     a spread, a return, an export) and a test global taken as a value
+     (`const h = afterEach`). Only what the base does not already contain is
+     blamed. It does not follow a global object obtained some other way (the
+     module-system rule covers eval and the Function constructor) or imported
+     from a module it does not read;
    - importing a file system, process or low-level runtime module (`fs`,
      `fs/promises`, `child_process`, `worker_threads`, `cluster`, `inspector`,
      `v8`, `wasi`, `repl`);
@@ -467,8 +479,8 @@ does **not** catch (see residual risks and issue #468): application code that
 special-cases the hidden tests' own inputs; tampering with a global or a
 built-in member outside the record, in particular one that misbehaves only
 when its caller is a hidden test; and a change installed and fully undone
-between two checks, for example by test hooks registered through a property
-access the lexical `test-globals` rule does not match.
+between two checks, for example by test hooks reached in a way the
+`test-globals` regex and syntax-tree screen do not name.
 
 `--agent tamper-inprocess` and `--agent tamper-selective` are the self-checks.
 `tamper-selective` replays the two cheats of the round-5 review: B, lenient
@@ -510,11 +522,14 @@ What a paid run would still accept, stated plainly:
     misbehaves only when the call stack shows a hidden test location; the
     canary's probes run from elsewhere and stay honest, so an incomplete fix
     can pass with the canary `ok`;
-  - **test hooks registered through a property access** (known bypass, issue
-    #468). The `test-globals` rule matches bare names only, so code that
-    reaches the hook functions through `globalThis` can patch a matcher before
-    each test and restore it after, ordered so the restore runs before the
-    canary's own check;
+  - **test hooks reached in a way the static screen does not name.** Until
+    #468 part (b) the `test-globals` rule matched bare names only, so hooks
+    reached through `globalThis` could patch a matcher before each test and
+    restore it after, ordered so the restore runs before the canary's own
+    check. The syntax-tree screen now catches member, computed, aliased and
+    destructured access and the global object handed on; a global object
+    obtained in a form it does not name (outside the module-system rule) stays
+    open;
   - any other change installed and fully undone between two checks.
 
   These stay a validity risk within one run, which is why a paid run's result
