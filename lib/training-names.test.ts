@@ -5,7 +5,7 @@ describe('getTrainingDisplayName', () => {
   it('keeps stored names unchanged in English and unsupported locales', () => {
     const name = 'Day 2 · Day 1';
     expect(getTrainingDisplayName(name, 'en')).toBe(name);
-    expect(getTrainingDisplayName(name, 'de')).toBe(name);
+    expect(getTrainingDisplayName(name, 'es')).toBe(name);
   });
 
   it('localizes imported day, week and plan names for display', () => {
@@ -35,6 +35,20 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'fr')).toBe(
       'Corps entier · Jour 1 · Hybride corps entier',
     );
+  });
+
+  it('localizes imported names into German with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'de')).toBe(
+      'Tag 3 · Woche 5 · Neuer Plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'de')).toBe(
+      'Neuer Plan · 1 Woche (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 2 weeks', 'de')).toBe('Neuer Plan · 2 Wochen');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'de')).toBe(
+      'Ganzkörper · Tag 1 · Ganzkörper-Hybrid',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'de')).toBe('Oberkörper · Unterkörper');
   });
 
   it('localizes common imported split names', () => {

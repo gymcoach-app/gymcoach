@@ -57,11 +57,7 @@ export function HistoryCalendar({
   const [isPending, startTransition] = useTransition();
 
   const month = useMemo(() => parseMonthKey(monthKey), [monthKey]);
-  const weekStartsOn: 0 | 1 = MONDAY_FIRST_LOCALES.some((prefix) =>
-    locale.toLowerCase().startsWith(prefix),
-  )
-    ? 1
-    : 0;
+  const weekStartsOn = weekStartsOnForLocale(locale);
   const cells = useMemo(() => buildMonthGrid(month, weekStartsOn), [month, weekStartsOn]);
   const todayKey = dateKeyInTimeZone(new Date(), timeZone);
 
@@ -342,7 +338,14 @@ export function HistoryCalendar({
   );
 }
 
-const MONDAY_FIRST_LOCALES = ['ru', 'fr'];
+// An explicit list rather than Intl.Locale weekInfo: that API is missing from
+// some runtimes, and server and client must agree on the grid to hydrate.
+const MONDAY_FIRST_LOCALES = ['ru', 'fr', 'de'];
+
+export function weekStartsOnForLocale(locale: string): 0 | 1 {
+  const normalized = locale.toLowerCase();
+  return MONDAY_FIRST_LOCALES.some((prefix) => normalized.startsWith(prefix)) ? 1 : 0;
+}
 const DATE_LABEL_FORMAT = {
   weekday: 'long',
   day: 'numeric',

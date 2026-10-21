@@ -62,7 +62,7 @@ export const programs = {
     saveError: 'Einheit konnte nicht gespeichert werden.',
     deleteError: 'Einheit konnte nicht gelöscht werden.',
     deleteConfirm: 'Die Einheit "{name}" und alle ihre Übungen löschen?',
-    namePlaceholder: 'z.B. Oberkörper - Oberkörper',
+    namePlaceholder: 'z.B. Upper - Oberkörper',
     day: 'Tag (optional)',
     flexible: 'Flexibel',
     empty: 'Keine programmierten Übungen. Nutze die Schaltfläche unten, um welche hinzuzufügen.',

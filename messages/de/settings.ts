@@ -3,7 +3,7 @@ import type { MessageShape } from '@/i18n/message-types';
 
 export const settings = {
   title: 'Einstellungen',
-  account: 'Account',
+  account: 'Konto',
   appearance: 'Erscheinungsbild',
   session: 'Einheit',
   deviceOnly: 'Diese Einstellungen werden nur auf diesem Gerät gespeichert.',

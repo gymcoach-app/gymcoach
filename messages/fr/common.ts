@@ -66,7 +66,7 @@ export const common = {
   language: {
     label: 'Langue',
     change: 'Changer de langue',
-    description: 'Choisissez la langue de l\'interface GymCoach.',
+    description: 'Choisissez la langue de l’interface GymCoach.',
     english: 'Anglais',
     french: 'Français',
     russian: 'Russe',

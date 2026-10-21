@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { HistoryCalendar, type HistoryCalendarSession } from './history-calendar';
+import {
+  HistoryCalendar,
+  weekStartsOnForLocale,
+  type HistoryCalendarSession,
+} from './history-calendar';
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -170,5 +174,19 @@ describe('HistoryCalendar', () => {
     expect(params.get('programId')).toBe('program-1');
     expect(params.get('tz')).toBe(browserZone);
     expect(params.has('day')).toBe(false);
+  });
+});
+
+describe('weekStartsOnForLocale', () => {
+  it('starts weeks on Monday for French, Russian and German', () => {
+    expect(weekStartsOnForLocale('fr')).toBe(1);
+    expect(weekStartsOnForLocale('ru')).toBe(1);
+    expect(weekStartsOnForLocale('de')).toBe(1);
+    expect(weekStartsOnForLocale('de-AT')).toBe(1);
+  });
+
+  it('starts weeks on Sunday for English', () => {
+    expect(weekStartsOnForLocale('en')).toBe(0);
+    expect(weekStartsOnForLocale('en-US')).toBe(0);
   });
 });
