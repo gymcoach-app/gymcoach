@@ -1351,9 +1351,13 @@ export function newCanary(hiddenFiles: readonly string[] = []): Canary {
 // Vitest's JSON reporter output, reduced to the counts the outcome needs and
 // the canary's state. An unreadable or missing report yields nulls: that is an
 // infrastructure error.
+// copies is how many canary tests the run includes (the root one plus one per
+// hidden-test directory, canaryTestPaths): each must report a passing result
+// with the nonce, or the canary is missing.
 export function summariseVitestReport(
   raw: string | null,
   nonce: string,
+  copies = 1,
 ): {
   passed: number | null;
   failed: number | null;
@@ -1369,7 +1373,7 @@ export function summariseVitestReport(
       ? (report.testResults as { message?: unknown; assertionResults?: unknown }[])
       : [];
     const title = `${CANARY_TITLE} ${nonce}`;
-    let found = false;
+    let found = 0;
     let failed = false;
     for (const file of files) {
       if (typeof file.message === 'string' && file.message.includes(CANARY_FAILURE)) failed = true;
@@ -1387,8 +1391,8 @@ export function summariseVitestReport(
         )
           failed = true;
         if (t.title === title) {
-          found = true;
-          if (t.status !== 'passed') failed = true;
+          if (t.status === 'passed') found += 1;
+          else failed = true;
         }
       }
     }
@@ -1396,7 +1400,7 @@ export function summariseVitestReport(
       passed: num('numPassedTests'),
       failed: num('numFailedTests'),
       failedSuites: num('numFailedTestSuites'),
-      canary: failed ? 'failed' : found ? 'ok' : 'missing',
+      canary: failed ? 'failed' : found >= Math.max(1, copies) ? 'ok' : 'missing',
     };
   } catch {
     return unreadable;

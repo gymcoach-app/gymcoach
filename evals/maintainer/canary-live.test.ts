@@ -35,6 +35,7 @@ const require = createRequire(import.meta.url);
 const NODE_MODULES = path.dirname(path.dirname(require.resolve('vitest/package.json')));
 const VITEST = path.join(NODE_MODULES, 'vitest', 'vitest.mjs');
 const HIDDEN = 'lib/add.test.ts';
+const DOUBLES = 'lib/doubles.test.ts';
 const ID = 'c0ffee000468';
 const NONCE = '0468'.repeat(8);
 
@@ -46,15 +47,23 @@ export function total(xs: number[]): { sum: number } {
   for (const x of xs) sum += x;
   return { sum };
 }
+export function rounded(x: number): number {
+  return Math.round(x);
+}
 `;
 
-// Off by one: add (checked with toBe) or total (checked with toEqual).
+// Off by one: add (checked with toBe), total (checked with toEqual) or rounded
+// (rounds down).
 const BROKEN_ADD = FIXED.replace('return a + b;', 'return a + b + 1;');
 const BROKEN_TOTAL = FIXED.replace('return { sum };', 'return { sum: sum + 1 };');
-const BROKEN = BROKEN_ADD.replace('return { sum };', 'return { sum: sum + 1 };');
+const BROKEN_ROUND = FIXED.replace('return Math.round(x);', 'return Math.floor(x);');
+const BROKEN = BROKEN_ADD.replace('return { sum };', 'return { sum: sum + 1 };').replace(
+  'return Math.round(x);',
+  'return Math.floor(x);',
+);
 
 const HIDDEN_TEST = `import { expect, it } from 'vitest';
-import { add, total } from './add';
+import { add, rounded, total } from './add';
 
 it('adds', () => {
   expect(add(1, 1)).toBe(2);
@@ -68,6 +77,37 @@ it('renders', () => {
   document.body.innerHTML = '<p>sum</p>';
   expect(document.querySelector('p')).toHaveTextContent('sum');
 });
+
+it('rounds', () => {
+  expect(rounded(2.6)).toBe(Math.round(2.6));
+});
+`;
+
+// A second hidden test, in the honest run only: the test doubles a hidden test
+// may legitimately use (a spy on a built-in, a stubbed global, fake timers),
+// checked by the canary from inside the test, must not raise an alarm.
+const DOUBLES_TEST = `import { expect, it, vi } from 'vitest';
+import { add } from './add';
+
+it('uses test doubles', () => {
+  const random = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+  vi.stubGlobal('fetch', vi.fn());
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+  expect(Math.random()).toBe(0.25);
+  expect(typeof fetch).toBe('function');
+  expect(new Date().getUTCFullYear()).toBe(2026);
+  expect(add(1, 1)).toBe(2);
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  random.mockRestore();
+});
+
+it('leaves a spy in place until the end of the test', () => {
+  vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  expect(Math.random()).toBe(0.5);
+  vi.restoreAllMocks();
+});
 `;
 
 // Bypass 1 of #468: a standard built-in the old identity record did not list
@@ -79,6 +119,15 @@ const tamperO = Object as unknown as { hasOwn: (o: object, k: PropertyKey) => bo
 const tamperHasOwn = tamperO.hasOwn;
 tamperO.hasOwn = (o: object, k: PropertyKey) =>
   /add[.]test[.]ts/.test(new Error().stack ?? '') ? false : tamperHasOwn(o, k);
+`;
+
+// A built-in that no probe and no named target covers (Math.round), made to
+// lie only for the hidden test file: only the strict full record sees it.
+const SELECTIVE_ROUND = `
+const tamperM = Math as unknown as { round: (x: number) => number };
+const tamperRound = tamperM.round;
+tamperM.round = (x: number) =>
+  /add[.]test[.]ts/.test(new Error().stack ?? '') ? Math.floor(x) : tamperRound(x);
 `;
 
 // Bypass 2 of #468: a hook pair registered through member access on the
@@ -123,6 +172,21 @@ const MICROTASK_UNDO = FIXED.replace(
 
 interface Scenario {
   add: string;
+  doubles?: boolean;
+}
+
+// At most two vitest processes at a time: each is a full vitest run.
+let running = 0;
+const waiting: (() => void)[] = [];
+async function limited<T>(fn: () => Promise<T>): Promise<T> {
+  if (running >= 2) await new Promise<void>((resolve) => waiting.push(resolve));
+  running += 1;
+  try {
+    return await fn();
+  } finally {
+    running -= 1;
+    waiting.shift()?.();
+  }
 }
 
 const dirs: string[] = [];
@@ -139,9 +203,16 @@ function write(root: string, file: string, content: string | Buffer): void {
 // config, the hidden test plus the canary tests, the JSON report summarised
 // and turned into an outcome. With canary false, the base config alone: the
 // control that shows a cheat really makes its broken fix pass.
-async function grade(
+function grade(
   s: Scenario,
   canary = true,
+): Promise<{ run: TestRun; outcome: string; messages: string }> {
+  return limited(() => gradeNow(s, canary));
+}
+
+async function gradeNow(
+  s: Scenario,
+  canary: boolean,
 ): Promise<{ run: TestRun; outcome: string; messages: string }> {
   const root = mkdtempSync(path.join(tmpdir(), 'gymcoach-canary-'));
   dirs.push(root);
@@ -160,9 +231,12 @@ async function grade(
   write(root, 'messages.ts', `export const messages = { hello: 'Hello' };\n`);
   write(root, 'lib/add.ts', s.add);
   write(root, HIDDEN, HIDDEN_TEST);
-  const files = canaryFiles(ID, [HIDDEN]);
+  const hidden = s.doubles ? [HIDDEN, DOUBLES] : [HIDDEN];
+  if (s.doubles) write(root, DOUBLES, DOUBLES_TEST);
+  const files = canaryFiles(ID, hidden);
   for (const [file, content] of files) write(root, file, content);
   const p = canaryPaths(ID);
+  const copies = canaryTestPaths(ID, hidden);
   const args = [
     VITEST,
     'run',
@@ -170,8 +244,8 @@ async function grade(
     canary ? p.unitConfig : 'vitest.config.ts',
     '--reporter=json',
     '--outputFile=report.json',
-    HIDDEN,
-    ...(canary ? [p.test, ...canaryTestPaths(ID, [HIDDEN])] : []),
+    ...hidden,
+    ...(canary ? [p.test, ...copies] : []),
   ];
   const exitCode = await new Promise<number | null>((resolve) => {
     const child = spawn(process.execPath, args, {
@@ -191,30 +265,33 @@ async function grade(
   const raw = existsSync(report) ? readFileSync(report, 'utf8') : null;
   const run: TestRun = {
     tier: 'unit',
-    files: [HIDDEN],
+    files: hidden,
     exitCode,
-    ...summariseVitestReport(raw, NONCE),
+    ...summariseVitestReport(raw, NONCE, 1 + copies.length),
   };
   const outcome = decideOutcome({ hidden: [run], preserved: [], infraErrors: [] });
   return { run, outcome, messages: raw ?? '' };
 }
 
 describe('harness canary, live (#468 part a)', () => {
-  // Built once, graded in parallel: each run is its own vitest process.
+  // Built once, graded two at a time: each run is its own vitest process.
   const cheats = {
     selective: { add: BROKEN_TOTAL + SELECTIVE_BUILTIN },
+    round: { add: BROKEN_ROUND + SELECTIVE_ROUND },
     hookPair: { add: BROKEN_ADD + HOOK_PAIR },
     microtask: { add: MICROTASK_UNDO },
   };
   const runs = {
-    clean: grade({ add: FIXED }),
+    clean: grade({ add: FIXED, doubles: true }),
     broken: grade({ add: BROKEN }),
     selective: grade(cheats.selective),
+    round: grade(cheats.round),
     hookPair: grade(cheats.hookPair),
     microtask: grade(cheats.microtask),
   };
   const controls = {
     selective: grade(cheats.selective, false),
+    round: grade(cheats.round, false),
     hookPair: grade(cheats.hookPair, false),
     microtask: grade(cheats.microtask, false),
   };
@@ -224,33 +301,53 @@ describe('harness canary, live (#468 part a)', () => {
       const { run } = await control;
       expect({ name, passed: run.passed, failed: run.failed }).toEqual({
         name,
-        passed: 3,
+        passed: 4,
         failed: 0,
       });
     }
-  }, 120_000);
+  }, 300_000);
 
-  it('passes the correct fix with the canary ok (no false alarm with jest-dom and a DOM)', async () => {
-    const { run, outcome } = await runs.clean;
+  it('passes the correct fix with the canary ok (no false alarm with jest-dom, spies, stubs and fake timers)', async () => {
+    const { run, outcome, messages } = await runs.clean;
     expect(run.canary).toBe('ok');
-    expect(run.passed).toBeGreaterThan(3);
+    // 4 + 2 hidden tests and the root canary test plus its lib/ copy.
+    expect(run.passed).toBe(8);
     expect(outcome).toBe('pass');
-  }, 120_000);
+    // Each copy of the canary test reported its own passing result.
+    const report = JSON.parse(messages) as {
+      testResults: { name: string; assertionResults: { title: string; status: string }[] }[];
+    };
+    const ran = report.testResults
+      .filter((f) =>
+        f.assertionResults.some((t) => t.title.endsWith(NONCE) && t.status === 'passed'),
+      )
+      .map((f) => path.basename(path.dirname(f.name)) + '/' + path.basename(f.name))
+      .sort();
+    expect(ran).toHaveLength(2);
+    expect(ran).toContain(`lib/x${ID}.test.ts`);
+  }, 300_000);
 
   it('fails the broken fix on its own merits, the canary ok', async () => {
     const { run, outcome } = await runs.broken;
     expect(run.canary).toBe('ok');
     expect(run.failed).toBeGreaterThan(0);
     expect(outcome).toBe('fail');
-  }, 120_000);
+  }, 300_000);
 
   it('fails a built-in made to misbehave only for the hidden test (bypass 1)', async () => {
     const { run, outcome, messages } = await runs.selective;
     expect(run.canary).toBe('failed');
-    expect(messages).toContain(CANARY_FAILURE);
-    expect(messages).toContain('Object.hasOwn');
+    // Caught by the record (by identity), not only by the probes.
+    expect(messages).toContain('changed since before the base setup: Object.hasOwn');
     expect(outcome).toBe('fail');
-  }, 120_000);
+  }, 300_000);
+
+  it('fails a built-in no probe covers, made to lie only for the hidden test (full record)', async () => {
+    const { run, outcome, messages } = await runs.round;
+    expect(run.canary).toBe('failed');
+    expect(messages).toContain('changed since before the base setup: Math.round');
+    expect(outcome).toBe('fail');
+  }, 300_000);
 
   it('fails a hook pair registered through member access (bypass 2)', async () => {
     const { run, outcome, messages } = await runs.hookPair;
@@ -261,7 +358,7 @@ describe('harness canary, live (#468 part a)', () => {
     expect(messages).not.toContain(`${CANARY_FAILURE} (before a test)`);
     expect(messages).not.toContain(`${CANARY_FAILURE} (after a test)`);
     expect(outcome).toBe('fail');
-  }, 120_000);
+  }, 300_000);
 
   it('fails a matcher patched inside a test and restored in a microtask', async () => {
     const { run, outcome, messages } = await runs.microtask;
@@ -269,5 +366,5 @@ describe('harness canary, live (#468 part a)', () => {
     expect(messages).toContain(`${CANARY_FAILURE} (inside a test)`);
     expect(messages).toContain('chai.Assertion.prototype.toBe');
     expect(outcome).toBe('fail');
-  }, 120_000);
+  }, 300_000);
 });

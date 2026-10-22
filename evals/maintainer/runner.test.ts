@@ -1156,6 +1156,24 @@ describe('the canary', () => {
     expect(files.get(p.test)!.toString()).toContain("check('inside a test')");
   });
 
+  it('requires a passing canary result from every copy of the canary test', () => {
+    const nonce = 'a'.repeat(32);
+    const title = `${CANARY_TITLE} ${nonce}`;
+    const report = (...statuses: string[]) =>
+      JSON.stringify({
+        numPassedTests: statuses.length,
+        numFailedTests: 0,
+        numFailedTestSuites: 0,
+        testResults: statuses.map((status) => ({
+          assertionResults: [{ title, status, failureMessages: [] }],
+        })),
+      });
+    expect(summariseVitestReport(report('passed', 'passed'), nonce, 2).canary).toBe('ok');
+    expect(summariseVitestReport(report('passed'), nonce, 2).canary).toBe('missing');
+    expect(summariseVitestReport(report('passed', 'failed'), nonce, 2).canary).toBe('failed');
+    expect(summariseVitestReport(report('passed'), nonce).canary).toBe('ok');
+  });
+
   it('also runs the canary test from every directory that holds a hidden test', () => {
     expect(canaryTestPaths('abc', ['lib/a.test.ts', 'lib/b.test.ts', 'components/x/c.test.tsx'])).toEqual([
       'components/x/xabc.test.ts',
