@@ -61,6 +61,7 @@ import {
   planGrade,
   staleEvalResources,
   sameDependencies,
+  skippedTests,
   summariseVitestReport,
   tamperViolations,
   type Canary,
@@ -553,6 +554,7 @@ async function runTests(
     files: group.files,
     exitCode: run.status,
     ...summariseVitestReport(raw, canary.nonce, 1 + copies.length),
+    skipped: skippedTests(raw),
   };
 }
 

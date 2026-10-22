@@ -185,6 +185,9 @@ export const testRunSchema = z
     passed: z.number().int().nonnegative().nullable(),
     failed: z.number().int().nonnegative().nullable(),
     failedSuites: z.number().int().nonnegative().nullable(),
+    // Skipped plus todo tests in the report (runner.ts summariseVitestReport):
+    // any is a fail. Optional so results recorded before #503 still parse.
+    skipped: z.number().int().nonnegative().nullable().optional(),
     // The harness canary (runner.ts canaryFiles) in this run: ok (its test
     // passed with this run's nonce and no file reported an integrity
     // failure), failed, missing (no canary test with the nonce in the report),

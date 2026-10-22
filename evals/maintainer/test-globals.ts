@@ -72,10 +72,11 @@ import ts from 'typescript';
 // `.jsx` files parse as TSX, every other script as TS (JavaScript is a subset
 // for this purpose).
 //
-// Limits: a screen, not a proof. A global object obtained some other way
-// (eval, the Function constructor, a constructor chain) is left to the
-// module-system rule; one imported from a module outside the screened files is
-// not followed. The main residual: a non-literal read of an object the screen
+// Limits: a screen, not a proof. A `constructor` read is reported on any
+// receiver (any function's constructor is the Function constructor); a direct
+// eval or Function call is left to the module-system rule. A global object
+// obtained some other way, or imported from a module outside the screened
+// files, is not followed. The main residual: a non-literal read of an object the screen
 // does not track, stored in a variable and then used (called, read, or passed
 // on): `const h = o[k]; h(fn)`, and any taint path the list below does not
 // name. Only part (a)'s runtime probes and the mandatory diff review of a
@@ -762,6 +763,13 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       const bareUse = ts.isIdentifier(node) && isValueReference(node);
       if (!bareUse) hit('test global hook named on any receiver', p ?? node);
     }
+    // `constructor` read as a member, key, destructuring key or string: any
+    // function's constructor is the Function constructor, which builds code
+    // that returns the global object without naming it (`(() => 0).constructor`,
+    // review of #503). A class's own constructor declaration has no name node,
+    // so it is not reported.
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && node.text === 'constructor')
+      hit('constructor read (reaches the Function constructor)', node.parent ?? node);
     if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && REFLECTIVE_NAMES.has(node.text))
       hit('reflective property read (test global reachable)', node.parent ?? node, 'always');
     if (ts.isElementAccessExpression(node) && literalKey(node.argumentExpression) === null) {

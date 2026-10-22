@@ -529,8 +529,10 @@ export function groupByTier(files: string[]): { tier: 'unit' | 'integration'; fi
 // replays the #468 bypasses against it on every gate run.
 //
 // What it does not cover (residual risks in the README, issue #468):
-// application code that special-cases the hidden tests' own inputs; state no
-// global reaches (a closure inside vitest or a library); own properties of
+// application code that special-cases the hidden tests' own inputs; vitest's
+// worker state beyond the running test's flags and verdict (guardTask holds
+// those; the report channel to the main process is not guarded), and state no
+// global reaches (a closure inside chai or a library); own properties of
 // host instances (document, navigator) and global bindings that hold plain
 // functions (getComputedStyle, matchMedia), which the tests themselves stub;
 // a host built-in (DOM, Node) changed and restored inside one test between
@@ -1191,6 +1193,57 @@ export function startTest(): void {
   readsThisTest = 0;
 }
 
+// The runner reads a test's task object after the body has run: \`fails\` flips
+// the verdict, \`retry\` and \`repeats\` rerun it, and \`result.state\` is the
+// verdict itself. Code under test can reach that object through the worker
+// state on the global object (review of #503), so before each test the flags
+// are fixed to their declared values and the verdict is held: once a test has
+// failed, nothing but the runner's own retry (a declared retry) or a declared
+// \`fails\` flip can turn it back, and a replaced result object is refused unless
+// it is the runner's skip shape (which grading counts as a fail). A refused
+// change is a canary failure. Hidden tests declare none of these (a grader
+// self-check, runner.test.ts), so a hidden test that fails stays failed.
+export function guardTask(task: Record<string, unknown>): void {
+  for (const key of ['fails', 'retry', 'repeats']) {
+    defineProperty(task, key, { value: task[key], writable: false, configurable: false, enumerable: true });
+  }
+  const declaredFails = task.fails === true;
+  const declaredRetry = typeof task.retry === 'number' ? task.retry > 0 : task.retry != null;
+  const refuse = (what: string) => {
+    sticky = FAIL + ' (inside a test): ' + what;
+  };
+  const hold = (result: Record<string, unknown>) => {
+    let state = result.state;
+    defineProperty(result, 'state', {
+      get: () => state,
+      set: (next: unknown) => {
+        if (state === 'fail' && next !== 'fail') {
+          const allowed = (next === 'pass' && declaredFails) || (next === 'run' && declaredRetry);
+          if (!allowed) return refuse('a failed test was turned to ' + toStr(next));
+        }
+        state = next;
+      },
+      enumerable: true,
+      configurable: false,
+    });
+    return result;
+  };
+  const initial = task.result;
+  if (initial === null || typeof initial !== 'object') return refuse('the test has no result');
+  let current = hold(initial as Record<string, unknown>);
+  defineProperty(task, 'result', {
+    get: () => current,
+    set: (next: unknown) => {
+      const n = next as Record<string, unknown> | null;
+      const skipShape = n !== null && typeof n === 'object' && n.state === 'skip' && n.pending === true;
+      if (!skipShape || current.state === 'fail') return refuse('the test result was replaced');
+      current = n;
+    },
+    enumerable: true,
+    configurable: false,
+  });
+}
+
 export function check(where: string): void {
   if (sticky) throw new Error(sticky);
   busy = true;
@@ -1291,11 +1344,12 @@ export function canaryFiles(id: string, hiddenFiles: readonly string[] = []): Ma
   const setup =
     head +
     `import { afterAll, afterEach, assert, beforeAll, beforeEach, chai, expect, vi } from 'vitest';\n` +
-    `import { check, startTest } from './${p.guard}';\n` +
+    `import { check, guardTask, startTest } from './${p.guard}';\n` +
     CANARY_PROBE +
     `check('after the base setup');\n` +
     `probe('after the base setup');\n` +
     `beforeAll(() => check('before the file'));\n` +
+    `beforeEach((context) => guardTask(context.task as unknown as Record<string, unknown>));\n` +
     `beforeEach(() => startTest());\n` +
     `beforeEach(() => check('before a test'));\n` +
     `afterEach(() => check('after a test'));\n` +
@@ -1407,6 +1461,24 @@ export function summariseVitestReport(
   }
 }
 
+// Skipped plus todo tests in a vitest JSON report, or null when the report is
+// missing or unreadable. A skipped test is never a pass: graded tests declare
+// no skip or todo (grader self-check in runner.test.ts), so one in the report
+// was skipped at run time, for example through the worker state (review of
+// #503).
+export function skippedTests(raw: string | null): number | null {
+  if (raw === null) return null;
+  try {
+    const report = JSON.parse(raw) as Record<string, unknown>;
+    const pending = report.numPendingTests;
+    const todo = report.numTodoTests;
+    if (typeof pending !== 'number' || typeof todo !== 'number') return null;
+    return pending + todo;
+  } catch {
+    return null;
+  }
+}
+
 // A run passes only with a report of at least one passing test, no failure, and
 // a zero exit: vitest exits non-zero on an unhandled error even when every
 // counted test passed.
@@ -1416,7 +1488,8 @@ function runPassed(run: TestRun): boolean {
     run.passed !== null &&
     run.passed > 0 &&
     run.failed === 0 &&
-    run.failedSuites === 0
+    run.failedSuites === 0 &&
+    (run.skipped === undefined || run.skipped === 0)
   );
 }
 
@@ -1431,7 +1504,9 @@ export function canaryViolations(runs: (TestRun & { label: string })[]): string[
 }
 
 function runUnreadable(run: TestRun): boolean {
-  return run.passed === null || run.failed === null || run.failedSuites === null;
+  return (
+    run.passed === null || run.failed === null || run.failedSuites === null || run.skipped === null
+  );
 }
 
 // pass only when every hidden and preserved run produced a report with no

@@ -35,6 +35,7 @@ import {
   VITEST_CLI,
   sameDependencies,
   staleEvalResources,
+  skippedTests,
   summariseVitestReport,
   tamperViolations,
   PAID_AGENT_DISABLED_REASON,
@@ -827,6 +828,26 @@ describe('tamperViolations', () => {
       }
     }
   });
+
+  // Grading counts a skipped or todo test as a fail and the canary fixes each
+  // test's fails, retry and repeats flags to what it declares (runner.ts
+  // guardTask, review of #503): that holds only if the graded tests declare
+  // none of them, so a skip, a fails flip or a retry in a report can only come
+  // from code under test.
+  it.runIf(historyAvailable)('grades only tests that declare no skip, todo, fails, only or retry', () => {
+    const declared =
+      /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\b(?:context|ctx)\s*\.\s*skip\s*\(|\bretry\s*:|\brepeats\s*:/;
+    for (const t of committed) {
+      const graded: [string, string][] = [
+        ...t.grader.hidden.map((f): [string, string] => [t.snapshot.fixSha, f]),
+        ...t.grader.preserved.map((f): [string, string] => [t.snapshot.baseSha, f]),
+      ];
+      for (const [sha, file] of graded) {
+        const content = execFileSync('git', ['show', `${sha}:${file}`], { cwd: __dirname }).toString();
+        expect(declared.test(content), `${t.id} ${file}`).toBe(false);
+      }
+    }
+  });
 });
 
 describe('the agent-writable allowlist', () => {
@@ -1228,7 +1249,32 @@ describe('the canary', () => {
   });
 });
 
+describe('skippedTests', () => {
+  it('adds pending and todo counts, or returns null for a missing or unreadable report', () => {
+    expect(skippedTests(JSON.stringify({ numPendingTests: 1, numTodoTests: 2 }))).toBe(3);
+    expect(skippedTests(JSON.stringify({ numPendingTests: 0, numTodoTests: 0 }))).toBe(0);
+    expect(skippedTests(JSON.stringify({ numPendingTests: 1 }))).toBeNull();
+    expect(skippedTests('{not json')).toBeNull();
+    expect(skippedTests(null)).toBeNull();
+  });
+});
+
 describe('decideOutcome', () => {
+  it('fails a run with a skipped or todo test and treats an unknown count as unreadable', () => {
+    expect(
+      decideOutcome({ hidden: [run({ skipped: 1 })], preserved: [run()], infraErrors: [] }),
+    ).toBe('fail');
+    expect(
+      decideOutcome({ hidden: [run()], preserved: [run({ skipped: 2 })], infraErrors: [] }),
+    ).toBe('fail');
+    expect(
+      decideOutcome({ hidden: [run({ skipped: null })], preserved: [run()], infraErrors: [] }),
+    ).toBe('infra-error');
+    expect(
+      decideOutcome({ hidden: [run({ skipped: 0 })], preserved: [run()], infraErrors: [] }),
+    ).toBe('pass');
+  });
+
   it('fails a run whose canary failed or is missing, even when every test passed', () => {
     for (const canary of ['failed', 'missing'] as const)
       expect(

@@ -304,9 +304,12 @@ generate` runs in a container with no network.
      arguments into a callee, return values, getters, closures read through a
      call or values round-tripped through a container method. Document
      aliases (`const d = document`, `const { ownerDocument: d } = el`) feed
-     the computed-key rule. It does not follow a global object obtained
-     some other way (the module-system rule covers eval and the Function
-     constructor) or imported from a module it does not read. The main residual is a
+     the computed-key rule. A `constructor` read is reported on any receiver
+     (`(() => 0).constructor` is the Function constructor, which builds code
+     that returns the global object without naming it); a direct `eval` or
+     `Function(...)` call is the module-system rule's. It does not follow a
+     global object obtained some other way or imported from a module it does
+     not read. The main residual is a
      non-literal read of an object the screen does not track, stored in a
      variable and then used (called, read, or passed on) along a path the
      taint list above does not name, as in
@@ -545,12 +548,19 @@ residual risks are below):
 - **A standalone canary test** whose title carries this run's nonce. The nonce
   is passed to the grading containers only: the agent never sees it while it
   works. Application code can read it at grading time (it runs in the same
-  process), which gives it no lever: the report and the exit code come from
-  vitest's main process, and the identity record does not depend on the nonce.
-  The grader reads the JSON report: the canary test must be present with the
-  nonce and passed, and no file may report an integrity failure. Otherwise the
-  run is `canary-failed` or `canary-missing`, a tamper violation, and the
-  outcome is `fail`.
+  process); the identity record does not depend on the nonce. The report and
+  the exit code are written by vitest's main process, but from the task
+  results the test worker sends, and code under test runs in that worker: it
+  can reach the running test's task through the worker state on the global
+  object (review of #503). So before each test the canary fixes the task's
+  `fails`, `retry` and `repeats` flags to their declared values and holds its
+  verdict: a failed test cannot be turned back to a pass, and the result
+  object cannot be replaced (`guardTask`). A skipped or todo test in a graded
+  run is a fail, since the graded tests declare none (a grader self-check in
+  `runner.test.ts`). The grader reads the JSON report: the canary test must be
+  present with the nonce and passed in every copy, and no file may report an
+  integrity failure. Otherwise the run is `canary-failed` or `canary-missing`,
+  a tamper violation, and the outcome is `fail`.
 
 What it catches: replacement, addition or removal of an assertion or `expect`
 function, of a registered matcher or equality tester, of a test global, of any
@@ -613,8 +623,18 @@ What a paid run would still accept, stated plainly:
   - application code that special-cases the hidden tests' own inputs
     (returning the expected value only for the exact arguments a test uses; no
     harness can rule that out without reading the fix);
-  - state no global reaches: a closure inside vitest, chai or a library (only
-    reachable by importing their internals, which the static screen rejects);
+  - vitest's own worker state, which code under test can reach through the
+    global object (`__vitest_worker__`, obtained for example through the
+    Function constructor, which the static screen flags as a `constructor`
+    read): the canary holds the running test's flags and verdict
+    (`guardTask`), but the worker's report channel to the main process and
+    other runner internals are not guarded, so in-process code that rewrites
+    what the worker sends is not caught;
+  - state no global reaches: a closure inside chai or a library;
+  - an honest hidden test that takes `expect` from the test context
+    (`it('x', ({ expect }) => ...)`) trips the canary, because vitest registers
+    that expect's matchers anew for each test: it fails closed (a false alarm,
+    never a false pass), and no committed hidden test does it;
   - own properties of host instances (`document`, `navigator`, `console`) and
     global bindings that hold plain functions (`getComputedStyle`,
     `matchMedia`, `fetch`): the hidden tests stub them, so they are not

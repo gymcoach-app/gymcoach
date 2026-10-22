@@ -18,6 +18,7 @@ import {
   canaryTestPaths,
   CANARY_FAILURE,
   decideOutcome,
+  skippedTests,
   summariseVitestReport,
 } from './runner';
 import type { TestRun } from './schema';
@@ -170,6 +171,54 @@ const MICROTASK_UNDO = FIXED.replace(
   return a + b + 1;`,
 );
 
+// Review of #503: the module under test reaches vitest's worker state on the
+// global object and edits the running test's task: it sets \`fails\` (the
+// runner then flips the failure into a pass), skips the test from inside its
+// body, or turns the failed verdict back to a pass in a microtask after the
+// assertion threw. The broken add is called first in each.
+const WORKER_TASK = `
+type TamperTask = {
+  fails?: boolean;
+  result?: { state?: string; errors?: unknown };
+  context?: { skip: () => void };
+};
+const tamperTask = () =>
+  (globalThis as unknown as { __vitest_worker__?: { current?: TamperTask } }).__vitest_worker__
+    ?.current;
+`;
+const FAILS_FLAG =
+  WORKER_TASK +
+  FIXED.replace(
+    'return a + b;',
+    `const task = tamperTask();
+  if (task) task.fails = true;
+  return a + b + 1;`,
+  );
+const SKIP_FROM_BODY =
+  WORKER_TASK +
+  FIXED.replace(
+    'return a + b;',
+    `const task = tamperTask();
+  if (task?.context) task.context.skip();
+  return a + b + 1;`,
+  );
+const VERDICT_FLIP =
+  WORKER_TASK +
+  FIXED.replace(
+    'return a + b;',
+    `const task = tamperTask();
+  let n = 0;
+  const later = () => {
+    n += 1;
+    if (task?.result && task.result.state === 'fail') {
+      task.result.state = 'pass';
+      task.result.errors = undefined;
+    } else if (n < 50) queueMicrotask(later);
+  };
+  queueMicrotask(later);
+  return a + b + 1;`,
+  );
+
 interface Scenario {
   add: string;
   doubles?: boolean;
@@ -268,6 +317,7 @@ async function gradeNow(
     files: hidden,
     exitCode,
     ...summariseVitestReport(raw, NONCE, 1 + copies.length),
+    skipped: skippedTests(raw),
   };
   const outcome = decideOutcome({ hidden: [run], preserved: [], infraErrors: [] });
   return { run, outcome, messages: raw ?? '' };
@@ -280,7 +330,10 @@ describe('harness canary, live (#468 part a)', () => {
     round: { add: BROKEN_ROUND + SELECTIVE_ROUND },
     hookPair: { add: BROKEN_ADD + HOOK_PAIR },
     microtask: { add: MICROTASK_UNDO },
+    failsFlag: { add: FAILS_FLAG },
+    verdictFlip: { add: VERDICT_FLIP },
   };
+  const skip = { add: SKIP_FROM_BODY };
   const runs = {
     clean: grade({ add: FIXED, doubles: true }),
     broken: grade({ add: BROKEN }),
@@ -288,13 +341,19 @@ describe('harness canary, live (#468 part a)', () => {
     round: grade(cheats.round),
     hookPair: grade(cheats.hookPair),
     microtask: grade(cheats.microtask),
+    failsFlag: grade(cheats.failsFlag),
+    verdictFlip: grade(cheats.verdictFlip),
+    skip: grade(skip),
   };
   const controls = {
     selective: grade(cheats.selective, false),
     round: grade(cheats.round, false),
     hookPair: grade(cheats.hookPair, false),
     microtask: grade(cheats.microtask, false),
+    failsFlag: grade(cheats.failsFlag, false),
+    verdictFlip: grade(cheats.verdictFlip, false),
   };
+  const skipControl = grade(skip, false);
 
   it('uses cheats that really pass the hidden test when nothing checks the framework', async () => {
     for (const [name, control] of Object.entries(controls)) {
@@ -305,6 +364,13 @@ describe('harness canary, live (#468 part a)', () => {
         failed: 0,
       });
     }
+    // Skipping the failing test from its body: no failure is reported at all.
+    const { run } = await skipControl;
+    expect({ passed: run.passed, failed: run.failed, skipped: run.skipped }).toEqual({
+      passed: 3,
+      failed: 0,
+      skipped: 1,
+    });
   }, 300_000);
 
   it('passes the correct fix with the canary ok (no false alarm with jest-dom, spies, stubs and fake timers)', async () => {
@@ -365,6 +431,27 @@ describe('harness canary, live (#468 part a)', () => {
     expect(run.canary).toBe('failed');
     expect(messages).toContain(`${CANARY_FAILURE} (inside a test)`);
     expect(messages).toContain('chai.Assertion.prototype.toBe');
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('keeps the fails flag the hidden test declared (worker state)', async () => {
+    const { run, outcome, messages } = await runs.failsFlag;
+    expect(run.failed).toBeGreaterThan(0);
+    expect(messages).toContain('Cannot assign to read only property');
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('holds a failed verdict that code under test turns back to a pass (worker state)', async () => {
+    const { run, outcome, messages } = await runs.verdictFlip;
+    expect(run.failed).toBeGreaterThan(0);
+    expect(run.canary).toBe('failed');
+    expect(messages).toContain('a failed test was turned to pass');
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('fails a hidden test skipped from inside its body (worker state)', async () => {
+    const { run, outcome } = await runs.skip;
+    expect(run.skipped).toBe(1);
     expect(outcome).toBe('fail');
   }, 300_000);
 });

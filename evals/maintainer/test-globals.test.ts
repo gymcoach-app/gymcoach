@@ -71,4 +71,23 @@ describe('testGlobalHits', () => {
     expect(testGlobalHits('lib/x.ts', content).length).toBeGreaterThan(0);
     expect(newHits(testGlobalHits, 'lib/x.ts', content, content)).toEqual([]);
   });
+
+  it('reports a read of constructor, the route to the Function constructor (review of #503)', () => {
+    const KIND = 'constructor read (reaches the Function constructor)';
+    for (const content of [
+      'const F = (() => 0).constructor;\nF(code)();',
+      "const F = fn['constructor'];",
+      'const { constructor: F } = fn;',
+      'Object.getPrototypeOf(fn).constructor(code);',
+    ])
+      expect(
+        kinds(content).some((k) => k.startsWith(KIND)),
+        content,
+      ).toBe(true);
+    for (const content of [
+      'class A {\n  constructor(private n: number) {}\n}',
+      'class B extends A {\n  constructor() {\n    super(1);\n  }\n}',
+    ])
+      expect(kinds(content), content).toEqual([]);
+  });
 });
