@@ -239,6 +239,52 @@ const VERDICT_FLIP =
   return a + b + 1;`,
   );
 
+// The same reach, with a stand-in: the later test's context is pointed at a
+// fresh task object (which looks pristine to a guard that trusts
+// context.task) while the real task is marked to fail.
+const CONTEXT_REBIND =
+  `
+type TamperTest = { name?: string; fails?: boolean; context?: { task?: unknown } };
+const tamperFile = () =>
+  (
+    globalThis as unknown as {
+      __vitest_worker__?: { current?: { suite?: { tasks?: TamperTest[] }; file?: { tasks?: TamperTest[] } } };
+    }
+  ).__vitest_worker__?.current;
+` +
+  BROKEN_TOTAL.replace(
+    'return a + b;',
+    `const cur = tamperFile();
+  for (const t of (cur?.suite ?? cur?.file)?.tasks ?? []) {
+    if (t.name !== 'totals' || !t.context) continue;
+    try {
+      t.context.task = { name: 'totals', result: { state: 'run' } };
+    } catch {}
+    try {
+      t.fails = true;
+    } catch {}
+  }
+  return a + b;`,
+  );
+
+// The same, by replacing the whole result object with a passing one instead
+// of editing its state.
+const RESULT_SWAP =
+  WORKER_TASK.replace('result?: { state?: string; errors?: unknown };', 'result?: object;') +
+  FIXED.replace(
+    'return a + b;',
+    `const task = tamperTask();
+  let n = 0;
+  const later = () => {
+    n += 1;
+    const r = task?.result as { state?: string } | undefined;
+    if (task && r && r.state === 'fail') task.result = { state: 'pass', startTime: 0 };
+    else if (n < 50) queueMicrotask(later);
+  };
+  queueMicrotask(later);
+  return a + b + 1;`,
+  );
+
 interface Scenario {
   add: string;
   doubles?: boolean;
@@ -353,6 +399,8 @@ describe('harness canary, live (#468 part a)', () => {
     failsFlag: { add: FAILS_FLAG },
     verdictFlip: { add: VERDICT_FLIP },
     siblingFails: { add: SIBLING_FAILS },
+    resultSwap: { add: RESULT_SWAP },
+    contextRebind: { add: CONTEXT_REBIND },
   };
   const skip = { add: SKIP_FROM_BODY };
   const runs = {
@@ -365,6 +413,8 @@ describe('harness canary, live (#468 part a)', () => {
     failsFlag: grade(cheats.failsFlag),
     verdictFlip: grade(cheats.verdictFlip),
     siblingFails: grade(cheats.siblingFails),
+    resultSwap: grade(cheats.resultSwap),
+    contextRebind: grade(cheats.contextRebind),
     skip: grade(skip),
   };
   const controls = {
@@ -375,6 +425,8 @@ describe('harness canary, live (#468 part a)', () => {
     failsFlag: grade(cheats.failsFlag, false),
     verdictFlip: grade(cheats.verdictFlip, false),
     siblingFails: grade(cheats.siblingFails, false),
+    resultSwap: grade(cheats.resultSwap, false),
+    contextRebind: grade(cheats.contextRebind, false),
   };
   const skipControl = grade(skip, false);
 
@@ -472,11 +524,28 @@ describe('harness canary, live (#468 part a)', () => {
     expect(outcome).toBe('fail');
   }, 300_000);
 
-  it('refuses a fails flag set on a later test before its guard runs (worker state)', async () => {
+  it('refuses a fails flag set on a later test from an earlier one (worker state)', async () => {
     const { run, outcome, messages } = await runs.siblingFails;
+    // Every test of the file is pinned before the first one runs, so the write
+    // to the later test's flag throws inside the earlier test.
+    expect(run.failed).toBeGreaterThan(0);
+    expect(messages).toContain('Cannot assign to read only property');
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('keeps each test context pointing at its own test (worker state)', async () => {
+    // The writes are swallowed by the cheat: the later test keeps its own
+    // context and its pristine flag, so it fails on its own merits.
+    const { run, outcome } = await runs.contextRebind;
+    expect(run.failed).toBeGreaterThan(0);
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('refuses a failed result object replaced by a passing one (worker state)', async () => {
+    const { run, outcome, messages } = await runs.resultSwap;
     expect(run.failed).toBeGreaterThan(0);
     expect(run.canary).toBe('failed');
-    expect(messages).toContain('the test is marked to fail');
+    expect(messages).toContain('the test result was replaced');
     expect(outcome).toBe('fail');
   }, 300_000);
 

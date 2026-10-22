@@ -1200,28 +1200,67 @@ export function startTest(): void {
 // verdict itself. Code under test can reach that object, and every sibling
 // task of its file, through the worker state on the global object (review of
 // #503). Graded tests declare none of fails, retry, repeats, skip or todo (a
-// grader self-check in runner.test.ts), so before each test the canary
-// requires the pristine values (fails not set, no retry, no repeats) and a
-// fresh plain result object still in state run, and then fixes them: anything
-// set earlier, from a previous test or a timer it left, is refused rather than
-// taken as declared. From then on a failed verdict stays failed, and the
+// grader self-check in runner.test.ts), so guardFile (a beforeAll, after
+// collection and before any test runs) requires the pristine values on every
+// test and pins them with the context's link back to its task, and guardTask
+// (each beforeEach) requires a pinned task and a fresh plain result object
+// still in state run: anything set earlier is refused, never taken as
+// declared. From then on a failed verdict stays failed, and the
 // result object can only be replaced by the runner's own pending-skip shape,
 // which grading counts as a fail. A refusal is a canary failure. The hold
 // starts at this beforeEach, not at the start of the test: code that runs
 // before it within the test (an aroundEach hook, a base setup beforeEach) is
 // covered only by the pristine checks.
-export function guardTask(task: Record<string, unknown>): void {
-  const refuse = (what: string) => {
-    sticky = FAIL + ' (before a test): ' + what;
-    throw new Error(sticky);
-  };
+const refuseBefore = (what: string): never => {
+  sticky = FAIL + ' (before a test): ' + what;
+  throw new Error(sticky);
+};
+
+// Checks a test task's flags are pristine and pins them (and the context's
+// link back to the task) so they can no longer change.
+function pinTask(task: Record<string, unknown>): void {
   const zero = (v: unknown) => v === undefined || v === 0;
-  if (task.fails !== undefined && task.fails !== false) refuse('the test is marked to fail');
-  if (!zero(task.retry)) refuse('the test is set to retry');
-  if (!zero(task.repeats)) refuse('the test is set to repeat');
+  if (task.fails !== undefined && task.fails !== false) refuseBefore('the test is marked to fail');
+  if (!zero(task.retry)) refuseBefore('the test is set to retry');
+  if (!zero(task.repeats)) refuseBefore('the test is set to repeat');
   for (const key of ['fails', 'retry', 'repeats']) {
     defineProperty(task, key, { value: undefined, writable: false, configurable: false, enumerable: true });
   }
+  const context = task.context as Record<string, unknown> | undefined;
+  // vitest's context is a function object (a deprecated done callback).
+  if (
+    context === null ||
+    (typeof context !== 'object' && typeof context !== 'function') ||
+    context.task !== task
+  )
+    refuseBefore('the test context does not point at its test');
+  defineProperty(context, 'task', { value: task, writable: false, configurable: false, enumerable: true });
+}
+
+// From the canary's beforeAll, after collection and before any test of the
+// file runs: every test of the file is pinned while nothing has run yet, and
+// remembered, so a later beforeEach guards only a task it pinned here (review
+// of #503: context.task is a writable link that code under test could point
+// at a stand-in).
+const pinned = new WeakSet<object>();
+export function guardFile(file: Record<string, unknown>): void {
+  const walk = (suite: Record<string, unknown>) => {
+    const tasks = suite.tasks;
+    if (!Array.isArray(tasks)) return;
+    for (let i = 0; i < tasks.length; i += 1) {
+      const t = tasks[i] as Record<string, unknown>;
+      if (t.type === 'test') {
+        pinTask(t);
+        pinned.add(t);
+      } else walk(t);
+    }
+  };
+  walk(file);
+}
+
+export function guardTask(task: Record<string, unknown>): void {
+  const refuse = refuseBefore;
+  if (!pinned.has(task)) refuse('the running test was not pinned before the file ran');
   const initial = task.result as Record<string, unknown> | null | undefined;
   if (
     initial === null ||
@@ -1366,10 +1405,13 @@ export function canaryFiles(id: string, hiddenFiles: readonly string[] = []): Ma
   const setup =
     head +
     `import { afterAll, afterEach, assert, beforeAll, beforeEach, chai, expect, vi } from 'vitest';\n` +
-    `import { check, guardTask, startTest } from './${p.guard}';\n` +
+    `import { check, guardFile, guardTask, startTest } from './${p.guard}';\n` +
     CANARY_PROBE +
     `check('after the base setup');\n` +
     `probe('after the base setup');\n` +
+    // vitest 4 passes the fixtures first (an object pattern is required) and the
+    // file suite second.
+    `beforeAll(({}, file) => guardFile(file as unknown as Record<string, unknown>));\n` +
     `beforeAll(() => check('before the file'));\n` +
     `beforeEach((context) => guardTask(context.task as unknown as Record<string, unknown>));\n` +
     `beforeEach(() => startTest());\n` +

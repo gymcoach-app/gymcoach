@@ -87,6 +87,9 @@ describe('testGlobalHits', () => {
     for (const content of [
       'class A {\n  constructor(private n: number) {}\n}',
       'class B extends A {\n  constructor() {\n    super(1);\n  }\n}',
+      'const kind = err.constructor.name;',
+      "if (key === 'constructor') return;",
+      'const same = a.constructor === b.constructor;',
     ])
       expect(kinds(content), content).toEqual([]);
   });

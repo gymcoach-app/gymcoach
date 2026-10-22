@@ -255,6 +255,29 @@ function isDocument(node: ts.Node, aliases: ReadonlySet<string>): boolean {
   return false;
 }
 
+const EQUALITY = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
+
+// `x.constructor.name` (a read of the name only), or the `constructor` read or
+// string as one side of an equality comparison.
+function constructorOnlyCompared(node: ts.Node): boolean {
+  let value: ts.Node = node;
+  if (ts.isIdentifier(node)) {
+    const p = node.parent;
+    if (!p || !ts.isPropertyAccessExpression(p) || p.name !== node) return false;
+    value = p;
+    const up = p.parent;
+    if (up && ts.isPropertyAccessExpression(up) && up.expression === p && up.name.text === 'name')
+      return !ts.isCallExpression(up.parent) || up.parent.expression !== up;
+  }
+  const up = value.parent;
+  return !!up && ts.isBinaryExpression(up) && EQUALITY.has(up.operatorToken.kind);
+}
+
 // Test hook names flagged as a member, key or string whatever the receiver
 // (`d[k].afterEach(fn)` on an object the screen cannot prove global).
 const HOOK_NAMES = new Set([
@@ -767,8 +790,14 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
     // function's constructor is the Function constructor, which builds code
     // that returns the global object without naming it (`(() => 0).constructor`,
     // review of #503). A class's own constructor declaration has no name node,
-    // so it is not reported.
-    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && node.text === 'constructor')
+    // so it is not reported. Two honest shapes are left alone because they
+    // only read or compare: `x.constructor.name`, and a comparison of the read
+    // or of the string (`x.constructor === Y`, `key === 'constructor'`).
+    if (
+      (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+      node.text === 'constructor' &&
+      !constructorOnlyCompared(node)
+    )
       hit('constructor read (reaches the Function constructor)', node.parent ?? node);
     if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && REFLECTIVE_NAMES.has(node.text))
       hit('reflective property read (test global reachable)', node.parent ?? node, 'always');

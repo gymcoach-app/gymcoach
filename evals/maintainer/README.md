@@ -554,9 +554,12 @@ residual risks are below):
   can reach the running test's task through the worker state on the global
   object (review of #503), and so can every sibling task of its file. Graded
   tests declare no `fails`, retry, repeats, skip or todo (a grader self-check
-  in `runner.test.ts`), so before each test the canary requires the pristine
-  values and a fresh result object in state `run`, refusing anything set
-  earlier, then fixes them and holds the verdict: a failed test cannot be
+  in `runner.test.ts`), so in a `beforeAll` that runs after collection and
+  before any test of the file, the canary checks every test's flags are
+  pristine and its context points back at it, and pins both
+  (`guardFile`); before each test it requires that the running task is one it
+  pinned and that its result is a fresh object in state `run`, then holds the
+  verdict: a failed test cannot be
   turned back to a pass, and the result object cannot be replaced
   (`guardTask`). A test that declares a retry or repeats therefore always
   fails under the canary (fail closed). A skipped or todo test in a graded run
@@ -629,10 +632,12 @@ What a paid run would still accept, stated plainly:
   - vitest's own worker state, which code under test can reach through the
     global object (`__vitest_worker__`, obtained for example through the
     Function constructor, which the static screen flags as a `constructor`
-    read): the canary holds each test's flags and verdict from its own
-    beforeEach on (`guardTask`; code that runs earlier within the same test,
-    such as an `aroundEach` hook or a base setup `beforeEach`, is covered only
-    by the pristine checks), but the worker's report channel to the main
+    read): the canary pins each test's flags and context link before the file
+    runs and holds its verdict from its own beforeEach on (`guardFile`,
+    `guardTask`; code that runs earlier within the same test, such as an
+    `aroundEach` hook or a base setup `beforeEach`, can still touch the result
+    before the hold, and is caught only if the result it leaves is not the
+    runner's own fresh object), but the worker's report channel to the main
     process and other runner internals (runner methods, bail and cancel
     handling) are not guarded, so in-process code that rewrites what the worker
     sends is not caught;

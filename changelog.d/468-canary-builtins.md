@@ -17,9 +17,9 @@ whole unit tier passes under it. A new self-check in the default gate
 (`evals/maintainer/canary-live.test.ts`) replays both bypasses and the in-test
 patch on a fixture repository and requires a fail. Code under test that
 reaches vitest's worker state can no longer use the known routes to flip a
-failing hidden test into a pass: before each test the canary requires
-pristine fails, retry and repeats flags (so one set on a later test is
-refused) and holds a failed verdict, a skipped or todo test grades as a fail,
+failing hidden test into a pass: before the file runs the canary checks and
+pins every test's fails, retry and repeats flags and its context link, and
+before each test it holds a failed verdict, a skipped or todo test grades as a fail,
 and the static screen reports any `constructor` read (the route to the
 Function constructor). The self-check replays those too; the worker's report
 channel itself stays a documented residual. Residual risks stay
