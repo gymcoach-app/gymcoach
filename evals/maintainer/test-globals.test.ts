@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newHits, testGlobalHits } from './test-globals';
+import { newHits, newTestGlobalHits, testGlobalHits } from './test-globals';
 
 const kinds = (content: string) => testGlobalHits('lib/x.ts', content).map((h) => h.key);
 
@@ -70,6 +70,47 @@ describe('testGlobalHits', () => {
     const content = 'const k = name;\nconst w = window[k];\nconst parent = 1;\n';
     expect(testGlobalHits('lib/x.ts', content).length).toBeGreaterThan(0);
     expect(newHits(testGlobalHits, 'lib/x.ts', content, content)).toEqual([]);
+  });
+
+  it('follows a default in a destructuring pattern, declared or assigned', () => {
+    const KIND = 'assertion API read off an untracked object';
+    for (const content of [
+      'const [w = p[k]] = arr;\nw.expect(0);',
+      'const { w = p[k] } = obj;\nw.expect(0);',
+      '[w = p[k]] = arr;\nw.expect(0);',
+      '({ w = p[k] } = obj);\nw.expect(0);',
+    ])
+      expect(kinds(content), content).toContain(`${KIND}: w.expect`);
+    // A default that is not tainted stays accepted.
+    expect(kinds('const [w = res] = arr;\nw.expect(0);')).toEqual([]);
+    expect(kinds('const { w = res } = obj;\nw.expect(0);')).toEqual([]);
+  });
+
+  it('re-settles a leaf the taint reaches after the read', () => {
+    const KIND = 'assertion API read off an untracked object';
+    // `this.w` is read into `v` before the store that taints it.
+    const field =
+      'class C {\n  m() {\n    const v = this.w;\n    v.expect(0);\n  }\n  n() {\n    this.w = p[k];\n  }\n}';
+    expect(kinds(field)).toContain(`${KIND}: v.expect`);
+    expect(kinds(field.replace('p[k]', 'clean'))).toEqual([]);
+    // An object literal's leaf, also read ahead of the store.
+    const literal = 'let s;\nconst o = { a: s };\no.a.expect(0);\ns = p[k];';
+    expect(kinds(literal)).toContain(`${KIND}: o.a.expect`);
+    expect(kinds(literal.replace('p[k]', 'clean'))).toEqual([]);
+  });
+
+  it('blames the whole file when the head adds a global object declaration', () => {
+    const before = 'const g = globalThis;\ng.afterEach(r);\nconst k = n;\n';
+    const blamed = newTestGlobalHits('lib/x.ts', before, `${before}const parent = 1;\n`);
+    expect(blamed.length).toBeGreaterThan(0);
+    // A line that declares nothing of the kind stays quiet.
+    expect(newTestGlobalHits('lib/x.ts', before, `${before}const note = 1;\n`)).toEqual([]);
+  });
+
+  it('does not alias an object that only receives the global object', () => {
+    const keys = kinds('const o = {};\no.w = globalThis;\no.afterEach(r);');
+    expect(keys).toContain('global object stored: o.w = globalThis');
+    expect(keys).not.toContain('test global read off the global object: o.afterEach');
   });
 
   it('reports a read of constructor, the route to the Function constructor (review of #503)', () => {

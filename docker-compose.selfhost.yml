@@ -64,12 +64,22 @@ services:
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
       OPENROUTER_APP_NAME: GymCoach
       OPENROUTER_APP_URL: ${OPENROUTER_APP_URL:-https://github.com/gymcoach-app/gymcoach}
+      OPENROUTER_MAX_TOKENS: ${OPENROUTER_MAX_TOKENS:-}
+      # codex-lb: an OpenAI-compatible endpoint. From inside this container,
+      # a server on the host is reached at host.docker.internal (see
+      # extra_hosts below), not localhost. Empty values use the code defaults.
+      CODEX_LB_BASE_URL: ${CODEX_LB_BASE_URL:-}
+      CODEX_LB_API_KEY: ${CODEX_LB_API_KEY:-}
+      CODEX_LB_MODEL: ${CODEX_LB_MODEL:-}
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-}
       NODE_ENV: production
       UPLOADS_DIR: /app/uploads
+    # Lets the app reach a model server on the host (codex-lb) on Linux too.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - uploads:/app/uploads
     # The Prisma CLI is invoked through its bundle: the .bin shim loses its
