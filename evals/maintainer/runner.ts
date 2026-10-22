@@ -576,6 +576,7 @@ export function canaryPaths(id: string): {
 // first setup file, before any application code. Every helper it uses is
 // captured into a local first, so a later change to a built-in cannot blind it.
 const CANARY_GUARD = `
+import { types } from 'node:util';
 import vm from 'node:vm';
 import { assert, chai, expect, vi } from 'vitest';
 
@@ -586,6 +587,7 @@ const reflectHas = Reflect.has;
 const apply = Reflect.apply;
 const defineProperty = Object.defineProperty;
 const getProto = Object.getPrototypeOf;
+const isProxy = types.isProxy;
 const nullObject = Object.create.bind(null, null) as () => Record<string | symbol, unknown>;
 const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty) as (
   o: object,
@@ -1195,48 +1197,68 @@ export function startTest(): void {
 
 // The runner reads a test's task object after the body has run: \`fails\` flips
 // the verdict, \`retry\` and \`repeats\` rerun it, and \`result.state\` is the
-// verdict itself. Code under test can reach that object through the worker
-// state on the global object (review of #503), so before each test the flags
-// are fixed to their declared values and the verdict is held: once a test has
-// failed, nothing but the runner's own retry (a declared retry) or a declared
-// \`fails\` flip can turn it back, and a replaced result object is refused unless
-// it is the runner's skip shape (which grading counts as a fail). A refused
-// change is a canary failure. Hidden tests declare none of these (a grader
-// self-check, runner.test.ts), so a hidden test that fails stays failed.
+// verdict itself. Code under test can reach that object, and every sibling
+// task of its file, through the worker state on the global object (review of
+// #503). Graded tests declare none of fails, retry, repeats, skip or todo (a
+// grader self-check in runner.test.ts), so before each test the canary
+// requires the pristine values (fails not set, no retry, no repeats) and a
+// fresh plain result object still in state run, and then fixes them: anything
+// set earlier, from a previous test or a timer it left, is refused rather than
+// taken as declared. From then on a failed verdict stays failed, and the
+// result object can only be replaced by the runner's own pending-skip shape,
+// which grading counts as a fail. A refusal is a canary failure. The hold
+// starts at this beforeEach, not at the start of the test: code that runs
+// before it within the test (an aroundEach hook, a base setup beforeEach) is
+// covered only by the pristine checks.
 export function guardTask(task: Record<string, unknown>): void {
-  for (const key of ['fails', 'retry', 'repeats']) {
-    defineProperty(task, key, { value: task[key], writable: false, configurable: false, enumerable: true });
-  }
-  const declaredFails = task.fails === true;
-  const declaredRetry = typeof task.retry === 'number' ? task.retry > 0 : task.retry != null;
   const refuse = (what: string) => {
-    sticky = FAIL + ' (inside a test): ' + what;
+    sticky = FAIL + ' (before a test): ' + what;
+    throw new Error(sticky);
   };
-  const hold = (result: Record<string, unknown>) => {
-    let state = result.state;
-    defineProperty(result, 'state', {
-      get: () => state,
-      set: (next: unknown) => {
-        if (state === 'fail' && next !== 'fail') {
-          const allowed = (next === 'pass' && declaredFails) || (next === 'run' && declaredRetry);
-          if (!allowed) return refuse('a failed test was turned to ' + toStr(next));
-        }
-        state = next;
-      },
-      enumerable: true,
-      configurable: false,
-    });
-    return result;
+  const zero = (v: unknown) => v === undefined || v === 0;
+  if (task.fails !== undefined && task.fails !== false) refuse('the test is marked to fail');
+  if (!zero(task.retry)) refuse('the test is set to retry');
+  if (!zero(task.repeats)) refuse('the test is set to repeat');
+  for (const key of ['fails', 'retry', 'repeats']) {
+    defineProperty(task, key, { value: undefined, writable: false, configurable: false, enumerable: true });
+  }
+  const initial = task.result as Record<string, unknown> | null | undefined;
+  if (
+    initial === null ||
+    typeof initial !== 'object' ||
+    isProxy(initial) ||
+    getProto(initial) !== Object.prototype ||
+    initial.state !== 'run' ||
+    !hasOwn(initial, 'state') ||
+    gOPD(initial, 'state')?.get !== undefined
+  )
+    refuse('the test result is not the one the runner made');
+  let state: unknown = 'run';
+  const hold = {
+    get: () => state,
+    set: (next: unknown) => {
+      if (state === 'fail' && next !== 'fail') {
+        sticky = FAIL + ' (inside a test): a failed test was turned to ' + toStr(next);
+        return;
+      }
+      state = next;
+    },
+    enumerable: true,
+    configurable: false,
   };
-  const initial = task.result;
-  if (initial === null || typeof initial !== 'object') return refuse('the test has no result');
-  let current = hold(initial as Record<string, unknown>);
+  const result = initial as Record<string, unknown>;
+  defineProperty(result, 'state', hold);
+  let current: Record<string, unknown> = result;
   defineProperty(task, 'result', {
     get: () => current,
     set: (next: unknown) => {
       const n = next as Record<string, unknown> | null;
-      const skipShape = n !== null && typeof n === 'object' && n.state === 'skip' && n.pending === true;
-      if (!skipShape || current.state === 'fail') return refuse('the test result was replaced');
+      const skipShape =
+        n !== null && typeof n === 'object' && !isProxy(n) && n.state === 'skip' && n.pending === true;
+      if (!skipShape || state === 'fail') {
+        sticky = FAIL + ' (inside a test): the test result was replaced';
+        return;
+      }
       current = n;
     },
     enumerable: true,

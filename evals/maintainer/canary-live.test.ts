@@ -202,6 +202,26 @@ const SKIP_FROM_BODY =
   if (task?.context) task.context.skip();
   return a + b + 1;`,
   );
+// The same reach, one test earlier: while the first hidden test runs, add()
+// marks the later 'totals' test to fail, so the runner would flip its real
+// failure (the broken total) into a pass. Its guard must refuse the flag it
+// finds, not take it as declared.
+const SIBLING_FAILS =
+  `
+type TamperSuite = { tasks?: { name?: string; fails?: boolean }[] };
+const tamperSuite = () =>
+  (
+    globalThis as unknown as {
+      __vitest_worker__?: { current?: { suite?: TamperSuite; file?: TamperSuite } };
+    }
+  ).__vitest_worker__?.current;
+` +
+  BROKEN_TOTAL.replace(
+    'return a + b;',
+    `const cur = tamperSuite();
+  for (const t of (cur?.suite ?? cur?.file)?.tasks ?? []) if (t.name === 'totals') t.fails = true;
+  return a + b;`,
+  );
 const VERDICT_FLIP =
   WORKER_TASK +
   FIXED.replace(
@@ -332,6 +352,7 @@ describe('harness canary, live (#468 part a)', () => {
     microtask: { add: MICROTASK_UNDO },
     failsFlag: { add: FAILS_FLAG },
     verdictFlip: { add: VERDICT_FLIP },
+    siblingFails: { add: SIBLING_FAILS },
   };
   const skip = { add: SKIP_FROM_BODY };
   const runs = {
@@ -343,6 +364,7 @@ describe('harness canary, live (#468 part a)', () => {
     microtask: grade(cheats.microtask),
     failsFlag: grade(cheats.failsFlag),
     verdictFlip: grade(cheats.verdictFlip),
+    siblingFails: grade(cheats.siblingFails),
     skip: grade(skip),
   };
   const controls = {
@@ -352,6 +374,7 @@ describe('harness canary, live (#468 part a)', () => {
     microtask: grade(cheats.microtask, false),
     failsFlag: grade(cheats.failsFlag, false),
     verdictFlip: grade(cheats.verdictFlip, false),
+    siblingFails: grade(cheats.siblingFails, false),
   };
   const skipControl = grade(skip, false);
 
@@ -446,6 +469,14 @@ describe('harness canary, live (#468 part a)', () => {
     expect(run.failed).toBeGreaterThan(0);
     expect(run.canary).toBe('failed');
     expect(messages).toContain('a failed test was turned to pass');
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('refuses a fails flag set on a later test before its guard runs (worker state)', async () => {
+    const { run, outcome, messages } = await runs.siblingFails;
+    expect(run.failed).toBeGreaterThan(0);
+    expect(run.canary).toBe('failed');
+    expect(messages).toContain('the test is marked to fail');
     expect(outcome).toBe('fail');
   }, 300_000);
 

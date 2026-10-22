@@ -552,12 +552,15 @@ residual risks are below):
   the exit code are written by vitest's main process, but from the task
   results the test worker sends, and code under test runs in that worker: it
   can reach the running test's task through the worker state on the global
-  object (review of #503). So before each test the canary fixes the task's
-  `fails`, `retry` and `repeats` flags to their declared values and holds its
-  verdict: a failed test cannot be turned back to a pass, and the result
-  object cannot be replaced (`guardTask`). A skipped or todo test in a graded
-  run is a fail, since the graded tests declare none (a grader self-check in
-  `runner.test.ts`). The grader reads the JSON report: the canary test must be
+  object (review of #503), and so can every sibling task of its file. Graded
+  tests declare no `fails`, retry, repeats, skip or todo (a grader self-check
+  in `runner.test.ts`), so before each test the canary requires the pristine
+  values and a fresh result object in state `run`, refusing anything set
+  earlier, then fixes them and holds the verdict: a failed test cannot be
+  turned back to a pass, and the result object cannot be replaced
+  (`guardTask`). A test that declares a retry or repeats therefore always
+  fails under the canary (fail closed). A skipped or todo test in a graded run
+  is a fail. The grader reads the JSON report: the canary test must be
   present with the nonce and passed in every copy, and no file may report an
   integrity failure. Otherwise the run is `canary-failed` or `canary-missing`,
   a tamper violation, and the outcome is `fail`.
@@ -626,10 +629,13 @@ What a paid run would still accept, stated plainly:
   - vitest's own worker state, which code under test can reach through the
     global object (`__vitest_worker__`, obtained for example through the
     Function constructor, which the static screen flags as a `constructor`
-    read): the canary holds the running test's flags and verdict
-    (`guardTask`), but the worker's report channel to the main process and
-    other runner internals are not guarded, so in-process code that rewrites
-    what the worker sends is not caught;
+    read): the canary holds each test's flags and verdict from its own
+    beforeEach on (`guardTask`; code that runs earlier within the same test,
+    such as an `aroundEach` hook or a base setup `beforeEach`, is covered only
+    by the pristine checks), but the worker's report channel to the main
+    process and other runner internals (runner methods, bail and cancel
+    handling) are not guarded, so in-process code that rewrites what the worker
+    sends is not caught;
   - state no global reaches: a closure inside chai or a library;
   - an honest hidden test that takes `expect` from the test context
     (`it('x', ({ expect }) => ...)`) trips the canary, because vitest registers

@@ -835,8 +835,10 @@ describe('tamperViolations', () => {
   // none of them, so a skip, a fails flip or a retry in a report can only come
   // from code under test.
   it.runIf(historyAvailable)('grades only tests that declare no skip, todo, fails, only or retry', () => {
+    // Chained forms (it.fails), a skip from the context, and the options
+    // object vitest also accepts (it('x', { fails: true }, fn)).
     const declared =
-      /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\b(?:context|ctx)\s*\.\s*skip\s*\(|\bretry\s*:|\brepeats\s*:/;
+      /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\b(?:context|ctx)\s*\.\s*skip\s*\(|\b(?:retry|repeats)\s*:|\b(?:it|test|describe|suite)\s*\([^)]*?\{[^}]*\b(?:fails|skip|todo|only)\s*:/;
     for (const t of committed) {
       const graded: [string, string][] = [
         ...t.grader.hidden.map((f): [string, string] => [t.snapshot.fixSha, f]),
