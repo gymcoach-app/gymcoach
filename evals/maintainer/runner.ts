@@ -588,6 +588,7 @@ const apply = Reflect.apply;
 const defineProperty = Object.defineProperty;
 const getProto = Object.getPrototypeOf;
 const isProxy = types.isProxy;
+const freeze = Object.freeze;
 const nullObject = Object.create.bind(null, null) as () => Record<string | symbol, unknown>;
 const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty) as (
   o: object,
@@ -1219,6 +1220,8 @@ const refuseBefore = (what: string): never => {
 // Checks a test task's flags are pristine and pins them (and the context's
 // link back to the task) so they can no longer change.
 function pinTask(task: Record<string, unknown>): void {
+  if (isProxy(task) || getProto(task) !== Object.prototype)
+    refuseBefore('the test is not a task the runner made');
   const zero = (v: unknown) => v === undefined || v === 0;
   if (task.fails !== undefined && task.fails !== false) refuseBefore('the test is marked to fail');
   if (!zero(task.retry)) refuseBefore('the test is set to retry');
@@ -1231,6 +1234,7 @@ function pinTask(task: Record<string, unknown>): void {
   if (
     context === null ||
     (typeof context !== 'object' && typeof context !== 'function') ||
+    isProxy(context) ||
     context.task !== task
   )
     refuseBefore('the test context does not point at its test');
@@ -1244,9 +1248,17 @@ function pinTask(task: Record<string, unknown>): void {
 // at a stand-in).
 const pinned = new WeakSet<object>();
 export function guardFile(file: Record<string, unknown>): void {
+  // A suite's task list is read again only when that suite starts, so it is
+  // frozen here: a test of a later describe block cannot be swapped for a
+  // stand-in that carries a pinned test's context. vitest writes these lists
+  // only during collection.
   const walk = (suite: Record<string, unknown>) => {
+    if (isProxy(suite)) refuseBefore('a suite is not one the runner made');
     const tasks = suite.tasks;
     if (!Array.isArray(tasks)) return;
+    if (isProxy(tasks)) refuseBefore('a task list is not one the runner made');
+    freeze(tasks);
+    defineProperty(suite, 'tasks', { value: tasks, writable: false, configurable: false, enumerable: true });
     for (let i = 0; i < tasks.length; i += 1) {
       const t = tasks[i] as Record<string, unknown>;
       if (t.type === 'test') {

@@ -832,7 +832,7 @@ describe('tamperViolations', () => {
   // Chained forms (it.fails), a skip from the context, and the options
   // object vitest also accepts (it('x', { fails: true }, fn)).
   const declared =
-    /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\bskip\s*\(|\b(?:retry|repeats)\s*:|\b(?:it|test|describe|suite)\s*\([^)]*?\{[^}]*\b(?:fails|skip|todo|only)\s*:/;
+    /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\bskip\s*\(|\b(?:retry|repeats)\s*:|\baround(?:Each|All)\b|\b(?:it|test|describe|suite)\s*\([^)]*?\{[^}]*\b(?:fails|skip|todo|only)\s*:/;
 
   it('recognises every way a graded test can declare a skip, todo, fails, only or retry', () => {
     for (const decl of [
@@ -847,6 +847,7 @@ describe('tamperViolations', () => {
       "it('x', ({ skip }) => skip());",
       'context.skip();',
       'repeats: 3,',
+      'aroundEach(async (run) => run());',
     ])
       expect(declared.test(decl), decl).toBe(true);
     for (const plain of [

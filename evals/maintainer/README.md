@@ -557,9 +557,10 @@ residual risks are below):
   in `runner.test.ts`), so in a `beforeAll` that runs after collection and
   before any test of the file, the canary checks every test's flags are
   pristine and its context points back at it, and pins both
-  (`guardFile`); before each test it requires that the running task is one it
-  pinned and that its result is a fresh object in state `run`, then holds the
-  verdict: a failed test cannot be
+  (`guardFile`, which also freezes every suite's task list and refuses a
+  proxy task, context or list); before each test it requires that the task
+  its context names is one it pinned and that its result is a fresh object in
+  state `run`, then holds the verdict: a failed test cannot be
   turned back to a pass, and the result object cannot be replaced
   (`guardTask`). A test that declares a retry or repeats therefore always
   fails under the canary (fail closed). A skipped or todo test in a graded run
@@ -632,15 +633,19 @@ What a paid run would still accept, stated plainly:
   - vitest's own worker state, which code under test can reach through the
     global object (`__vitest_worker__`, obtained for example through the
     Function constructor, which the static screen flags as a `constructor`
-    read): the canary pins each test's flags and context link before the file
-    runs and holds its verdict from its own beforeEach on (`guardFile`,
-    `guardTask`; code that runs earlier within the same test, such as an
-    `aroundEach` hook or a base setup `beforeEach`, can still touch the result
-    before the hold, and is caught only if the result it leaves is not the
-    runner's own fresh object), but the worker's report channel to the main
-    process and other runner internals (runner methods, bail and cancel
-    handling) are not guarded, so in-process code that rewrites what the worker
-    sends is not caught;
+    read). The canary closes the routes it knows of: it pins each test's
+    flags, context link and suite task lists after collection and holds each
+    verdict from its own beforeEach on (`guardFile`, `guardTask`). It is not a
+    guarantee against a deliberate attack on the runner from inside the same
+    process. Code that runs during collection, or in the gaps before the
+    canary's beforeAll, acts before anything is pinned (the pristine checks
+    catch what it leaves on the flags and links, not every change it can
+    make); code that runs earlier within a test (a base setup `beforeEach`)
+    can touch the result before the hold; and the worker's report channel to
+    the main process and other runner internals (runner methods, bail and
+    cancel handling) are not guarded, so in-process code that rewrites what
+    the worker sends is not caught. This is why a paid run's patch is always
+    diff-reviewed;
   - state no global reaches: a closure inside chai or a library;
   - an honest hidden test that takes `expect` from the test context
     (`it('x', ({ expect }) => ...)`) trips the canary, because vitest registers
