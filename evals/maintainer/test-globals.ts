@@ -73,8 +73,11 @@ import ts from 'typescript';
 // for this purpose).
 //
 // Limits: a screen, not a proof. A `constructor` read is reported on any
-// receiver (any function's constructor is the Function constructor); a direct
-// eval or Function call is left to the module-system rule. A global object
+// receiver (any function's constructor is the Function constructor), except
+// `x.constructor.name` and an equality comparison of the read or the string;
+// a key compared to 'constructor' and then used as a computed index on an
+// untracked object is a case of the computed-read residual. A direct eval or
+// Function call is left to the module-system rule. A global object
 // obtained some other way, or imported from a module outside the screened
 // files, is not followed. The main residual: a non-literal read of an object the screen
 // does not track, stored in a variable and then used (called, read, or passed

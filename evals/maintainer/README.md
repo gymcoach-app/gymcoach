@@ -306,7 +306,13 @@ generate` runs in a container with no network.
      aliases (`const d = document`, `const { ownerDocument: d } = el`) feed
      the computed-key rule. A `constructor` read is reported on any receiver
      (`(() => 0).constructor` is the Function constructor, which builds code
-     that returns the global object without naming it); a direct `eval` or
+     that returns the global object without naming it), except two read-only
+     shapes left alone for honest code: `x.constructor.name`, and a
+     `constructor` read or string as one side of an equality comparison
+     (`key === 'constructor'`). The second leaves a route the screen does not
+     see: comparing a key to `'constructor'` and then reading that key by a
+     computed index on an untracked object, a case of the computed-read
+     residual below that only the runtime guards backstop. A direct `eval` or
      `Function(...)` call is the module-system rule's. It does not follow a
      global object obtained some other way or imported from a module it does
      not read. The main residual is a
@@ -507,7 +513,9 @@ residual risks are below):
     `vi.isFakeTimers()` is true. Host instances (`document`, `navigator`) and
     global bindings that hold plain functions (`matchMedia`, `fetch`) are not
     compared: the tests stub them (`navigator.clipboard`, `window.matchMedia`).
-    Calibrated on the whole unit tier (1811 tests): no false alarm.
+    Calibrated on the whole unit tier with every file treated as hidden (1855
+    tests, review of #503 at the final guard): no false alarm or crash, also
+    with nested describe, each, concurrent and shuffled suites.
 - **Checks after the base setup, around every test and after the file.** The
   second setup file compares against both records right after the base setup
   (where a cheat imported by `vitest.setup.ts` lives), in `beforeEach` and

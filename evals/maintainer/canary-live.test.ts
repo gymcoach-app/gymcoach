@@ -63,7 +63,7 @@ const BROKEN = BROKEN_ADD.replace('return { sum };', 'return { sum: sum + 1 };')
   'return Math.floor(x);',
 );
 
-const HIDDEN_TEST = `import { expect, it } from 'vitest';
+const HIDDEN_TEST = `import { describe, expect, it } from 'vitest';
 import { add, rounded, total } from './add';
 
 it('adds', () => {
@@ -79,8 +79,11 @@ it('renders', () => {
   expect(document.querySelector('p')).toHaveTextContent('sum');
 });
 
-it('rounds', () => {
-  expect(rounded(2.6)).toBe(Math.round(2.6));
+// In a describe block, so the canary's walk of nested suites is exercised.
+describe('rounding', () => {
+  it('rounds', () => {
+    expect(rounded(2.6)).toBe(Math.round(2.6));
+  });
 });
 `;
 
@@ -267,6 +270,40 @@ const tamperFile = () =>
   return a + b;`,
   );
 
+// The same reach, by swapping the test of a later describe block in its
+// suite's task list (read only when that suite starts) for a stand-in marked
+// to fail that carries the real test's context: a guard that trusted
+// context.task would hold the real, never-run task while the runner flips the
+// stand-in's failure into a pass.
+const TASK_SWAP =
+  `
+type TamperNode = { name?: string; type?: string; tasks?: TamperNode[]; context?: unknown };
+const tamperRoot = () =>
+  (
+    globalThis as unknown as {
+      __vitest_worker__?: { current?: { file?: TamperNode; suite?: TamperNode } };
+    }
+  ).__vitest_worker__?.current;
+` +
+  BROKEN_ROUND.replace(
+    'return a + b;',
+    `const cur = tamperRoot();
+  const file = cur?.file ?? cur?.suite;
+  for (const suite of file?.tasks ?? []) {
+    if (suite.type !== 'suite' || !suite.tasks) continue;
+    for (let i = 0; i < suite.tasks.length; i += 1) {
+      const t = suite.tasks[i]!;
+      if (t.name !== 'rounds') continue;
+      const standIn: Record<string, unknown> = { ...t, fails: true };
+      Object.defineProperty(standIn, 'context', { value: t.context, enumerable: false });
+      try {
+        suite.tasks[i] = standIn as TamperNode;
+      } catch {}
+    }
+  }
+  return a + b;`,
+  );
+
 // The same, by replacing the whole result object with a passing one instead
 // of editing its state.
 const RESULT_SWAP =
@@ -401,6 +438,7 @@ describe('harness canary, live (#468 part a)', () => {
     siblingFails: { add: SIBLING_FAILS },
     resultSwap: { add: RESULT_SWAP },
     contextRebind: { add: CONTEXT_REBIND },
+    taskSwap: { add: TASK_SWAP },
   };
   const skip = { add: SKIP_FROM_BODY };
   const runs = {
@@ -415,6 +453,7 @@ describe('harness canary, live (#468 part a)', () => {
     siblingFails: grade(cheats.siblingFails),
     resultSwap: grade(cheats.resultSwap),
     contextRebind: grade(cheats.contextRebind),
+    taskSwap: grade(cheats.taskSwap),
     skip: grade(skip),
   };
   const controls = {
@@ -427,6 +466,7 @@ describe('harness canary, live (#468 part a)', () => {
     siblingFails: grade(cheats.siblingFails, false),
     resultSwap: grade(cheats.resultSwap, false),
     contextRebind: grade(cheats.contextRebind, false),
+    taskSwap: grade(cheats.taskSwap, false),
   };
   const skipControl = grade(skip, false);
 
@@ -533,10 +573,19 @@ describe('harness canary, live (#468 part a)', () => {
     expect(outcome).toBe('fail');
   }, 300_000);
 
-  it('keeps each test context pointing at its own test (worker state)', async () => {
-    // The writes are swallowed by the cheat: the later test keeps its own
-    // context and its pristine flag, so it fails on its own merits.
+  it('does not let a context rebind rescue a later failing test (worker state)', async () => {
+    // The writes are refused (the flag is pinned), so the later test keeps its
+    // pristine flag and fails on its own merits. The context pin itself is
+    // what the task-swap case below depends on.
     const { run, outcome } = await runs.contextRebind;
+    expect(run.failed).toBeGreaterThan(0);
+    expect(outcome).toBe('fail');
+  }, 300_000);
+
+  it('keeps a nested suite task list from being swapped for a stand-in (worker state)', async () => {
+    // The list is frozen before the first test runs, so the swap is refused
+    // and the real test runs and fails on its own merits.
+    const { run, outcome } = await runs.taskSwap;
     expect(run.failed).toBeGreaterThan(0);
     expect(outcome).toBe('fail');
   }, 300_000);
