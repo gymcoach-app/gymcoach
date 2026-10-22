@@ -37,12 +37,32 @@ export function rateLimit(
   return { ok: false, retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
 }
 
-// Best-effort client IP from common proxy headers (the app runs behind a
-// reverse proxy in production).
-export function clientIp(req: Request): string {
+// How many reverse proxies sit in front of the app (TRUSTED_PROXY_HOPS,
+// default 1). Anything that is not a whole number of at least 1 falls back to
+// the default.
+export function trustedProxyHops(raw: string | undefined = process.env.TRUSTED_PROXY_HOPS): number {
+  if (raw === undefined || !/^\s*\d+\s*$/.test(raw)) return 1;
+  const hops = Number(raw);
+  return Number.isSafeInteger(hops) && hops >= 1 ? hops : 1;
+}
+
+// Client IP for rate limiting. Proxies append the address they received the
+// request from to X-Forwarded-For, after whatever the client sent, so only the
+// right end of the list is trustworthy: with N trusted proxies the client is
+// the Nth entry from the right (the leftmost one when the list is shorter).
+// Reading the leftmost entry would let a client pick its own rate-limit bucket
+// (found in the review of #505). Without X-Forwarded-For, X-Real-IP is used.
+export function clientIp(req: Request, hops: number = trustedProxyHops()): string {
   const xff = req.headers.get('x-forwarded-for');
-  if (xff) return xff.split(',')[0]?.trim() || 'unknown';
-  return req.headers.get('x-real-ip') ?? 'unknown';
+  if (xff) {
+    const entries = xff
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (entries.length === 0) return 'unknown';
+    return entries[Math.max(0, entries.length - hops)]!;
+  }
+  return req.headers.get('x-real-ip')?.trim() || 'unknown';
 }
 
 // Test helper: clears all buckets.
