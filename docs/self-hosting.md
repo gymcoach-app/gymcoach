@@ -32,7 +32,10 @@ started with `docker compose up -d`. The app is published on `GYMCOACH_PORT`
   both once and keep a copy with your backups. Rotating `JWT_SECRET` keeps the
   data but invalidates every session, so everyone signs in again. Rotating the
   database password in `.env` alone locks the app out of the existing data:
-  change it inside Postgres too (`ALTER USER gymcoach WITH PASSWORD '...'`).
+  change it inside Postgres too. Do it in an interactive session, so the new
+  password stays out of your shell history: open one with
+  `docker compose exec db psql -U gymcoach -d gymcoach`, then run
+  `\password gymcoach`.
 - **Accounts**: the signup page is public (rate-limited to 5 attempts per
   minute per IP). Each account has its own data; there is no admin role. If the
   instance should be for a known group only, keep it on a VPN or put an IP
@@ -60,7 +63,8 @@ Two controls work today:
   ```
 
   Caddy has the same with a `remote_ip` matcher, Traefik with an `ipAllowList`
-  middleware. Anything the proxy rejects never reaches the app.
+  middleware (Traefik v3; v2 calls it `ipWhiteList`). Anything the proxy
+  rejects never reaches the app.
 
 ## Put it behind a reverse proxy
 
@@ -119,9 +123,9 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        # Not $proxy_add_x_forwarded_for: that appends to a client-supplied
-        # header, and the app reads the leftmost address, so a client could
-        # choose its own IP and slip past the rate limiter.
+        # The rate limiter reads the client IP from the right end of
+        # X-Forwarded-For, skipping TRUSTED_PROXY_HOPS entries (default 1).
+        # With nginx as the only proxy, $remote_addr is that one entry.
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
 
@@ -133,6 +137,13 @@ server {
 ```
 
 Check the config with `nginx -t` and reload with `systemctl reload nginx`.
+
+With two proxies in a row, for example Cloudflare's proxied DNS in front of
+nginx, let nginx append to the header with
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` and set
+`TRUSTED_PROXY_HOPS=2` in `.env`. Otherwise every visitor arrives with a
+Cloudflare edge address, and people who share an edge share one rate-limit
+budget for login and signup.
 
 ### Traefik
 
@@ -292,7 +303,8 @@ cd ~/gymcoach
 day=2026-10-22   # the folder you want to restore
 
 docker compose down
-docker compose up -d db
+# --wait returns once the database passes its healthcheck.
+docker compose up -d --wait db
 
 # Wipe the schema first. The dump carries --clean, but against a database that
 # already holds tables from a newer image psql can collide halfway through and,
@@ -302,11 +314,12 @@ docker compose exec -T db psql -U gymcoach -d gymcoach \
 docker compose exec -T db psql -U gymcoach -d gymcoach -v ON_ERROR_STOP=1 \
   < "backups/$day/gymcoach.sql"
 
-# Walk the photos back into the volume.
+# Walk the photos back into the volume. Emptying it first drops photos added
+# after the backup, so the volume matches the restored database.
 docker run --rm \
   -v "gymcoach_uploads:/data" \
   -v "$PWD/backups/$day:/backup" \
-  postgres:16-alpine sh -c "cd /data && tar xzf /backup/uploads.tar.gz"
+  postgres:16-alpine sh -c "find /data -mindepth 1 -delete && cd /data && tar xzf /backup/uploads.tar.gz"
 
 # Restore the matching .env, then start the app.
 cp "backups/$day/env.bak" .env
@@ -330,7 +343,9 @@ cp "backups/$day/env.bak" .env
 # Create the project and both named volumes before touching the database, so
 # compose owns the volumes the restore writes into.
 docker compose up --no-start
-docker compose up -d db
+# --wait matters here: a fresh volume takes a few seconds to initialise, and
+# psql run before that fails with "No such file or directory".
+docker compose up -d --wait db
 
 docker compose exec -T db psql -U gymcoach -d gymcoach \
   -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
@@ -417,20 +432,16 @@ Two things surprise self-hosters:
 
 - **`localhost` inside the container is the container.** A model server on the
   host is reachable at `http://host.docker.internal:8317/v1`, not at
-  `http://127.0.0.1:8317/v1`. On Linux that name only resolves once the app
-  service declares it:
-
-  ```yaml
-  services:
-    app:
-      extra_hosts:
-        - "host.docker.internal:host-gateway"
-  ```
+  `http://127.0.0.1:8317/v1`. On Linux that name only resolves when the app
+  service declares it; the current `docker-compose.yml` already does
+  (`extra_hosts: ['host.docker.internal:host-gateway']`), so only a copy
+  downloaded before October 2026 needs that line added.
 
 - **Compose forwards only what it lists.** The prebuilt `docker-compose.yml`
   from the one-minute setup only forwards the variables listed in the `app`
   service's `environment`; a `.env` entry alone does not reach the container.
-  Add any variable from the table above there if it is missing from that block.
+  The current file already lists every variable in the table above, plus
+  `TRUSTED_PROXY_HOPS`; an older copy may need them added.
 
 Practical cost levers, cheapest first:
 

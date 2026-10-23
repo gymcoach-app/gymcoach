@@ -145,10 +145,9 @@ Only if your server exposes the OpenAI Responses API, which `LLM_PROVIDER=codex-
 speaks (`CODEX_LB_BASE_URL`, include `/v1`). A server that only offers the older
 Chat Completions API will not work. If the server runs on the same machine as the
 container, point the base URL at `http://host.docker.internal:8317/v1`: inside the
-container, `localhost` is the container itself (on Linux, add
-`extra_hosts: ['host.docker.internal:host-gateway']` to the app service). The
-prebuilt compose file forwards only the variables listed in the app service's
-`environment`, so add `CODEX_LB_*` there if they are missing; see
+container, `localhost` is the container itself. The current prebuilt compose file
+already maps `host.docker.internal` and forwards the `CODEX_LB_*` variables; a
+copy downloaded before October 2026 may need both added, see
 [choose a model](self-hosting.md#choose-a-model-for-the-ai-coach). The `demo`
 provider gives canned answers with no key and is the quickest way to try the AI
 screens.
