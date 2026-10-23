@@ -238,6 +238,7 @@ interface WeekSummary {
     totalVolume: number;
     workingSetCount: number;
     exercises: Array<{
+      exerciseId: string;
       exerciseName: string;
       muscleGroup: string;
       sets: Array<{
@@ -520,6 +521,7 @@ async function weekSummary(
       const setsByExo = new Map<
         string,
         {
+          exerciseId: string;
           exerciseName: string;
           muscleGroup: string;
           usesBodyweight: boolean;
@@ -536,6 +538,7 @@ async function weekSummary(
         let entry = setsByExo.get(key);
         if (!entry) {
           entry = {
+            exerciseId: set.exerciseId,
             exerciseName: set.exercise.name,
             muscleGroup: set.exercise.muscleGroup,
             usesBodyweight: set.exercise.usesBodyweight,
@@ -559,6 +562,7 @@ async function weekSummary(
           bodyweight,
         );
         return {
+          exerciseId: e.exerciseId,
           exerciseName: e.exerciseName,
           muscleGroup: e.muscleGroup,
           sets: e.sets,
