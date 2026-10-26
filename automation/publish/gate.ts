@@ -23,9 +23,22 @@
 // parents, the second one on `main`, the same .gitattributes files on both
 // parents, a tree equal to a clean re-merge), and CI must still pass on the
 // new head itself.
+//
+// The ready records must also cover the review lenses the PR needs (lens
+// routing, automation/review/lenses.ts): a pure function of the changed paths
+// and the author's trust tier. The union of lenses over the passing records
+// must meet every required group. The paths come from git at the approved SHA,
+// never from the PR's live head; a git error refuses.
 
 import type { ReviewEvidence } from '@/automation/review/comment';
 import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';
+import type { ChangedPaths } from '@/automation/publish/changed-paths';
+import {
+  type TrustTier,
+  lensCoverage,
+  normaliseLens,
+  requiredLenses,
+} from '@/automation/review/lenses';
 
 export const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -88,6 +101,12 @@ export interface GateInput {
   // Pure base updates ending at the approved head, verified with git in the
   // trusted gate tree (base-update.ts).
   baseUpdates: BaseUpdateEvidence;
+  // Every path the approved SHA changes against its merge base with the base
+  // branch, renamed-from paths included (changed-paths.ts), or the git error
+  // that kept it from being read. An error refuses: lens routing never guesses.
+  changedFiles: ChangedPaths;
+  // The PR author's tier (lenses.ts trustTier); an unknown author is unvetted.
+  authorTier: TrustTier;
 }
 
 // One verified hop: `head` is a merge commit whose first parent is
@@ -132,7 +151,9 @@ export type RefusalCode =
   | 'review-for-other-head'
   | 'review-for-other-base'
   | 'review-not-ready'
-  | 'review-comment-invalid';
+  | 'review-comment-invalid'
+  | 'changed-files-unreadable'
+  | 'review-lens-missing';
 
 export interface Refusal {
   code: RefusalCode;
@@ -175,6 +196,8 @@ export type GateDecision =
       requiredChecksSource: 'repository' | 'unreadable';
       // One entry per reviewer identity, all ready.
       reviews: PassedReview[];
+      // Advisory lens groups no record covered (reported, not enforced).
+      advisories: string[];
     }
   | { mergeable: false; refusals: Refusal[] };
 
@@ -296,6 +319,7 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
   }
 
   const reviews = evaluateReviews(input, refuse);
+  const advisories = reviews ? evaluateLenses(input, reviews, refuse) : [];
   for (const bad of input.invalidReviews) {
     refuse('review-comment-invalid', `review comment ${bad.commentId}: ${bad.reason}`);
   }
@@ -314,7 +338,36 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     checks: passed,
     requiredChecksSource: input.requiredChecks ? 'repository' : 'unreadable',
     reviews,
+    advisories,
   };
+}
+
+// Lens routing: the union of lenses over the passing records must cover every
+// required group. Only called with the passing records (every reviewer ready),
+// so a lens on a stopped record never counts. Returns the advisory groups left
+// uncovered.
+function evaluateLenses(
+  input: GateInput,
+  reviews: PassedReview[],
+  refuse: (code: RefusalCode, detail: string) => void,
+): string[] {
+  if (input.changedFiles.paths === null) {
+    refuse(
+      'changed-files-unreadable',
+      `could not read the paths ${input.approvedSha.slice(0, 12)} changes (${input.changedFiles.error}), so the required review lenses are unknown`,
+    );
+    return [];
+  }
+  const requirements = requiredLenses({ files: input.changedFiles.paths, tier: input.authorTier });
+  const lenses = [...new Set(reviews.flatMap((r) => r.lenses.map(normaliseLens)))];
+  const { missing, advisoryMissing } = lensCoverage(requirements, lenses);
+  for (const r of missing) {
+    refuse(
+      'review-lens-missing',
+      `rule ${r.rule} needs one of [${r.anyOf.join(', ')}]: ${r.reason}; the ready records cover [${lenses.sort().join(', ')}]`,
+    );
+  }
+  return advisoryMissing.map((r) => `${r.rule}: one of [${r.anyOf.join(', ')}] (${r.reason})`);
 }
 
 // A record that stops the merge: not ready, or ready with a blocking or major

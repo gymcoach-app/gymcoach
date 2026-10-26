@@ -20,6 +20,11 @@ import {
   type ParsedReviews,
   parseReviewComments,
 } from '@/automation/review/comment';
+import { trustTier } from '@/automation/review/lenses';
+import { parseVetted } from '@/automation/baseline/collect';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { collectChangedPaths } from '@/automation/publish/changed-paths';
 
 // Pinned merge for every PR, loop-authored or external (roadmap milestone 2).
 // Fetches the live PR, its check runs for the approved SHA, the repository's
@@ -130,6 +135,10 @@ export interface RawPull {
   base: { ref: string; sha: string };
   head: { sha: string; ref: string; repo: { full_name: string } | null };
   mergeable_state: string | null;
+  // Always present in the pulls API; optional here so a missing field fails
+  // closed (an unknown author is unvetted, an unknown count refuses).
+  user?: { login: string; id: number } | null;
+  changed_files?: number;
 }
 
 interface RawCheckRuns {
@@ -154,6 +163,9 @@ export interface LivePull {
   pull: PullState;
   // The head branch, when it lives in this repository (null for a fork).
   sameRepoBranch: string | null;
+  // The PR author and GitHub's count of changed files, for lens routing.
+  author: { login: string; id: number } | null;
+  changedFileCount: number | null;
 }
 
 export function fetchPull(pr: number): LivePull {
@@ -176,7 +188,52 @@ export function toLivePull(raw: RawPull): LivePull {
       mergeableState: raw.mergeable_state,
     },
     sameRepoBranch: raw.head.repo?.full_name === REPO ? raw.head.ref : null,
+    author: raw.user ? { login: raw.user.login, id: raw.user.id } : null,
+    changedFileCount: typeof raw.changed_files === 'number' ? raw.changed_files : null,
   };
+}
+
+interface RawPullFile {
+  filename: string;
+  previous_filename?: string;
+}
+
+// Pure: every path a PR changes, with the old path of a rename (moving a file
+// out of a guarded directory still touches it). Null when the listing does not
+// account for every file GitHub counts (the files API stops at 3000) or the
+// count is unknown: the gate then refuses rather than route on a partial list.
+export function changedPaths(files: RawPullFile[], expectedCount: number | null): string[] | null {
+  if (expectedCount === null || files.length !== expectedCount) return null;
+  const paths = new Set<string>();
+  for (const f of files) {
+    paths.add(f.filename);
+    if (f.previous_filename) paths.add(f.previous_filename);
+  }
+  return [...paths];
+}
+
+// The files API lists the PR's live head, so only the lenses.ts CLI uses it,
+// to plan reviews. The gate reads the approved SHA's paths with git instead
+// (changed-paths.ts).
+export function fetchChangedFiles(pr: number, expectedCount: number | null): string[] | null {
+  const files = collectPages((page) =>
+    gh<RawPullFile[]>([`repos/${REPO}/pulls/${pr}/files?per_page=${PAGE_SIZE}&page=${page}`]),
+  );
+  return changedPaths(files, expectedCount);
+}
+
+// The vetted logins from the policy in the tree this module was loaded from
+// (the trusted origin/main worktree merge.ts runs from), whatever the cwd.
+// Unreadable means none: every external author is then unvetted, which the lens
+// rules treat the same way.
+export const POLICY_PATH = join(__dirname, '..', '..', 'docs/loops/10-external-contributions.md');
+
+export function readVettedLogins(path = POLICY_PATH): string[] {
+  try {
+    return parseVetted(readFileSync(path, 'utf8')).map((v) => v.login);
+  } catch {
+    return [];
+  }
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -358,6 +415,16 @@ async function run(argv: string[]): Promise<number> {
     invalidReviews: reviews.invalid,
     baseTipSha,
     baseUpdates,
+    // Read with git at the approved SHA, never from the live head (a push after
+    // approval cannot change which lenses are required).
+    changedFiles: collectChangedPaths(
+      runGit(process.cwd()),
+      args.pr,
+      BASE_BRANCH,
+      args.sha,
+      baseTipSha,
+    ),
+    authorTier: trustTier(live.author, MAINTAINERS, readVettedLogins()),
   });
   print(decision, reviews);
   if (!decision.mergeable) return 1;
