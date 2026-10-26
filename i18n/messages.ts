@@ -8,6 +8,7 @@ const loaders = {
   fr: () => import('@/messages/fr').then((module) => module.default),
   ru: () => import('@/messages/ru').then((module) => module.default),
   de: () => import('@/messages/de').then((module) => module.default),
+  es: () => import('@/messages/es').then((module) => module.default),
 } satisfies Record<Locale, () => Promise<AppMessages>>;
 
 export async function loadMessages(locale: Locale): Promise<AppMessages> {

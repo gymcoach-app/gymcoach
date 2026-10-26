@@ -85,7 +85,7 @@ describe('POST /api/locale', () => {
   });
 
   it('rejects unsupported locales without setting a cookie', async () => {
-    const response = await POST(request('https://gymcoach.example/api/locale', { locale: 'es' }));
+    const response = await POST(request('https://gymcoach.example/api/locale', { locale: 'ja' }));
     expect(response.status).toBe(400);
     expect(response.headers.get('set-cookie')).toBeNull();
   });

@@ -71,6 +71,7 @@ export const common = {
     french: 'Französisch',
     russian: 'Russisch',
     german: 'Deutsch',
+    spanish: 'Spanisch',
     error: 'Sprache konnte nicht geändert werden.',
   },
   theme: {

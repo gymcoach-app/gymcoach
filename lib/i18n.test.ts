@@ -5,6 +5,7 @@ import englishMessages from '@/messages/en';
 import frenchMessages from '@/messages/fr';
 import russianMessages from '@/messages/ru';
 import germanMessages from '@/messages/de';
+import spanishMessages from '@/messages/es';
 
 function messageKeys(value: unknown, prefix = ''): string[] {
   if (typeof value === 'string') return [prefix];
@@ -17,11 +18,12 @@ function messageKeys(value: unknown, prefix = ''): string[] {
 
 describe('i18n configuration', () => {
   it('recognizes only supported locales', () => {
-    expect(locales).toEqual(['en', 'fr', 'ru', 'de']);
+    expect(locales).toEqual(['en', 'fr', 'ru', 'de', 'es']);
     expect(isLocale('en')).toBe(true);
     expect(isLocale('fr')).toBe(true);
     expect(isLocale('ru')).toBe(true);
     expect(isLocale('de')).toBe(true);
+    expect(isLocale('es')).toBe(true);
     expect(isLocale(undefined)).toBe(false);
   });
 
@@ -29,6 +31,7 @@ describe('i18n configuration', () => {
     expect(messageKeys(russianMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(frenchMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(germanMessages).sort()).toEqual(messageKeys(englishMessages).sort());
+    expect(messageKeys(spanishMessages).sort()).toEqual(messageKeys(englishMessages).sort());
   });
 
   it('uses Russian plural categories', () => {

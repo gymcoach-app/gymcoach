@@ -178,11 +178,12 @@ describe('HistoryCalendar', () => {
 });
 
 describe('weekStartsOnForLocale', () => {
-  it('starts weeks on Monday for French, Russian and German', () => {
+  it('starts weeks on Monday for French, Russian, German and Spanish', () => {
     expect(weekStartsOnForLocale('fr')).toBe(1);
     expect(weekStartsOnForLocale('ru')).toBe(1);
     expect(weekStartsOnForLocale('de')).toBe(1);
     expect(weekStartsOnForLocale('de-AT')).toBe(1);
+    expect(weekStartsOnForLocale('es')).toBe(1);
   });
 
   it('starts weeks on Sunday for English', () => {
