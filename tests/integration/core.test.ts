@@ -226,6 +226,7 @@ describe('buildCoachPayload cardio exclusion (issue #140)', () => {
     const exerciseNames = week?.exercises.map((e) => e.exerciseName) ?? [];
     expect(exerciseNames).toContain('Bench');
     expect(exerciseNames).not.toContain('Running');
+    expect(week?.exercises.find((e) => e.exerciseName === 'Bench')?.exerciseId).toBe(bench.id);
   });
 });
 

@@ -106,7 +106,10 @@ changes on.
    main checkout or in a worktree it did not create** - that detaches or moves another
    tick's `HEAD` mid-work. Read through `gh pr diff <n>`, `git show <sha>:<path>` and
    `git diff`; when a tree on disk is needed, `git worktree add <scratch-path> <sha>` and
-   remove it afterwards. Say so in every review subagent's prompt (lesson L38).
+   remove it afterwards. The same holds for edits: a mutation check (revert a fix, rerun
+   its tests) or any temporary change runs in the reviewer's own scratch copy, never in
+   the author's or another session's tree. Say both in every review subagent's prompt
+   (lessons L38, L50).
    **Two review questions the prompt names when they apply.** If the change touches state
    shared across checkouts (a container or compose project, a port, a lock file, a cache, the
    test database), ask for its proof from a second checkout, not only the authoring one
@@ -122,6 +125,15 @@ changes on.
    follow-up issue for the structural fix; keep the capability the control protects
    disabled (or behind an explicit operator acceptance) until that issue closes. The
    review of that narrowing round judges claims, not new bypasses (lesson L46).
+   **A second bypass of the same class.** If round 2 of a security screen's review finds a
+   bypass of the class round 1 already found (another spelling, another route to the same
+   object), do not add the new names: redesign the screen to fail on anything it cannot
+   prove safe, accept and test the false positives, and keep the round budget above for the
+   redesign (lesson L48).
+   **A stopped adversarial reviewer.** When the model's safety classifier stops a reviewer
+   (or author) while it writes working exploit code, retry once with a read-only reviewer
+   that describes each attack route in prose (route, file and line, the property it
+   breaks) and writes or runs none; prove the fix with the PR's own tests (lesson L49).
    **Every review ends in a structured review record**, which the merge gate requires
    (roadmap milestones 2 and 4). Read the PR's live base and head first
    (`gh api repos/gymcoach-app/gymcoach/pulls/<n>`: `base.sha`, `head.sha`) and give both

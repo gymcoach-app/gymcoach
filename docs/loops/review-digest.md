@@ -959,3 +959,43 @@ fold, playbook (03, 04, 05, evidence), the cap in the `triage` and `ideate` skil
 #470, #472 (narrow route with integration tests), #488 (additive payload field, negative
 control in the PR), #473 (local ledger, fail-open), #491, #492 (tooling, unit tests), the
 docs here.
+
+## 2026-10-26 - #468 canary, rate-limit client IP, German, self-hosting guide, offline queue per account
+
+Merged: **#494** (offline sets per account), **#495** (repeated-block follow-ups),
+**#497**, **#498** (German interface), **#499**, **#500** (German exercise names),
+**#501**, **#503**, **#504** (#468 canary and screen), **#507** (self-host compose
+variables), **#508** (rate-limit client IP), **#505**, **#509** (self-hosting guide and
+FAQ), **#510**, **#511** (`exerciseId` in week summaries). In this PR: changelog fold,
+lessons L48 to L52, `ship-pr` step 4, "Verdict etiquette" in
+`10-external-contributions.md`, evidence, README.
+
+**Read first:**
+
+1. **#508 - who gets a fresh login budget.** `gh pr diff 508`. `clientIp` in
+   `lib/rate-limit.ts` now takes the `X-Forwarded-For` entry `TRUSTED_PROXY_HOPS` from the
+   right. A wrong hop count either lets a client pick its own bucket or makes every user
+   behind one proxy share one; the `.env.example` note says the app port must be reachable
+   only through the proxy. `docker-compose.prod.yml` does not set it.
+2. **#503, #501 - what stands between a paid agent and a gamed grade.** `gh pr diff 503`,
+   then `gh pr diff 501`. Read the "Residual risks" section of
+   `evals/maintainer/README.md` before deciding on #468: the canary is a tripwire, and
+   accepting its residuals is the operator's call that unlocks `PAID_AGENT_ENABLED`.
+3. **#494 - shared devices.** `gh pr diff 494`. Offline rows are tagged with their
+   account (`lib/sync.ts`, `lib/indexeddb.ts`, `lib/signed-in-account.ts`); a mistake sends one account's sets under
+   another's session. Residuals are tracked in #496.
+4. **#497, #499 - unvetted code in group A (`messages/**`, `i18n/**`).** `gh pr diff 497`,
+   `gh pr diff 499`. Merged on clean security lenses with rollback tags
+   `autonomy-baseline-2026-10-21` and `-21b`. Translation strings reach the UI and the
+   generated names; check that no string carries markup or a link.
+5. **#510 - an id added to the coach payload.** `gh pr diff 510`. It also reaches the
+   LLM prompt (about 1k more input tokens per coach call by the reviewer's estimate).
+6. **#495 - progression input and import.** `gh pr diff 495`. `lib/last-performance.ts`
+   and the return-to-training history now read per block, and the GymCoach CSV import
+   reads a `block` column; a mistake changes the next suggested load or duplicates sets on
+   re-import.
+
+**Trust the gate (lower risk):** #498, #500
+(follow-ups with coverage tests), #504 (tests only), #507 (compose pass-through with a
+test), #505, #509, #511 (docs; the guide's snippets were run against compose in #509),
+the docs here.
