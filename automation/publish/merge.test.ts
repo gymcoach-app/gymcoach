@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { PullState } from './gate';
 import { REPO } from './checks';
 import {
+  changedPaths,
   collectPages,
   fetchSettledPull,
   mergeRequestArgs,
   needsBaseUpdateCheck,
   parseArgs,
   type RawPull,
+  readVettedLogins,
   toIssueComment,
   toLivePull,
   UsageError,
@@ -104,7 +106,12 @@ describe('mergeable state polling', () => {
     let reads = 0;
     const live = await fetchSettledPull(
       7,
-      () => ({ pull: pull(states[reads++] ?? null), sameRepoBranch: null }),
+      () => ({
+        pull: pull(states[reads++] ?? null),
+        sameRepoBranch: null,
+        author: null,
+        changedFileCount: null,
+      }),
       { tries: 5, delayMs: 0 },
     );
     expect(live.pull.mergeableState).toBe('clean');
@@ -117,7 +124,12 @@ describe('mergeable state polling', () => {
       7,
       () => {
         reads += 1;
-        return { pull: pull('unknown'), sameRepoBranch: null };
+        return {
+          pull: pull('unknown'),
+          sameRepoBranch: null,
+          author: null,
+          changedFileCount: null,
+        };
       },
       { tries: 4, delayMs: 0 },
     );
@@ -208,5 +220,40 @@ describe('comment pagination', () => {
     expect(
       toIssueComment({ id: 6, user: null, body: 'x', created_at: 'a', updated_at: 'a' }).authorId,
     ).toBeNull();
+  });
+});
+
+describe('lens routing inputs', () => {
+  it('lists renamed-from paths and refuses a partial listing', () => {
+    const files = [
+      { filename: 'lib/x.ts', previous_filename: 'lib/mcp/x.ts' },
+      { filename: 'a.md' },
+    ];
+    expect(changedPaths(files, 2)).toEqual(['lib/x.ts', 'lib/mcp/x.ts', 'a.md']);
+    // The files API stops at 3000 entries: a count mismatch must not route.
+    expect(changedPaths(files, 3)).toBeNull();
+    expect(changedPaths(files, null)).toBeNull();
+  });
+
+  it('maps the author and changed file count, null when missing', () => {
+    const raw: RawPull = {
+      number: 7,
+      state: 'open',
+      merged: false,
+      draft: false,
+      base: { ref: 'main', sha: BASE },
+      head: { sha: SHA, ref: 'feat/thing', repo: null },
+      mergeable_state: 'clean',
+    };
+    expect(toLivePull(raw)).toMatchObject({ author: null, changedFileCount: null });
+    expect(toLivePull({ ...raw, user: { login: 'x', id: 3 }, changed_files: 4 })).toMatchObject({
+      author: { login: 'x', id: 3 },
+      changedFileCount: 4,
+    });
+  });
+
+  it('reads the vetted logins from the policy, none when unreadable', () => {
+    expect(readVettedLogins()).toContain('Retsumdk');
+    expect(readVettedLogins('does/not/exist.md')).toEqual([]);
   });
 });

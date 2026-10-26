@@ -66,6 +66,8 @@ function input(over: Partial<GateInput> = {}): GateInput {
     invalidReviews: [],
     baseTipSha: BASE,
     baseUpdates: { hops: [], basesOnMain: [], error: null },
+    changedFiles: ['lib/a.ts'],
+    authorTier: 'maintainer',
     ...over,
   };
 }
@@ -363,7 +365,11 @@ describe('merge gate', () => {
       pull: { ...pull, baseSha: TIP },
       baseTipSha: TIP,
       reviews: [evidence({ headSha: OLD_HEAD, baseSha: BASE })],
-      baseUpdates: { hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }], basesOnMain: [BASE], error: null },
+      baseUpdates: {
+        hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }],
+        basesOnMain: [BASE],
+        error: null,
+      },
       ...over,
     });
 
@@ -391,9 +397,9 @@ describe('merge gate', () => {
 
     it('carries nothing when the merge was not proven pure (hand edit, conflict, extra commit)', () => {
       // base-update.ts lists no hop for such a head; the old record is stale.
-      expect(codes(updated({ baseUpdates: { hops: [], basesOnMain: [BASE], error: null } }))).toEqual([
-        'review-for-other-head',
-      ]);
+      expect(
+        codes(updated({ baseUpdates: { hops: [], basesOnMain: [BASE], error: null } })),
+      ).toEqual(['review-for-other-head']);
     });
 
     it('carries nothing when the newest hop merged in something other than the live tip', () => {
@@ -411,10 +417,9 @@ describe('merge gate', () => {
     });
 
     it('refuses when git could not verify the base updates', () => {
-      expect(codes(updated({ baseUpdates: { hops: [], basesOnMain: [], error: 'git fetch failed' } }))).toEqual([
-        'base-update-unverified',
-        'review-for-other-head',
-      ]);
+      expect(
+        codes(updated({ baseUpdates: { hops: [], basesOnMain: [], error: 'git fetch failed' } })),
+      ).toEqual(['base-update-unverified', 'review-for-other-head']);
       // Even with hops listed, an error carries nothing and refuses.
       const decision = evaluateMergeGate(
         input(updated({ baseUpdates: { ...updated().baseUpdates!, error: 'boom' } })),
@@ -434,9 +439,9 @@ describe('merge gate', () => {
       );
       // Another lens's ready record on the new head does not clear it.
       const freshReady = evidence({ baseSha: TIP }, 902);
-      expect(codes(updated({ reviews: [evidence({ headSha: OLD_HEAD }), stop, freshReady] }))).toEqual(
-        ['review-not-ready'],
-      );
+      expect(
+        codes(updated({ reviews: [evidence({ headSha: OLD_HEAD }), stop, freshReady] })),
+      ).toEqual(['review-not-ready']);
       // The same lens re-reviewing the new head retracts it.
       const securityReady = evidence({ baseSha: TIP, lenses: ['security'] }, 903);
       expect(
@@ -451,12 +456,23 @@ describe('merge gate', () => {
         { head: OLD_HEAD, reviewedHead: OLDER_HEAD, base: BASE },
       ];
       expect(
-        evaluateMergeGate(input(updated({ reviews: [older], baseUpdates: { hops: chain, basesOnMain: [BASE], error: null } })))
-          .mergeable,
+        evaluateMergeGate(
+          input(
+            updated({
+              reviews: [older],
+              baseUpdates: { hops: chain, basesOnMain: [BASE], error: null },
+            }),
+          ),
+        ).mergeable,
       ).toBe(true);
       const broken = [chain[0]!, { head: OTHER, reviewedHead: OLDER_HEAD, base: BASE }];
       expect(
-        codes(updated({ reviews: [older], baseUpdates: { hops: broken, basesOnMain: [BASE], error: null } })),
+        codes(
+          updated({
+            reviews: [older],
+            baseUpdates: { hops: broken, basesOnMain: [BASE], error: null },
+          }),
+        ),
       ).toEqual(['review-for-other-head']);
     });
 
@@ -479,8 +495,11 @@ describe('merge gate', () => {
       // git reports a base absent locally as not on main (basesOnMain omits it,
       // no error): the old record does not carry, the current one decides.
       const ABSENT = '1'.repeat(40);
-      const old = evidence({ headSha: OLD_HEAD, baseSha: ABSENT, lenses: ['security'] }, 901);
-      const fresh = evidence({ headSha: SHA, baseSha: TIP, lenses: ['security'] }, 902);
+      // Both records carry a correctness lens so lens routing's base rule is
+      // met and the test isolates the carry decision.
+      const lenses = ['security', 'correctness'];
+      const old = evidence({ headSha: OLD_HEAD, baseSha: ABSENT, lenses }, 901);
+      const fresh = evidence({ headSha: SHA, baseSha: TIP, lenses }, 902);
       expect(evaluateMergeGate(input(updated({ reviews: [old, fresh] }))).mergeable).toBe(true);
       // Alone, the old record on that base still does not carry.
       expect(codes(updated({ reviews: [old] }))).toEqual(['review-for-other-base']);
@@ -503,6 +522,114 @@ describe('merge gate', () => {
       expect(codes(updated({ reviews: [evidence({ baseSha: BASE })] }))).toEqual([
         'review-for-other-base',
       ]);
+    });
+  });
+
+  describe('review lens routing', () => {
+    const lenses = (ls: string[], id: number, over: Partial<StructuredReview> = {}) =>
+      evidence({ lenses: ls, ...over }, id);
+
+    it('refuses when no ready record covers the base correctness-or-tests rule', () => {
+      const decision = evaluateMergeGate(input({ reviews: [lenses(['security'], 900)] }));
+      expect(decision.mergeable).toBe(false);
+      if (!decision.mergeable) {
+        expect(decision.refusals.map((r) => r.code)).toEqual(['review-lens-missing']);
+        expect(decision.refusals[0]!.detail).toContain('rule base');
+      }
+      expect(evaluateMergeGate(input({ reviews: [lenses(['tests'], 900)] })).mergeable).toBe(true);
+    });
+
+    it('refuses an external group A PR whose records lack threat-model', () => {
+      const over: Partial<GateInput> = {
+        changedFiles: ['lib/mcp/server.ts'],
+        authorTier: 'unvetted',
+        reviews: [lenses(['security'], 900), lenses(['correctness', 'tests'], 901)],
+      };
+      const decision = evaluateMergeGate(input(over));
+      expect(decision.mergeable).toBe(false);
+      if (!decision.mergeable) {
+        expect(decision.refusals.map((r) => r.code)).toEqual(['review-lens-missing']);
+        expect(decision.refusals[0]!.detail).toContain('group-a-threat-model');
+        expect(decision.refusals[0]!.detail).toContain('lib/mcp/server.ts');
+      }
+    });
+
+    it('accepts #513: an external es catalog with every required lens', () => {
+      const decision = evaluateMergeGate(
+        input({
+          changedFiles: ['messages/es/common.ts', 'i18n/config.ts', 'components/history/x.tsx'],
+          authorTier: 'unvetted',
+          reviews: [
+            lenses(['security', 'threat-model'], 900),
+            lenses(['tests', 'correctness'], 901),
+            lenses(['translation-quality'], 902),
+          ],
+        }),
+      );
+      expect(decision).toMatchObject({ mergeable: true, advisories: [] });
+    });
+
+    it('refuses an external catalog without a translation review', () => {
+      expect(
+        codes({
+          changedFiles: ['messages/es/common.ts'],
+          authorTier: 'vetted',
+          reviews: [lenses(['security', 'threat-model'], 900), lenses(['correctness'], 901)],
+        }),
+      ).toEqual(['review-lens-missing']);
+    });
+
+    it('only advises a translation review on a maintainer catalog change', () => {
+      const decision = evaluateMergeGate(
+        input({
+          changedFiles: ['messages/es/common.ts'],
+          reviews: [lenses(['security', 'threat-model', 'correctness'], 900)],
+        }),
+      );
+      expect(decision.mergeable).toBe(true);
+      if (decision.mergeable) expect(decision.advisories[0]).toContain('translation-quality');
+    });
+
+    it('accepts #512: a maintainer docs PR with docs-accuracy and correctness', () => {
+      const files = ['CHANGELOG.md', 'docs/loops/lessons.md', '.claude/skills/ship-pr/SKILL.md'];
+      expect(
+        evaluateMergeGate(
+          input({ changedFiles: files, reviews: [lenses(['docs-accuracy', 'correctness'], 900)] }),
+        ).mergeable,
+      ).toBe(true);
+      expect(codes({ changedFiles: files, reviews: [lenses(['correctness'], 900)] })).toEqual([
+        'review-lens-missing',
+      ]);
+    });
+
+    it('takes the union over reviewers and accepts past spellings of a lens', () => {
+      expect(
+        evaluateMergeGate(
+          input({
+            changedFiles: ['lib/auth.ts'],
+            authorTier: 'unvetted',
+            reviews: [
+              lenses(['Backdoor-Egress'], 900),
+              lenses(['threat-model'], 901),
+              lenses(['correctness'], 902),
+            ],
+          }),
+        ).mergeable,
+      ).toBe(true);
+    });
+
+    it('never counts the lenses of a record that stopped the merge', () => {
+      const stop = lenses(['security', 'threat-model'], 900, { verdict: 'needs-changes' });
+      expect(
+        codes({
+          changedFiles: ['lib/mcp/server.ts'],
+          reviews: [stop, lenses(['correctness'], 901)],
+        }),
+      ).toEqual(['review-not-ready']);
+    });
+
+    it('refuses when the changed files could not be read in full', () => {
+      expect(codes({ changedFiles: null })).toEqual(['changed-files-unreadable']);
     });
   });
 });

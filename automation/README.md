@@ -145,6 +145,30 @@ Claude Code sessions in this project, not humans or other tools.
   a new one instead). Malformed maintainer records are reported and ignored, never
   counted. Not checked: `performed_via_github_app` (an app acting with a maintainer's
   own user token posts as that maintainer).
+- `review/lenses.ts` - lens routing: which review lenses a PR needs, from its changed
+  paths (renamed-from paths included) and its author's trust tier. Each rule returns a
+  group of lenses, any one of which satisfies it, and the reason it applies:
+
+  | Rule | Applies when | Needs one of |
+  |---|---|---|
+  | `base` | every PR | `correctness`, `tests` |
+  | `group-a-security` | a group A path (docs/loops/10) | `security` |
+  | `group-a-threat-model` | a group A path | `threat-model` |
+  | `external-security` | the author is not a maintainer | `security` |
+  | `docs-accuracy` | every path is `*.md` or under `docs/` | `docs-accuracy` |
+  | `translation-quality` | a `messages/<locale>/` path, locale not `en` | `translation-quality` (advisory for a maintainer) |
+
+  Rules only add requirements. Lens names are compared lowercase, and the spellings past
+  records used are aliases (`egress-backdoor` and `backdoor-egress` for `security`,
+  `docs` for `docs-accuracy`); any other name satisfies nothing. The tier fails closed:
+  a maintainer matches on the numeric user id, a missing author is unvetted, and vetted
+  logins come from the policy file in the trusted tree. The merge gate takes the union of
+  lenses over the passing records (a stopped record's lenses never count) and refuses
+  with `review-lens-missing`, naming the rule and its reason, when a group is uncovered;
+  a list of changed files that does not account for every file GitHub counts refuses
+  with `changed-files-unreadable`. Advisory groups are reported in the decision only.
+  `npx tsx automation/review/lenses.ts <pr>` prints the groups for a live PR, so the
+  reviewers can be dispatched before the gate runs.
 - `review/record.ts` - posts a record after validating it and checking that its head
   and base are the PR's live head and base and that `gh` is a maintainer account.
   `--dry-run` prints the comment. Exit codes as for `merge.ts`.
