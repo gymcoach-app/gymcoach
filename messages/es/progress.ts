@@ -1,3 +1,6 @@
+import { progress as english } from '../en/progress';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const progress = {
   title: 'Progreso',
   emptyTitle: 'Aún no hay progreso que mostrar',
@@ -104,11 +107,11 @@ export const progress = {
   deload: {
     activeTitle: 'Semana de descarga en curso',
     activeDescription:
-      'Hasta el {date}, las cargas sugeridas son un 10 % más ligeras. Después, la progresión normal se reanuda automáticamente.',
+      'Hasta el {date}, las cargas sugeridas son aproximadamente un 10 % más ligeras. Después, la progresión normal se reanuda automáticamente.',
     end: 'Terminar la descarga ahora',
     dueTitle: 'Parece que toca una semana de descarga',
     dueDescription:
-      'Una descarga reduce las cargas sugeridas un 10 % durante 7 días; después se reanuda la progresión normal. Puedes terminarla antes.',
+      'Una descarga reduce las cargas sugeridas aproximadamente un 10 % durante 7 días; después se reanuda la progresión normal. Puedes terminarla antes.',
     start: 'Empezar una semana de descarga',
     started: 'Semana de descarga iniciada. Las cargas sugeridas bajan durante 7 días.',
     ended: 'Descarga terminada. Las sugerencias vuelven a la progresión normal.',
@@ -174,8 +177,8 @@ export const progress = {
     title: 'Mapa de calor muscular',
     description:
       'Cada músculo se colorea según tus series efectivas en la semana del {week}, frente a su franja MEV-MRV.',
-    front: 'Delante',
-    back: 'Detrás',
+    front: 'Vista frontal',
+    back: 'Vista posterior',
     legend: {
       none: 'Sin entrenar',
       low: 'Por debajo del MEV',
@@ -192,4 +195,4 @@ export const progress = {
     hint: 'Toca un músculo para ver los detalles.',
     empty: 'No hubo series efectivas esa semana; registra una sesión y el cuerpo se iluminará.',
   },
-};
+} satisfies MessageShape<typeof english>;

@@ -1,3 +1,6 @@
+import { dashboard as english } from '../en/dashboard';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const dashboard = {
   activeSession: 'Sesión activa',
   sessionFallback: 'Sesión',
@@ -30,4 +33,4 @@ export const dashboard = {
     deloadReadinessReason:
       'Tu nivel de preparación ha promediado {average}/5 en tus {checkins, plural, one {último # registro} other {últimos # registros}}.',
   },
-};
+} satisfies MessageShape<typeof english>;

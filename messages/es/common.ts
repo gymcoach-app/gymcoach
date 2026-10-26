@@ -1,3 +1,6 @@
+import { common as english } from '../en/common';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const common = {
   metadata: {
     description: 'Registro de entrenamiento de fuerza y coach personal con IA.',
@@ -88,4 +91,4 @@ export const common = {
   errors: {
     generic: 'Algo salió mal. Inténtalo de nuevo.',
   },
-};
+} satisfies MessageShape<typeof english>;

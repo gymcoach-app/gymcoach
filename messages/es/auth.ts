@@ -1,3 +1,6 @@
+import { auth as english } from '../en/auth';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const auth = {
   login: {
     title: 'Iniciar sesión',
@@ -20,11 +23,11 @@ export const auth = {
     error: 'Error al crear la cuenta.',
   },
   logout: 'Cerrar sesión',
-  logoutFailed: 'No se pudo cerrar la sesión. Sigues conectado; inténtalo de nuevo.',
+  logoutFailed: 'No se pudo cerrar la sesión. Tu sesión sigue abierta; inténtalo de nuevo.',
   validation: {
     invalidEmail: 'Correo electrónico no válido',
     nameRequired: 'El nombre es obligatorio',
     passwordRequired: 'La contraseña es obligatoria',
     passwordMin: 'La contraseña debe tener al menos 8 caracteres',
   },
-};
+} satisfies MessageShape<typeof english>;

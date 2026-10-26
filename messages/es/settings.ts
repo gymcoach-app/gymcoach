@@ -1,3 +1,6 @@
+import { settings as english } from '../en/settings';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const settings = {
   title: 'Ajustes',
   account: 'Cuenta',
@@ -11,7 +14,7 @@ export const settings = {
   restFlash: 'Hacer parpadear la pantalla al terminar el descanso',
   restFlashDescription:
     'La pantalla parpadea al final del descanso, útil en un gimnasio ruidoso. Con la reducción de movimiento activada, la pantalla cambia de color sin parpadear.',
-  readiness: 'Ajustar los pesos sugeridos según mi preparación y agujetas',
+  readiness: 'Ajustar los pesos sugeridos según mi preparación y dolor muscular',
   readinessDescription:
     'Si está activado, un registro de preparación reciente puede mantener o bajar la carga sugerida. Si está desactivado, las sugerencias siguen solo la progresión programada.',
   plateCalculator: 'Calculadora de discos',
@@ -144,9 +147,9 @@ export const settings = {
     lineError: 'Línea {line}: {reason}',
     moreErrors: '... y {count} más',
     importDone:
-      'Importadas {sessions, plural, one {# sesión} other {# sesiones}}, {sets, plural, one {# serie} other {# series}}{exercises, plural, =0 {} one {, # ejercicio nuevo} other {, # ejercicios nuevos}}.',
+      'Importación completada: {sessions, plural, one {# sesión} other {# sesiones}}, {sets, plural, one {# serie} other {# series}}{exercises, plural, =0 {} one {, # ejercicio nuevo} other {, # ejercicios nuevos}}.',
     fitImportDone:
-      'Importadas {sessions, plural, one {# sesión} other {# sesiones}}{exercises, plural, =0 {} one {, # ejercicio nuevo} other {, # ejercicios nuevos}}{skipped, plural, =0 {.} one { (# archivo omitido).} other { (# archivos omitidos).}}',
+      'Importación completada: {sessions, plural, one {# sesión} other {# sesiones}}{exercises, plural, =0 {} one {, # ejercicio nuevo} other {, # ejercicios nuevos}}{skipped, plural, =0 {.} one { (# archivo omitido).} other { (# archivos omitidos).}}',
   },
   mcp: {
     title: 'ChatGPT y MCP',
@@ -173,4 +176,4 @@ export const settings = {
     revoked: 'Conexión MCP revocada.',
     revokeError: 'No se pudo revocar la conexión MCP.',
   },
-};
+} satisfies MessageShape<typeof english>;

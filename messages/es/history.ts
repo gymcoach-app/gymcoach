@@ -1,3 +1,6 @@
+import { history as english } from '../en/history';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const history = {
   title: 'Historial',
   noFiltered: 'Ninguna sesión terminada coincide con estos filtros.',
@@ -84,4 +87,4 @@ export const history = {
     deleting: 'Eliminando...',
     confirm: 'Sí, eliminar',
   },
-};
+} satisfies MessageShape<typeof english>;

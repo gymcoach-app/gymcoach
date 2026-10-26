@@ -1,3 +1,6 @@
+import { coach as english } from '../en/coach';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const coach = {
   title: 'Coach',
   description: 'Resumen semanal de tu entrenamiento con IA.',
@@ -63,7 +66,7 @@ export const coach = {
     title: 'Nota para tu coach',
     description:
       'Añade el contexto que no muestran los datos de entrenamiento, como una lesión, una enfermedad o un viaje.',
-    placeholder: 'p. ej. Me molesta el hombro, esta semana ve con calma con los empujes.',
+    placeholder: 'p. ej. Me molesta el hombro, esta semana ve con calma con los ejercicios de empuje.',
     clear: 'Borrar',
     save: 'Guardar',
     saved: 'Nota guardada.',
@@ -85,4 +88,4 @@ export const coach = {
     applying: 'Aplicando...',
     apply: 'Aplicar {count, plural, one {# ajuste} other {# ajustes}}',
   },
-};
+} satisfies MessageShape<typeof english>;

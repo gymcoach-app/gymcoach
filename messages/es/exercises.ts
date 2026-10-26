@@ -1,3 +1,6 @@
+import { exercises as english } from '../en/exercises';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const exercises = {
   title: 'Catálogo de ejercicios',
   savedCount:
@@ -51,7 +54,7 @@ export const exercises = {
     equipmentDescription:
       'Equipo necesario: {equipment}. Las imágenes también muestran cómo debe verse y colocarse el equipo o la máquina.',
     disclaimer:
-      'Usa las imágenes como referencia visual, no como sustituto de un entrenador. Para si el movimiento te provoca un dolor agudo.',
+      'Usa las imágenes como referencia visual, no como sustituto de un entrenador. Detente si el movimiento te provoca un dolor agudo.',
     source: 'Fuente: {source} · {license}',
     missing: 'Este ejercicio personalizado aún no tiene imágenes locales verificadas.',
     searchCommons: 'Buscar en Wikimedia Commons',
@@ -108,8 +111,8 @@ export const exercises = {
     barbell: 'Barra',
     machine: 'Máquina',
     cable: 'Polea',
-    bodyweight: 'Corporal',
+    bodyweight: 'Peso corp.',
     cardio: 'Máq. cardio',
     other: 'Cualquiera',
   },
-};
+} satisfies MessageShape<typeof english>;

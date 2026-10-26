@@ -1,3 +1,6 @@
+import { programs as english } from '../en/programs';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const programs = {
   title: 'Programas',
   count: '{count, plural, =0 {Ningún programa} one {# programa} other {# programas}}.',
@@ -143,4 +146,4 @@ export const programs = {
     removeWorkout: 'Quitar entrenamiento',
     removeExercise: 'Quitar ejercicio',
   },
-};
+} satisfies MessageShape<typeof english>;

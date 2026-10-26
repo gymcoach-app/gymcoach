@@ -1,3 +1,6 @@
+import { session as english } from '../en/session';
+import type { MessageShape } from '@/i18n/message-types';
+
 export const session = {
   startTitle: 'Empezar una sesión',
   activeProgram: 'Programa activo: {name}',
@@ -56,11 +59,11 @@ export const session = {
     },
   },
   returnToTraining: {
-    title: 'Calibración de vuelta',
+    title: 'Calibración tras la pausa',
     exerciseReintro:
       'Hiciste este ejercicio por última vez hace {days} días. La preparación muscular que dan otros movimientos no recupera del todo la coordinación propia de este ejercicio.',
     recentReturnAfterGap:
-      'La última sesión fue reciente, pero llegó tras una pausa de {days} días, así que la calibración de vuelta sigue activa.',
+      'La última sesión fue reciente, pero llegó tras una pausa de {days} días, así que la calibración tras la pausa sigue activa.',
     muscleReintro:
       'El músculo principal lleva más de seis semanas sin series efectivas registradas. El volumen y el esfuerzo se reducen en esta sesión.',
     targets: 'Series hoy: {sets}. RIR objetivo: {rir}.',
@@ -74,14 +77,14 @@ export const session = {
   readiness: {
     open: 'Registro de preparación (opcional)',
     update: 'Actualizar el registro de preparación',
-    title: '¿Cómo de recuperado te sientes?',
+    title: '¿Cómo va tu recuperación?',
     description: 'Opcional. Puntúa de 1 (bajo) a 5 (alto); el coach lo usa para autorregular.',
     overall: 'Preparación general',
     sleep: 'Calidad del sueño',
-    details: 'Añadir agujetas / nota (opcional)',
-    soreness: 'Agujetas por músculo',
+    details: 'Añadir dolor muscular / nota (opcional)',
+    soreness: 'Dolor muscular por grupo',
     sorenessDescription:
-      'Puntúa solo los grupos musculares con agujetas (1 fresco, 5 muy cargado). Toca la misma puntuación otra vez para borrarla.',
+      'Puntúa solo los grupos musculares con dolor (1 fresco, 5 muy dolorido). Toca la misma puntuación otra vez para borrarla.',
     note: 'Nota',
     notePlaceholder: 'Algo que el coach deba saber (opcional).',
     rateBoth: 'Puntúa primero la preparación y el sueño.',
@@ -90,7 +93,7 @@ export const session = {
     saveError: 'No se pudo guardar el registro.',
     save: 'Guardar registro',
     skip: 'Saltar',
-    sorenessAria: 'Agujetas en {name}: {value}',
+    sorenessAria: 'Dolor muscular en {name}: {value}',
   },
   input: {
     describe: 'Describe la serie (IA)',
@@ -149,19 +152,19 @@ export const session = {
     plates: 'Calculadora de discos',
     openPlates: 'Abrir la calculadora de discos',
     platesPerSide: 'Discos por lado',
-    warmup: 'Series de aproximación',
+    warmup: 'Series de calentamiento',
     openWarmup: 'Abrir la calculadora de calentamiento',
     warmupButton: 'Calentamiento',
     currentWeight: 'el peso actual',
     plateDescription: 'Discos por lado para {target} con una barra de {bar}.',
     barOnly: 'Solo la barra: no hacen falta discos.',
-    achieved: 'Carga hasta {weight} (barra de {bar}).',
+    achieved: 'Total cargado: {weight} (barra de {bar}).',
     remainder:
       '{remainder} no se puede cargar con tus discos disponibles. Ajusta el objetivo o el inventario de discos en los ajustes.',
     warmupDescription: 'Series de calentamiento sugeridas hasta un peso de trabajo de {weight}.',
     warmupSets: 'Series de calentamiento',
     reps: '{count} reps',
-    noWarmup: 'Esta carga es igual o menor que la barra: no hacen falta series de aproximación.',
+    noWarmup: 'Esta carga es igual o menor que la barra: no hacen falta series de calentamiento.',
     warmupHelp:
       'Solo son sugerencias. Registra los calentamientos con el interruptor Calentamiento. Los pesos se redondean hacia abajo a discos que puedas cargar.',
   },
@@ -275,8 +278,8 @@ export const session = {
     notes: 'Notas / conexión mente-músculo',
     readiness: {
       planned: 'Más ligero - semana de descarga planificada',
-      sorenessLighter: 'Más ligero - agujetas indicadas',
-      sorenessHeld: 'Mantenido - agujetas indicadas',
+      sorenessLighter: 'Más ligero - dolor muscular indicado',
+      sorenessHeld: 'Mantenido - dolor muscular indicado',
       readinessLighter: 'Más ligero - poca preparación hoy',
       readinessHeld: 'Mantenido - poca preparación hoy',
     },
@@ -288,8 +291,8 @@ export const session = {
       readinessDeload:
         'La recuperación es muy baja, así que la carga baja desde {weight} para una sesión más ligera.',
       plannedDeload:
-        'Es una semana de descarga planificada, así que la carga es un 10 % más ligera que {weight}.',
+        'Es una semana de descarga planificada, así que la carga es aproximadamente un 10 % más ligera que {weight}.',
       hold: 'Mantén la misma carga y supera tus reps. Sube cuando todas las series lleguen a {reps} reps.',
     },
   },
-};
+} satisfies MessageShape<typeof english>;
