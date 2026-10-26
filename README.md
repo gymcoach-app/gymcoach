@@ -182,8 +182,8 @@ on your own key - all self-hosted.
   per-user data isolation, and an installable PWA with offline logging. On a
   shared device, logging out or logging in clears the cached pages and API
   responses of the previous user, and a successful logout also deletes their
-  already synced offline data; their unsynced offline sets are kept, so no
-  work is lost (tracked in #490).
+  already synced offline data; their unsynced offline sets are kept, hidden
+  from the next account, and sync when their owner signs in again.
 
 ### Track progress
 
@@ -530,6 +530,8 @@ than CI reaching in to a small VPS.
       session as a workout
 - [x] Repeated-exercise blocks (5/3/1 BBB) and a "last done" day in the live
       session
+- [x] Self-hosting guide (reverse proxies, HTTPS on a LAN, backups, upgrades)
+      and an FAQ
 
 ## Contributing
 
@@ -571,10 +573,16 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   database errors to fixed wording, so a client never sees a raw query error
   (#432). Then a weights-only save for a gym equipment item that leaves its
   name, type and exercise links alone (#470), and a per-block split of a
-  repeated lift's sets in the in-session coach context (#488).
+  repeated lift's sets in the in-session coach context (#488), and tests that
+  pin the eval harness's test-globals screen (#504).
 - [@f1dot4](https://github.com/f1dot4) - first contribution: updating the
   current bodyweight from an MCP client, through a user-properties tool built
-  to take more properties later (#477).
+  to take more properties later (#477). Then the German interface (#497),
+  German exercise names (#499) and exercise ids in the coach and MCP week
+  summaries (#510).
+- [@anhaoXie](https://github.com/anhaoXie) - wrote the self-hosting guide and
+  the FAQ (#505): reverse proxies, HTTPS on a home network, backups, restores
+  and upgrades. Reviewing it also surfaced two app fixes (#507, #508).
 - [@shaurya703](https://github.com/shaurya703) - picked up three of the loop's
   own follow-up issues within hours of their filing and turned each into a
   clean PR, including the persisted dropped-equipment notice (#342).

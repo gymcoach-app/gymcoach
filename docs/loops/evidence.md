@@ -2,7 +2,7 @@
 
 What the agents maintaining GymCoach have done, measured from public GitHub data
 and local agent transcripts, with links to the files and PRs behind every
-number. Last updated 2026-10-19.
+number. Last updated 2026-10-26.
 
 [Back to the overview](README.md) ·
 [Baseline report](baseline/2026-10-13/report.md) ·
@@ -129,6 +129,7 @@ exposed.
 | Every `verify.sh` run appends one line to the local ledger: tier, exit code, per-step outcome, HEAD and the tree SHA of the checked files when it was the same at start and exit ([`record-verify.cjs`](../../automation/ledger/record-verify.cjs), [`verify.ts`](../../automation/ledger/verify.ts)) | [#473](https://github.com/gymcoach-app/gymcoach/pull/473) | Roadmap M1: local verification evidence was not recorded per run |
 | The merge gate refuses a PR whose base is not the live tip of `main` (`base-stale`), and carries review records only across a pure base update proven with git ([`base-update.ts`](../../automation/publish/base-update.ts)) | [#481](https://github.com/gymcoach-app/gymcoach/pull/481), [#483](https://github.com/gymcoach-app/gymcoach/pull/483) | L39: a sibling's merge made a green CI stale |
 | Changelog entries are per-PR fragments in `changelog.d/`, checked in the green gate and folded by the write-up PR ([`assemble.ts`](../../automation/changelog/assemble.ts)) | [#491](https://github.com/gymcoach-app/gymcoach/pull/491), [#492](https://github.com/gymcoach-app/gymcoach/pull/492) | L47: 3 hand-resolved `CHANGELOG.md` conflicts and 5 re-attestation rounds in one wave |
+| The eval canary checks the built-ins and the runner's task state from inside the hidden tests, and the `test-globals` tamper rule is a fail-closed syntax-tree screen; a live self-check replays the known cheats ([`runner.ts`](../../evals/maintainer/runner.ts), [`test-globals.ts`](../../evals/maintainer/test-globals.ts), [`canary-live.test.ts`](../../evals/maintainer/canary-live.test.ts)) | [#501](https://github.com/gymcoach-app/gymcoach/pull/501), [#503](https://github.com/gymcoach-app/gymcoach/pull/503), [#504](https://github.com/gymcoach-app/gymcoach/pull/504) | [#468](https://github.com/gymcoach-app/gymcoach/issues/468): the two bypasses left by #455. L48 |
 
 Lessons are in [`lessons.md`](lessons.md). Details and limits of each control are
 in [`automation/README.md`](../../automation/README.md). Two limits matter most.
@@ -208,6 +209,21 @@ Each example links to the record or lesson where it can be checked.
    no record for the head and refused with `no-review`, as seen in the local
    `merge.ts` output (not kept on GitHub); the record was posted again and the
    merge went through on it.
+10. **Six rounds of patching a screen, then a fail-closed one.** #501 replaced
+    the regex `test-globals` rule with a syntax-tree screen. Its first five
+    review rounds were all needs-changes (10 of its 12 records), each naming
+    another way to reach a test hook: unicode-escaped names, `top` or
+    `document.defaultView`, erased declarations, aliases of `document` or
+    `Reflect`, untracked destructuring. The sixth round went ready only after
+    the screen failed on whole classes (any `Reflect`, any non-literal computed
+    read on a changed line) instead of on names.
+    [#501 records](https://github.com/gymcoach-app/gymcoach/pull/501), L48.
+11. **A docs review found two app bugs.** The reviews of an external
+    self-hosting guide (#505) checked its snippets against the code. They found
+    that the compose file did not pass the codex-lb variables or
+    `OPENROUTER_MAX_TOKENS`, and that the login rate limit read the leftmost
+    `X-Forwarded-For` entry, which a client can choose behind an appending
+    proxy. Both were fixed in the app (#507, #508) and the guide merged. L52.
 
 ## What is not shown yet, and why
 
@@ -218,10 +234,11 @@ Each example links to the record or lesson where it can be checked.
 - **The paid agent is disabled.** Its network and grading containment merged
   in [#455](https://github.com/gymcoach-app/gymcoach/pull/455) (closes
   [#453](https://github.com/gymcoach-app/gymcoach/issues/453)), but tamper
-  detection is a tripwire with two known bypasses
-  ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)). `--agent
-  claude` stays refused until #468 is closed or the operator accepts those
-  risks, accepts the credential risk and approves a budget; any paid result
+  detection is a tripwire. The two bypasses known after #455
+  ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)) were addressed
+  in #501 and #503, but residual risks remain, listed in the eval README.
+  `--agent claude` stays refused until the operator accepts those risks,
+  accepts the credential risk and approves a budget; any paid result
   will also get a diff review of the agent's patch. No budget is approved.
 - **Cost covers retained transcripts only.** Claude Code deletes old session
   files, so usage before 2026-09-11 is gone for good. The run-time ledger

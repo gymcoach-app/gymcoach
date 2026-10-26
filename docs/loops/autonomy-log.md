@@ -3461,3 +3461,62 @@ named no PR ($31.14); #470 and #492 have no attributed subagent line.
 
 **Media.** The live-session card gained one muted text line (#476); no captured page
 (home, progress, generator, catalog) visibly changed, so no screenshot or clip work.
+
+## 2026-10-26 - German from a new contributor, the #468 canary bypasses addressed, a self-hosting guide, and contributor etiquette
+
+**Context.** Since the 2026-10-19 write-up (#493), in merge order: **#494** (offline sets
+scoped to their account, closes #490), **#495** (repeated-block follow-ups, closes #475),
+**#497** (@f1dot4, German interface), **#498** (#497 follow-ups), **#499** (@f1dot4,
+German exercise names), **#500** (#499 follow-ups), **#501** (fail-closed `test-globals`
+screen, #468 part b), **#503** (canary checks from inside the hidden tests, #468 part a),
+**#504** (@Retsumdk, branch tests for #501, closes #502), **#507** (self-host compose
+passes every provider variable), **#508** (rate-limit client IP from the right end of
+`X-Forwarded-For`), **#505** (@anhaoXie, self-hosting guide and FAQ, closes #413),
+**#509** (#505 follow-up, snippets run against compose), **#510** (@f1dot4, `exerciseId`
+in week summaries) and **#511** (#510 changelog wording). Every merge went through
+`merge.ts`.
+
+**External work.** Four PRs from unvetted contributors (#497, #499, #510 by @f1dot4,
+#505 by @anhaoXie), none run locally, only in CI. #497 (`messages/**`) and #499
+(`i18n/**`) touch group A paths: each merged on clean passes with the security lenses
+included, after a rollback tag (`autonomy-baseline-2026-10-21` at `c5e6400`, then
+`autonomy-baseline-2026-10-21b` at `b34d4f8`). #510 took two rounds: the branch still
+carried the already merged #499 commit, so it conflicted with `main`, and an assertion was
+missing; the contributor rebased and added it. #505 took three rounds; its reviews found
+two app bugs, fixed by the loop in #507 and #508 (L52). #504 is from the vetted @Retsumdk;
+the loop resolved its merge conflict on the fork branch. A new contributor (@sapatmohit)
+claimed the Spanish, Portuguese and Italian catalogs on #414 and was welcomed.
+
+**What changed in the loop.**
+- **#468, both canary bypasses addressed (#501, #503).** #501 took six review rounds (10
+  needs-changes records of 12) before its screen failed on whole classes instead of names
+  (L48). On #503 the safety classifier stopped the author and the adversarial reviewer
+  while they wrote exploit code; a read-only reviewer that describes routes in prose
+  still found two blocking holes (L49). A review subagent ran mutation checks in the
+  author's worktree mid-work (L50). The canary stays documented as a tripwire with listed
+  residual risks; #468 stays open for the operator to accept them, and
+  `PAID_AGENT_ENABLED` stays `false`. Follow-up tests are tracked in #506.
+- **Contributor etiquette (operator directive, 2026-10-22).** On #505, after #507 and #508
+  merged while the contributor was revising, the operator asked not to overtake a new
+  contributor or call their work obsolete, but to merge and fix after (L51). Applied on
+  #505 (last breaker as a one-click suggestion, polish in #509) and #510 (wording in #511).
+  Now in `10-external-contributions.md` ("Verdict etiquette").
+
+**Green gate.** `bash scripts/verify.sh` ran locally before the merge of each maintainer
+PR; #497, #499, #505 and #510 (unvetted) ran only in CI. CI ran all five jobs on every
+merged head. Ledger count: `verify` lines whose time is after the #493 merge
+(2026-10-19T18:40:47Z), excluding this write-up's own run: 30 lines, 26 green, 4 failed
+(exit 1, all on the default tier, each followed by a green run within ten minutes and before the next merge).
+
+**One metric.** 15 PRs merged (10 loop-authored, 2 of them docs; 5 external), 0
+abandoned, 0 reverted. Token spend, from the ledger (subagents only, attributed by one PR
+number in the task prompt, API-list-price estimate, a lower bound): #503 $15.10, #501
+$14.48, #505 $4.31, #497 $4.29, #494 $2.46, #495 $2.05, #510 $2.00, #508 $0.98, #499
+$0.53, #504 $0.52, #511 $0.32; eight subagents named no PR ($60.51); #498, #500, #507 and
+#509 have no attributed subagent line.
+
+**Lessons.** L48 to L52, graduated into `ship-pr` step 4 (L48, L49, L50) and
+`10-external-contributions.md` (L51, L52).
+
+**Media.** No captured page (home, progress, generator, catalog) visibly changed in the
+English interface, so no screenshot or clip work.

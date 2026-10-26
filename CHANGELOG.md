@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Week summaries in the coach payload and the MCP `get_training_context` response
+  now include each exercise's `exerciseId`, so external integrations can match
+  exercises by id rather than by name. Community contribution by @f1dot4 (#510).
+- German exercise names, thanks @f1dot4 (#499): every built-in catalog exercise,
+  program template exercise and imported Alpha Progression name now has a German
+  display name. A maintainer follow-up adds German coverage tests and refines a
+  few wordings (Körpergewicht, Negativbank) (#500).
+- German interface (`de`), thanks @f1dot4 (#497). The history calendar starts
+  weeks on Monday in German, and generated program and workout names (Day N,
+  Week N, Full Body, Upper, Lower) are shown in German; follow-ups in #498.
+- Self-hosting guide covering reverse proxies (Caddy, Traefik, nginx, Cloudflare
+  Tunnel), HTTPS on a home network, backups and restores of the database and the
+  uploads volume, upgrades and rollback, and choosing an AI model, plus a FAQ for
+  setup, accounts, data and operations questions. Community contribution by
+  @anhaoXie (#505, closes #413).
 - Live session "last done" line: each exercise card says "Last done today",
   "yesterday", "N days ago" or "Never done before", counted in calendar days in
   the browser's time zone from the previous session with a working set of that
@@ -126,6 +141,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The self-host compose file now passes `OPENROUTER_MAX_TOKENS` and the
+  codex-lb variables (`CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`,
+  `CODEX_LB_MODEL`) to the app, so setting them in `.env` takes effect, and maps
+  `host.docker.internal` so a model server on the host is reachable from the
+  container. A test keeps every provider variable the code reads passed through.
+  Found in the review of #505 (#507).
+- A lift a workout programs twice (5/3/1 BBB) now reads each block on its own
+  everywhere: the return-to-training load anchors on that block's past sets, the
+  history CSV export gains a trailing `block` column that the GymCoach CSV
+  import reads back (older files without it still import, and re-importing one
+  does not duplicate sets already logged in a later block), a set whose block
+  points at a row removed since counts as the first block in the last-session
+  lookup, the history detail counts the lift once in its Exercises total, and
+  the coach prompt explains the `block` field (#495, closes #475).
+- Eval harness canary, both known bypasses of #468 addressed but not closed.
+  Part (a): the canary records every own property and the prototype of every
+  standard built-in, not a hand-picked list, and checks them from inside the
+  hidden tests, so a matcher patched and restored inside one test is caught;
+  before each file it pins every test's fails, retry and repeats flags, its
+  context and the suite task lists, and a skipped or todo test grades as a
+  fail. A self-check in the default gate (`evals/maintainer/canary-live.test.ts`)
+  replays the known cheats on a fixture repository and requires a fail (#503).
+  Part (b): the `test-globals` tamper rule is now a fail-closed syntax-tree
+  screen (`evals/maintainer/test-globals.ts`) instead of a regex: test globals
+  and hooks reached through the global object, aliases, computed reads,
+  `Reflect`, unicode escapes and `constructor` reads fail the run (#501; branch
+  tests by @Retsumdk, #504, closes #502). This raises the bar; it is not a
+  guarantee against a deliberate in-process attack on the runner. Residual
+  risks are listed in `evals/maintainer/README.md`, and the paid agent stays
+  disabled until the operator accepts them.
+- The self-hosting guide's snippets were run once against
+  `docker-compose.selfhost.yml`. Both restore recipes now wait for a healthy
+  database (`docker compose up -d --wait db`): on a fresh volume, psql run right
+  after `up -d db` failed. The same-host restore empties the uploads volume
+  first, so photos added after the backup do not linger. The guide also
+  describes the `TRUSTED_PROXY_HOPS` setting for two proxies in a row, notes
+  that the current compose file already forwards the model variables and maps
+  `host.docker.internal`, keeps a rotated database password out of shell
+  history, and names the Traefik v2 allowlist middleware (#509).
 - The in-session coach context splits a repeated exercise's sets per block, like
   the live runner: each row of a 5/3/1 Boring But Big lift carries only its own
   sets and a `block` index, so the coach no longer reads a 5x10 back-off set as
@@ -213,6 +267,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one compose project shared by every checkout. A guard refuses any database
   other than `localhost:5434/gymcoach_test`. The manual `prisma migrate deploy`
   step after starting or restarting the test container is gone (#441).
+
+### Security
+
+- The login and signup rate limits read the client IP from the right end of
+  `X-Forwarded-For` (the entry the nearest proxy added) instead of the leftmost
+  one, which a client behind an appending proxy could choose itself to get a
+  fresh bucket per request. `TRUSTED_PROXY_HOPS` (default 1) sets how many
+  proxies sit in front of the app. Upgrading with more than one proxy that
+  appends to the header (for example Cloudflare in front of nginx): set
+  `TRUSTED_PROXY_HOPS` to that number, or users who share an edge address share
+  one rate-limit budget. The app port must be reachable only through the proxy.
+  Found in the review of #505 (#508).
+- Shared devices: offline sets are tagged with the account that logged them, so
+  the offline badge and the sync only see the signed-in account's queue; another
+  account's unsynced sets stay on the device, hidden, and sync when it signs in
+  again. A tab left open for a previous account stops syncing once another tab
+  signs in or out. Sets queued before this change are sent by the next sync and
+  tagged with its account only when the server accepts them; one refused as
+  another account's session waits for its owner (#494, closes #490).
 
 ## [1.0.0] - 2026-10-05
 

@@ -854,3 +854,72 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   step), `implement-issue` step 3, `ship-pr` step 5 (base-stale remedy), `write-up` item 1,
   `CONTRIBUTING.md`. Entries written before this PR stay in `CHANGELOG.md`; an older open
   PR that still conflicts moves its entry into a fragment in its merge commit.
+
+### L48 - When a second review round finds another bypass of the same kind, make the screen fail closed
+- **Trigger:** 2026-10-21, #501 (part (b) of #468). The regex `test-globals` rule became a
+  syntax-tree screen that listed what to flag. The first five review rounds were all
+  needs-changes (10 of the PR's 12 records), and each named a new spelling of the same
+  attack: unicode-escaped names, `top` and `document.defaultView`, erased declarations,
+  aliases of `document` and `Reflect`, destructuring the taint did not follow. Each fixup
+  added the new spellings. The sixth round went ready once the screen failed on whole
+  classes it could not prove safe (any mention of `Reflect`, any non-literal computed read
+  on a changed line, any alias of a global object) rather than on names. #503 (part (a))
+  started from that shape and needed one needs-changes round.
+- **Lesson:** L45 says to screen with allowlists; this is when to switch. If round 2 of a
+  security screen finds a bypass of the class round 1 already found, stop adding names:
+  redesign it to fail on anything it cannot prove safe, accept the false positives, and
+  test them. The round budget of L46 still applies to the redesigned screen.
+- **Status:** graduated -> `ship-pr` step 4 ("A second bypass of the same class").
+
+### L49 - When the safety classifier stops an exploit-writing reviewer, review in prose, read-only
+- **Trigger:** 2026-10-21, #503. The author and the adversarial reviewer were each stopped
+  twice by the model's safety classifier while writing working exploit code against the
+  canary. The orchestrator wrote the guard itself and asked for a read-only security review
+  that describes each attack route in prose and never writes or runs one. That review's
+  first record still had two blocking findings, including the route from code under test
+  to the runner's worker state through the `Function` constructor.
+- **Lesson:** an adversarial lens does not need a runnable exploit to find a hole. When a
+  reviewer is stopped for writing exploit code, retry once as a read-only reviewer that
+  names the route, the file and line, and the property it breaks, in prose. The fix is then
+  proven by the PR's own tests and the live self-check, not by the reviewer's exploit.
+- **Status:** graduated -> `ship-pr` step 4 ("A stopped adversarial reviewer").
+
+### L50 - A reviewer never runs mutations in the author's worktree
+- **Trigger:** 2026-10-21, #503. A review subagent ran mutation checks (revert a guard,
+  rerun the tests) inside the worktree the author was still editing. The author's tree
+  then held edits it had not made, and the work moved to a fresh worktree before the
+  next commit. No bad commit landed. L38 covered `git checkout`, not file edits.
+- **Lesson:** a reviewer that needs to modify code, even temporarily, does it in its own
+  scratch copy (`git worktree add <scratch> <sha>`), never in the author's or another
+  session's tree. Say so in every review prompt that asks for mutation checks.
+- **Status:** graduated -> `ship-pr` step 4 (the reviewer rule now names edits and
+  mutation runs as well as checkouts).
+
+### L51 - Do not overtake a new contributor or call their work obsolete; merge, then fix
+- **Trigger:** 2026-10-22, #505 (@anhaoXie, self-hosting guide). While the contributor was
+  revising, the loop merged #507 and #508, which fixed app-side problems the review had
+  found, and then got ready to tell the contributor that parts of their guide were
+  outdated. The operator asked for the opposite: do not push fixes ahead of a new
+  contributor on their topic, do not call their work obsolete; merge, then correct. The
+  last breaker in the guide went to the contributor as a one-click suggestion. The guide
+  merged on clean records, and the outdated points went into maintainer follow-up #509.
+  #510 (@f1dot4) went the same way: rebase and one assertion asked for, wording fixed in
+  #511.
+- **Lesson:** a verdict to an external contributor asks only for what must change for
+  safety or correctness, in warm words. Points made outdated by our own later merges,
+  small inaccuracies and wording are graded as nits, and the loop fixes them in a
+  follow-up after the merge. A real breaker in their text is offered as a one-click
+  suggestion rather than a to-do list or a push to their branch.
+- **Status:** graduated -> `10-external-contributions.md` ("Verdict etiquette").
+
+### L52 - Check an external docs PR's claims against the app; a wrong claim may be an app bug
+- **Trigger:** 2026-10-22, #505. The docs-accuracy review read every snippet of the guide
+  against the code and the compose file. Two "the docs are wrong" findings were in fact
+  app bugs: `docker-compose.selfhost.yml` did not pass the codex-lb variables or
+  `OPENROUTER_MAX_TOKENS` (fixed in #507), and the login and signup rate limits read the
+  leftmost `X-Forwarded-For` entry, which a client can set itself behind an appending
+  proxy such as the guide's nginx example (fixed in #508, `TRUSTED_PROXY_HOPS`).
+- **Lesson:** for a docs PR, the review asks for each claim "is the doc wrong, or is the
+  app?". When the app is wrong, fix the app in a maintainer PR (with the contributor
+  credited as the finder) and let the doc describe the fixed behavior.
+- **Status:** graduated -> `10-external-contributions.md` ("Verdict etiquette", docs PRs).
