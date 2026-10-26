@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,7 @@ import {
   savePreferences,
   type UserPreferences,
 } from '@/lib/preferences';
+import { formatPlateList, parsePlateList } from '@/lib/plate-list';
 
 // Editor for the plate-calculator fallback inventory (issue #285). When a
 // saved gym is active the calculator uses that gym's bars and plates; these
@@ -81,25 +82,24 @@ function BarPlatesRow({
   disabled?: boolean;
 }) {
   const t = useTranslations('settings');
-  // Edit plates as comma-separated text; commit a cleaned, descending list on
-  // blur. Empty / invalid entries are dropped so the calculator stays sane.
+  const locale = useLocale();
+  // Edit plates as text; commit a cleaned, descending list on blur. Empty or
+  // invalid entries are dropped so the calculator stays sane. The text uses the
+  // locale's decimal mark, so "2,5" is one plate in French (issue #514).
+  const hintId = `plates-${unitLabel}-hint`;
   // The text is controlled and re-synced from the saved list, so the values
   // hydrated from localStorage after mount actually show up (the pre-#274
   // editor used defaultValue and silently displayed the defaults).
-  const joinedPlates = plates.join(', ');
+  const joinedPlates = formatPlateList(plates, locale);
   const [platesText, setPlatesText] = useState(joinedPlates);
   useEffect(() => {
     setPlatesText(joinedPlates);
   }, [joinedPlates]);
 
   function commitPlates(raw: string) {
-    const parsed = raw
-      .split(',')
-      .map((s) => parseFloat(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0)
-      .sort((a, b) => b - a);
+    const parsed = parsePlateList(raw, locale);
     onPlatesChange(parsed);
-    setPlatesText(parsed.join(', '));
+    setPlatesText(formatPlateList(parsed, locale));
   }
 
   return (
@@ -139,7 +139,11 @@ function BarPlatesRow({
             onChange={(e) => setPlatesText(e.target.value)}
             onBlur={(e) => commitPlates(e.target.value)}
             placeholder={t('platesPlaceholder')}
+            aria-describedby={hintId}
           />
+          <p id={hintId} className="text-xs text-muted-foreground">
+            {t('platesHint')}
+          </p>
         </div>
       </div>
     </div>

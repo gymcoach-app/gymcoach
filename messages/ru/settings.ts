@@ -23,7 +23,8 @@ export const settings = {
   equipment: 'Оборудование ({unit})',
   barWeight: 'Вес грифа ({unit})',
   platesPerSide: 'Блины с каждой стороны ({unit})',
-  platesPlaceholder: 'например: 25, 20, 15, 10, 5, 2.5, 1.25',
+  platesPlaceholder: 'например: 25, 20, 15, 10, 5, 2,5, 1,25',
+  platesHint: 'Разделяйте блины запятой и пробелом.',
   gyms: {
     title: 'Залы и оборудование',
     description:

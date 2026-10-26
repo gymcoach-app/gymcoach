@@ -23,7 +23,8 @@ export const settings = {
   equipment: 'Equipo ({unit})',
   barWeight: 'Peso de la barra ({unit})',
   platesPerSide: 'Discos por lado ({unit})',
-  platesPlaceholder: 'p. ej. 25, 20, 15, 10, 5, 2.5, 1.25',
+  platesPlaceholder: 'p. ej. 25, 20, 15, 10, 5, 2,5, 1,25',
+  platesHint: 'Separa los discos con una coma y un espacio.',
   gyms: {
     title: 'Gimnasios y equipo',
     description:

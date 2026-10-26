@@ -23,7 +23,8 @@ export const settings = {
   equipment: 'Attrezzatura ({unit})',
   barWeight: 'Peso del bilanciere ({unit})',
   platesPerSide: 'Dischi per lato ({unit})',
-  platesPlaceholder: 'Es. 25, 20, 15, 10, 5, 2.5, 1.25',
+  platesPlaceholder: 'Es. 25, 20, 15, 10, 5, 2,5, 1,25',
+  platesHint: 'Separa i dischi con una virgola e uno spazio.',
   gyms: {
     title: 'Palestre e attrezzatura',
     description:

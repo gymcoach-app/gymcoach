@@ -21,6 +21,7 @@ export const settings = {
   barWeight: 'Bar weight ({unit})',
   platesPerSide: 'Plates per side ({unit})',
   platesPlaceholder: 'e.g. 25, 20, 15, 10, 5, 2.5, 1.25',
+  platesHint: 'Separate plates with a comma and a space.',
   gyms: {
     title: 'Gyms and equipment',
     description:

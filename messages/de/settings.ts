@@ -23,7 +23,8 @@ export const settings = {
   equipment: 'Ausrüstung ({unit})',
   barWeight: 'Stangengewicht ({unit})',
   platesPerSide: 'Scheiben pro Seite ({unit})',
-  platesPlaceholder: 'z.B. 25, 20, 15, 10, 5, 2.5, 1.25',
+  platesPlaceholder: 'z.B. 25, 20, 15, 10, 5, 2,5, 1,25',
+  platesHint: 'Trenne die Scheiben mit Komma und Leerzeichen.',
   gyms: {
     title: 'Gyms und Ausrüstung',
     description:

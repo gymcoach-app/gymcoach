@@ -23,7 +23,8 @@ export const settings = {
   equipment: 'Equipamento ({unit})',
   barWeight: 'Peso da barra ({unit})',
   platesPerSide: 'Anilhas por lado ({unit})',
-  platesPlaceholder: 'ex.: 25, 20, 15, 10, 5, 2.5, 1.25',
+  platesPlaceholder: 'ex.: 25, 20, 15, 10, 5, 2,5, 1,25',
+  platesHint: 'Separe as anilhas com vírgula e espaço.',
   gyms: {
     title: 'Academias e equipamentos',
     description:
