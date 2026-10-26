@@ -73,6 +73,7 @@ export const common = {
     german: 'Deutsch',
     spanish: 'Spanisch',
     portuguese: 'Portugiesisch',
+    italian: 'Italienisch',
     error: 'Sprache konnte nicht geändert werden.',
   },
   theme: {

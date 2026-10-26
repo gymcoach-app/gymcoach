@@ -70,6 +70,18 @@ const rulesByLocale: Partial<Record<Locale, TrainingNameRules>> = {
     week: (number) => `Semana ${number}`,
     weeks: (count) => `${count} ${count === 1 ? 'semana' : 'semanas'}`,
   },
+  it: {
+    phrases: {
+      'New plan': 'Nuovo piano',
+      'Full Body Hybrid': 'Total body ibrido',
+      'Full Body': 'Total body',
+      Upper: 'Parte superiore',
+      Lower: 'Parte inferiore',
+    },
+    day: (number) => `Giorno ${number}`,
+    week: (number) => `Settimana ${number}`,
+    weeks: (count) => `${count} ${count === 1 ? 'settimana' : 'settimane'}`,
+  },
 };
 
 function russianWeekWord(count: number): string {
