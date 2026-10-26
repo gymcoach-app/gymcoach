@@ -72,6 +72,7 @@ export const common = {
     russian: 'Russe',
     german: 'Allemand',
     spanish: 'Espagnol',
+    portuguese: 'Portugais',
     error: 'Impossible de changer la langue.',
   },
   theme: {

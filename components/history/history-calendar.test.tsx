@@ -186,8 +186,9 @@ describe('weekStartsOnForLocale', () => {
     expect(weekStartsOnForLocale('es')).toBe(1);
   });
 
-  it('starts weeks on Sunday for English', () => {
+  it('starts weeks on Sunday for English and Portuguese', () => {
     expect(weekStartsOnForLocale('en')).toBe(0);
     expect(weekStartsOnForLocale('en-US')).toBe(0);
+    expect(weekStartsOnForLocale('pt')).toBe(0);
   });
 });
