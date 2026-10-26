@@ -111,7 +111,7 @@ export const exercises = {
     barbell: 'Barra',
     machine: 'Máquina',
     cable: 'Polia',
-    bodyweight: 'Corporal',
+    bodyweight: 'Peso corp.',
     cardio: 'Cardio',
     other: 'Qualquer',
   },

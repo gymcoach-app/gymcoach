@@ -47,7 +47,7 @@ export const coach = {
       '{weeks, plural, one {# semana} other {# semanas}} de histórico recente com {exercises, plural, one {# exercício} other {# exercícios}}.',
     noHistory:
       'Nenhuma sessão registrada ainda: o coach começa a aprender a partir do seu primeiro treino.',
-    goalProgress: '({percent}% atingido)',
+    goalProgress: '({percent}% da meta)',
     stalled: 'Exercícios estagnados: {names}.',
     noStalled: 'Nenhum exercício estagnado detectado.',
     deloadActive: 'Uma semana de deload planejada está em andamento.',
@@ -66,7 +66,7 @@ export const coach = {
     title: 'Nota para o seu coach',
     description:
       'Adicione o contexto que os dados de treino não mostram, como uma lesão, uma doença ou uma viagem.',
-    placeholder: 'ex.: Meu ombro está incomodando, pegue leve nos empurrões esta semana.',
+    placeholder: 'ex.: Meu ombro está incomodando, pegue leve nos exercícios de empurrar esta semana.',
     clear: 'Limpar',
     save: 'Salvar',
     saved: 'Nota salva.',

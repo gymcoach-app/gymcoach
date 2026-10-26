@@ -17,7 +17,7 @@ export const dashboard = {
   chooseSession: 'Escolha uma sessão',
   programSessions: 'Sessões do programa',
   insight: {
-    deloadTitle: 'Talvez seja hora de recuperar',
+    deloadTitle: 'Talvez seja hora de focar na recuperação',
     stalledTitle: '{count, plural, one {Um exercício estagnou} other {# exercícios estagnaram}}',
     stalledDetail:
       '{count, plural, one {{names} não progrediu nos últimos treinos. Uma pequena mudança na carga, nas repetições ou na técnica pode destravar o progresso.} other {{names} não progrediram nos últimos treinos. Veja a página de progresso para saber o que ajustar.}}',

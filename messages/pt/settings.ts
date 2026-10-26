@@ -117,7 +117,7 @@ export const settings = {
     confirm: 'Confirmar a importação',
     previewOf: 'Pré-visualização de {file}',
     cardioTitle: 'Importar uma atividade {kind}',
-    appTitle: 'Importar do {app}',
+    appTitle: 'Importar de {app}',
     cardioDescription:
       'Traga um treino de cardio: {hint}. Confira a pré-visualização aqui e depois confirme.',
     appDescription:
