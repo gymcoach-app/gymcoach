@@ -1,6 +1,7 @@
 ---
 section: Added
 ---
+
 Spanish interface (`es`), thanks @sapatmohit (#414). The history calendar
 starts weeks on Monday in Spanish, and generated program and workout names
 (Day N, Week N, Full Body, Upper, Lower) are shown in Spanish; exercise names

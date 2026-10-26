@@ -169,7 +169,9 @@ export function HistoryCalendar({
               <ChevronLeft className="size-5" />
             </Button>
             <div className="min-w-0 text-center">
-              <div className="truncate text-lg font-semibold capitalize">{monthLabel}</div>
+              <div className="truncate text-lg font-semibold first-letter:uppercase">
+                {monthLabel}
+              </div>
               <Button
                 type="button"
                 variant="ghost"
@@ -262,7 +264,7 @@ export function HistoryCalendar({
       <section className="flex flex-col gap-2" aria-labelledby="selected-day-heading">
         <div className="flex items-center gap-2">
           <CalendarDays className="size-5 text-muted-foreground" />
-          <h2 id="selected-day-heading" className="text-lg font-semibold capitalize">
+          <h2 id="selected-day-heading" className="text-lg font-semibold first-letter:uppercase">
             {selectedDateLabel}
           </h2>
         </div>
@@ -340,7 +342,7 @@ export function HistoryCalendar({
 
 // An explicit list rather than Intl.Locale weekInfo: that API is missing from
 // some runtimes, and server and client must agree on the grid to hydrate.
-const MONDAY_FIRST_LOCALES = ['ru', 'fr', 'de'];
+const MONDAY_FIRST_LOCALES = ['ru', 'fr', 'de', 'es'];
 
 export function weekStartsOnForLocale(locale: string): 0 | 1 {
   const normalized = locale.toLowerCase();
