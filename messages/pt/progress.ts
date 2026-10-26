@@ -102,7 +102,7 @@ export const progress = {
   conditioning: {
     title: 'Cardio',
     description:
-      'Minutos semanais de cardio comparados à recomendação de {target} min/semana. A distância e as sessões aparecem na dica ao passar o cursor.',
+      'Minutos semanais de cardio comparados à recomendação de {target} min/semana. A distância e as sessões aparecem na dica do gráfico.',
   },
   deload: {
     activeTitle: 'Semana de deload em andamento',
@@ -148,7 +148,7 @@ export const progress = {
     achieved: 'Atingida',
     progressAria: 'Progresso em direção à meta',
     progress:
-      '{percent}% da meta na escala do 1RM estimado ({best} de melhor marca contra {target} de meta).',
+      '{percent}% da meta na escala do 1RM estimado (melhor: {best}; meta: {target}).',
     targetLoad: 'Carga alvo ({unit})',
     targetReps: 'Reps alvo',
     bodyweightHelp:
