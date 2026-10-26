@@ -65,6 +65,20 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Upper · Lower', 'es')).toBe('Torso · Pierna');
   });
 
+  it('localizes imported names into Portuguese with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'pt')).toBe(
+      'Dia 3 · Semana 5 · Novo plano',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'pt')).toBe(
+      'Novo plano · 1 semana (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 2 weeks', 'pt')).toBe('Novo plano · 2 semanas');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'pt')).toBe(
+      'Corpo inteiro · Dia 1 · Corpo inteiro híbrido',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'pt')).toBe('Superiores · Inferiores');
+  });
+
   it('localizes common imported split names', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'ru')).toBe(
       'Всё тело · День 1 · Гибридная программа на всё тело',
