@@ -101,7 +101,7 @@ export const session = {
   input: {
     describe: 'Descrivi la serie (IA)',
     strengthExample: 'Es. 100 kg per 5, me ne restavano 2',
-    cardioExample: 'Es. corso 5 km in 25 minuti',
+    cardioExample: 'Es. ho corso 5 km in 25 minuti',
     parsing: 'Analisi...',
     parse: 'Analizza con IA',
     parseHelp:
@@ -214,7 +214,7 @@ export const session = {
       tooManyWeights: 'Inserisci al massimo 200 pesi.',
       empty: 'Inserisci almeno un peso.',
       invalidWeight: '«{token}» non è un peso valido.',
-      outOfRange: '«{token}» è fuori dall’intervallo consentito (da 0.1 a 5000 kg).',
+      outOfRange: '«{token}» è fuori dall’intervallo consentito (da 0,1 a 5000 kg).',
     },
     metrics: {
       open: 'Scegli le colonne calcolate',

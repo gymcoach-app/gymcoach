@@ -42,7 +42,7 @@ export const programs = {
   addSession: 'Aggiungi una sessione',
   noSessions: 'Nessuna sessione',
   noSessionsDescription:
-    'Aggiungi una prima sessione per strutturare questo programma (es. Superiore, Inferiore).',
+    'Aggiungi una prima sessione per strutturare questo programma (es. Parte superiore, Parte inferiore).',
   deleteTitle: 'Eliminare questo programma?',
   deleteDescription:
     '«{name}» verrà eliminato insieme alle sue sessioni e agli esercizi programmati. Lo storico di allenamento verrà conservato senza programma associato.',
@@ -64,7 +64,7 @@ export const programs = {
     saveError: 'Impossibile salvare la sessione.',
     deleteError: 'Impossibile eliminare la sessione.',
     deleteConfirm: 'Eliminare la sessione «{name}» e tutti i suoi esercizi?',
-    namePlaceholder: 'Es. Superiore - Parte superiore',
+    namePlaceholder: 'Es. Parte superiore - Petto e dorso',
     day: 'Giorno (facoltativo)',
     flexible: 'Flessibile',
     empty: 'Nessun esercizio programmato. Usa il pulsante qui sotto per aggiungerne.',
@@ -137,7 +137,7 @@ export const programs = {
     description:
       'Descrivi il tuo obiettivo, i tuoi orari, la tua esperienza e i tuoi limiti. Puoi modificare il risultato prima di salvarlo.',
     placeholder:
-      'Es. Ipertrofia, 4 sessioni/settimana, split upper/lower, con poche distensioni sopra la testa.',
+      'Es. Ipertrofia, 4 sessioni/settimana, split upper/lower, con poco lavoro di spinta sopra la testa.',
     generating: 'Generazione in corso (10-30 s)...',
     review: 'Rivedi e modifica',
     reviewDescription: 'Ritocca quello che vuoi, poi crea il programma. Parte inattivo.',

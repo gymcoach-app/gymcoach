@@ -4,7 +4,7 @@ import type { MessageShape } from '@/i18n/message-types';
 export const dashboard = {
   activeSession: 'Sessione attiva',
   sessionFallback: 'Sessione',
-  startedOn: '{name} iniziata il {date}',
+  startedOn: '{name}, in corso dal {date}',
   resumeSession: 'Riprendi la sessione',
   noActiveProgram: 'Nessun programma attivo',
   noActiveProgramDescription: 'Attiva un programma per iniziare una sessione.',
@@ -29,7 +29,7 @@ export const dashboard = {
       'Nell’ultima sessione hai ottenuto il tuo miglior 1RM stimato su {name}. Ottimo lavoro.',
     consistentTitle: 'Ti stai allenando con costanza',
     consistentDetail:
-      'Ti sei allenato {count, plural, one {# giorno} other {# giorni}} questa settimana. Continua così.',
+      'Questa settimana hai fatto {count, plural, one {# giorno} other {# giorni}} di allenamento. Continua così.',
     deloadStalledReason:
       '{count, plural, one {# esercizio è in stallo: {names}.} other {# esercizi sono in stallo: {names}.}}',
     deloadReadinessReason:

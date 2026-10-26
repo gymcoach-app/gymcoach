@@ -15,7 +15,7 @@ export const history = {
     title: 'Filtri:',
     program: 'Programma',
     allPrograms: 'Tutti i programmi',
-    clear: 'Cancella',
+    clear: 'Azzera',
     csvTitle: 'Scarica il CSV delle serie con i filtri attivi',
   },
   calendar: {
