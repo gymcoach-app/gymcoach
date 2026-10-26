@@ -1,4 +1,4 @@
 ---
 section: Added
 ---
-MCP `get_training_context` now includes `exerciseId` in session exercises, providing a stable identifier for external integrations to match exercises by database ID rather than name.
+Week summaries in the coach payload and the MCP `get_training_context` response now include each exercise's `exerciseId`, so external integrations can match exercises by id rather than by name.
