@@ -79,6 +79,20 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Upper · Lower', 'pt')).toBe('Superiores · Inferiores');
   });
 
+  it('localizes imported names into Italian with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'it')).toBe(
+      'Giorno 3 · Settimana 5 · Nuovo piano',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'it')).toBe(
+      'Nuovo piano · 1 settimana (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 2 weeks', 'it')).toBe('Nuovo piano · 2 settimane');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'it')).toBe(
+      'Total body · Giorno 1 · Total body ibrido',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'it')).toBe('Parte superiore · Parte inferiore');
+  });
+
   it('localizes common imported split names', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'ru')).toBe(
       'Всё тело · День 1 · Гибридная программа на всё тело',
