@@ -106,6 +106,29 @@ describe('exercise name localization', () => {
     expect(missing).toEqual([]);
   });
 
+  it('translates a recognized exercise into Portuguese', () => {
+    expect(getExerciseDisplayName('Bench Press', 'pt')).toBe('Supino reto');
+  });
+
+  it('covers every built-in catalog exercise in Portuguese', () => {
+    const missing = EXERCISE_CATALOG.map((exercise) => exercise.name).filter(
+      (name) => getExerciseDisplayName(name, 'pt') === name,
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('covers every exercise used by built-in program templates in Portuguese', () => {
+    const names = new Set(
+      programTemplates.flatMap((template) =>
+        template.program.workouts.flatMap((workout) =>
+          workout.exercises.map((exercise) => exercise.name),
+        ),
+      ),
+    );
+    const missing = [...names].filter((name) => getExerciseDisplayName(name, 'pt') === name);
+    expect(missing).toEqual([]);
+  });
+
   it('keeps locale dictionaries separate from application messages', () => {
     expect(exerciseNameDictionaries.ru?.['Bench Press']).toBe('Жим лёжа');
   });
