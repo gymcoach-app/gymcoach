@@ -166,8 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Part (b): the `test-globals` tamper rule is now a fail-closed syntax-tree
   screen (`evals/maintainer/test-globals.ts`) instead of a regex: test globals
   and hooks reached through the global object, aliases, computed reads,
-  `Reflect`, unicode escapes and `constructor` reads fail the run (#501; branch
-  tests by @Retsumdk, #504, closes #502). This raises the bar; it is not a
+  `Reflect` and unicode escapes fail the run (#501; branch tests by @Retsumdk,
+  #504, closes #502), and `constructor` reads since #503. This raises the bar; it is not a
   guarantee against a deliberate in-process attack on the runner. Residual
   risks are listed in `evals/maintainer/README.md`, and the paid agent stays
   disabled until the operator accepts them.

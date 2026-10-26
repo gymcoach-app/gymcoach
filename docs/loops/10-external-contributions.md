@@ -320,10 +320,12 @@ Operator directive 2026-10-22, after #505 (lesson L51):
   and fixed by the loop in a follow-up after the merge (#505 then #509, #510 then #511).
 - **Offer a breaker as a suggestion.** A real breaker in the contributor's own text is
   posted as a one-click GitHub suggestion with a short note that the rest is handled
-  after the merge, not as a long to-do list and never as a push to their branch.
+  after the merge, not as a long to-do list and never as a push to an unvetted
+  contributor's branch.
 - **Docs PRs: is the doc wrong, or the app?** The docs-accuracy review checks each claim
   against the code. When the app is what is wrong, the loop fixes the app in a maintainer
-  PR and credits the finding to the contributor's PR (#505 surfaced #507 and #508,
+  PR after the contributor's PR is merged (a security fix that cannot wait is the
+  exception) and credits the finding to the contributor's PR (#505 surfaced #507 and #508,
   lesson L52).
 
 ## Maintainer fixups on a vetted fork PR
