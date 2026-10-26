@@ -5,6 +5,7 @@ import type { ReviewEvidence } from '../review/comment';
 import type { StructuredReview } from '../review/schema';
 
 const SHA = 'a'.repeat(40);
+const paths = (...p: string[]) => ({ paths: p, error: null });
 const OTHER = 'b'.repeat(40);
 const CI_APP = CI_APP_ID;
 const SUITE = 7000;
@@ -66,7 +67,7 @@ function input(over: Partial<GateInput> = {}): GateInput {
     invalidReviews: [],
     baseTipSha: BASE,
     baseUpdates: { hops: [], basesOnMain: [], error: null },
-    changedFiles: ['lib/a.ts'],
+    changedFiles: paths('lib/a.ts'),
     authorTier: 'maintainer',
     ...over,
   };
@@ -541,7 +542,7 @@ describe('merge gate', () => {
 
     it('refuses an external group A PR whose records lack threat-model', () => {
       const over: Partial<GateInput> = {
-        changedFiles: ['lib/mcp/server.ts'],
+        changedFiles: paths('lib/mcp/server.ts'),
         authorTier: 'unvetted',
         reviews: [lenses(['security'], 900), lenses(['correctness', 'tests'], 901)],
       };
@@ -557,7 +558,11 @@ describe('merge gate', () => {
     it('accepts #513: an external es catalog with every required lens', () => {
       const decision = evaluateMergeGate(
         input({
-          changedFiles: ['messages/es/common.ts', 'i18n/config.ts', 'components/history/x.tsx'],
+          changedFiles: paths(
+            'messages/es/common.ts',
+            'i18n/config.ts',
+            'components/history/x.tsx',
+          ),
           authorTier: 'unvetted',
           reviews: [
             lenses(['security', 'threat-model'], 900),
@@ -572,7 +577,7 @@ describe('merge gate', () => {
     it('refuses an external catalog without a translation review', () => {
       expect(
         codes({
-          changedFiles: ['messages/es/common.ts'],
+          changedFiles: paths('messages/es/common.ts'),
           authorTier: 'vetted',
           reviews: [lenses(['security', 'threat-model'], 900), lenses(['correctness'], 901)],
         }),
@@ -582,7 +587,7 @@ describe('merge gate', () => {
     it('only advises a translation review on a maintainer catalog change', () => {
       const decision = evaluateMergeGate(
         input({
-          changedFiles: ['messages/es/common.ts'],
+          changedFiles: paths('messages/es/common.ts'),
           reviews: [lenses(['security', 'threat-model', 'correctness'], 900)],
         }),
       );
@@ -594,19 +599,22 @@ describe('merge gate', () => {
       const files = ['CHANGELOG.md', 'docs/loops/lessons.md', '.claude/skills/ship-pr/SKILL.md'];
       expect(
         evaluateMergeGate(
-          input({ changedFiles: files, reviews: [lenses(['docs-accuracy', 'correctness'], 900)] }),
+          input({
+            changedFiles: paths(...files),
+            reviews: [lenses(['docs-accuracy', 'correctness'], 900)],
+          }),
         ).mergeable,
       ).toBe(true);
-      expect(codes({ changedFiles: files, reviews: [lenses(['correctness'], 900)] })).toEqual([
-        'review-lens-missing',
-      ]);
+      expect(
+        codes({ changedFiles: paths(...files), reviews: [lenses(['correctness'], 900)] }),
+      ).toEqual(['review-lens-missing']);
     });
 
     it('takes the union over reviewers and accepts past spellings of a lens', () => {
       expect(
         evaluateMergeGate(
           input({
-            changedFiles: ['lib/auth.ts'],
+            changedFiles: paths('lib/auth.ts'),
             authorTier: 'unvetted',
             reviews: [
               lenses(['Backdoor-Egress'], 900),
@@ -618,18 +626,62 @@ describe('merge gate', () => {
       ).toBe(true);
     });
 
-    it('never counts the lenses of a record that stopped the merge', () => {
-      const stop = lenses(['security', 'threat-model'], 900, { verdict: 'needs-changes' });
+    it('only advises the group A lenses on a maintainer PR', () => {
+      // #515 (maintainer es wording, reviewed for translation and correctness)
+      // and #474 (maintainer migration, reviewed by security without a
+      // threat-model lens) merged under the charter, not the external policy.
+      const decision = evaluateMergeGate(
+        input({
+          changedFiles: paths('messages/es/session.ts', 'prisma/migrations/1_x/migration.sql'),
+          reviews: [lenses(['translation-quality', 'correctness'], 900)],
+        }),
+      );
+      expect(decision.mergeable).toBe(true);
+      if (decision.mergeable) {
+        expect(decision.advisories.map((a) => a.split(':')[0])).toEqual([
+          'group-a-security',
+          'group-a-threat-model',
+        ]);
+      }
+    });
+
+    it.each(['vetted', 'unvetted'] as const)(
+      'requires both group A lenses for a %s author',
+      (authorTier) => {
+        const decision = evaluateMergeGate(
+          input({
+            changedFiles: paths('prisma/schema.prisma'),
+            authorTier,
+            reviews: [lenses(['correctness'], 900)],
+          }),
+        );
+        expect(decision.mergeable).toBe(false);
+        if (!decision.mergeable) {
+          expect(decision.refusals.map((r) => r.detail.split(' needs')[0])).toEqual([
+            'rule group-a-security',
+            'rule group-a-threat-model',
+            'rule external-security',
+          ]);
+        }
+      },
+    );
+
+    it('takes lenses only from the records that count for the approved head', () => {
+      // A ready threat-model record of an older head (not carried) adds no lens.
+      const stale = lenses(['threat-model'], 900, { headSha: OTHER });
       expect(
         codes({
-          changedFiles: ['lib/mcp/server.ts'],
-          reviews: [stop, lenses(['correctness'], 901)],
+          changedFiles: paths('lib/mcp/server.ts'),
+          authorTier: 'unvetted',
+          reviews: [stale, lenses(['correctness', 'security'], 901)],
         }),
-      ).toEqual(['review-not-ready']);
+      ).toEqual(['review-lens-missing']);
     });
 
     it('refuses when the changed files could not be read in full', () => {
-      expect(codes({ changedFiles: null })).toEqual(['changed-files-unreadable']);
+      expect(codes({ changedFiles: { paths: null, error: 'fetch failed' } })).toEqual([
+        'changed-files-unreadable',
+      ]);
     });
   });
 });

@@ -18,11 +18,21 @@ describe('review lens routing', () => {
     expect(base!.anyOf).toEqual(['correctness', 'tests']);
   });
 
-  it('group A rule: security and threat-model, for any tier', () => {
+  it('group A rule: security and threat-model, required for external authors only', () => {
+    for (const tier of ['vetted', 'unvetted'] as const) {
+      expect(rules(['lib/mcp/tools.ts'], tier)).toEqual([
+        'base',
+        'group-a-security',
+        'group-a-threat-model',
+        'external-security',
+      ]);
+    }
+    // docs/loops/10 sets these conditions for external PRs; a maintainer PR
+    // (the loop's own work, under the charter) gets them as advice.
     expect(rules(['lib/mcp/tools.ts'])).toEqual([
       'base',
-      'group-a-security',
-      'group-a-threat-model',
+      'group-a-security?',
+      'group-a-threat-model?',
     ]);
     for (const path of [
       'lib/auth.ts',
@@ -86,15 +96,24 @@ describe('review lens routing', () => {
     expect(normaliseLens(' Security ')).toBe('security');
     expect(normaliseLens('backdoor-egress')).toBe('security');
     expect(normaliseLens('egress-backdoor')).toBe('security');
+    expect(normaliseLens('egress')).toBe('security');
     expect(normaliseLens('docs')).toBe('docs-accuracy');
+    expect(normaliseLens('Test')).toBe('tests');
     expect(normaliseLens('regression')).toBe('regression');
   });
 
   it('reports uncovered groups, enforced and advisory apart', () => {
+    const external = requiredLenses({ files: ['messages/es/common.ts'], tier: 'unvetted' });
+    const ext = lensCoverage(external, ['Tests', 'security']);
+    expect(ext.missing.map((r) => r.rule)).toEqual(['group-a-threat-model', 'translation-quality']);
+    expect(ext.advisoryMissing).toEqual([]);
     const reqs = requiredLenses({ files: ['messages/es/common.ts'], tier: 'maintainer' });
-    const { missing, advisoryMissing } = lensCoverage(reqs, ['Tests', 'security']);
-    expect(missing.map((r) => r.rule)).toEqual(['group-a-threat-model']);
-    expect(advisoryMissing.map((r) => r.rule)).toEqual(['translation-quality']);
+    const own = lensCoverage(reqs, ['Tests', 'security']);
+    expect(own.missing).toEqual([]);
+    expect(own.advisoryMissing.map((r) => r.rule)).toEqual([
+      'group-a-threat-model',
+      'translation-quality',
+    ]);
     // An unknown lens name satisfies nothing.
     expect(lensCoverage(reqs.slice(0, 1), ['i18n']).missing).toHaveLength(1);
   });

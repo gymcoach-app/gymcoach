@@ -92,10 +92,13 @@ export function requiredLenses({ files, tier }: LensRoutingInput): LensRequireme
   ];
   const groupA = files.filter(isGroupA);
   if (groupA.length > 0) {
-    const reason = `touches group A paths (${summarise(groupA)})`;
+    // docs/loops/10 sets the group A conditions for external PRs; the loop's
+    // own work on these paths is governed by the charter, so for a maintainer
+    // both lenses are advisory.
+    const reason = `touches group A paths (${summarise(groupA)})${external ? '' : '; advisory for a maintainer'}`;
     out.push(
-      { rule: 'group-a-security', anyOf: ['security'], reason, advisory: false },
-      { rule: 'group-a-threat-model', anyOf: ['threat-model'], reason, advisory: false },
+      { rule: 'group-a-security', anyOf: ['security'], reason, advisory: !external },
+      { rule: 'group-a-threat-model', anyOf: ['threat-model'], reason, advisory: !external },
     );
   }
   if (external) {
@@ -165,6 +168,16 @@ function summarise(paths: string[]): string {
 }
 
 async function main() {
+  try {
+    await cli();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`lenses.ts: ${message.split('\n')[0]}`);
+    process.exit(3);
+  }
+}
+
+async function cli() {
   const prArg = process.argv[2];
   if (!prArg || !/^[1-9][0-9]*$/.test(prArg)) {
     console.error('Usage: lenses.ts <pr>');

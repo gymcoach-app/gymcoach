@@ -387,10 +387,11 @@ evaluations; report the limitations of a small sample.
       reviewer model as an experiment rather than assuming diversity guarantees quality.
       Partial: [`lenses.ts`](../../automation/review/lenses.ts) derives the required
       lens groups from the changed paths and the author's trust tier (correctness or
-      tests always; security and threat model on group A; security for any external
-      author; docs accuracy on docs-only PRs; translation quality on an external
-      catalog change), and the merge gate refuses when the ready records do not cover
-      them. The reviewer-model experiment is not started.
+      tests always; security and threat model on group A for an external author,
+      advisory for a maintainer; security for any external author; docs accuracy on
+      docs-only PRs; translation quality on an external catalog change), and the merge
+      gate refuses when the ready records do not cover them. The gate reads the paths
+      with git at the approved SHA, not from the PR's live head. The reviewer-model experiment is not started.
 - [ ] Index lessons by failure class, affected paths, incident, active procedure,
       and verification. Retrieve relevant lessons on demand; archive superseded guidance.
 - [ ] Convert recurring mechanical lessons into scripts or tests. Resolve conflicts

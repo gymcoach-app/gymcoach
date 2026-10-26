@@ -152,23 +152,32 @@ Claude Code sessions in this project, not humans or other tools.
   | Rule | Applies when | Needs one of |
   |---|---|---|
   | `base` | every PR | `correctness`, `tests` |
-  | `group-a-security` | a group A path (docs/loops/10) | `security` |
-  | `group-a-threat-model` | a group A path | `threat-model` |
+  | `group-a-security` | a group A path (docs/loops/10) | `security` (advisory for a maintainer) |
+  | `group-a-threat-model` | a group A path | `threat-model` (advisory for a maintainer) |
   | `external-security` | the author is not a maintainer | `security` |
   | `docs-accuracy` | every path is `*.md` or under `docs/` | `docs-accuracy` |
   | `translation-quality` | a `messages/<locale>/` path, locale not `en` | `translation-quality` (advisory for a maintainer) |
 
-  Rules only add requirements. Lens names are compared lowercase, and the spellings past
-  records used are aliases (`egress-backdoor` and `backdoor-egress` for `security`,
-  `docs` for `docs-accuracy`); any other name satisfies nothing. The tier fails closed:
-  a maintainer matches on the numeric user id, a missing author is unvetted, and vetted
-  logins come from the policy file in the trusted tree. The merge gate takes the union of
-  lenses over the passing records (a stopped record's lenses never count) and refuses
-  with `review-lens-missing`, naming the rule and its reason, when a group is uncovered;
-  a list of changed files that does not account for every file GitHub counts refuses
-  with `changed-files-unreadable`. Advisory groups are reported in the decision only.
-  `npx tsx automation/review/lenses.ts <pr>` prints the groups for a live PR, so the
-  reviewers can be dispatched before the gate runs.
+  Rules only add requirements. The group A conditions of docs/loops/10 apply to external
+  PRs; the loop's own work on those paths is governed by the charter, so for a maintainer
+  the two group A lenses, like translation quality, are advice the decision reports, not
+  a refusal. Lens names are compared trimmed and lowercase, and these spellings from past
+  records are aliases: `egress-backdoor`, `backdoor-egress` and `egress` for `security`,
+  `docs` for `docs-accuracy`, `test` for `tests`. Any other name satisfies nothing. The
+  tier fails closed: a maintainer matches on the numeric user id, a missing author is
+  unvetted, and vetted logins come from the policy file next to the running module (the
+  trusted tree, whatever the cwd). The merge gate takes the union of lenses over the
+  records that count for the approved head and passed, and refuses with
+  `review-lens-missing`, naming the rule and its reason, when a group is uncovered.
+  Advisory groups are listed in the decision's `advisories`.
+- `publish/changed-paths.ts` - the paths the gate routes on, read with git in the trusted
+  gate tree for the approved SHA, never from the files API (which lists the PR's live
+  head, so a push after approval could change the routing): it fetches the PR head and
+  `main` into a private ref namespace, checks the approved commit is present, and diffs
+  it against its merge base with `main` with rename detection, listing both paths of a
+  rename or copy. Any git error refuses (`changed-files-unreadable`).
+  `npx tsx automation/review/lenses.ts <pr>` prints the groups for a live PR from the
+  files API, to plan the reviewers before the gate runs.
 - `review/record.ts` - posts a record after validating it and checking that its head
   and base are the PR's live head and base and that `gh` is a maintainer account.
   `--dry-run` prints the comment. Exit codes as for `merge.ts`.

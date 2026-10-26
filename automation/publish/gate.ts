@@ -27,11 +27,12 @@
 // The ready records must also cover the review lenses the PR needs (lens
 // routing, automation/review/lenses.ts): a pure function of the changed paths
 // and the author's trust tier. The union of lenses over the passing records
-// must meet every required group; a list of changed files that could not be
-// read in full refuses.
+// must meet every required group. The paths come from git at the approved SHA,
+// never from the PR's live head; a git error refuses.
 
 import type { ReviewEvidence } from '@/automation/review/comment';
 import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';
+import type { ChangedPaths } from '@/automation/publish/changed-paths';
 import {
   type TrustTier,
   lensCoverage,
@@ -100,9 +101,10 @@ export interface GateInput {
   // Pure base updates ending at the approved head, verified with git in the
   // trusted gate tree (base-update.ts).
   baseUpdates: BaseUpdateEvidence;
-  // Every path the PR changes (with renamed-from paths), or null when the list
-  // could not be read in full. Null refuses: lens routing never guesses.
-  changedFiles: string[] | null;
+  // Every path the approved SHA changes against its merge base with the base
+  // branch, renamed-from paths included (changed-paths.ts), or the git error
+  // that kept it from being read. An error refuses: lens routing never guesses.
+  changedFiles: ChangedPaths;
   // The PR author's tier (lenses.ts trustTier); an unknown author is unvetted.
   authorTier: TrustTier;
 }
@@ -349,14 +351,14 @@ function evaluateLenses(
   reviews: PassedReview[],
   refuse: (code: RefusalCode, detail: string) => void,
 ): string[] {
-  if (input.changedFiles === null) {
+  if (input.changedFiles.paths === null) {
     refuse(
       'changed-files-unreadable',
-      `could not read every changed file of PR #${input.pull.number}, so the required review lenses are unknown`,
+      `could not read the paths ${input.approvedSha.slice(0, 12)} changes (${input.changedFiles.error}), so the required review lenses are unknown`,
     );
     return [];
   }
-  const requirements = requiredLenses({ files: input.changedFiles, tier: input.authorTier });
+  const requirements = requiredLenses({ files: input.changedFiles.paths, tier: input.authorTier });
   const lenses = [...new Set(reviews.flatMap((r) => r.lenses.map(normaliseLens)))];
   const { missing, advisoryMissing } = lensCoverage(requirements, lenses);
   for (const r of missing) {

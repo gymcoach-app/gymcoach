@@ -9,6 +9,7 @@ import {
   needsBaseUpdateCheck,
   parseArgs,
   type RawPull,
+  POLICY_PATH,
   readVettedLogins,
   toIssueComment,
   toLivePull,
@@ -253,6 +254,8 @@ describe('lens routing inputs', () => {
   });
 
   it('reads the vetted logins from the policy, none when unreadable', () => {
+    // Resolved from the module's own tree, not the cwd.
+    expect(POLICY_PATH).toMatch(/^\/.*\/docs\/loops\/10-external-contributions\.md$/);
     expect(readVettedLogins()).toContain('Retsumdk');
     expect(readVettedLogins('does/not/exist.md')).toEqual([]);
   });

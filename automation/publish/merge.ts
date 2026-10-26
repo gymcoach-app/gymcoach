@@ -23,6 +23,8 @@ import {
 import { trustTier } from '@/automation/review/lenses';
 import { parseVetted } from '@/automation/baseline/collect';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { collectChangedPaths } from '@/automation/publish/changed-paths';
 
 // Pinned merge for every PR, loop-authored or external (roadmap milestone 2).
 // Fetches the live PR, its check runs for the approved SHA, the repository's
@@ -210,6 +212,9 @@ export function changedPaths(files: RawPullFile[], expectedCount: number | null)
   return [...paths];
 }
 
+// The files API lists the PR's live head, so only the lenses.ts CLI uses it,
+// to plan reviews. The gate reads the approved SHA's paths with git instead
+// (changed-paths.ts).
 export function fetchChangedFiles(pr: number, expectedCount: number | null): string[] | null {
   const files = collectPages((page) =>
     gh<RawPullFile[]>([`repos/${REPO}/pulls/${pr}/files?per_page=${PAGE_SIZE}&page=${page}`]),
@@ -217,10 +222,13 @@ export function fetchChangedFiles(pr: number, expectedCount: number | null): str
   return changedPaths(files, expectedCount);
 }
 
-// The vetted logins from the policy in the current tree (the trusted origin/main
-// worktree merge.ts runs from). Unreadable means none: every external author is
-// then unvetted, which the lens rules treat the same way.
-export function readVettedLogins(path = 'docs/loops/10-external-contributions.md'): string[] {
+// The vetted logins from the policy in the tree this module was loaded from
+// (the trusted origin/main worktree merge.ts runs from), whatever the cwd.
+// Unreadable means none: every external author is then unvetted, which the lens
+// rules treat the same way.
+export const POLICY_PATH = join(__dirname, '..', '..', 'docs/loops/10-external-contributions.md');
+
+export function readVettedLogins(path = POLICY_PATH): string[] {
   try {
     return parseVetted(readFileSync(path, 'utf8')).map((v) => v.login);
   } catch {
@@ -407,7 +415,15 @@ async function run(argv: string[]): Promise<number> {
     invalidReviews: reviews.invalid,
     baseTipSha,
     baseUpdates,
-    changedFiles: fetchChangedFiles(args.pr, live.changedFileCount),
+    // Read with git at the approved SHA, never from the live head (a push after
+    // approval cannot change which lenses are required).
+    changedFiles: collectChangedPaths(
+      runGit(process.cwd()),
+      args.pr,
+      BASE_BRANCH,
+      args.sha,
+      baseTipSha,
+    ),
     authorTier: trustTier(live.author, MAINTAINERS, readVettedLogins()),
   });
   print(decision, reviews);
