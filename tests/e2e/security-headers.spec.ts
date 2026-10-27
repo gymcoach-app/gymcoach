@@ -10,7 +10,8 @@ const expected = {
   'permissions-policy': 'camera=(), microphone=(), geolocation=()',
 };
 
-for (const path of ['/login', '/api/coach']) {
+// A page, an API route and the MCP endpoint (unauthenticated, so a 401).
+for (const path of ['/login', '/api/coach', '/mcp/health', '/mcp']) {
   test(`security headers are set on ${path}`, async ({ request }) => {
     const res = await request.get(path, { maxRedirects: 0 });
     const headers = res.headers();

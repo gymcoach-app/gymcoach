@@ -68,6 +68,24 @@ describe('rateLimit memory bounds', () => {
   });
 });
 
+describe('rateLimit keys and windows', () => {
+  it('cuts a long key, so its size stays bounded', () => {
+    const t0 = 7_000_000;
+    const long = 'k'.repeat(10 * 1024);
+    expect(rateLimit(long, 1, 1000, t0).ok).toBe(true);
+    // Same first 200 characters: the same bucket.
+    expect(rateLimit(`${long}different`, 1, 1000, t0).ok).toBe(false);
+  });
+
+  it('a flood of short-window keys does not evict a long-window bucket', () => {
+    const t0 = 8_000_000;
+    const day = 24 * 60 * 60_000;
+    expect(rateLimit('coach-day:u', 1, day, t0).ok).toBe(true);
+    for (let i = 0; i < 50_001; i++) rateLimit(`login:${i}`, 1, 60_000, t0);
+    expect(rateLimit('coach-day:u', 1, day, t0).ok).toBe(false);
+  });
+});
+
 describe('clientIp', () => {
   const req = (headers: Record<string, string>) => new Request('http://x/', { headers });
 
@@ -103,6 +121,17 @@ describe('clientIp', () => {
     expect(clientIp(req({}), 0)).toBe(DIRECT_CLIENT);
   });
 
+  it('reads anything but an IP literal as unknown, however long', () => {
+    expect(clientIp(req({ 'x-forwarded-for': 'x'.repeat(10 * 1024) }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-forwarded-for': `1.1.1.1, ${'9'.repeat(10 * 1024)}` }), 1)).toBe(
+      'unknown',
+    );
+    expect(clientIp(req({ 'x-forwarded-for': 'not-an-ip' }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-forwarded-for': '203.0.113.7:4444' }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-real-ip': 'evil' }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-forwarded-for': '2001:db8::1' }), 1)).toBe('2001:db8::1');
+  });
+
   it('falls back to X-Real-IP, then unknown, without X-Forwarded-For', () => {
     expect(clientIp(req({ 'x-real-ip': ' 203.0.113.9 ' }), 1)).toBe('203.0.113.9');
     expect(clientIp(req({}), 1)).toBe('unknown');
@@ -121,13 +150,15 @@ describe('trustedProxyHops', () => {
   });
 
   it('is what clientIp uses by default', () => {
-    const r = new Request('http://x/', { headers: { 'x-forwarded-for': 'a, b, c' } });
+    const r = new Request('http://x/', {
+      headers: { 'x-forwarded-for': '198.51.100.1, 198.51.100.2, 198.51.100.3' },
+    });
     const saved = process.env.TRUSTED_PROXY_HOPS;
     try {
       process.env.TRUSTED_PROXY_HOPS = '2';
-      expect(clientIp(r)).toBe('b');
+      expect(clientIp(r)).toBe('198.51.100.2');
       delete process.env.TRUSTED_PROXY_HOPS;
-      expect(clientIp(r)).toBe('c');
+      expect(clientIp(r)).toBe('198.51.100.3');
     } finally {
       if (saved === undefined) delete process.env.TRUSTED_PROXY_HOPS;
       else process.env.TRUSTED_PROXY_HOPS = saved;

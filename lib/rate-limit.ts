@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 // ============================================================
 // In-memory fixed-window rate limiter
 // ============================================================
@@ -10,22 +12,29 @@ interface Bucket {
   resetAt: number;
 }
 
-const buckets = new Map<string, Bucket>();
+// Buckets live in one map per window length, so a flood of short-window keys
+// (login, signup: one minute, keyed by client IP) can only evict other
+// short-window buckets, never a long one such as the coach's daily cap. The
+// window lengths are a small fixed set chosen in code, so the number of maps
+// stays bounded too.
+const bucketsByWindow = new Map<number, Map<string, Bucket>>();
 
-// Memory bounds. Keys come partly from client input (the client IP), so once
-// the map grows past SWEEP_AT it is swept of expired buckets (at most once per
-// SWEEP_INTERVAL_MS, so a flood of new keys does not pay for a full scan each
-// time), and it never holds more than MAX_BUCKETS: when it is full, the oldest
-// bucket (first in insertion order) is dropped to make room.
+// Memory bounds per map. Keys come partly from client input (the client IP),
+// so once a map grows past SWEEP_AT it is swept of expired buckets (at most
+// once per SWEEP_INTERVAL_MS, so a flood of new keys does not pay for a full
+// scan each time), and it never holds more than MAX_BUCKETS: when it is full,
+// the oldest bucket (first in insertion order) is dropped to make room. Keys
+// are cut to MAX_KEY_LENGTH as a second bound on their size.
 const SWEEP_AT = 10_000;
 const SWEEP_INTERVAL_MS = 1_000;
 const MAX_BUCKETS = 50_000;
-let lastSweepAt = Number.NEGATIVE_INFINITY;
+const MAX_KEY_LENGTH = 200;
+const lastSweepAt = new Map<number, number>();
 
-function makeRoom(now: number): void {
+function makeRoom(buckets: Map<string, Bucket>, windowMs: number, now: number): void {
   if (buckets.size < SWEEP_AT) return;
-  if (now - lastSweepAt >= SWEEP_INTERVAL_MS) {
-    lastSweepAt = now;
+  if (now - (lastSweepAt.get(windowMs) ?? Number.NEGATIVE_INFINITY) >= SWEEP_INTERVAL_MS) {
+    lastSweepAt.set(windowMs, now);
     for (const [key, bucket] of buckets) {
       if (now >= bucket.resetAt) buckets.delete(key);
     }
@@ -50,11 +59,17 @@ export function rateLimit(
   windowMs: number,
   now: number = Date.now(),
 ): RateLimitResult {
+  key = key.slice(0, MAX_KEY_LENGTH);
+  let buckets = bucketsByWindow.get(windowMs);
+  if (!buckets) {
+    buckets = new Map();
+    bucketsByWindow.set(windowMs, buckets);
+  }
   const bucket = buckets.get(key);
   if (!bucket || now >= bucket.resetAt) {
     // Delete first so a renewed key moves to the end of the insertion order.
     buckets.delete(key);
-    makeRoom(now);
+    makeRoom(buckets, windowMs, now);
     buckets.set(key, { count: 1, resetAt: now + windowMs });
     return { ok: true, retryAfterSec: 0 };
   }
@@ -90,6 +105,10 @@ export const DIRECT_CLIENT = 'direct';
 // no other access to the peer address. Every client then shares one key, so
 // spoofing cannot buy fresh buckets; the cost is that all visitors share the
 // login and signup budget, which is why a proxy is the recommended setup.
+//
+// The chosen entry ends up in a bucket key, and with the default of one hop a
+// client that reaches the port directly writes it, so only an IPv4 or IPv6
+// literal is used; anything else reads as 'unknown'.
 export function clientIp(req: Request, hops: number = trustedProxyHops()): string {
   if (hops < 1) return DIRECT_CLIENT;
   const xff = req.headers.get('x-forwarded-for');
@@ -99,18 +118,24 @@ export function clientIp(req: Request, hops: number = trustedProxyHops()): strin
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
     if (entries.length === 0) return 'unknown';
-    return entries[Math.max(0, entries.length - hops)]!;
+    return ipOrUnknown(entries[Math.max(0, entries.length - hops)]!);
   }
-  return req.headers.get('x-real-ip')?.trim() || 'unknown';
+  return ipOrUnknown(req.headers.get('x-real-ip')?.trim() ?? '');
+}
+
+function ipOrUnknown(value: string): string {
+  return isIP(value) === 0 ? 'unknown' : value;
 }
 
 // Test helper: how many buckets are held.
 export function rateLimitBucketCount(): number {
-  return buckets.size;
+  let count = 0;
+  for (const buckets of bucketsByWindow.values()) count += buckets.size;
+  return count;
 }
 
 // Test helper: clears all buckets.
 export function resetRateLimits(): void {
-  buckets.clear();
-  lastSweepAt = Number.NEGATIVE_INFINITY;
+  bucketsByWindow.clear();
+  lastSweepAt.clear();
 }

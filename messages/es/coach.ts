@@ -12,6 +12,7 @@ export const coach = {
     request: 'Pedir un resumen semanal',
     empty: 'Aún no hay ningún resumen. Pide el primero arriba.',
     unknownError: 'Error desconocido',
+    tooManyDebriefs: 'Has pedido varios resúmenes en poco tiempo. Inténtalo más tarde.',
     keyMissing: 'Falta la clave de {provider}',
     keySetup: 'Configura {variable} en .env para activar el coach.',
     applied: 'Aplicado',

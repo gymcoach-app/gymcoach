@@ -12,6 +12,7 @@ export const coach = {
     request: 'Wöchentliche Auswertung anfordern',
     empty: 'Noch keine Auswertung. Starte die erste oben.',
     unknownError: 'Unbekannter Fehler',
+    tooManyDebriefs: 'Du hast in kurzer Zeit mehrere Auswertungen angefordert. Versuche es später noch einmal.',
     keyMissing: '{provider}-Schlüssel fehlt',
     keySetup: 'Setze {variable} in .env, um den Coach zu aktivieren.',
     applied: 'Angewendet',

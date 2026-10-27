@@ -24,7 +24,8 @@
 #   MCP_PUBLIC_URL=https://gym.example.com   public URL used in MCP connector links
 #   MCP_ALLOWED_ORIGINS / MCP_ALLOWED_HOSTS  optional MCP hardening (see .env.example)
 #   TRUSTED_PROXY_HOPS=1            reverse proxies in front of the app (rate limits);
-#                                   0 when the port is published with no proxy
+#                                   0 only as a last resort with no proxy: one
+#                                   client can then block every login and signup
 #   Behind a proxy, publish the port on loopback only: GYMCOACH_PORT=127.0.0.1:3000
 #   LLM_PROVIDER=anthropic | openrouter | demo
 #   ANTHROPIC_API_KEY=...  or  OPENROUTER_API_KEY=... + OPENROUTER_MODEL=...
