@@ -6,6 +6,7 @@ import {
   GYMCOACH_MCP_INSTRUCTIONS,
   GYMCOACH_MCP_TOOL_NAMES,
 } from './server';
+import { MCP_MAX_TOOL_INPUT_ELEMENTS } from './limits';
 
 interface CapabilityGroup {
   tools?: string[];
@@ -241,5 +242,45 @@ describe('GymCoach MCP server', () => {
     expect(structured.capabilities.allTools).toEqual(GYMCOACH_MCP_TOOL_NAMES);
     expect(structured.capabilities.programs?.write).toContain('create_program');
     expect(structured.capabilities.profile?.write).toContain('update_user_properties');
+  });
+
+  it('refuses tool arguments with more elements than the input cap before validating them', async () => {
+    const server = createGymCoachMcpServer({
+      principal: { tokenId: 'token-3', userId: 'user-1', canWrite: false },
+      baseUrl: 'https://gymcoach.example',
+    });
+    const client = new Client({ name: 'gymcoach-test', version: '1.0.0' });
+    openServers.push(server);
+    openClients.push(client);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const call = (setIds: string[]) =>
+      client.callTool({
+        name: 'apply_historical_equipment_backfill',
+        arguments: {
+          confirmed: true,
+          gymId: 'gym-1',
+          exerciseId: 'exercise-1',
+          equipmentId: 'equipment-1',
+          setIds,
+        },
+      });
+    const errorText = (response: Awaited<ReturnType<typeof call>>) =>
+      JSON.stringify(response.content);
+
+    const oversized = await call(new Array<string>(MCP_MAX_TOOL_INPUT_ELEMENTS + 1).fill('x'));
+    expect(oversized.isError).toBe(true);
+    expect(errorText(oversized)).toMatch(
+      new RegExp(`more than the maximum of ${MCP_MAX_TOOL_INPUT_ELEMENTS} elements`),
+    );
+
+    // A payload under the cap reaches the schema instead (and is refused there
+    // for its invalid ids), so the cap does not reject ordinary calls.
+    const ordinary = await call(['x']);
+    expect(ordinary.isError).toBe(true);
+    expect(errorText(ordinary)).not.toMatch(/maximum of \d+ elements/);
   });
 });
