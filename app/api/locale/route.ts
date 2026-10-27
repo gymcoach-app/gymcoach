@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { cookieSecureFlag } from '@/lib/auth';
+import { ApiError, readJsonWithCap, SMALL_JSON_BODY_MAX_BYTES } from '@/lib/api';
 import { localeCookieMaxAge, localeCookieName, locales } from '@/i18n/config';
 
 // Public route (listed in middleware PUBLIC_PATHS) so the login and signup
@@ -34,8 +35,11 @@ export async function POST(request: NextRequest) {
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonWithCap(request, SMALL_JSON_BODY_MAX_BYTES);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 413) {
+      return NextResponse.json({ error: err.message }, { status: 413 });
+    }
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
   }
   const parsed = localeSchema.safeParse(body);

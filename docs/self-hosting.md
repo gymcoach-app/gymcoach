@@ -28,6 +28,13 @@ started with `docker compose up -d`. The app is published on `GYMCOACH_PORT`
   `docker compose up -d` recreates the app with the new binding. The examples
   below assume exactly this.
 
+  The login and signup rate limits read the client address from
+  `X-Forwarded-For`, which only a proxy can vouch for. If you publish the port
+  with no proxy at all, set `TRUSTED_PROXY_HOPS=0` in `.env`: forwarded headers
+  are then ignored, so a client cannot pick its own budget, but every visitor
+  shares one budget for login (10 a minute) and signup (5 a minute). A proxy
+  keeps the limits per visitor.
+
 - **Secrets**: `.env` holds `JWT_SECRET` and the database password. Generate
   both once and keep a copy with your backups. Rotating `JWT_SECRET` keeps the
   data but invalidates every session, so everyone signs in again. Rotating the
@@ -86,6 +93,13 @@ MCP_ALLOWED_HOSTS=gym.example.com
 Leave `SESSION_COOKIE_SECURE` unset behind an HTTPS proxy. In production the
 session cookie is `Secure` by default, which is what you want; see
 [HTTPS on a home network](#https-on-a-home-network) for the plain-HTTP case.
+
+The app sends its own security headers (`X-Content-Type-Options`,
+`Referrer-Policy`, `X-Frame-Options` with a `frame-ancestors` policy, and
+`Permissions-Policy`). It does not send `Strict-Transport-Security`, since only
+the proxy knows the instance is served over HTTPS. Add HSTS in the proxy once
+HTTPS works (Caddy: `header Strict-Transport-Security "max-age=31536000"`;
+nginx: `add_header Strict-Transport-Security "max-age=31536000" always;`).
 
 ### Caddy
 

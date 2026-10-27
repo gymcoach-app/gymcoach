@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { clientIp, rateLimit, resetRateLimits, trustedProxyHops } from './rate-limit';
+import {
+  DIRECT_CLIENT,
+  clientIp,
+  rateLimit,
+  rateLimitBucketCount,
+  resetRateLimits,
+  trustedProxyHops,
+} from './rate-limit';
 
 beforeEach(() => resetRateLimits());
 
@@ -26,6 +33,38 @@ describe('rateLimit', () => {
     expect(rateLimit('a', 1, 1000, t0).ok).toBe(true);
     expect(rateLimit('b', 1, 1000, t0).ok).toBe(true);
     expect(rateLimit('a', 1, 1000, t0).ok).toBe(false);
+  });
+});
+
+describe('rateLimit memory bounds', () => {
+  it('sweeps expired buckets once the map is large', () => {
+    const t0 = 4_000_000;
+    for (let i = 0; i < 10_000; i++) rateLimit(`old:${i}`, 5, 1000, t0);
+    expect(rateLimitBucketCount()).toBe(10_000);
+    // All of them have expired; the next new key triggers a sweep.
+    rateLimit('fresh', 5, 1000, t0 + 1000);
+    expect(rateLimitBucketCount()).toBe(1);
+  });
+
+  it('keeps live buckets through a sweep', () => {
+    const t0 = 5_000_000;
+    for (let i = 0; i < 10_000; i++) rateLimit(`live:${i}`, 5, 60_000, t0);
+    rateLimit('fresh', 5, 60_000, t0 + 1000);
+    expect(rateLimitBucketCount()).toBe(10_001);
+    // A sweep did not reset a live bucket's count.
+    for (let i = 0; i < 4; i++) rateLimit('live:0', 5, 60_000, t0 + 1000);
+    expect(rateLimit('live:0', 5, 60_000, t0 + 1000).ok).toBe(false);
+  });
+
+  it('never holds more than the hard cap, dropping the oldest bucket', () => {
+    const t0 = 6_000_000;
+    for (let i = 0; i < 50_000; i++) rateLimit(`k:${i}`, 1, 60_000, t0);
+    expect(rateLimitBucketCount()).toBe(50_000);
+    rateLimit('one-more', 1, 60_000, t0);
+    expect(rateLimitBucketCount()).toBe(50_000);
+    // The oldest key was dropped, so it starts a fresh window; the newest stays blocked.
+    expect(rateLimit('k:0', 1, 60_000, t0).ok).toBe(true);
+    expect(rateLimit('k:49999', 1, 60_000, t0).ok).toBe(false);
   });
 });
 
@@ -57,6 +96,13 @@ describe('clientIp', () => {
     expect(clientIp(req({ 'x-forwarded-for': ' , ' }), 1)).toBe('unknown');
   });
 
+  it('ignores forwarded headers with 0 hops, so every direct client shares one key', () => {
+    expect(clientIp(req({ 'x-forwarded-for': '6.6.6.6' }), 0)).toBe(DIRECT_CLIENT);
+    expect(clientIp(req({ 'x-forwarded-for': '1.1.1.1, 2.2.2.2' }), 0)).toBe(DIRECT_CLIENT);
+    expect(clientIp(req({ 'x-real-ip': '203.0.113.9' }), 0)).toBe(DIRECT_CLIENT);
+    expect(clientIp(req({}), 0)).toBe(DIRECT_CLIENT);
+  });
+
   it('falls back to X-Real-IP, then unknown, without X-Forwarded-For', () => {
     expect(clientIp(req({ 'x-real-ip': ' 203.0.113.9 ' }), 1)).toBe('203.0.113.9');
     expect(clientIp(req({}), 1)).toBe('unknown');
@@ -64,11 +110,13 @@ describe('clientIp', () => {
 });
 
 describe('trustedProxyHops', () => {
-  it('reads a whole number of at least 1 and falls back to 1 otherwise', () => {
+  it('reads a whole number and falls back to 1 otherwise', () => {
     expect(trustedProxyHops(undefined)).toBe(1);
+    expect(trustedProxyHops('0')).toBe(0);
+    expect(trustedProxyHops(' 0 ')).toBe(0);
     expect(trustedProxyHops('2')).toBe(2);
     expect(trustedProxyHops(' 3 ')).toBe(3);
-    for (const bad of ['', '0', '-1', '1.5', 'two', '1e3', '99999999999999999999'])
+    for (const bad of ['', '-1', '1.5', 'two', '1e3', '99999999999999999999'])
       expect(trustedProxyHops(bad), bad).toBe(1);
   });
 

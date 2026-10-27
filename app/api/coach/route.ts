@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { handleApiError, requireApiUserId } from '@/lib/api';
+import { rateLimit } from '@/lib/rate-limit';
 import { buildCoachPayload, callCoach } from '@/lib/coach';
 import { LlmError } from '@/lib/llm';
 import { isoWeekStart } from '@/lib/stats';
@@ -8,9 +9,23 @@ import { isoWeekStart } from '@/lib/stats';
 // POST /api/coach: generates a new debrief for the current week.
 // The structured payload is computed server-side then sent to the configured
 // LLM provider. The markdown response is stored in CoachSession.
+// Each call spends the instance's AI budget and stores a row, so it is
+// rate-limited per user: a weekly debrief needs a handful a day at most.
+const COACH_PER_MINUTE = 3;
+const COACH_PER_DAY = 20;
+
 export async function POST() {
   try {
     const userId = await requireApiUserId();
+
+    const rl = rateLimit(`coach:${userId}`, COACH_PER_MINUTE, 60_000);
+    const daily = rl.ok ? rateLimit(`coach-day:${userId}`, COACH_PER_DAY, 24 * 60 * 60_000) : rl;
+    if (!daily.ok) {
+      return NextResponse.json(
+        { error: 'Too many debrief requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(daily.retryAfterSec) } },
+      );
+    }
 
     const payload = await buildCoachPayload(userId);
     const { markdown, modelUsed, promptText } = await callCoach(payload);

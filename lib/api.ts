@@ -26,6 +26,12 @@ export async function requireApiUserId(): Promise<string> {
   return userId;
 }
 
+// Byte cap for a JSON body when the route does not set its own. The largest
+// ordinary body (a full generated program: 7 workouts of 15 exercises with
+// notes) is around 100 KB; routes that take files or imports pass their own,
+// larger cap.
+export const DEFAULT_JSON_BODY_MAX_BYTES = 1024 * 1024;
+
 export async function parseJsonBody<T extends z.ZodTypeAny>(
   req: Request,
   schema: T,
@@ -33,11 +39,7 @@ export async function parseJsonBody<T extends z.ZodTypeAny>(
 ): Promise<z.infer<T>> {
   let body: unknown;
   try {
-    if (opts?.maxBytes !== undefined) {
-      body = JSON.parse(await readBodyWithCap(req, opts.maxBytes));
-    } else {
-      body = await req.json();
-    }
+    body = JSON.parse(await readBodyWithCap(req, opts?.maxBytes ?? DEFAULT_JSON_BODY_MAX_BYTES));
   } catch (err) {
     if (err instanceof ApiError) throw err;
     throw new ApiError(400, 'Invalid JSON');
@@ -96,6 +98,20 @@ export async function readBodyWithCap(
 ): Promise<string> {
   return new TextDecoder().decode(await readBodyBytesWithCap(req, maxBytes));
 }
+
+// Reads and parses a JSON body under a byte cap, for routes that validate the
+// result themselves. Throws ApiError 413 past the cap and 400 on invalid JSON.
+export async function readJsonWithCap(req: Request, maxBytes: number): Promise<unknown> {
+  const text = await readBodyWithCap(req, maxBytes);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ApiError(400, 'Invalid JSON');
+  }
+}
+
+// Byte cap for the small public bodies (login, signup, language switch).
+export const SMALL_JSON_BODY_MAX_BYTES = 16 * 1024;
 
 export function handleApiError(err: unknown): NextResponse {
   if (err instanceof ApiError) {

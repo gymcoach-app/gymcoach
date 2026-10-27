@@ -6,6 +6,7 @@ import { signSession, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from '@/lib/auth'
 import { registerSchema } from '@/lib/schemas/auth';
 import { seedExerciseCatalog } from '@/lib/exercise-catalog';
 import { rateLimit, clientIp } from '@/lib/rate-limit';
+import { ApiError, readJsonWithCap, SMALL_JSON_BODY_MAX_BYTES } from '@/lib/api';
 
 // POST /api/auth/register: creates an account, seeds the default exercise
 // catalog for it, and signs the user in. Public route (see middleware).
@@ -19,7 +20,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = (await req.json().catch(() => null)) as unknown;
+    // Invalid JSON reads as no body, so the schema answers with its 400.
+    const body = await readJsonWithCap(req, SMALL_JSON_BODY_MAX_BYTES).catch((err: unknown) => {
+      if (err instanceof ApiError && err.status === 413) throw err;
+      return null;
+    });
     const parsed = registerSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -50,6 +55,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof ApiError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[register] error:', err);
     return NextResponse.json({ error: 'Server error.' }, { status: 500 });
   }
