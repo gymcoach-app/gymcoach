@@ -148,7 +148,7 @@ export const progress = {
     achieved: 'Raggiunto',
     progressAria: 'Progressi verso l’obiettivo',
     progress:
-      '{percent}% dell’obiettivo sulla scala del 1RM stimato ({best} di miglior risultato contro {target} di obiettivo).',
+      '{percent}% dell’obiettivo sulla scala del 1RM stimato (migliore: {best}; obiettivo: {target}).',
     targetLoad: 'Carico obiettivo ({unit})',
     targetReps: 'Ripetizioni obiettivo',
     bodyweightHelp:
@@ -178,8 +178,8 @@ export const progress = {
     title: 'Mappa di calore muscolare',
     description:
       'Ogni muscolo è colorato in base alle tue serie allenanti nella settimana del {week}, rispetto alla sua fascia MEV-MRV.',
-    front: 'Fronte',
-    back: 'Retro',
+    front: 'Vista frontale',
+    back: 'Vista posteriore',
     legend: {
       none: 'Non allenato',
       low: 'Sotto il MEV',

@@ -165,7 +165,7 @@ export const settings = {
       'ChatGPT può creare e modificare programmi, aggiornare l’inventario della tua palestra (pesi liberi, attrezzatura e relative foto) e aggiornare i dati dello storico di allenamento, come l’attrezzatura registrata nelle serie passate, dopo averti mostrato l’azione da confermare.',
     readyTitle: 'L’URL del connettore ChatGPT è pronto',
     readyDescription:
-      'Copialo ora. La parte segreta viene mostrata una sola volta. In ChatGPT scegli nessuna autenticazione, perché l’URL contiene già un token privato.',
+      'Copialo ora. La parte segreta viene mostrata una sola volta. In ChatGPT scegli «Nessuna autenticazione», perché l’URL contiene già un token privato.',
     copied: 'URL del connettore copiato.',
     copy: 'Copia l’URL del connettore',
     activeKeys: 'Connessioni attive',

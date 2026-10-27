@@ -47,7 +47,7 @@ export const coach = {
       '{weeks, plural, one {# settimana} other {# settimane}} di storico recente su {exercises, plural, one {# esercizio} other {# esercizi}}.',
     noHistory:
       'Ancora nessuna sessione registrata: il coach inizia a imparare dal tuo primo allenamento.',
-    goalProgress: '({percent}% raggiunto)',
+    goalProgress: '({percent}% dell’obiettivo)',
     stalled: 'Esercizi in stallo: {names}.',
     noStalled: 'Nessun esercizio in stallo rilevato.',
     deloadActive: 'È in corso una settimana di scarico pianificata.',
