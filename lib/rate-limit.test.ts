@@ -127,9 +127,19 @@ describe('clientIp', () => {
       'unknown',
     );
     expect(clientIp(req({ 'x-forwarded-for': 'not-an-ip' }), 1)).toBe('unknown');
-    expect(clientIp(req({ 'x-forwarded-for': '203.0.113.7:4444' }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-forwarded-for': '203.0.113.7:' }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-forwarded-for': '203.0.113.7:123456' }), 1)).toBe('unknown');
+    expect(clientIp(req({ 'x-forwarded-for': '[not-an-ip]:443' }), 1)).toBe('unknown');
     expect(clientIp(req({ 'x-real-ip': 'evil' }), 1)).toBe('unknown');
     expect(clientIp(req({ 'x-forwarded-for': '2001:db8::1' }), 1)).toBe('2001:db8::1');
+  });
+
+  it('drops a port that a proxy appended, keeping a bare IPv6 address intact', () => {
+    expect(clientIp(req({ 'x-forwarded-for': '203.0.113.7:4444' }), 1)).toBe('203.0.113.7');
+    expect(clientIp(req({ 'x-forwarded-for': '[2001:db8::1]:443' }), 1)).toBe('2001:db8::1');
+    expect(clientIp(req({ 'x-forwarded-for': '[2001:db8::1]' }), 1)).toBe('2001:db8::1');
+    expect(clientIp(req({ 'x-forwarded-for': '2001:db8::1:443' }), 1)).toBe('2001:db8::1:443');
+    expect(clientIp(req({ 'x-real-ip': '198.51.100.4:80' }), 1)).toBe('198.51.100.4');
   });
 
   it('falls back to X-Real-IP, then unknown, without X-Forwarded-For', () => {

@@ -108,7 +108,8 @@ export const DIRECT_CLIENT = 'direct';
 //
 // The chosen entry ends up in a bucket key, and with the default of one hop a
 // client that reaches the port directly writes it, so only an IPv4 or IPv6
-// literal is used; anything else reads as 'unknown'.
+// literal (optionally with a port, see below) is used; anything else reads as
+// 'unknown'.
 export function clientIp(req: Request, hops: number = trustedProxyHops()): string {
   if (hops < 1) return DIRECT_CLIENT;
   const xff = req.headers.get('x-forwarded-for');
@@ -123,8 +124,15 @@ export function clientIp(req: Request, hops: number = trustedProxyHops()): strin
   return ipOrUnknown(req.headers.get('x-real-ip')?.trim() ?? '');
 }
 
+// Some proxies (Azure App Service and Application Gateway, IIS ARR) append the
+// client port: `203.0.113.7:4444`, `[2001:db8::1]:443`. The port is dropped
+// so each visitor keeps their own bucket; a bare IPv6 address keeps its colons.
+const IPV4_WITH_PORT = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/;
+const BRACKETED_IPV6 = /^\[([0-9A-Fa-f:.]+)\](?::\d{1,5})?$/;
+
 function ipOrUnknown(value: string): string {
-  return isIP(value) === 0 ? 'unknown' : value;
+  const address = IPV4_WITH_PORT.exec(value)?.[1] ?? BRACKETED_IPV6.exec(value)?.[1] ?? value;
+  return isIP(address) === 0 ? 'unknown' : address;
 }
 
 // Test helper: how many buckets are held.

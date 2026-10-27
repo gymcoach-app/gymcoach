@@ -36,9 +36,7 @@ describe('CoachClient debrief request', () => {
     renderClient();
     fireEvent.click(screen.getByRole('button', { name: 'Request a weekly debrief' }));
     expect(
-      await screen.findByText(
-        'You have asked for several debriefs in a short time. Try again later.',
-      ),
+      await screen.findByText('You have requested too many debriefs. Try again later.'),
     ).toBeTruthy();
     expect(screen.queryByText('Too many debrief requests. Please try again later.')).toBeNull();
   });

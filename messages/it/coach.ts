@@ -12,7 +12,7 @@ export const coach = {
     request: 'Richiedi un resoconto settimanale',
     empty: 'Ancora nessun resoconto. Richiedi il primo qui sopra.',
     unknownError: 'Errore sconosciuto',
-    tooManyDebriefs: 'Hai chiesto diversi resoconti in poco tempo. Riprova più tardi.',
+    tooManyDebriefs: 'Hai chiesto troppi resoconti. Riprova più tardi.',
     keyMissing: 'Chiave {provider} mancante',
     keySetup: 'Imposta {variable} in .env per attivare il coach.',
     applied: 'Applicato',

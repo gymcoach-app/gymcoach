@@ -12,7 +12,7 @@ export const coach = {
     request: 'Demander un débrief hebdomadaire',
     empty: 'Aucun débrief pour l’instant. Lancez le premier ci-dessus.',
     unknownError: 'Erreur inconnue',
-    tooManyDebriefs: 'Vous avez demandé plusieurs débriefs en peu de temps. Réessayez plus tard.',
+    tooManyDebriefs: 'Vous avez demandé trop de débriefs. Réessayez plus tard.',
     keyMissing: 'Clé {provider} manquante',
     keySetup: 'Définissez {variable} dans .env pour activer le coach.',
     applied: 'Appliqué',
