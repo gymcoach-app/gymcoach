@@ -41,7 +41,7 @@ import {
   undoHistoricalEquipmentBackfill,
 } from '@/lib/mcp/historical-equipment-backfill';
 import { guardToolHandler } from '@/lib/mcp/errors';
-import { consumeMcpWriteQuota } from '@/lib/mcp/limits';
+import { consumeMcpWriteQuota, MCP_MAX_TOOL_INPUT_ELEMENTS } from '@/lib/mcp/limits';
 import { updateUserProperties } from '@/lib/user-properties';
 
 export const GYMCOACH_MCP_INSTRUCTIONS = `GymCoach stores the trainee's profile, gyms, equipment, programs, workout history, sets, RIR, goals and recovery signals.
@@ -157,7 +157,7 @@ export function createGymCoachMcpServer({ principal, baseUrl }: ServerOptions): 
       version: '1.0.0',
       websiteUrl: baseUrl,
     },
-    { instructions: GYMCOACH_MCP_INSTRUCTIONS },
+    { instructions: GYMCOACH_MCP_INSTRUCTIONS, maxToolInputElements: MCP_MAX_TOOL_INPUT_ELEMENTS },
   );
 
   server.registerResource(
