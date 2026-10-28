@@ -79,6 +79,7 @@ export const common = {
     spanish: 'Испанский',
     portuguese: 'Португальский',
     italian: 'Итальянский',
+    dutch: 'Нидерландский',
     error: 'Не удалось сменить язык.',
   },
   theme: {
