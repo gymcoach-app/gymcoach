@@ -75,6 +75,7 @@ export const common = {
     portuguese: 'Portugees',
     italian: 'Italiaans',
     dutch: 'Nederlands',
+    polish: 'Pools',
     error: 'Kon de taal niet wijzigen.',
   },
   theme: {
