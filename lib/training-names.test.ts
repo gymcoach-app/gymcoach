@@ -123,6 +123,20 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Upper · Lower', 'pl')).toBe('Góra ciała · Dół ciała');
   });
 
+  it('localizes imported names into Turkish', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'tr')).toBe(
+      'Gün 3 · Hafta 5 · Yeni plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'tr')).toBe(
+      'Yeni plan · 1 hafta (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 5 weeks', 'tr')).toBe('Yeni plan · 5 hafta');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'tr')).toBe(
+      'Tüm vücut · Gün 1 · Tüm vücut hibrit',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'tr')).toBe('Üst vücut · Alt vücut');
+  });
+
   it('localizes common imported split names', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'ru')).toBe(
       'Всё тело · День 1 · Гибридная программа на всё тело',

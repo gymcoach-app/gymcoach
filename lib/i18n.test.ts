@@ -10,6 +10,7 @@ import portugueseMessages from '@/messages/pt';
 import italianMessages from '@/messages/it';
 import dutchMessages from '@/messages/nl';
 import polishMessages from '@/messages/pl';
+import turkishMessages from '@/messages/tr';
 
 function messageKeys(value: unknown, prefix = ''): string[] {
   if (typeof value === 'string') return [prefix];
@@ -22,7 +23,7 @@ function messageKeys(value: unknown, prefix = ''): string[] {
 
 describe('i18n configuration', () => {
   it('recognizes only supported locales', () => {
-    expect(locales).toEqual(['en', 'fr', 'ru', 'de', 'es', 'pt', 'it', 'nl', 'pl']);
+    expect(locales).toEqual(['en', 'fr', 'ru', 'de', 'es', 'pt', 'it', 'nl', 'pl', 'tr']);
     expect(isLocale('en')).toBe(true);
     expect(isLocale('fr')).toBe(true);
     expect(isLocale('ru')).toBe(true);
@@ -32,6 +33,7 @@ describe('i18n configuration', () => {
     expect(isLocale('it')).toBe(true);
     expect(isLocale('nl')).toBe(true);
     expect(isLocale('pl')).toBe(true);
+    expect(isLocale('tr')).toBe(true);
     expect(isLocale(undefined)).toBe(false);
   });
 
@@ -44,6 +46,7 @@ describe('i18n configuration', () => {
     expect(messageKeys(italianMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(dutchMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(polishMessages).sort()).toEqual(messageKeys(englishMessages).sort());
+    expect(messageKeys(turkishMessages).sort()).toEqual(messageKeys(englishMessages).sort());
   });
 
   it('uses Russian plural categories', () => {
@@ -66,6 +69,15 @@ describe('i18n configuration', () => {
     expect(t('common.counts.sets', { count: 22 })).toBe('22 serie');
     expect(t('common.counts.sets', { count: 12 })).toBe('12 serii');
     expect(t('navigation.settings')).toBe('Ustawienia');
+  });
+
+  it('keeps the noun singular after a number in Turkish', () => {
+    const t = createTranslator({ locale: 'tr', messages: turkishMessages });
+
+    expect(t('common.counts.sets', { count: 1 })).toBe('1 set');
+    expect(t('common.counts.sets', { count: 3 })).toBe('3 set');
+    expect(t('common.counts.exercises', { count: 0 })).toBe('Egzersiz yok');
+    expect(t('navigation.settings')).toBe('Ayarlar');
   });
 
   it('uses French plural categories', () => {

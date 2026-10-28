@@ -106,6 +106,19 @@ const rulesByLocale: Partial<Record<Locale, TrainingNameRules>> = {
     week: (number) => `Tydzień ${number}`,
     weeks: (count) => `${count} ${polishWeekWord(count)}`,
   },
+  tr: {
+    phrases: {
+      'New plan': 'Yeni plan',
+      'Full Body Hybrid': 'Tüm vücut hibrit',
+      'Full Body': 'Tüm vücut',
+      Upper: 'Üst vücut',
+      Lower: 'Alt vücut',
+    },
+    day: (number) => `Gün ${number}`,
+    week: (number) => `Hafta ${number}`,
+    // Turkish keeps the noun singular after a number.
+    weeks: (count) => `${count} hafta`,
+  },
 };
 
 function polishWeekWord(count: number): string {
