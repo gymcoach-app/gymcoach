@@ -55,7 +55,7 @@ export const session = {
       'reduce-load': 'Zmniejsz ciężar, aby utrzymać zaplanowany cel.',
       'increase-load': 'Poprzednia seria była łatwiejsza niż w planie; dodaj jeden krok ciężaru.',
       'bodyweight-adjust-reps':
-        'Ciężaru nie da się zejść poniżej masy ciała; zamiast tego dopasuj powtórzenia.',
+        'Ciężar nie może spaść poniżej masy ciała; zamiast tego dopasuj powtórzenia.',
     },
   },
   returnToTraining: {
@@ -224,7 +224,7 @@ export const session = {
     },
   },
   exerciseMenu: {
-    actions: 'Działania ćwiczenia',
+    actions: 'Opcje ćwiczenia',
     actionsDescription:
       'Te działania zmieniają zapisany program, więc dotyczą też przyszłych sesji tego treningu.',
     replace: 'Zamień ćwiczenie',
@@ -259,7 +259,7 @@ export const session = {
     removeError: 'Nie udało się usunąć ćwiczenia.',
   },
   exerciseCard: {
-    actions: 'Działania ćwiczenia',
+    actions: 'Opcje ćwiczenia',
     notAvailable: 'Niedostępne na tej siłowni',
     cardioPrescription:
       '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} · Przerwa {seconds} s',
@@ -274,7 +274,7 @@ export const session = {
     suggestion: 'Propozycja:',
     bodyweight: 'masa ciała',
     suggestionHelp: 'Jak liczona jest propozycja',
-    notes: 'Notatki / wskazówka czucia mięśnia',
+    notes: 'Notatki / wskazówki (czucie mięśniowe)',
     readiness: {
       planned: 'Lżej - zaplanowany tydzień deloadu',
       sorenessLighter: 'Lżej - zgłoszone zakwasy',

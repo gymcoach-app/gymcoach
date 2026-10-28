@@ -11,7 +11,7 @@ export const settings = {
   vibrationDescription: 'Przy zapisie serii i na koniec odliczania.',
   timerSound: 'Sygnał na koniec odliczania',
   timerSoundDescription: 'Krótki sygnał 880 Hz na koniec przerwy.',
-  restFlash: 'Mignij ekranem po końcu przerwy',
+  restFlash: 'Mignij ekranem po zakończeniu przerwy',
   restFlashDescription:
     'Ekran miga na koniec przerwy, przydatne na głośnej siłowni. Przy włączonym ograniczeniu ruchu ekran zmienia kolor bez migania.',
   readiness: 'Pozwól, by gotowość i zakwasy zmieniały proponowane ciężary',
