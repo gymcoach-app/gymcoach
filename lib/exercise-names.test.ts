@@ -152,6 +152,29 @@ describe('exercise name localization', () => {
     expect(missing).toEqual([]);
   });
 
+  it('translates a recognized exercise into Dutch', () => {
+    expect(getExerciseDisplayName('Bench Press', 'nl')).toBe('Bankdrukken');
+  });
+
+  it('covers every built-in catalog exercise in Dutch', () => {
+    const missing = EXERCISE_CATALOG.map((exercise) => exercise.name).filter(
+      (name) => getExerciseDisplayName(name, 'nl') === name,
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('covers every exercise used by built-in program templates in Dutch', () => {
+    const names = new Set(
+      programTemplates.flatMap((template) =>
+        template.program.workouts.flatMap((workout) =>
+          workout.exercises.map((exercise) => exercise.name),
+        ),
+      ),
+    );
+    const missing = [...names].filter((name) => getExerciseDisplayName(name, 'nl') === name);
+    expect(missing).toEqual([]);
+  });
+
   it('keeps locale dictionaries separate from application messages', () => {
     expect(exerciseNameDictionaries.ru?.['Bench Press']).toBe('Жим лёжа');
   });

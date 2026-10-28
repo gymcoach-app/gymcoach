@@ -93,6 +93,20 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Upper · Lower', 'it')).toBe('Parte superiore · Parte inferiore');
   });
 
+  it('localizes imported names into Dutch with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'nl')).toBe(
+      'Dag 3 · Week 5 · Nieuw plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'nl')).toBe(
+      'Nieuw plan · 1 week (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 2 weeks', 'nl')).toBe('Nieuw plan · 2 weken');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'nl')).toBe(
+      'Full body · Dag 1 · Full body hybride',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'nl')).toBe('Bovenlichaam · Onderlichaam');
+  });
+
   it('localizes common imported split names', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'ru')).toBe(
       'Всё тело · День 1 · Гибридная программа на всё тело',
