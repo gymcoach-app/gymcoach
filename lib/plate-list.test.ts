@@ -3,7 +3,7 @@ import { formatPlateList, parsePlateList, parseWeightList, usesDecimalComma } fr
 
 describe('usesDecimalComma', () => {
   it('knows which supported locales write a decimal comma', () => {
-    for (const locale of ['fr', 'de', 'es', 'pt', 'it', 'ru', 'nl']) {
+    for (const locale of ['fr', 'de', 'es', 'pt', 'it', 'ru', 'nl', 'pl']) {
       expect(usesDecimalComma(locale)).toBe(true);
     }
     expect(usesDecimalComma('en')).toBe(false);

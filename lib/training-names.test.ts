@@ -107,6 +107,22 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Upper · Lower', 'nl')).toBe('Bovenlichaam · Onderlichaam');
   });
 
+  it('localizes imported names into Polish with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'pl')).toBe(
+      'Dzień 3 · Tydzień 5 · Nowy plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'pl')).toBe(
+      'Nowy plan · 1 tydzień (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 3 weeks', 'pl')).toBe('Nowy plan · 3 tygodnie');
+    expect(getTrainingDisplayName('New plan · 5 weeks', 'pl')).toBe('Nowy plan · 5 tygodni');
+    expect(getTrainingDisplayName('New plan · 12 weeks', 'pl')).toBe('Nowy plan · 12 tygodni');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'pl')).toBe(
+      'FBW · Dzień 1 · Hybrydowy FBW',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'pl')).toBe('Góra ciała · Dół ciała');
+  });
+
   it('localizes common imported split names', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'ru')).toBe(
       'Всё тело · День 1 · Гибридная программа на всё тело',

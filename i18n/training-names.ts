@@ -94,7 +94,27 @@ const rulesByLocale: Partial<Record<Locale, TrainingNameRules>> = {
     week: (number) => `Week ${number}`,
     weeks: (count) => `${count} ${count === 1 ? 'week' : 'weken'}`,
   },
+  pl: {
+    phrases: {
+      'New plan': 'Nowy plan',
+      'Full Body Hybrid': 'Hybrydowy FBW',
+      'Full Body': 'FBW',
+      Upper: 'Góra ciała',
+      Lower: 'Dół ciała',
+    },
+    day: (number) => `Dzień ${number}`,
+    week: (number) => `Tydzień ${number}`,
+    weeks: (count) => `${count} ${polishWeekWord(count)}`,
+  },
 };
+
+function polishWeekWord(count: number): string {
+  if (count === 1) return 'tydzień';
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'tygodnie';
+  return 'tygodni';
+}
 
 function russianWeekWord(count: number): string {
   const mod10 = count % 10;
