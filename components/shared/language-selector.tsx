@@ -25,6 +25,7 @@ const localeMessageKeys = {
   it: 'italian',
   nl: 'dutch',
   pl: 'polish',
+  tr: 'turkish',
 } as const satisfies Record<Locale, string>;
 
 export function LanguageSelector({ showLabel = false }: { showLabel?: boolean }) {

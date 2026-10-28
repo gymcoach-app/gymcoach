@@ -80,6 +80,7 @@ export const common = {
     italian: 'Włoski',
     dutch: 'Niderlandzki',
     polish: 'Polski',
+    turkish: 'Turecki',
     error: 'Nie udało się zmienić języka.',
   },
   theme: {

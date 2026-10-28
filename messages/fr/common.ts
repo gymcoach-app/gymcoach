@@ -76,6 +76,7 @@ export const common = {
     italian: 'Italien',
     dutch: 'Néerlandais',
     polish: 'Polonais',
+    turkish: 'Turc',
     error: 'Impossible de changer la langue.',
   },
   theme: {
