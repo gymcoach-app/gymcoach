@@ -32,6 +32,6 @@ export const dashboard = {
     deloadStalledReason:
       '{count, plural, one {# oefening staat stil: {names}.} other {# oefeningen staan stil: {names}.}}',
     deloadReadinessReason:
-      'Je fitheid was gemiddeld {average}/5 over je laatste {checkins, plural, one {# check-in} other {# check-ins}}.',
+      'Je gereedheid was gemiddeld {average}/5 over je laatste {checkins, plural, one {# check-in} other {# check-ins}}.',
   },
 } satisfies MessageShape<typeof english>;
