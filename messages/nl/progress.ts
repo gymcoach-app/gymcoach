@@ -61,7 +61,7 @@ export const progress = {
     goalToLose: 'nog {weight} eraf',
     goalToGain: 'nog {weight} erbij',
     goalTowards: '(op weg naar je doel)',
-    goalAway: '(weg van je doel)',
+    goalAway: '(verder van je doel af)',
     goalReached: 'Doel bereikt',
     goalInvalid: 'Vul een doel in tussen {min} en {max} {unit}.',
     goalSaved: 'Doel opgeslagen.',
@@ -70,7 +70,7 @@ export const progress = {
   },
   measurements: {
     title: 'Lichaamsmaten',
-    site: 'Plek',
+    site: 'Meetpunt',
     value: 'Waarde ({unit})',
     log: 'Loggen',
     empty: 'Nog geen meting van {site}. Log er een om de trend te starten.',
@@ -119,7 +119,7 @@ export const progress = {
     stalledReason:
       '{count, plural, one {# oefening staat stil: {names}.} other {# oefeningen staan stil: {names}.}}',
     readinessReason:
-      'Je fitheid was gemiddeld {average}/5 over je laatste {checkins, plural, one {# check-in} other {# check-ins}}.',
+      'Je gereedheid was gemiddeld {average}/5 over je laatste {checkins, plural, one {# check-in} other {# check-ins}}.',
   },
   records: {
     title: 'Records',

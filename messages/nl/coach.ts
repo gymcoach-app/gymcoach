@@ -43,7 +43,7 @@ export const coach = {
     noGoals: 'Geen doelen per oefening ingesteld.',
     fatigue: 'Vermoeidheid',
     conditioning: 'Conditie',
-    readiness: 'Fitheid',
+    readiness: 'Gereedheid',
     historySummary:
       '{weeks, plural, one {# week} other {# weken}} recente geschiedenis over {exercises, plural, one {# oefening} other {# oefeningen}}.',
     noHistory: 'Nog geen gelogde sessies - de coach leert vanaf je eerste training.',
@@ -57,8 +57,8 @@ export const coach = {
       'Deze week: {minutes} min{km, select, none {} other { · {km} km}} · {sessions, plural, one {# sessie} other {# sessies}} (doel {target} min/week)',
     today: 'vandaag',
     daysAgo: '{days, plural, one {# dag geleden} other {# dagen geleden}}',
-    readinessSummary: 'Laatste check-in {when}: fitheid {readiness}/5, slaap {sleep}/5.',
-    noReadiness: 'Geen fitheidscheck-in in de afgelopen 7 dagen.',
+    readinessSummary: 'Laatste check-in {when}: gereedheid {readiness}/5, slaap {sleep}/5.',
+    noReadiness: 'Geen gereedheidscheck-in in de afgelopen 7 dagen.',
     privacy:
       'Een korte samenvatting zoals deze, plus je recente trainingslogs per set, is wat de AI krijgt - nooit je accountgegevens of iets buiten je trainingsgeschiedenis.',
   },

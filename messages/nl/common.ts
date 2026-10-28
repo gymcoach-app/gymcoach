@@ -88,7 +88,7 @@ export const common = {
   offline: {
     offline: 'Offline',
     syncNow: 'Nu synchroniseren',
-    syncing: '{count} synchroniseren...',
+    syncing: 'Synchroniseren ({count})...',
     pending: 'Offline · {count, plural, one {# in wachtrij} other {# in wachtrij}}',
   },
   errors: {

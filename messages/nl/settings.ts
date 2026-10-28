@@ -14,9 +14,9 @@ export const settings = {
   restFlash: 'Scherm laten flitsen als de rust voorbij is',
   restFlashDescription:
     'Laat het scherm knipperen aan het eind van de rust, handig in een luidruchtige sportschool. Met beperkte beweging aan verandert het scherm van kleur zonder te knipperen.',
-  readiness: 'Fitheid en spierpijn mogen mijn voorgestelde gewichten aanpassen',
+  readiness: 'Gereedheid en spierpijn mogen mijn voorgestelde gewichten aanpassen',
   readinessDescription:
-    'Als dit aan staat, kan een recente fitheidscheck-in het voorgestelde gewicht gelijk houden of verlagen. Als het uit staat, volgen de voorstellen puur de geplande progressie.',
+    'Als dit aan staat, kan een recente gereedheidscheck-in het voorgestelde gewicht gelijk houden of verlagen. Als het uit staat, volgen de voorstellen puur de geplande progressie.',
   plateCalculator: 'Schijvencalculator',
   plateCalculatorDescription:
     'Gewicht van de stang en beschikbare schijven per kant, gebruikt door de schijvencalculator tijdens je training als er geen opgeslagen sportschool actief is. Vul de waarden in voor de eenheid waarin je traint.',
