@@ -2,10 +2,11 @@
 
 import { useId, useMemo, useRef, useState } from 'react';
 import { Plus, Replace, Search, Star, Trash2 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { favoritesFirst } from '@/lib/exercise-favorites';
+import { matchesSearch } from '@/lib/search-fold';
 import { defaultIntraSetConfig } from '@/lib/intra-set-autoregulation';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { Button } from '@/components/ui/button';
@@ -91,6 +92,7 @@ export function SessionExerciseMenu({
 }: Props) {
   const t = useTranslations('session.exerciseMenu');
   const exerciseName = useExerciseName();
+  const locale = useLocale();
   const [view, setView] = useState<View>('actions');
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -112,7 +114,7 @@ export function SessionExerciseMenu({
   );
 
   const choices = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
+    const needle = query.trim();
     const source =
       view === 'add'
         ? catalog.filter((exercise) => !existingExerciseIds.has(exercise.id))
@@ -127,14 +129,15 @@ export function SessionExerciseMenu({
     return favoritesFirst(
       source.filter(
         (exercise) =>
-          exercise.name.toLocaleLowerCase().includes(needle) ||
-          exerciseName(exercise.name).toLocaleLowerCase().includes(needle),
+          matchesSearch(exercise.name, needle, locale) ||
+          matchesSearch(exerciseName(exercise.name), needle, locale),
       ),
     );
   }, [
     catalog,
     exerciseName,
     existingExerciseIds,
+    locale,
     programExercise.exercise.muscleGroup,
     programExercise.exerciseId,
     query,

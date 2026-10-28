@@ -1,6 +1,7 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as nextIntl from 'next-intl';
 import type { Exercise } from '@/lib/prisma-client';
 import { ExercisesView } from './exercises-view';
 
@@ -17,6 +18,7 @@ vi.mock('sonner', () => ({ toast }));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 function exercise(over: Partial<Exercise>): Exercise {
@@ -65,6 +67,42 @@ describe('ExercisesView search (issue #238)', () => {
     await user.type(screen.getByLabelText('Search exercises by name'), 'zzz');
     expect(screen.getByText('No exercises match')).toBeInTheDocument();
     expect(screen.queryByText('Back Squat')).not.toBeInTheDocument();
+  });
+
+  describe('in Turkish (follow-up to #537)', () => {
+    const turkish: Exercise[] = [
+      exercise({ id: 't1', name: 'Jump rope', muscleGroup: 'OTHER' }),
+      exercise({ id: 't2', name: 'Incline Flys · Dumbbells', muscleGroup: 'CHEST' }),
+      exercise({ id: 't3', name: 'Back Squat', muscleGroup: 'QUADS' }),
+    ];
+
+    beforeEach(() => {
+      vi.spyOn(nextIntl, 'useLocale').mockReturnValue('tr');
+    });
+
+    it('finds a name with a dotted capital I from a lowercase query', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<ExercisesView exercises={turkish} />);
+      expect(screen.getByText('İp atlama')).toBeInTheDocument();
+      await user.type(screen.getByRole('searchbox'), 'ip atlama');
+      expect(screen.getByText('İp atlama')).toBeInTheDocument();
+      expect(screen.queryByText('Incline fly · Dambıl')).not.toBeInTheDocument();
+    });
+
+    it('finds "Incline" names when Turkish lowercasing gives a dotless i', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<ExercisesView exercises={turkish} />);
+      await user.type(screen.getByRole('searchbox'), 'incline');
+      expect(screen.getByText('Incline fly · Dambıl')).toBeInTheDocument();
+      expect(screen.queryByText('İp atlama')).not.toBeInTheDocument();
+    });
+
+    it('ignores accents in the query', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(<ExercisesView exercises={turkish} />);
+      await user.type(screen.getByRole('searchbox'), 'dambil');
+      expect(screen.getByText('Incline fly · Dambıl')).toBeInTheDocument();
+    });
   });
 
   it('restores the full list when the query is cleared', async () => {
