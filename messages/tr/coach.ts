@@ -60,7 +60,7 @@ export const coach = {
     readinessSummary: 'Son check-in {when}: hazırlık {readiness}/5, uyku {sleep}/5.',
     noReadiness: "Son 7 günde hazırlık check-in'i yok.",
     privacy:
-      'Yapay zekâya giden şey bunun gibi kısa bir özet ve set set son antrenman kayıtların - hesap verilerin ya da antrenman geçmişin dışındaki hiçbir şey asla gönderilmez.',
+      'Yapay zekâya yalnızca bunun gibi kısa bir özet ve set set son antrenman kayıtların gider. Hesap verilerin asla gönderilmez; antrenman geçmişin dışındaki hiçbir şey de gönderilmez.',
   },
   note: {
     title: 'Koçuna not',

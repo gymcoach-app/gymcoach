@@ -2,7 +2,7 @@ import { exercises as english } from '../en/exercises';
 import type { MessageShape } from '@/i18n/message-types';
 
 export const exercises = {
-  title: 'Egzersizler',
+  title: 'Egzersiz kataloğu',
   savedCount:
     '{count, plural, =0 {Kayıtlı egzersiz yok.} one {# egzersiz kayıtlı.} other {# egzersiz kayıtlı.}}',
   search: 'Egzersizleri ada göre ara',

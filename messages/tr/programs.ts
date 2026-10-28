@@ -64,7 +64,7 @@ export const programs = {
     saveError: 'Seans kaydedilemedi.',
     deleteError: 'Seans silinemedi.',
     deleteConfirm: '“{name}” seansı ve tüm egzersizleri silinsin mi?',
-    namePlaceholder: 'örn. Upper - Üst vücut',
+    namePlaceholder: 'örn. Üst vücut A',
     day: 'Gün (isteğe bağlı)',
     flexible: 'Esnek',
     empty: 'Programlanmış egzersiz yok. Aşağıdaki düğmeyle ekle.',

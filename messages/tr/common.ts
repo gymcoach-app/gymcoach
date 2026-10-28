@@ -41,7 +41,7 @@ export const common = {
   states: {
     active: 'Aktif',
     completed: 'Tamamlandı',
-    empty: 'egzersiz yok',
+    empty: 'boş',
     inactive: 'Pasif',
     no: 'Hayır',
     optional: 'İsteğe bağlı',

@@ -40,7 +40,7 @@ export const progress = {
       'Her kas grubu için {week} haftasındaki çalışma setleri, referans aralığına (MEV-MRV) göre. Varsayılan haftada {mev}-{mrv} set; kendi aralığını belirlemek için bir grubu düzenle. Genel bir hipertrofi kuralıdır, reçete değil.',
     custom: 'özel',
     default: 'varsayılan',
-    frequency: 'haftada {count}x',
+    frequency: 'haftada {count} kez',
     noRecapData: 'Yeterli verisi olan egzersiz yok.',
     stalledBadge: 'Yerinde sayıyor',
     deltaLoad: 'Δ ağırlık',

@@ -23,8 +23,9 @@ export const dashboard = {
     stalledDetail:
       '{count, plural, one {Son zamanlarda ilerleme yok: {names}. Ağırlıkta, tekrarda ya da teknikte küçük bir değişiklik tekrar ilerletebilir.} other {Son zamanlarda ilerleme yok: {names}. Neyi değiştireceğini görmek için ilerleme sayfasına bak.}}',
     prTitle: 'Yeni kişisel rekor',
-    prWeightDetail: 'Son seansında yeni bir en ağır set: {name}. Harika iş.',
-    prOneRmDetail: 'Son seansında yeni bir en iyi tahmini 1RM: {name}. Harika iş.',
+    prWeightDetail: 'Son seansında {name} hareketinde en ağır setini yaptın. Harika iş.',
+    prOneRmDetail:
+      'Son seansında {name} hareketinde yeni en iyi tahmini 1RM değerine ulaştın. Harika iş.',
     consistentTitle: 'Düzenli antrenman yapıyorsun',
     consistentDetail:
       'Bu hafta {count, plural, one {# gün} other {# gün}} antrenman yaptın. Böyle devam.',

@@ -186,7 +186,7 @@ export const session = {
   editableSets: {
     weight: 'Set {number} ağırlığı ({unit})',
     reps: 'Set {number} tekrarı',
-    rir: 'Set {number} yedekteki tekrar',
+    rir: 'Set {number} RIR (yedekteki tekrar)',
     confirm: 'Onayla: set {number}',
     applyRecommendation: 'Öneriyi uygula: set {number}',
     undo: 'Geri al: set {number}',
