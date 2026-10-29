@@ -576,9 +576,11 @@ describe('harness canary, live (#468 part a)', () => {
   it('does not let a context rebind rescue a later failing test (worker state)', async () => {
     // The writes are refused (the flag is pinned), so the later test keeps its
     // pristine flag and fails on its own merits. The task-swap case below does
-    // not rest on this pin: the pinned-set check refuses that stand-in whether
-    // or not the context link was pinned, while the frozen task list is what
-    // stops the swap itself.
+    // not rest on this pin either: the stand-in copies this test's context,
+    // whose task is the pinned original, so the pinned-set check lets it
+    // through, and what refuses the swap is the frozen task list (with the
+    // freeze removed it is the initial-result check that refuses it: vitest
+    // writes the result onto the stand-in, the pinned original has none).
     const { run, outcome } = await runs.contextRebind;
     expect(run.failed).toBeGreaterThan(0);
     expect(outcome).toBe('fail');
