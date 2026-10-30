@@ -268,9 +268,26 @@ export function SessionRunner({
   const currentTarget = effectiveProgramExercises[currentIdx];
 
   // Derive current exercise's state from the map (issue #542, PR1).
-  // Defaults to input mode if no state exists yet.
-  const currentState: ExerciseState =
-    currentPE ? (exerciseStates.get(currentPE.id) ?? { kind: 'input' }) : { kind: 'input' };
+  // For superset transitions with navigatedImmediately, show the rest timer of
+  // the previous exercise that navigated here.
+  const currentState: ExerciseState = (() => {
+    if (!currentPE) return { kind: 'input' };
+
+    // Check if any exercise is resting and navigated here immediately
+    for (const pe of programExercises) {
+      const state = exerciseStates.get(pe.id);
+      if (
+        state?.kind === 'rest' &&
+        state.navigatedImmediately &&
+        state.nextExerciseIdx === currentIdx
+      ) {
+        return state;
+      }
+    }
+
+    // Otherwise use this exercise's own state
+    return exerciseStates.get(currentPE.id) ?? { kind: 'input' };
+  })();
 
   // Write the clamp back. If a pending selection never lands (failed refresh,
   // target row gone), an index left past the end would make a later add jump
@@ -651,12 +668,14 @@ export function SessionRunner({
     // the lifter can get into position while the short transition rest runs.
     // The timer still keeps input locked until it ends or is skipped.
     const navigatedImmediately = transition && nextIdx != null;
+    // Capture the exercise ID before navigation (issue #542, PR1).
+    const restingExerciseId = currentPE.id;
     if (navigatedImmediately) selectExercise(nextIdx);
 
     // Set rest state for this specific exercise (issue #542, PR1).
     setExerciseStates(prev => {
       const next = new Map(prev);
-      next.set(currentPE.id, {
+      next.set(restingExerciseId, {
         kind: 'rest',
         endsAt: Date.now() + restSec * 1000,
         pausedRemainingMs: null,
