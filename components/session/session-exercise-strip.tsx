@@ -21,6 +21,8 @@ interface Props {
     kind: 'input' | 'rest';
     endsAt?: number;
     pausedRemainingMs?: number | null;
+    navigatedImmediately?: boolean;
+    nextExerciseIdx?: number | null;
   }>;
   onSelect: (index: number) => void;
   onOpen: (index: number) => void;
@@ -142,6 +144,19 @@ export function SessionExerciseStrip({
                   const state = exerciseStates?.get(programExercise.id);
                   // Show active indicator only when in input mode (not resting)
                   if (state?.kind === 'rest') return null;
+
+                  // Also check if blocked by superset transition rest from another exercise
+                  for (const [, otherState] of exerciseStates?.entries() ?? []) {
+                    if (
+                      otherState.kind === 'rest' &&
+                      'navigatedImmediately' in otherState &&
+                      otherState.navigatedImmediately &&
+                      'nextExerciseIdx' in otherState &&
+                      otherState.nextExerciseIdx === index
+                    ) {
+                      return null; // Don't show green dot, timer badge will show instead
+                    }
+                  }
                   return (
                     <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-green-500 text-white shadow-sm">
                       <span className="size-2 rounded-full bg-white" aria-hidden />
@@ -174,7 +189,27 @@ export function SessionExerciseStrip({
                 })()}
                 {/* State indicator badge (issue #542, PR1): timer countdown when resting */}
                 {(() => {
-                  const state = exerciseStates?.get(programExercise.id);
+                  // Show timer badge if this exercise is resting OR if this is the current
+                  // exercise and it's blocked by a superset transition rest from another exercise
+                  let state = exerciseStates?.get(programExercise.id);
+
+                  // Check if this is the current exercise blocked by a superset transition rest
+                  if (isCurrent && (!state || state.kind !== 'rest')) {
+                    // Find if any other exercise is resting and navigated to this one
+                    for (const [, otherState] of exerciseStates?.entries() ?? []) {
+                      if (
+                        otherState.kind === 'rest' &&
+                        'navigatedImmediately' in otherState &&
+                        otherState.navigatedImmediately &&
+                        'nextExerciseIdx' in otherState &&
+                        otherState.nextExerciseIdx === index
+                      ) {
+                        state = otherState;
+                        break;
+                      }
+                    }
+                  }
+
                   if (!state || state.kind !== 'rest' || !state.endsAt) return null;
 
                   // Calculate remaining time
