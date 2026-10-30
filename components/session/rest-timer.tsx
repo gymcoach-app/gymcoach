@@ -69,7 +69,7 @@ export function RestTimer({
   const progress = Math.min(100, (remainingMs / (totalSec * 1000)) * 100);
 
   return (
-    <Card>
+    <Card data-testid="rest-timer">
       <CardContent className="flex flex-col items-center gap-4 py-8">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">
           {paused ? t('pausedTitle') : t('title')}
