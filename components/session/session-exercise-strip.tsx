@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useLocale, useTranslations } from 'next-intl';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { getExerciseMedia } from '@/lib/exercise-media';
@@ -14,12 +14,14 @@ interface Props {
   exercises: SessionExercise[];
   currentIndex: number;
   completedProgramExerciseIds: ReadonlySet<string>;
+  // Per-exercise rest states for displaying timer badges (issue #542, PR1).
+  exerciseStates?: ReadonlyMap<string, {
+    kind: 'input' | 'rest';
+    endsAt?: number;
+    pausedRemainingMs?: number | null;
+  }>;
   onSelect: (index: number) => void;
   onOpen: (index: number) => void;
-  // While the runner is not in input mode (rest, summary) the strip is inert:
-  // neither switching nor opening details, because opening navigates away and
-  // a remount loses the rest timer and its pending auto-advance.
-  disabled?: boolean;
 }
 
 // Uppercases with the active locale, so Turkish initials keep their dot
@@ -47,18 +49,25 @@ export function SessionExerciseStrip({
   exercises,
   currentIndex,
   completedProgramExerciseIds,
+  exerciseStates,
   onSelect,
   onOpen,
-  disabled = false,
 }: Props) {
   const exerciseName = useExerciseName();
   const locale = useLocale();
   const t = useTranslations('session');
   const currentRef = useRef<HTMLButtonElement>(null);
+  // Force re-render every second to update timer badges (issue #542, PR1).
+  const [, setNow] = useState(Date.now());
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }, [currentIndex]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div
@@ -85,17 +94,15 @@ export function SessionExerciseStrip({
               ref={isCurrent ? currentRef : undefined}
               type="button"
               onClick={() => {
-                if (disabled) return;
                 if (isCurrent) onOpen(index);
                 else onSelect(index);
               }}
-              aria-disabled={disabled}
               aria-label={`${index + 1}. ${displayName}${isComplete ? ` · ${t('exerciseCompleted')}` : ''}`}
               aria-current={isCurrent ? 'step' : undefined}
               title={displayName}
               className={`group relative shrink-0 transition-opacity ${
                 isCurrent ? 'opacity-100' : 'opacity-45 hover:opacity-75'
-              } ${disabled ? 'cursor-not-allowed' : ''}`}
+              }`}
             >
               <span
                 className={`relative block h-14 w-[4.5rem] overflow-hidden rounded-md border bg-muted transition-colors sm:h-16 sm:w-20 ${
@@ -126,6 +133,30 @@ export function SessionExerciseStrip({
                     <Check className="size-3.5" strokeWidth={3} aria-hidden />
                   </span>
                 )}
+                {/* State indicator badge (issue #542, PR1): timer countdown when resting */}
+                {(() => {
+                  const state = exerciseStates?.get(programExercise.id);
+                  if (!state || state.kind !== 'rest' || !state.endsAt) return null;
+
+                  // Calculate remaining time
+                  const remainingMs = state.pausedRemainingMs ??
+                    Math.max(0, state.endsAt - Date.now());
+                  const remainingSec = Math.ceil(remainingMs / 1000);
+                  const minutes = Math.floor(remainingSec / 60);
+                  const seconds = remainingSec % 60;
+                  const display = minutes > 0
+                    ? `${minutes}:${seconds.toString().padStart(2, '0')}`
+                    : `${seconds}`;
+
+                  return (
+                    <span
+                      className="absolute left-1 top-1 flex items-center gap-0.5 rounded-full bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white shadow-sm"
+                      aria-label={t('exerciseResting', { time: display })}
+                    >
+                      ⏱️ {display}
+                    </span>
+                  );
+                })()}
               </span>
               {supersetGroup != null && isInSuperset ? (
                 <span

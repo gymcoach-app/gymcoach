@@ -929,6 +929,7 @@ export function SessionRunner({
           exercises={programExercises}
           currentIndex={currentIdx}
           completedProgramExerciseIds={completedProgramExerciseIds}
+          exerciseStates={exerciseStates}
           onSelect={(index) => {
             selectExercise(index);
           }}
