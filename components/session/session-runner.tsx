@@ -135,19 +135,6 @@ type SessionRunnerProps = {
   userId: string;
 };
 
-type Mode =
-  | { kind: 'input' }
-  | {
-      kind: 'rest';
-      endsAt: number;
-      // Set while the rest is paused (issue #393); see lib/rest-timer.ts.
-      pausedRemainingMs: number | null;
-      totalSec: number;
-      nextExerciseIdx: number | null;
-      navigatedImmediately: boolean;
-    }
-  | { kind: 'summary' };
-
 // Per-exercise state for independent rest timers (issue #542, PR1).
 // Each exercise in the workout tracks its own state: input (ready for next set)
 // or rest (timer running). All timers run simultaneously in the background.
@@ -418,6 +405,8 @@ export function SessionRunner({
     }, 1000);
 
     return () => clearInterval(interval);
+    // selectExercise is stable (doesn't depend on state), currentPE is derived
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programExercises, currentPE?.id, globalMode]);
 
   // Live query: all sets of this session, from IndexedDB.
