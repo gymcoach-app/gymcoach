@@ -189,6 +189,7 @@ export function SessionExerciseStrip({
 
                   return (
                     <span
+                      data-testid="exercise-strip-timer-badge"
                       className="absolute left-1 top-1 flex items-center gap-1 rounded-full bg-blue-500 pl-1 pr-1.5 py-0.5 text-xs font-medium text-white shadow-sm"
                       aria-label={t('exerciseResting', { time: display })}
                     >
