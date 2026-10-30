@@ -84,9 +84,9 @@ describe('MCP get_training_context exerciseId exposure', () => {
     const result = await client.callTool({ name: 'get_training_context', arguments: {} });
 
     // Parse the response
-    const content = result.content[0];
+    const content = (result.content as Array<{ type: string; text?: string }>)[0];
     expect(content?.type).toBe('text');
-    if (content?.type !== 'text') return;
+    if (content?.type !== 'text' || !content.text) return;
 
     const payload = JSON.parse(content.text);
 
