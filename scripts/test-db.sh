@@ -48,10 +48,32 @@ assert_test_db_url "$TEST_DATABASE_URL" || exit 1
 
 port_open() { (exec 3<>/dev/tcp/127.0.0.1/5434) 2>/dev/null; }
 
-# Every docker call is bounded, so a wedged daemon cannot stall the gate.
-dk() { timeout 10 docker "$@"; }
+# Every docker/podman call is bounded, so a wedged daemon cannot stall the gate.
+# On systems without GNU timeout (macOS), skip the timeout wrapper.
+if command -v timeout >/dev/null 2>&1; then
+  dk() { timeout 10 "$CONTAINER_CMD" "$@"; }
+  docker_ok() { command -v docker >/dev/null 2>&1 && timeout 10 docker info >/dev/null 2>&1; }
+  podman_ok() { command -v podman >/dev/null 2>&1 && timeout 10 podman info >/dev/null 2>&1; }
+else
+  dk() { "$CONTAINER_CMD" "$@"; }
+  docker_ok() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+  podman_ok() { command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; }
+fi
 
-docker_ok() { command -v docker >/dev/null 2>&1 && dk info >/dev/null 2>&1; }
+# Detect whether to use docker or podman
+if docker_ok; then
+  CONTAINER_CMD="docker"
+  COMPOSE_CMD="docker compose"
+elif podman_ok; then
+  CONTAINER_CMD="podman"
+  COMPOSE_CMD="podman-compose"
+  if ! command -v podman-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="podman compose"
+  fi
+else
+  CONTAINER_CMD=""
+  COMPOSE_CMD=""
+fi
 
 # Ready means accepting TCP connections: the image's temporary init server
 # listens on the Unix socket only, so it never counts.
@@ -59,8 +81,8 @@ db_ready() {
   dk exec "$CONTAINER" pg_isready -h 127.0.0.1 -U gymcoach_test -d gymcoach_test >/dev/null 2>&1
 }
 
-if docker_ok; then
-  echo "  starting the test Postgres if needed ($COMPOSE_FILE)..."
+if [ -n "$CONTAINER_CMD" ]; then
+  echo "  starting the test Postgres if needed ($COMPOSE_FILE with $CONTAINER_CMD)..."
   existing_project="$(dk inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$CONTAINER" 2>/dev/null || true)"
   if [ -n "$existing_project" ] && [ "$existing_project" != "$COMPOSE_PROJECT" ]; then
     # Created by an older checkout under a directory-derived project name:
@@ -74,10 +96,17 @@ if docker_ok; then
   fi
   # `up -d` is a no-op on a running container and recreates a stopped one
   # (tmpfs data: a fresh, empty database, which the migrations below fill).
-  timeout 60 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d >/dev/null || {
-    echo "docker compose could not start the test database" >&2
-    exit 1
-  }
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 60 $COMPOSE_CMD -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d >/dev/null || {
+      echo "$COMPOSE_CMD could not start the test database" >&2
+      exit 1
+    }
+  else
+    $COMPOSE_CMD -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up -d >/dev/null || {
+      echo "$COMPOSE_CMD could not start the test database" >&2
+      exit 1
+    }
+  fi
   deadline=$((SECONDS + READY_TIMEOUT_SEC))
   until db_ready; do
     if [ "$SECONDS" -ge "$deadline" ]; then
@@ -87,12 +116,13 @@ if docker_ok; then
     sleep 1
   done
 elif port_open; then
-  echo "  docker is unavailable, but something listens on :5434; using it as the test database"
+  echo "  docker/podman unavailable, but something listens on :5434; using it as the test database"
 else
   cat >&2 <<'EOF'
-the test Postgres on :5434 is down and docker is unavailable.
-Start Docker (on WSL with Docker Desktop: launch "Docker Desktop.exe" from
-/mnt/c/Program Files/Docker/Docker/ and wait ~20 s), then re-run. Or run any
+the test Postgres on :5434 is down and neither docker nor podman is available.
+Start Docker or Podman (on WSL with Docker Desktop: launch "Docker Desktop.exe"
+from /mnt/c/Program Files/Docker/Docker/ and wait ~20 s; on macOS with Podman:
+run "podman-compose -f docker-compose.test.yml up -d"), then re-run. Or run any
 Postgres 16 on localhost:5434 with user/password/db gymcoach_test.
 EOF
   exit 1
