@@ -14,6 +14,8 @@ interface Props {
   exercises: SessionExercise[];
   currentIndex: number;
   completedProgramExerciseIds: ReadonlySet<string>;
+  startedProgramExerciseIds?: ReadonlySet<string>;
+  exerciseProgress?: ReadonlyMap<string, { done: number; target: number }>;
   // Per-exercise rest states for displaying timer badges (issue #542, PR1).
   exerciseStates?: ReadonlyMap<string, {
     kind: 'input' | 'rest';
@@ -49,6 +51,8 @@ export function SessionExerciseStrip({
   exercises,
   currentIndex,
   completedProgramExerciseIds,
+  startedProgramExerciseIds,
+  exerciseProgress,
   exerciseStates,
   onSelect,
   onOpen,
@@ -133,6 +137,41 @@ export function SessionExerciseStrip({
                     <Check className="size-3.5" strokeWidth={3} aria-hidden />
                   </span>
                 )}
+                {/* Current exercise indicator when in input mode (issue #542, PR1) */}
+                {isCurrent && !isComplete && (() => {
+                  const state = exerciseStates?.get(programExercise.id);
+                  // Show active indicator only when in input mode (not resting)
+                  if (state?.kind === 'rest') return null;
+                  return (
+                    <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-green-500 text-white shadow-sm">
+                      <span className="size-2 rounded-full bg-white" aria-hidden />
+                    </span>
+                  );
+                })()}
+                {/* In-progress indicator: started but not current, not resting, not completed */}
+                {!isCurrent && !isComplete && (() => {
+                  const state = exerciseStates?.get(programExercise.id);
+                  const isStarted = startedProgramExerciseIds?.has(programExercise.id);
+                  // Show only if started and not resting
+                  if (!isStarted || state?.kind === 'rest') return null;
+
+                  // Calculate progress percentage for pie chart
+                  const progress = exerciseProgress?.get(programExercise.id);
+                  const percentage = progress && progress.target > 0
+                    ? (progress.done / progress.target) * 100
+                    : 0;
+                  const degrees = (percentage / 100) * 360;
+
+                  return (
+                    <span
+                      className="absolute right-1 top-1 size-5 rounded-full shadow-sm border-2 border-white dark:border-gray-800"
+                      style={{
+                        background: `conic-gradient(from 0deg, #f97316 0deg, #f97316 ${degrees}deg, #fed7aa ${degrees}deg, #fed7aa 360deg)`
+                      }}
+                      aria-label={progress ? `${progress.done} of ${progress.target} sets` : undefined}
+                    />
+                  );
+                })()}
                 {/* State indicator badge (issue #542, PR1): timer countdown when resting */}
                 {(() => {
                   const state = exerciseStates?.get(programExercise.id);
@@ -150,10 +189,31 @@ export function SessionExerciseStrip({
 
                   return (
                     <span
-                      className="absolute left-1 top-1 flex items-center gap-0.5 rounded-full bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white shadow-sm"
+                      className="absolute left-1 top-1 flex items-center gap-1 rounded-full bg-blue-500 pl-1 pr-1.5 py-0.5 text-xs font-medium text-white shadow-sm"
                       aria-label={t('exerciseResting', { time: display })}
                     >
-                      ⏱️ {display}
+                      <span className="relative flex size-3 items-center justify-center">
+                        <span className="absolute inset-0 rounded-full border border-white" aria-hidden />
+                        {/* Hour hand pointing to 4 (120 degrees) */}
+                        <span
+                          className="absolute w-px h-1 bg-white"
+                          style={{
+                            transformOrigin: 'bottom center',
+                            transform: 'translateY(-0.125rem) rotate(120deg)'
+                          }}
+                          aria-hidden
+                        />
+                        {/* Minute hand pointing to 12 (0 degrees) */}
+                        <span
+                          className="absolute w-px h-1.5 bg-white"
+                          style={{
+                            transformOrigin: 'bottom center',
+                            transform: 'translateY(-0.1875rem) rotate(0deg)'
+                          }}
+                          aria-hidden
+                        />
+                      </span>
+                      {display}
                     </span>
                   );
                 })()}

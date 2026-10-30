@@ -567,6 +567,24 @@ export function SessionRunner({
     return completed;
   }, [effectiveProgramExercises, setsByExercise, keyOf]);
 
+  const startedProgramExerciseIds = useMemo(() => {
+    const started = new Set<string>();
+    for (const pe of effectiveProgramExercises) {
+      const done = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
+      if (done > 0) started.add(pe.id);
+    }
+    return started;
+  }, [effectiveProgramExercises, setsByExercise, keyOf]);
+
+  const exerciseProgress = useMemo(() => {
+    const progress = new Map<string, { done: number; target: number }>();
+    for (const pe of effectiveProgramExercises) {
+      const done = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
+      progress.set(pe.id, { done, target: pe.targetSets });
+    }
+    return progress;
+  }, [effectiveProgramExercises, setsByExercise, keyOf]);
+
   const progressPct =
     programExercises.length === 0
       ? 0
@@ -918,6 +936,8 @@ export function SessionRunner({
           exercises={programExercises}
           currentIndex={currentIdx}
           completedProgramExerciseIds={completedProgramExerciseIds}
+          startedProgramExerciseIds={startedProgramExerciseIds}
+          exerciseProgress={exerciseProgress}
           exerciseStates={exerciseStates}
           onSelect={(index) => {
             selectExercise(index);
