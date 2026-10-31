@@ -1,7 +1,87 @@
 import { describe, expect, it } from 'vitest';
 import { getTrainingDisplayName } from '@/i18n/training-names';
+import { programTemplates } from '@/lib/programs/templates';
 
 describe('getTrainingDisplayName', () => {
+  it.each([
+    ['Upper Body', '上肢训练'],
+    ['Lower Body', '下肢训练'],
+    ['Push Day', '推训练日'],
+    ['Pull Day', '拉训练日'],
+    ['Leg Day', '腿部训练日'],
+    ['Upper · Lower', '上肢训练 · 下肢训练'],
+    ['Full Body · Day 1 · Full Body Hybrid', '全身训练 · 第 1 天 · 全身混合训练'],
+    ['Day 3 · Week 5 · New plan', '第 3 天 · 第 5 周 · 新训练计划'],
+    ['New plan · 1 week (2026-04-23)', '新训练计划 · 1 周 (2026-04-23)'],
+    ['New plan · 2 weeks', '新训练计划 · 2 周'],
+    ['New plan · 11 weeks', '新训练计划 · 11 周'],
+    ['Day 12 · Week 10', '第 12 天 · 第 10 周'],
+    ['Day 01 · Week 02', '第 01 天 · 第 02 周'],
+    ['Day 2 (2026-04-23)', '第 2 天 (2026-04-23)'],
+    ['Week 3 (2026-04-23)', '第 3 周 (2026-04-23)'],
+    ['·Day 2··Week 3·', '·第 2 天··第 3 周·'],
+    [' \t · \t · ', ' \t · \t · '],
+    ['  uPpEr BoDy  ·  dAy 2  ', '  上肢训练  ·  第 2 天  '],
+    ['Push A · Pull B · Legs A', '推训练 A · 拉训练 B · 腿部训练 A'],
+    ['Upper Power · Lower Hypertrophy', '上肢力量训练 · 下肢增肌训练'],
+    ['Strength · Hypertrophy · General', '力量 · 增肌 · 综合训练'],
+    ['5/3/1 · GZCLP · nSuns · PPL · RIR · RPE', '5/3/1 · GZCLP · nSuns · PPL · RIR · RPE'],
+  ])('localizes generated training name %s into Simplified Chinese', (name, expected) => {
+    expect(getTrainingDisplayName(name, 'zh-CN')).toBe(expected);
+  });
+
+  it.each([
+    '',
+    '  My custom workout  ',
+    'Upper body - Upper body body',
+    'My Day 2 workout',
+    'Week 3 recovery notes',
+    'My 2 weeks challenge',
+    'Push A - RPE 8',
+    'Upper Body 2',
+    'Day 2 - My workout',
+    'Day 2.5',
+    'Day -2',
+    'Week 3_extra',
+    '2 weeks challenge',
+    'Day 2 (recovery)',
+    'Day 2 (2026-04-23) notes',
+    'Day 2 / Week 3',
+    'Day 2 • Week 3',
+    '第 2 天 · 我的训练',
+  ])('preserves arbitrary Chinese custom training names: %s', (name) => {
+    expect(getTrainingDisplayName(name, 'zh-CN')).toBe(name);
+  });
+
+  it('preserves unknown segments next to recognized Chinese training segments', () => {
+    expect(getTrainingDisplayName('My Day 2 workout · Week 3 · PPL', 'zh-CN')).toBe(
+      'My Day 2 workout · 第 3 周 · PPL',
+    );
+  });
+
+  it('does not change an already localized Chinese training name on repeated calls', () => {
+    const localized = getTrainingDisplayName('Full Body · Day 2 · Week 3 · My workout', 'zh-CN');
+    expect(localized).toBe('全身训练 · 第 2 天 · 第 3 周 · My workout');
+    expect(getTrainingDisplayName(localized, 'zh-CN')).toBe(localized);
+  });
+
+  it('covers all built-in workout names and training phases in Simplified Chinese', () => {
+    const names = new Set(
+      programTemplates.flatMap((template) => [
+        template.program.phase,
+        ...template.program.workouts.map((workout) => workout.name),
+      ]),
+    );
+    const missing = [...names].filter((name) => getTrainingDisplayName(name, 'zh-CN') === name);
+    expect(missing).toEqual([]);
+  });
+
+  it('keeps the existing custom-name matching behavior in other locales', () => {
+    expect(getTrainingDisplayName('My Day 2 workout', 'es')).toBe('My Día 2 workout');
+    expect(getTrainingDisplayName('My Day 2 workout', 'pt')).toBe('My Dia 2 workout');
+    expect(getTrainingDisplayName('My Day 2 workout', 'it')).toBe('My Giorno 2 workout');
+  });
+
   it('keeps stored names unchanged in English and unsupported locales', () => {
     const name = 'Day 2 · Day 1';
     expect(getTrainingDisplayName(name, 'en')).toBe(name);

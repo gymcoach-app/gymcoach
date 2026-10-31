@@ -99,6 +99,8 @@ export const progress = {
     title: 'Conditioning',
     description:
       'Weekly cardio minutes versus the {target} min/week guideline. Distance and sessions appear in the tooltip.',
+    summary:
+      'This week: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# session} other {# sessions}}}} · {weeks}-week total: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Deload week in progress',
@@ -188,5 +190,27 @@ export const progress = {
     regionLabel: '{name}: {sets, plural, one {# set} other {# sets}} this week, {status}',
     hint: 'Tap a muscle for details.',
     empty: 'No working sets that week; log a session and the body lights up.',
+  },
+  photos: {
+    title: 'Progress photos',
+    photo: 'Photo',
+    date: 'Date',
+    note: 'Note (optional)',
+    notePlaceholder: 'e.g. end of cut',
+    chooseFirst: 'Choose a photo first.',
+    uploadError: 'Could not upload the photo.',
+    added: 'Photo added.',
+    deleteConfirm: 'Delete the photo of {date}?',
+    deleteError: 'Could not delete the photo.',
+    deleted: 'Photo deleted.',
+    empty:
+      'No progress photos yet. Photos are stored locally on your server and only visible to you. Upload the first one to start the timeline.',
+    imageAlt: 'Progress photo of {date}',
+    deleteAria: 'Delete photo of {date}',
+    compare: 'Compare',
+    before: 'Before',
+    after: 'After',
+    compareAlt: '{label} photo of {date}',
+    uploading: 'Uploading...',
   },
 };

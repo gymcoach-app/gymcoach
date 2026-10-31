@@ -35,6 +35,9 @@ interface Props {
 // user has never logged a cardio set.
 export function ConditioningCard({ weeks }: Props) {
   const t = useTranslations('progress.conditioning');
+  const history = useTranslations('history');
+  const common = useTranslations('common');
+  const coach = useTranslations('coach.client');
   const format = useFormatter();
   const chartData = weeks.map((w) => ({
     ...w,
@@ -73,7 +76,11 @@ export function ConditioningCard({ weeks }: Props) {
                   fontSize: 12,
                 }}
                 formatter={(value, name) => {
-                  if (name === 'minutes') return [`${value ?? 0} min`, 'Duration'];
+                  if (name === 'minutes')
+                    return [
+                      history('minutes', { count: Number(value ?? 0) }),
+                      history('detail.duration'),
+                    ];
                   return [value ?? '', name];
                 }}
                 labelFormatter={(label, payload) => {
@@ -81,11 +88,11 @@ export function ConditioningCard({ weeks }: Props) {
                   if (!p) return label;
                   const extras = [
                     p.distanceKm > 0 ? `${p.distanceKm} km` : null,
-                    `${p.sessions} session${p.sessions === 1 ? '' : 's'}`,
+                    common('counts.sessions', { count: p.sessions }),
                   ]
                     .filter(Boolean)
                     .join(' · ');
-                  return `Week of ${label} · ${extras}`;
+                  return `${coach('weekOf', { date: String(label) })} · ${extras}`;
                 }}
               />
               <ReferenceLine
@@ -93,7 +100,7 @@ export function ConditioningCard({ weeks }: Props) {
                 stroke="hsl(var(--primary))"
                 strokeDasharray="4 4"
                 label={{
-                  value: `${WEEKLY_CONDITIONING_TARGET_MIN} min`,
+                  value: history('minutes', { count: WEEKLY_CONDITIONING_TARGET_MIN }),
                   position: 'insideTopRight',
                   fontSize: 11,
                   fill: 'hsl(var(--primary))',
@@ -104,12 +111,15 @@ export function ConditioningCard({ weeks }: Props) {
           </ResponsiveContainer>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          This week: {current?.minutes ?? 0} min
-          {current && current.distanceKm > 0 ? ` · ${current.distanceKm} km` : ''}
-          {current ? ` · ${current.sessions} session${current.sessions === 1 ? '' : 's'}` : ''}
-          {' · '}
-          {weeks.length}-week total: {totalMinutes} min
-          {totalKm > 0 ? `, ${totalKm} km` : ''}.
+          {t('summary', {
+            minutes: current?.minutes ?? 0,
+            distance: current && current.distanceKm > 0 ? String(current.distanceKm) : 'none',
+            current: current ? 'present' : 'none',
+            sessions: current?.sessions ?? 0,
+            weeks: weeks.length,
+            totalMinutes,
+            totalDistance: totalKm > 0 ? String(totalKm) : 'none',
+          })}
         </p>
       </CardContent>
     </Card>
