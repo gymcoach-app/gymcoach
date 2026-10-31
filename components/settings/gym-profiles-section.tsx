@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Building2, Check, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Exercise, Gym, GymExerciseConfig } from '@/lib/prisma-client';
@@ -30,6 +30,8 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { formatPlateList, parseWeightList } from '@/lib/plate-list';
+import { matchesSearch } from '@/lib/search-fold';
 
 type GymWithConfigs = Gym & { exerciseConfigs: GymExerciseConfig[] };
 
@@ -52,6 +54,7 @@ export function GymProfilesSection({ initialGyms, activeGymId: initialActive, ex
   const t = useTranslations('settings.gyms');
   const common = useTranslations('common');
   const exerciseName = useExerciseName();
+  const locale = useLocale();
   const router = useRouter();
   const [gyms, setGyms] = useState(initialGyms);
   const [activeGymId, setActiveGymId] = useState(initialActive);
@@ -63,12 +66,12 @@ export function GymProfilesSection({ initialGyms, activeGymId: initialActive, ex
   const [saving, setSaving] = useState(false);
 
   const filteredExercises = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
+    const query = search.trim();
     if (!query) return exercises;
     return exercises.filter((exercise) =>
-      exerciseName(exercise.name).toLocaleLowerCase().includes(query),
+      matchesSearch(exerciseName(exercise.name), query, locale),
     );
-  }, [exerciseName, exercises, search]);
+  }, [exerciseName, exercises, locale, search]);
 
   function selectGym(id: string) {
     setSelectedId(id);
@@ -204,21 +207,21 @@ export function GymProfilesSection({ initialGyms, activeGymId: initialActive, ex
             id="gym-dumbbells"
             label={t('dumbbells')}
             values={draft.dumbbellWeights}
-            placeholder="10, 12, 14, 15, 16, 19"
+            placeholder={[10, 12, 14, 15, 16, 19]}
             onChange={(values) => setDraft((current) => ({ ...current, dumbbellWeights: values }))}
           />
           <WeightListField
             id="gym-plates"
             label={t('plates')}
             values={draft.plateWeights}
-            placeholder="1.25, 2.5, 5, 10, 15, 20"
+            placeholder={[1.25, 2.5, 5, 10, 15, 20]}
             onChange={(values) => setDraft((current) => ({ ...current, plateWeights: values }))}
           />
           <WeightListField
             id="gym-bars"
             label={t('bars')}
             values={draft.barWeights}
-            placeholder="20"
+            placeholder={[20]}
             onChange={(values) => setDraft((current) => ({ ...current, barWeights: values }))}
           />
         </div>
@@ -264,7 +267,7 @@ export function GymProfilesSection({ initialGyms, activeGymId: initialActive, ex
                         id={`weights-${exercise.id}`}
                         label={t('machineWeights')}
                         values={config.weightOptions}
-                        placeholder="5, 10, 15, 20, 25"
+                        placeholder={[5, 10, 15, 20, 25]}
                         onChange={(weightOptions) => updateConfig(exercise.id, { weightOptions })}
                       />
                     </div>
@@ -332,36 +335,28 @@ function WeightListField({
   id: string;
   label: string;
   values: number[];
-  placeholder: string;
+  placeholder: number[];
   onChange: (values: number[]) => void;
 }) {
+  // The list is written and read with the locale's decimal mark, so "2,5" is
+  // one 2.5 kg weight in French (the same rules as the plate fallback, #514).
+  const locale = useLocale();
+  const text = formatPlateList(values, locale);
   return (
     <div className="space-y-1">
       <Label htmlFor={id} className="text-xs text-muted-foreground">
         {label}
       </Label>
       <Input
-        key={`${id}-${values.join(',')}`}
+        key={`${id}-${text}`}
         id={id}
-        defaultValue={values.join(', ')}
-        placeholder={placeholder}
+        defaultValue={text}
+        placeholder={formatPlateList(placeholder, locale)}
         inputMode="decimal"
-        onBlur={(event) => onChange(parseWeightList(event.target.value))}
+        onBlur={(event) => onChange(parseWeightList(event.target.value, locale))}
       />
     </div>
   );
-}
-
-function parseWeightList(raw: string): number[] {
-  return [
-    ...new Set(
-      raw
-        .split(/[;,]/)
-        .map((value) => Number(value.trim().replace(',', '.')))
-        .filter((value) => Number.isFinite(value) && value > 0)
-        .map((value) => Math.round(value * 100) / 100),
-    ),
-  ].sort((a, b) => a - b);
 }
 
 function draftFromGym(gym?: GymWithConfigs): Draft {

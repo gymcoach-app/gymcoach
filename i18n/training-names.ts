@@ -146,7 +146,52 @@ const rulesByLocale: Partial<Record<Locale, TrainingNameRules>> = {
     week: (number) => `Settimana ${number}`,
     weeks: (count) => `${count} ${count === 1 ? 'settimana' : 'settimane'}`,
   },
+  nl: {
+    phrases: {
+      'New plan': 'Nieuw plan',
+      'Full Body Hybrid': 'Full body hybride',
+      'Full Body': 'Full body',
+      Upper: 'Bovenlichaam',
+      Lower: 'Onderlichaam',
+    },
+    day: (number) => `Dag ${number}`,
+    week: (number) => `Week ${number}`,
+    weeks: (count) => `${count} ${count === 1 ? 'week' : 'weken'}`,
+  },
+  pl: {
+    phrases: {
+      'New plan': 'Nowy plan',
+      'Full Body Hybrid': 'Hybrydowy FBW',
+      'Full Body': 'FBW',
+      Upper: 'Góra ciała',
+      Lower: 'Dół ciała',
+    },
+    day: (number) => `Dzień ${number}`,
+    week: (number) => `Tydzień ${number}`,
+    weeks: (count) => `${count} ${polishWeekWord(count)}`,
+  },
+  tr: {
+    phrases: {
+      'New plan': 'Yeni plan',
+      'Full Body Hybrid': 'Tüm vücut hibrit',
+      'Full Body': 'Tüm vücut',
+      Upper: 'Üst vücut',
+      Lower: 'Alt vücut',
+    },
+    day: (number) => `Gün ${number}`,
+    week: (number) => `Hafta ${number}`,
+    // Turkish keeps the noun singular after a number.
+    weeks: (count) => `${count} hafta`,
+  },
 };
+
+function polishWeekWord(count: number): string {
+  if (count === 1) return 'tydzień';
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'tygodnie';
+  return 'tygodni';
+}
 
 function russianWeekWord(count: number): string {
   const mod10 = count % 10;

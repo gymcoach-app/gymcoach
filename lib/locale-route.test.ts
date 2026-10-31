@@ -93,6 +93,13 @@ describe('POST /api/locale', () => {
     expect(response.headers.get('set-cookie')).toBeNull();
   });
 
+  it('rejects an oversized body with 413 without setting a cookie', async () => {
+    const body = { locale: 'en', padding: 'x'.repeat(20 * 1024) };
+    const response = await POST(request('https://gymcoach.example/api/locale', body));
+    expect(response.status).toBe(413);
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
   it('rejects unsupported locales without setting a cookie', async () => {
     const response = await POST(request('https://gymcoach.example/api/locale', { locale: 'ja' }));
     expect(response.status).toBe(400);

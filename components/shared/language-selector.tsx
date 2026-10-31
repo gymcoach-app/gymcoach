@@ -23,6 +23,9 @@ const localeMessageKeys = {
   es: 'spanish',
   pt: 'portuguese',
   it: 'italian',
+  nl: 'dutch',
+  pl: 'polish',
+  tr: 'turkish',
   'zh-CN': 'chinese',
 } as const satisfies Record<Locale, string>;
 

@@ -829,10 +829,38 @@ describe('tamperViolations', () => {
     }
   });
 
-  // Chained forms (it.fails), a skip from the context, and the options
-  // object vitest also accepts (it('x', { fails: true }, fn)).
-  const declared =
-    /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\bskip\s*\(|\b(?:retry|repeats)\s*:|\baround(?:Each|All)\b|\b(?:it|test|describe|suite)\s*\([^)]*?\{[^}]*\b(?:fails|skip|todo|only)\s*:/;
+  // Chained forms (it.fails), a skip from the context, the options object
+  // vitest also accepts (it('x', { fails: true }, fn)) and the same object
+  // passed through a variable (issue #506). A flag only counts as declared in
+  // code: comments and titles are blanked first, so prose about an aroundEach
+  // hook or a title that reads "skip: later" is not a declaration, and a title
+  // may hold parentheses. `false` and `0` are not declarations either, and an
+  // around hook counts where it is registered (a call, a key or an
+  // assignment), not where it is mentioned.
+  const FLAGS = /\b(?:fails|skip|todo|only)\s*:\s*(?!false\b|0\b)/;
+  const declares = (src: string): boolean => {
+    const code = src
+      .replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, "''")
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    if (
+      /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b/.test(code) ||
+      /\bskip\s*\(/.test(code) ||
+      /\b(?:retry|repeats)\s*:/.test(code) ||
+      /\baround(?:Each|All)\s*[:(=]/.test(code) ||
+      new RegExp(`\\b(?:it|test|describe|suite)\\s*\\([^;]*?\\{[^}]*${FLAGS.source}`).test(code)
+    )
+      return true;
+    for (const call of code.matchAll(
+      /\b(?:it|test|describe|suite)\s*\([^,;]*,\s*([A-Za-z_$][\w$]*)\s*[,)]/g,
+    )) {
+      const bound = new RegExp(
+        `\\b(?:const|let|var)\\s+${call[1]}\\s*(?::[^=]+)?=\\s*\\{[^}]*${FLAGS.source}`,
+      );
+      if (bound.test(code)) return true;
+    }
+    return false;
+  };
 
   it('recognises every way a graded test can declare a skip, todo, fails, only or retry', () => {
     for (const decl of [
@@ -848,14 +876,20 @@ describe('tamperViolations', () => {
       'context.skip();',
       'repeats: 3,',
       'aroundEach(async (run) => run());',
+      "describe('x', { aroundEach: fn });",
+      "it('skips (fast)', { skip: true }, fn);",
+      "const opts = { fails: true };\nit('x', opts, fn);",
     ])
-      expect(declared.test(decl), decl).toBe(true);
+      expect(declares(decl), decl).toBe(true);
     for (const plain of [
       "it('adds', () => {\n  expect(add(1, 1)).toBe(2);\n});",
       '// Write tools are no longer program-only: the rule must name every domain.',
       "const opts = { skip: 0 };",
+      '// an aroundEach hook would run before the guard, so none is used.',
+      "it('why skip: later is wrong', () => {});",
+      "it('adds', fn, 1000);",
     ])
-      expect(declared.test(plain), plain).toBe(false);
+      expect(declares(plain), plain).toBe(false);
   });
 
   // Grading counts a skipped or todo test as a fail and the canary fixes each
@@ -863,18 +897,23 @@ describe('tamperViolations', () => {
   // guardTask, review of #503): that holds only if the graded tests declare
   // none of them, so a skip, a fails flip or a retry in a report can only come
   // from code under test.
-  it.runIf(historyAvailable)('grades only tests that declare no skip, todo, fails, only or retry', () => {
-    for (const t of committed) {
-      const graded: [string, string][] = [
-        ...t.grader.hidden.map((f): [string, string] => [t.snapshot.fixSha, f]),
-        ...t.grader.preserved.map((f): [string, string] => [t.snapshot.baseSha, f]),
-      ];
-      for (const [sha, file] of graded) {
-        const content = execFileSync('git', ['show', `${sha}:${file}`], { cwd: __dirname }).toString();
-        expect(declared.test(content), `${t.id} ${file}`).toBe(false);
+  it.runIf(historyAvailable)(
+    'grades only tests that declare no skip, todo, fails, only or retry',
+    () => {
+      for (const t of committed) {
+        const graded: [string, string][] = [
+          ...t.grader.hidden.map((f): [string, string] => [t.snapshot.fixSha, f]),
+          ...t.grader.preserved.map((f): [string, string] => [t.snapshot.baseSha, f]),
+        ];
+        for (const [sha, file] of graded) {
+          const content = execFileSync('git', ['show', `${sha}:${file}`], {
+            cwd: __dirname,
+          }).toString();
+          expect(declares(content), `${t.id} ${file}`).toBe(false);
+        }
       }
-    }
-  });
+    },
+  );
 });
 
 describe('the agent-writable allowlist', () => {
@@ -1223,10 +1262,9 @@ describe('the canary', () => {
   });
 
   it('also runs the canary test from every directory that holds a hidden test', () => {
-    expect(canaryTestPaths('abc', ['lib/a.test.ts', 'lib/b.test.ts', 'components/x/c.test.tsx'])).toEqual([
-      'components/x/xabc.test.ts',
-      'lib/xabc.test.ts',
-    ]);
+    expect(
+      canaryTestPaths('abc', ['lib/a.test.ts', 'lib/b.test.ts', 'components/x/c.test.tsx']),
+    ).toEqual(['components/x/xabc.test.ts', 'lib/xabc.test.ts']);
     expect(canaryTestPaths('abc', ['root.test.ts'])).toEqual([]);
     const p = canaryPaths('abc');
     const files = canaryFiles('abc', ['lib/a.test.ts', 'components/x/c.test.tsx']);
@@ -1251,7 +1289,8 @@ describe('the canary', () => {
     expect(guard).toContain("const HOOKS = ['useProxy', 'showDiff', 'includeStack'];");
     expect(guard).toContain('configurable: false');
     // The tests' own spies and stubs are tracked through vi.
-    for (const name of ["wrapVi('fn'", "wrapVi('spyOn'", "wrapVi('stubGlobal'"]) expect(guard).toContain(name);
+    for (const name of ["wrapVi('fn'", "wrapVi('spyOn'", "wrapVi('stubGlobal'"])
+      expect(guard).toContain(name);
     expect(files.get(p.setup)!.toString()).toContain('beforeEach(() => startTest());');
   });
 

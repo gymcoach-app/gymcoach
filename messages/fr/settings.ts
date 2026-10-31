@@ -24,7 +24,7 @@ export const settings = {
   barWeight: 'Poids de la barre ({unit})',
   platesPerSide: 'Disques par côté ({unit})',
   platesPlaceholder: 'ex. 25, 20, 15, 10, 5, 2,5, 1,25',
-  platesHint: 'Séparez les disques par une virgule et une espace.',
+  platesHint: 'Séparez les disques par une virgule suivie d’un espace.',
   gyms: {
     title: 'Salles et matériel',
     description:

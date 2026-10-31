@@ -227,6 +227,75 @@ describe('exercise name localization', () => {
     expect(missing).toEqual([]);
   });
 
+  it('translates a recognized exercise into Dutch', () => {
+    expect(getExerciseDisplayName('Bench Press', 'nl')).toBe('Bankdrukken');
+  });
+
+  it('covers every built-in catalog exercise in Dutch', () => {
+    const missing = EXERCISE_CATALOG.map((exercise) => exercise.name).filter(
+      (name) => getExerciseDisplayName(name, 'nl') === name,
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('covers every exercise used by built-in program templates in Dutch', () => {
+    const names = new Set(
+      programTemplates.flatMap((template) =>
+        template.program.workouts.flatMap((workout) =>
+          workout.exercises.map((exercise) => exercise.name),
+        ),
+      ),
+    );
+    const missing = [...names].filter((name) => getExerciseDisplayName(name, 'nl') === name);
+    expect(missing).toEqual([]);
+  });
+
+  it('translates a recognized exercise into Polish', () => {
+    expect(getExerciseDisplayName('Bench Press', 'pl')).toBe('Wyciskanie na ławce płaskiej');
+  });
+
+  it('covers every built-in catalog exercise in Polish', () => {
+    const missing = EXERCISE_CATALOG.map((exercise) => exercise.name).filter(
+      (name) => getExerciseDisplayName(name, 'pl') === name,
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('covers every exercise used by built-in program templates in Polish', () => {
+    const names = new Set(
+      programTemplates.flatMap((template) =>
+        template.program.workouts.flatMap((workout) =>
+          workout.exercises.map((exercise) => exercise.name),
+        ),
+      ),
+    );
+    const missing = [...names].filter((name) => getExerciseDisplayName(name, 'pl') === name);
+    expect(missing).toEqual([]);
+  });
+
+  it('translates a recognized exercise into Turkish', () => {
+    expect(getExerciseDisplayName('Barbell Row', 'tr')).toBe('Halter ile kürek çekme');
+  });
+
+  it('covers every built-in catalog exercise in Turkish', () => {
+    const missing = EXERCISE_CATALOG.map((exercise) => exercise.name).filter(
+      (name) => getExerciseDisplayName(name, 'tr') === name,
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('covers every exercise used by built-in program templates in Turkish', () => {
+    const names = new Set(
+      programTemplates.flatMap((template) =>
+        template.program.workouts.flatMap((workout) =>
+          workout.exercises.map((exercise) => exercise.name),
+        ),
+      ),
+    );
+    const missing = [...names].filter((name) => getExerciseDisplayName(name, 'tr') === name);
+    expect(missing).toEqual([]);
+  });
+
   it('keeps locale dictionaries separate from application messages', () => {
     expect(exerciseNameDictionaries.ru?.['Bench Press']).toBe('Жим лёжа');
   });

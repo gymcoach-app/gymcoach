@@ -10,6 +10,9 @@ import germanMessages from '@/messages/de';
 import spanishMessages from '@/messages/es';
 import portugueseMessages from '@/messages/pt';
 import italianMessages from '@/messages/it';
+import dutchMessages from '@/messages/nl';
+import polishMessages from '@/messages/pl';
+import turkishMessages from '@/messages/tr';
 import chineseMessages from '@/messages/zh-CN';
 
 function messageKeys(value: unknown, prefix = ''): string[] {
@@ -105,7 +108,7 @@ function messageScenarios(elements: MessageFormatElement[], locale: string): Mes
 
 describe('i18n configuration', () => {
   it.each(locales)(
-    'loads the registered %s catalog and its Chinese language option',
+    'loads the registered %s catalog and all newly combined language options',
     async (locale) => {
       const messages = await loadMessages(locale);
       expect(messageKeys(messages).sort()).toEqual(messageKeys(englishMessages).sort());
@@ -116,7 +119,9 @@ describe('i18n configuration', () => {
           throw error;
         },
       });
-      expect(t('common.language.chinese')).toBe(messages.common.language.chinese);
+      for (const key of ['chinese', 'dutch', 'polish', 'turkish'] as const) {
+        expect(t(`common.language.${key}`)).toBe(messages.common.language[key]);
+      }
     },
   );
 
@@ -125,8 +130,12 @@ describe('i18n configuration', () => {
     expect(isLocale('zh')).toBe(false);
     expect(isLocale('zh-TW')).toBe(false);
   });
+  it('renders the upstream debrief rate-limit message in Chinese', () => {
+    const t = createTranslator({ locale: 'zh-CN', messages: chineseMessages });
+    expect(t('coach.client.tooManyDebriefs')).toBe('请求训练总结过于频繁，请稍后重试。');
+  });
   it('recognizes only supported locales', () => {
-    expect(locales).toEqual(['en', 'fr', 'ru', 'de', 'es', 'pt', 'it', 'zh-CN']);
+    expect(locales).toEqual(['en', 'fr', 'ru', 'de', 'es', 'pt', 'it', 'nl', 'pl', 'tr', 'zh-CN']);
     expect(isLocale('en')).toBe(true);
     expect(isLocale('fr')).toBe(true);
     expect(isLocale('ru')).toBe(true);
@@ -134,6 +143,9 @@ describe('i18n configuration', () => {
     expect(isLocale('es')).toBe(true);
     expect(isLocale('pt')).toBe(true);
     expect(isLocale('it')).toBe(true);
+    expect(isLocale('nl')).toBe(true);
+    expect(isLocale('pl')).toBe(true);
+    expect(isLocale('tr')).toBe(true);
     expect(isLocale('zh-CN')).toBe(true);
     expect(isLocale(undefined)).toBe(false);
   });
@@ -145,6 +157,9 @@ describe('i18n configuration', () => {
     expect(messageKeys(spanishMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(portugueseMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(italianMessages).sort()).toEqual(messageKeys(englishMessages).sort());
+    expect(messageKeys(dutchMessages).sort()).toEqual(messageKeys(englishMessages).sort());
+    expect(messageKeys(polishMessages).sort()).toEqual(messageKeys(englishMessages).sort());
+    expect(messageKeys(turkishMessages).sort()).toEqual(messageKeys(englishMessages).sort());
     expect(messageKeys(chineseMessages).sort()).toEqual(messageKeys(englishMessages).sort());
   });
 
@@ -157,6 +172,26 @@ describe('i18n configuration', () => {
     expect(t('navigation.settings')).toBe('Настройки');
     expect(t('progress.measurements.sites.armLeft')).toBe('Плечо (левое)');
     expect(t('progress.dashboard.frequency', { count: 3 })).toBe('3 раза/нед.');
+  });
+
+  it('uses Polish plural categories', () => {
+    const t = createTranslator({ locale: 'pl', messages: polishMessages });
+
+    expect(t('common.counts.sets', { count: 1 })).toBe('1 seria');
+    expect(t('common.counts.sets', { count: 3 })).toBe('3 serie');
+    expect(t('common.counts.sets', { count: 5 })).toBe('5 serii');
+    expect(t('common.counts.sets', { count: 22 })).toBe('22 serie');
+    expect(t('common.counts.sets', { count: 12 })).toBe('12 serii');
+    expect(t('navigation.settings')).toBe('Ustawienia');
+  });
+
+  it('keeps the noun singular after a number in Turkish', () => {
+    const t = createTranslator({ locale: 'tr', messages: turkishMessages });
+
+    expect(t('common.counts.sets', { count: 1 })).toBe('1 set');
+    expect(t('common.counts.sets', { count: 3 })).toBe('3 set');
+    expect(t('common.counts.exercises', { count: 0 })).toBe('Egzersiz yok');
+    expect(t('navigation.settings')).toBe('Ayarlar');
   });
 
   it('uses French plural categories', () => {

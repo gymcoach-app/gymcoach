@@ -17,6 +17,8 @@ export const coach = {
     applied: '已应用',
     debriefFrom: '{date} 的训练总结',
     weekOf: '{date} 所在周',
+
+    tooManyDebriefs: '请求训练总结过于频繁，请稍后重试。',
   },
   chat: {
     apiKey: '请在 .env 中设置 {variable} 以启用教练对话。',

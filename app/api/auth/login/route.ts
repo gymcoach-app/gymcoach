@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { signSession, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from '@/lib/auth';
 import { rateLimit, clientIp } from '@/lib/rate-limit';
+import { ApiError, readJsonWithCap, SMALL_JSON_BODY_MAX_BYTES } from '@/lib/api';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
         { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
       );
     }
-    const body = (await req.json()) as unknown;
+    const body = await readJsonWithCap(req, SMALL_JSON_BODY_MAX_BYTES);
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 400 });
@@ -45,6 +46,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof ApiError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[login] error:', err);
     return NextResponse.json({ error: 'Server error.' }, { status: 500 });
   }

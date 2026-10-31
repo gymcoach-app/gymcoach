@@ -63,6 +63,17 @@ describe('PlateFallbackSection', () => {
     expect(stored.vibration).toBe(false);
   });
 
+  it('describes each plates field with the separator hint', async () => {
+    render(<PlateFallbackSection />);
+
+    expect(await screen.findByLabelText('Plates per side (kg)')).toHaveAccessibleDescription(
+      'Separate plates with a comma and a space.',
+    );
+    expect(screen.getByLabelText('Plates per side (lb)')).toHaveAccessibleDescription(
+      'Separate plates with a comma and a space.',
+    );
+  });
+
   describe('in a comma-decimal locale (issue #514)', () => {
     beforeEach(() => {
       vi.spyOn(nextIntl, 'useLocale').mockReturnValue('fr');

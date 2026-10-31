@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { ApiError, handleApiError, requireApiUserId } from '@/lib/api';
+import {
+  ApiError,
+  handleApiError,
+  readJsonWithCap,
+  requireApiUserId,
+  SMALL_JSON_BODY_MAX_BYTES,
+} from '@/lib/api';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -21,8 +27,12 @@ export async function POST(req: Request, props: Params) {
       throw new ApiError(404, 'Program not found.');
     }
 
-    const body = (await req.json().catch(() => ({}))) as { active?: boolean };
-    const active = body.active !== false;
+    // A missing or invalid body means the default; an oversized one is a 413.
+    const body = (await readJsonWithCap(req, SMALL_JSON_BODY_MAX_BYTES).catch((err: unknown) => {
+      if (err instanceof ApiError && err.status === 413) throw err;
+      return {};
+    })) as { active?: boolean } | null;
+    const active = body?.active !== false;
 
     if (active) {
       await db.$transaction([

@@ -342,7 +342,7 @@ export function HistoryCalendar({
 
 // An explicit list rather than Intl.Locale weekInfo: that API is missing from
 // some runtimes, and server and client must agree on the grid to hydrate.
-const MONDAY_FIRST_LOCALES = ['ru', 'fr', 'de', 'es', 'it'];
+const MONDAY_FIRST_LOCALES = ['ru', 'fr', 'de', 'es', 'it', 'nl', 'pl', 'tr'];
 
 export function weekStartsOnForLocale(locale: string): 0 | 1 {
   const normalized = locale.toLowerCase();

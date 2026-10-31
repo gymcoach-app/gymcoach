@@ -76,6 +76,10 @@ export const common = {
     italian: '意大利语',
     chinese: '简体中文',
     error: '无法切换语言。',
+
+    dutch: '荷兰语',
+    polish: '波兰语',
+    turkish: '土耳其语',
   },
   theme: {
     dark: '深色',

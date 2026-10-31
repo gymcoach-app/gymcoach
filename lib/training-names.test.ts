@@ -173,6 +173,50 @@ describe('getTrainingDisplayName', () => {
     expect(getTrainingDisplayName('Upper · Lower', 'it')).toBe('Parte superiore · Parte inferiore');
   });
 
+  it('localizes imported names into Dutch with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'nl')).toBe(
+      'Dag 3 · Week 5 · Nieuw plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'nl')).toBe(
+      'Nieuw plan · 1 week (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 2 weeks', 'nl')).toBe('Nieuw plan · 2 weken');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'nl')).toBe(
+      'Full body · Dag 1 · Full body hybride',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'nl')).toBe('Bovenlichaam · Onderlichaam');
+  });
+
+  it('localizes imported names into Polish with the right week plurals', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'pl')).toBe(
+      'Dzień 3 · Tydzień 5 · Nowy plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'pl')).toBe(
+      'Nowy plan · 1 tydzień (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 3 weeks', 'pl')).toBe('Nowy plan · 3 tygodnie');
+    expect(getTrainingDisplayName('New plan · 5 weeks', 'pl')).toBe('Nowy plan · 5 tygodni');
+    expect(getTrainingDisplayName('New plan · 12 weeks', 'pl')).toBe('Nowy plan · 12 tygodni');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'pl')).toBe(
+      'FBW · Dzień 1 · Hybrydowy FBW',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'pl')).toBe('Góra ciała · Dół ciała');
+  });
+
+  it('localizes imported names into Turkish', () => {
+    expect(getTrainingDisplayName('Day 3 · Week 5 · New plan', 'tr')).toBe(
+      'Gün 3 · Hafta 5 · Yeni plan',
+    );
+    expect(getTrainingDisplayName('New plan · 1 week (2026-04-23)', 'tr')).toBe(
+      'Yeni plan · 1 hafta (2026-04-23)',
+    );
+    expect(getTrainingDisplayName('New plan · 5 weeks', 'tr')).toBe('Yeni plan · 5 hafta');
+    expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'tr')).toBe(
+      'Tüm vücut · Gün 1 · Tüm vücut hibrit',
+    );
+    expect(getTrainingDisplayName('Upper · Lower', 'tr')).toBe('Üst vücut · Alt vücut');
+  });
+
   it('localizes common imported split names', () => {
     expect(getTrainingDisplayName('Full Body · Day 1 · Full Body Hybrid', 'ru')).toBe(
       'Всё тело · День 1 · Гибридная программа на всё тело',

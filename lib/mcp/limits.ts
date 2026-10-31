@@ -8,6 +8,16 @@ import { rateLimit } from '@/lib/rate-limit';
 // letting a caller hand the transport an unbounded body.
 export const MCP_MAX_BODY_BYTES = 8 * 1024 * 1024;
 
+// Largest number of array elements plus object members one tools/call
+// arguments payload may hold, counted by the MCP SDK before schema validation.
+// The byte cap alone does not bound this: 8 MiB of `[0,0,0,...]` is millions of
+// elements, and validating them could exhaust memory (GHSA advisory fixed in
+// @modelcontextprotocol/sdk 1.32). The largest legitimate inputs are a
+// generated program (7 workouts of up to 15 exercises, about 1,200 members),
+// a historical backfill (500 set ids) and the gym free weights (3 lists of up
+// to 200), so 10,000 leaves ample headroom.
+export const MCP_MAX_TOOL_INPUT_ELEMENTS = 10_000;
+
 // Write tools per token: 60 calls per minute. Enough for an agent building a
 // program or a gym inventory call by call, low enough that a leaked token
 // cannot hammer the database (or upload equipment images) without pause.

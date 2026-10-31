@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { formatPlateList, parsePlateList, usesDecimalComma } from './plate-list';
+import { formatPlateList, parsePlateList, parseWeightList, usesDecimalComma } from './plate-list';
 
 describe('usesDecimalComma', () => {
   it('knows which supported locales write a decimal comma', () => {
-    for (const locale of ['fr', 'de', 'es', 'pt', 'it', 'ru']) {
+    for (const locale of ['fr', 'de', 'es', 'pt', 'it', 'ru', 'nl', 'pl', 'tr']) {
       expect(usesDecimalComma(locale)).toBe(true);
     }
     expect(usesDecimalComma('en')).toBe(false);
@@ -40,6 +40,17 @@ describe('parsePlateList in a comma-decimal locale (fr)', () => {
   it('drops junk and a trailing separator', () => {
     expect(parsePlateList('2,5, junk, 25,', 'fr')).toEqual([25, 2.5]);
   });
+
+  it('reads a decimal with an unspaced comma at either end as one plate', () => {
+    expect(parsePlateList('2,5,', 'fr')).toEqual([2.5]);
+    expect(parsePlateList(',2,5', 'fr')).toEqual([2.5]);
+    expect(parsePlateList('25, 20, 2,5,', 'fr')).toEqual([25, 20, 2.5]);
+    expect(parsePlateList('1,25,', 'fr')).toEqual([1.25]);
+  });
+
+  it('still reads an unspaced list with a trailing comma as a list', () => {
+    expect(parsePlateList('25,20,15,', 'fr')).toEqual([25, 20, 15]);
+  });
 });
 
 describe('parsePlateList in a dot-decimal locale (en)', () => {
@@ -61,5 +72,17 @@ describe('formatPlateList', () => {
     expect(parsePlateList(formatPlateList(plates, 'fr'), 'fr')).toEqual(plates);
     expect(formatPlateList(plates, 'en')).toBe('25, 20, 2.5, 1.25');
     expect(parsePlateList(formatPlateList(plates, 'en'), 'en')).toEqual(plates);
+  });
+});
+
+describe('parseWeightList', () => {
+  it('returns an ascending list without duplicates, rounded to two decimals', () => {
+    expect(parseWeightList('15, 10, 12,5, 10, 2,555', 'fr')).toEqual([2.56, 10, 12.5, 15]);
+    expect(parseWeightList('15, 10, 12.5, 10', 'en')).toEqual([10, 12.5, 15]);
+  });
+
+  it('reads "2,5" as one weight in a comma-decimal locale only', () => {
+    expect(parseWeightList('2,5', 'fr')).toEqual([2.5]);
+    expect(parseWeightList('2,5', 'en')).toEqual([2, 5]);
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useRef } from 'react';
 import { Check } from 'lucide-react';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
@@ -22,15 +22,25 @@ interface Props {
   disabled?: boolean;
 }
 
-function abbreviation(name: string): string {
+// Uppercases with the active locale, so Turkish initials keep their dot
+// ("ile" gives "İ", not "I").
+export function abbreviation(name: string, locale?: string): string {
   const words = name.trim().split(/\s+/u).filter(Boolean);
   if (words.length === 0) return '?';
-  if (words.length === 1) return Array.from(words[0]!).slice(0, 3).join('').toUpperCase();
-  return words
-    .slice(0, 3)
-    .map((word) => Array.from(word)[0] ?? '')
-    .join('')
-    .toUpperCase();
+  const upper = (text: string) => {
+    try {
+      return text.toLocaleUpperCase(locale);
+    } catch {
+      return text.toUpperCase();
+    }
+  };
+  if (words.length === 1) return upper(Array.from(words[0]!).slice(0, 3).join(''));
+  return upper(
+    words
+      .slice(0, 3)
+      .map((word) => Array.from(word)[0] ?? '')
+      .join(''),
+  );
 }
 
 export function SessionExerciseStrip({
@@ -42,6 +52,7 @@ export function SessionExerciseStrip({
   disabled = false,
 }: Props) {
   const exerciseName = useExerciseName();
+  const locale = useLocale();
   const t = useTranslations('session');
   const currentRef = useRef<HTMLButtonElement>(null);
 
@@ -107,7 +118,7 @@ export function SessionExerciseStrip({
                       isComplete ? 'opacity-55' : ''
                     }`}
                   >
-                    {abbreviation(displayName)}
+                    {abbreviation(displayName, locale)}
                   </span>
                 )}
                 {isComplete && (

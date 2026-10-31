@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Plus, Pencil, Search, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Exercise, MuscleGroup } from '@/lib/prisma-client';
@@ -14,6 +14,7 @@ import { ExerciseFormDialog } from '@/components/exercises/exercise-form-dialog'
 import { ExerciseMediaDialog } from '@/components/exercises/exercise-media-dialog';
 import { DeleteExerciseButton } from '@/components/exercises/delete-exercise-button';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { matchesSearch } from '@/lib/search-fold';
 import { cn } from '@/lib/utils';
 import {
   equipmentTypeMessageKeys,
@@ -29,6 +30,7 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   const t = useTranslations('exercises');
   const common = useTranslations('common');
   const exerciseName = useExerciseName();
+  const locale = useLocale();
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Exercise | null>(null);
   const [query, setQuery] = useState('');
@@ -129,16 +131,18 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
     };
   }
 
-  // Case-insensitive substring match on the exercise name. The query only
-  // narrows the already-loaded list (no API call); an empty query shows
-  // everything, preserving the original behaviour.
+  // Case- and accent-insensitive substring match on the exercise name, folded
+  // with the active locale (lib/search-fold.ts). The query only narrows the
+  // already-loaded list (no API call); an empty query shows everything,
+  // preserving the original behaviour.
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return withFavorites;
     return withFavorites.filter(
-      (ex) => ex.name.toLowerCase().includes(q) || exerciseName(ex.name).toLowerCase().includes(q),
+      (ex) =>
+        matchesSearch(ex.name, q, locale) || matchesSearch(exerciseName(ex.name), q, locale),
     );
-  }, [exerciseName, withFavorites, query]);
+  }, [exerciseName, locale, withFavorites, query]);
 
   // Favourites are pinned in their own section at the top and not repeated in
   // their muscle group below.

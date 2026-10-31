@@ -28,6 +28,15 @@ started with `docker compose up -d`. The app is published on `GYMCOACH_PORT`
   `docker compose up -d` recreates the app with the new binding. The examples
   below assume exactly this.
 
+  The login and signup rate limits read the client address from
+  `X-Forwarded-For`, which only a proxy can vouch for. If you publish the port
+  with no proxy at all, `TRUSTED_PROXY_HOPS=0` in `.env` makes the app ignore
+  forwarded headers, so a client cannot pick its own budget. Treat it as a last
+  resort: every visitor then shares one budget for login (10 a minute) and
+  signup (5 a minute), so one client sending 10 login requests a minute blocks
+  every login and signup on the instance. Existing sessions keep working. A
+  reverse proxy is the recommended setup, and keeps the limits per visitor.
+
 - **Secrets**: `.env` holds `JWT_SECRET` and the database password. Generate
   both once and keep a copy with your backups. Rotating `JWT_SECRET` keeps the
   data but invalidates every session, so everyone signs in again. Rotating the
@@ -37,7 +46,7 @@ started with `docker compose up -d`. The app is published on `GYMCOACH_PORT`
   `docker compose exec db psql -U gymcoach -d gymcoach`, then run
   `\password gymcoach`.
 - **Accounts**: the signup page is public (rate-limited to 5 attempts per
-  minute per IP). Each account has its own data; there is no admin role. If the
+  minute per IP, or for the whole instance with `TRUSTED_PROXY_HOPS=0`). Each account has its own data; there is no admin role. If the
   instance should be for a known group only, keep it on a VPN or put an IP
   allowlist in the proxy rather than relying on the signup page.
 - **Disk**: the database and the progress photos grow with use. Both live in
@@ -86,6 +95,13 @@ MCP_ALLOWED_HOSTS=gym.example.com
 Leave `SESSION_COOKIE_SECURE` unset behind an HTTPS proxy. In production the
 session cookie is `Secure` by default, which is what you want; see
 [HTTPS on a home network](#https-on-a-home-network) for the plain-HTTP case.
+
+The app sends its own security headers (`X-Content-Type-Options`,
+`Referrer-Policy`, `X-Frame-Options` with a `frame-ancestors` policy, and
+`Permissions-Policy`). It does not send `Strict-Transport-Security`, since only
+the proxy knows the instance is served over HTTPS. Add HSTS in the proxy once
+HTTPS works (Caddy: `header Strict-Transport-Security "max-age=31536000"`;
+nginx: `add_header Strict-Transport-Security "max-age=31536000" always;`).
 
 ### Caddy
 

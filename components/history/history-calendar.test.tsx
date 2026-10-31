@@ -178,13 +178,16 @@ describe('HistoryCalendar', () => {
 });
 
 describe('weekStartsOnForLocale', () => {
-  it('starts weeks on Monday for French, Russian, German, Spanish and Italian', () => {
+  it('starts weeks on Monday for French, Russian, German, Spanish, Italian, Dutch, Polish and Turkish', () => {
     expect(weekStartsOnForLocale('fr')).toBe(1);
     expect(weekStartsOnForLocale('ru')).toBe(1);
     expect(weekStartsOnForLocale('de')).toBe(1);
     expect(weekStartsOnForLocale('de-AT')).toBe(1);
     expect(weekStartsOnForLocale('es')).toBe(1);
     expect(weekStartsOnForLocale('it')).toBe(1);
+    expect(weekStartsOnForLocale('nl')).toBe(1);
+    expect(weekStartsOnForLocale('pl')).toBe(1);
+    expect(weekStartsOnForLocale('tr')).toBe(1);
   });
 
   it('starts weeks on Sunday for English and Portuguese', () => {

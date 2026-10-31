@@ -50,11 +50,13 @@ const withPWA = require('@ducanh2912/next-pwa').default({
   },
 });
 const withNextIntl = require('next-intl/plugin')('./i18n/request.ts');
+const { headers } = require('./lib/security-headers.cjs');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  headers,
 };
 
 module.exports = withPWA(withNextIntl(nextConfig));

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { z } from 'zod';
 import { Prisma } from '@/prisma/generated/client';
-import { ApiError, handleApiError, parseJsonBody } from './api';
+import { ApiError, DEFAULT_JSON_BODY_MAX_BYTES, handleApiError, parseJsonBody } from './api';
 
 function jsonRequest(body: string): Request {
   return new Request('http://test.local/api', {
@@ -129,6 +129,17 @@ describe('parseJsonBody with a byte cap', () => {
     await expect(
       parseJsonBody(chunkedRequest([big]), schema, { maxBytes: 1000 }),
     ).rejects.toMatchObject({ status: 413 });
+  });
+
+  it('applies the default cap when the route sets none', async () => {
+    const big = `{"name":"${'x'.repeat(DEFAULT_JSON_BODY_MAX_BYTES)}"}`;
+    await expect(parseJsonBody(chunkedRequest([big]), schema)).rejects.toMatchObject({
+      status: 413,
+    });
+    const fits = JSON.stringify({ name: 'x'.repeat(DEFAULT_JSON_BODY_MAX_BYTES - 100) });
+    await expect(parseJsonBody(chunkedRequest([fits]), schema)).resolves.toMatchObject({
+      name: expect.any(String),
+    });
   });
 
   it('still validates the schema under the cap', async () => {

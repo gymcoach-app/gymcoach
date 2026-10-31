@@ -58,6 +58,9 @@ export function CoachClient({
     setError(null);
     try {
       const res = await fetch('/api/coach', { method: 'POST' });
+      if (res.status === 429) {
+        throw new Error(t('client.tooManyDebriefs'));
+      }
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error ?? `Error ${res.status}`);
