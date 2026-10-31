@@ -157,6 +157,21 @@ export function SessionExerciseStrip({
                       return null; // Don't show green dot, timer badge will show instead
                     }
                   }
+
+                  // Also check if a superset partner is resting (edge case)
+                  if (programExercise.supersetGroup != null) {
+                    for (const otherPE of exercises) {
+                      if (
+                        otherPE.id !== programExercise.id &&
+                        otherPE.supersetGroup === programExercise.supersetGroup
+                      ) {
+                        const partnerState = exerciseStates?.get(otherPE.id);
+                        if (partnerState?.kind === 'rest') {
+                          return null; // Don't show green dot, timer badge will show instead
+                        }
+                      }
+                    }
+                  }
                   return (
                     <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-green-500 text-white shadow-sm">
                       <span className="size-2 rounded-full bg-white" aria-hidden />
@@ -190,13 +205,13 @@ export function SessionExerciseStrip({
                 {/* State indicator badge (issue #542, PR1): timer countdown when resting */}
                 {(() => {
                   // Show timer badge if this exercise is resting OR if another exercise's
-                  // superset transition rest is blocking this one
+                  // superset transition rest is blocking this one OR if a superset partner is resting
                   let state = exerciseStates?.get(programExercise.id);
 
                   // Check if any other exercise is resting and navigated to this one
                   // (superset transition rest blocks this exercise)
                   if (!state || state.kind !== 'rest') {
-                    for (const [, otherState] of exerciseStates?.entries() ?? []) {
+                    for (const [peId, otherState] of exerciseStates?.entries() ?? []) {
                       if (
                         otherState.kind === 'rest' &&
                         'navigatedImmediately' in otherState &&
@@ -206,6 +221,22 @@ export function SessionExerciseStrip({
                       ) {
                         state = otherState;
                         break;
+                      }
+                    }
+                  }
+
+                  // Check if any exercise in the same superset group is resting (edge case fix)
+                  if ((!state || state.kind !== 'rest') && programExercise.supersetGroup != null) {
+                    for (const otherPE of exercises) {
+                      if (
+                        otherPE.id !== programExercise.id &&
+                        otherPE.supersetGroup === programExercise.supersetGroup
+                      ) {
+                        const partnerState = exerciseStates?.get(otherPE.id);
+                        if (partnerState?.kind === 'rest') {
+                          state = partnerState;
+                          break;
+                        }
                       }
                     }
                   }
