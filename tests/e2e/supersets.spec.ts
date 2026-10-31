@@ -365,3 +365,80 @@ test('timer badges persist on both superset exercises during navigation (issue #
   await expect(a1Badge.locator('[data-testid="exercise-strip-timer-badge"]')).toBeVisible();
   await expect(a2Badge.locator('[data-testid="exercise-strip-timer-badge"]')).toBeVisible();
 });
+
+test('superset partner resting prevents new timer and shows shared timer (issue #542 edge case)', async ({
+  page,
+}) => {
+  // Sign up
+  const registerRes = await page.request.post('/api/auth/register', {
+    headers: { 'x-forwarded-for': '10.111.0.11' },
+    data: {
+      displayName: 'Edge Case E2E',
+      email: `e2e-edge-case-${Date.now()}@test.dev`,
+      password: 'supersecret',
+    },
+  });
+  expect(registerRes.ok()).toBeTruthy();
+
+  const { programId } = await seedPairableWorkout(page, {
+    namePrefix: 'Edge',
+    restSec: 30,
+  });
+
+  // Pair as superset
+  await page.goto(`/programs/${programId}`);
+  await page.getByRole('button', { name: 'Exercise actions' }).nth(1).click();
+  await page.getByRole('menuitem', { name: /pair.*previous/i }).click();
+
+  // Start session
+  await page.getByRole('link', { name: /start.*upper a/i }).click();
+
+  // Complete A1 (log both sets)
+  await page.getByLabel('Quick entry').fill('100x8@2');
+  await page.getByRole('button', { name: /log the set/i }).click();
+  await page.getByRole('button', { name: /skip/i }).click();
+  await page.getByLabel('Quick entry').fill('100x8@2');
+  await page.getByRole('button', { name: /log the set/i }).click();
+  await page.getByRole('button', { name: /skip/i }).click();
+
+  // Now on A2, log a set - A2 starts resting
+  await page.getByLabel('Quick entry').fill('50x12@2');
+  await page.getByRole('button', { name: /log the set/i }).click();
+
+  // Both exercises should show timer badges
+  const a1Badge = page.locator('[role="button"][aria-label*="1. Edge Bench"]');
+  const a2Badge = page.locator('[role="button"][aria-label*="2. Edge Row"]');
+  await expect(a1Badge.locator('[data-testid="exercise-strip-timer-badge"]')).toBeVisible();
+  await expect(a2Badge.locator('[data-testid="exercise-strip-timer-badge"]')).toBeVisible();
+
+  // Switch to A1 - should show RestTimer (not SetInput)
+  await a1Badge.click();
+  await expect(page.getByRole('heading', { name: 'Edge Bench' })).toBeVisible();
+  const restTimer = page.locator('[data-testid="rest-timer"]');
+  await expect(restTimer).toBeVisible();
+
+  // Rest control buttons should work on A2's timer (via A1)
+  const restValue = page.getByTestId('rest-remaining');
+  const initialTime = Number(await restValue.textContent());
+
+  // Pause the timer
+  await page.getByRole('button', { name: 'Pause' }).click();
+  await expect(page.getByText('Rest paused')).toBeVisible();
+
+  // Adjust the timer (+15s should affect A2's timer)
+  await page.getByRole('button', { name: 'Add 15 seconds' }).click();
+  await expect(restValue).toHaveText(String(initialTime + 15));
+
+  // Switch to A2 - should show the same adjusted timer
+  await a2Badge.click();
+  await expect(page.getByRole('heading', { name: 'Edge Row' })).toBeVisible();
+  await expect(restValue).toHaveText(String(initialTime + 15));
+
+  // Skip the rest
+  await page.getByRole('button', { name: /skip/i }).click();
+  await expect(page.getByLabel('Quick entry')).toBeVisible();
+
+  // Both timer badges should disappear
+  await expect(a1Badge.locator('[data-testid="exercise-strip-timer-badge"]')).not.toBeVisible();
+  await expect(a2Badge.locator('[data-testid="exercise-strip-timer-badge"]')).not.toBeVisible();
+});
