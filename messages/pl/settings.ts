@@ -152,6 +152,17 @@ export const settings = {
       'Zaimportowano: {sessions, plural, one {# sesja} few {# sesje} many {# sesji} other {# sesji}}, {sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}}{exercises, plural, =0 {} one {, # nowe ćwiczenie} few {, # nowe ćwiczenia} many {, # nowych ćwiczeń} other {, # nowego ćwiczenia}}.',
     fitImportDone:
       'Zaimportowano: {sessions, plural, one {# sesja} few {# sesje} many {# sesji} other {# sesji}}{exercises, plural, =0 {} one {, # nowe ćwiczenie} few {, # nowe ćwiczenia} many {, # nowych ćwiczeń} other {, # nowego ćwiczenia}}{skipped, plural, =0 {.} one { (pominięto # plik).} few { (pominięto # pliki).} many { (pominięto # plików).} other { (pominięto # pliku).}}',
+
+    file: 'Plik {format}',
+    exportHints: {
+      strong: 'wyeksportuj dane jako CSV (Settings, następnie Export data)',
+      hevy: 'wyeksportuj dane jako CSV (Settings, następnie Export & Import Data)',
+      gymcoach:
+        'użyj pliku CSV wyeksportowanego ze strony historii lub arkusza z tymi samymi kolumnami (session_date, workout, exercise, set_number, external_load_kg, reps, ...)',
+      tcx: 'wyeksportuj aktywność jako TCX z platformy zegarka (Garmin Connect, Polar Flow, ...); zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
+      gpx: 'wyeksportuj trasę jako GPX ze Strava, Komoot lub Apple Fitness; zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
+      fit: 'wyeksportuj aktywność jako plik FIT z zegarka Garmin (lub innego); zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
+    },
   },
   mcp: {
     title: 'ChatGPT i MCP',

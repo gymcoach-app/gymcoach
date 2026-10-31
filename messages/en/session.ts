@@ -120,6 +120,8 @@ export const session = {
     note: 'Quick note (optional)',
     notePlaceholder: 'e.g. wrist pain, reduced weight mid-set, felt easy',
     logSet: 'Log the set',
+    decreaseReps: '-1 rep',
+    increaseReps: '+1 rep',
   },
   summary: {
     back: 'Back to the session',

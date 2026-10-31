@@ -103,6 +103,8 @@ export const progress = {
     title: 'Кардио',
     description:
       'Минуты кардио в неделю относительно ориентира {target} мин/нед. Дистанция и тренировки показаны во всплывающей подсказке.',
+    summary:
+      'На этой неделе: {minutes} мин{distance, select, none {} other { · {distance} км}}{current, select, none {} other { · {sessions, plural, one {# тренировка} few {# тренировки} many {# тренировок} other {# тренировки}}}} · Итого за {weeks} нед.: {totalMinutes} мин{totalDistance, select, none {} other {, {totalDistance} км}}.',
   },
   deload: {
     activeTitle: 'Идёт неделя разгрузки',
@@ -196,5 +198,27 @@ export const progress = {
       '{name}: {sets, plural, one {# подход} few {# подхода} many {# подходов} other {# подхода}} за неделю, {status}',
     hint: 'Нажмите на мышцу, чтобы увидеть детали.',
     empty: 'За эту неделю нет рабочих подходов; запишите тренировку, и тело загорится.',
+  },
+  photos: {
+    title: 'Фотографии прогресса',
+    photo: 'Фото',
+    date: 'Дата',
+    note: 'Заметка (необязательно)',
+    notePlaceholder: 'например, конец сушки',
+    chooseFirst: 'Сначала выберите фотографию.',
+    uploadError: 'Не удалось загрузить фотографию.',
+    added: 'Фотография добавлена.',
+    deleteConfirm: 'Удалить фотографию от {date}?',
+    deleteError: 'Не удалось удалить фотографию.',
+    deleted: 'Фотография удалена.',
+    empty:
+      'Фотографий прогресса пока нет. Они хранятся локально на вашем сервере и видны только вам. Загрузите первую, чтобы отслеживать изменения.',
+    imageAlt: 'Фотография прогресса от {date}',
+    deleteAria: 'Удалить фотографию от {date}',
+    compare: 'Сравнить',
+    before: 'До',
+    after: 'После',
+    compareAlt: 'Фото «{label}» от {date}',
+    uploading: 'Загрузка...',
   },
 } satisfies MessageShape<typeof english>;

@@ -32,6 +32,13 @@ describe('foldForSearch', () => {
 });
 
 describe('matchesSearch', () => {
+  it('preserves Chinese characters and matches mixed Chinese and Latin names', () => {
+    expect(foldForSearch('杠铃卧推 RIR', 'zh-CN')).toBe('杠铃卧推 rir');
+    expect(matchesSearch('上斜哑铃卧推', '  哑铃卧推 ', 'zh-CN')).toBe(true);
+    expect(matchesSearch('自定义 RPE 训练', 'rpe', 'zh-CN')).toBe(true);
+    expect(matchesSearch('杠铃卧推', '深蹲', 'zh-CN')).toBe(false);
+  });
+
   it('matches across dotted and dotless i in Turkish', () => {
     expect(matchesSearch('Incline Bench Press', 'incline', 'tr')).toBe(true);
     expect(matchesSearch('İp atlama', 'ip atlama', 'tr')).toBe(true);

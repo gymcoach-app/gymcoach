@@ -103,6 +103,8 @@ export const progress = {
     title: 'Cardio',
     description:
       'Minutes de cardio hebdomadaires par rapport au repère de {target} min/semaine. Distance et séances apparaissent dans l’infobulle.',
+    summary:
+      'Cette semaine : {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# séance} other {# séances}}}} · Total ({weeks} sem.) : {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Semaine de décharge en cours',
@@ -135,7 +137,8 @@ export const progress = {
       'Jours d’entraînement par semaine sur les {weeks} dernières semaines{target, select, none {.} other { (objectif {target}/semaine).}}',
     streak: 'série en cours ({weeks, plural, one {# semaine} other {# semaines}})',
     aria: 'Jours d’entraînement par semaine',
-    weekTitle: '{week} : {days, plural, one {# jour d’entraînement} other {# jours d’entraînement}}',
+    weekTitle:
+      '{week} : {days, plural, one {# jour d’entraînement} other {# jours d’entraînement}}',
   },
   goal: {
     title: 'Objectif - {exercise}',
@@ -194,6 +197,29 @@ export const progress = {
     },
     regionLabel: '{name} : {sets, plural, one {# série} other {# séries}} cette semaine, {status}',
     hint: 'Touchez un muscle pour les détails.',
-    empty: 'Aucune série effective cette semaine-là ; enregistrez une séance et le corps s’illumine.',
+    empty:
+      'Aucune série effective cette semaine-là ; enregistrez une séance et le corps s’illumine.',
+  },
+  photos: {
+    title: 'Photos de progression',
+    photo: 'Photo',
+    date: 'Date',
+    note: 'Note (facultatif)',
+    notePlaceholder: 'ex. fin de sèche',
+    chooseFirst: 'Choisissez d’abord une photo.',
+    uploadError: 'Impossible d’envoyer la photo.',
+    added: 'Photo ajoutée.',
+    deleteConfirm: 'Supprimer la photo du {date} ?',
+    deleteError: 'Impossible de supprimer la photo.',
+    deleted: 'Photo supprimée.',
+    empty:
+      'Aucune photo de progression. Les photos sont stockées localement sur votre serveur et vous seul pouvez les voir. Ajoutez la première pour suivre votre évolution.',
+    imageAlt: 'Photo de progression du {date}',
+    deleteAria: 'Supprimer la photo du {date}',
+    compare: 'Comparer',
+    before: 'Avant',
+    after: 'Après',
+    compareAlt: 'Photo {label} du {date}',
+    uploading: 'Envoi...',
   },
 } satisfies MessageShape<typeof english>;

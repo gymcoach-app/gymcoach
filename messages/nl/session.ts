@@ -127,6 +127,9 @@ export const session = {
     note: 'Korte notitie (optioneel)',
     notePlaceholder: 'bv. pijn in de pols, gewicht halverwege de set verlaagd, voelde licht',
     logSet: 'Set loggen',
+
+    decreaseReps: '1 herhaling minder',
+    increaseReps: '1 herhaling meer',
   },
   summary: {
     back: 'Terug naar de sessie',

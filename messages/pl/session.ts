@@ -125,6 +125,9 @@ export const session = {
     note: 'Krótka notatka (opcjonalnie)',
     notePlaceholder: 'np. ból nadgarstka, ciężar zmniejszony w trakcie serii, poszło lekko',
     logSet: 'Zapisz serię',
+
+    decreaseReps: 'Zmniejsz o 1 powtórzenie',
+    increaseReps: 'Zwiększ o 1 powtórzenie',
   },
   summary: {
     back: 'Wróć do sesji',

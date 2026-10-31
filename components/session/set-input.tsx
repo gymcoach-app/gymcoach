@@ -532,7 +532,7 @@ export function SetInput({
                   size="icon"
                   onClick={() => adjustReps(-1)}
                   className="min-h-tap min-w-tap"
-                  aria-label="-1 rep"
+                  aria-label={t('decreaseReps')}
                 >
                   <Minus className="size-5" />
                 </Button>
@@ -551,7 +551,7 @@ export function SetInput({
                   size="icon"
                   onClick={() => adjustReps(1)}
                   className="min-h-tap min-w-tap"
-                  aria-label="+1 rep"
+                  aria-label={t('increaseReps')}
                 >
                   <Plus className="size-5" />
                 </Button>
@@ -690,7 +690,10 @@ function computeInitial(
         loadConstraints,
       );
       weight = ordinary.weight ?? lastPerf.maxWeight;
-      if (returnRecommendation.weightCeiling != null && weight > returnRecommendation.weightCeiling) {
+      if (
+        returnRecommendation.weightCeiling != null &&
+        weight > returnRecommendation.weightCeiling
+      ) {
         weight = constrainGymWeightAtOrBelow(returnRecommendation.weightCeiling, loadConstraints);
       }
     }

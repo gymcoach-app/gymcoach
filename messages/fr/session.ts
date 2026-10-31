@@ -54,7 +54,8 @@ export const session = {
       'hold-load': 'La série précédente a atteint la cible ; gardez la même charge.',
       'adjust-reps': 'Gardez la charge et ajustez les répétitions pour préserver le RIR cible.',
       'reduce-load': 'Réduisez la charge pour préserver la cible programmée.',
-      'increase-load': 'La série précédente était plus facile que prévu ; ajoutez un cran de charge.',
+      'increase-load':
+        'La série précédente était plus facile que prévu ; ajoutez un cran de charge.',
       'bodyweight-adjust-reps':
         'La charge ne peut pas descendre sous le poids de corps ; ajustez plutôt les répétitions.',
     },
@@ -70,7 +71,8 @@ export const session = {
     targets: 'Séries aujourd’hui : {sets}. RIR cible : {rir}.',
     startWeight: 'Charge de départ prudente : {weight}.',
     bodyweightStart: 'Commencez au poids de corps, sans charge ajoutée.',
-    chooseLoad: 'Choisissez une charge de calibration volontairement légère pour la première série.',
+    chooseLoad:
+      'Choisissez une charge de calibration volontairement légère pour la première série.',
     ceiling: 'Ne dépassez pas aujourd’hui le plafond issu de votre historique : {weight}.',
     calibrate:
       'Notez un RIR honnête après la première série. La recommandation de la série suivante s’adaptera au résultat.',
@@ -79,7 +81,8 @@ export const session = {
     open: 'Bilan de forme (facultatif)',
     update: 'Mettre à jour le bilan de forme',
     title: 'Comment vous sentez-vous ?',
-    description: 'Facultatif. Notez de 1 (faible) à 5 (élevé) ; le coach s’en sert pour autoréguler.',
+    description:
+      'Facultatif. Notez de 1 (faible) à 5 (élevé) ; le coach s’en sert pour autoréguler.',
     overall: 'Forme générale',
     sleep: 'Qualité du sommeil',
     details: 'Ajouter courbatures / note (facultatif)',
@@ -126,6 +129,8 @@ export const session = {
     note: 'Note rapide (facultatif)',
     notePlaceholder: 'ex. douleur au poignet, charge réduite en cours de série, facile',
     logSet: 'Enregistrer la série',
+    decreaseReps: '-1 répétition',
+    increaseReps: '+1 répétition',
   },
   summary: {
     back: 'Retour à la séance',
@@ -165,12 +170,14 @@ export const session = {
     warmupDescription: 'Séries d’échauffement suggérées jusqu’à une charge de travail de {weight}.',
     warmupSets: 'Séries d’échauffement',
     reps: '{count} reps',
-    noWarmup: 'Cette charge est au niveau de la barre ou en dessous - pas de montée en charge nécessaire.',
+    noWarmup:
+      'Cette charge est au niveau de la barre ou en dessous - pas de montée en charge nécessaire.',
     warmupHelp:
       'Suggestions uniquement. Enregistrez les échauffements avec l’option Échauffement. Les charges sont arrondies vers le bas aux disques chargeables.',
   },
   setsList: {
-    noneDuringRest: 'Aucune série pour l’instant. Après le repos vous pourrez enregistrer la série {number}.',
+    noneDuringRest:
+      'Aucune série pour l’instant. Après le repos vous pourrez enregistrer la série {number}.',
     set: 'Série {number}',
     warmup: ' (échauffement)',
     drop: ' (dégressive)',

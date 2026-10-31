@@ -103,6 +103,8 @@ export const progress = {
     title: 'Cardio',
     description:
       'Minutos semanais de cardio comparados à recomendação de {target} min/semana. A distância e as sessões aparecem na dica do gráfico.',
+    summary:
+      'Nesta semana: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# sessão} other {# sessões}}}} · Total ({weeks} sem.): {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Semana de deload em andamento',
@@ -147,8 +149,7 @@ export const progress = {
     target: 'Meta: {weight} x {reps, plural, one {# rep} other {# reps}}',
     achieved: 'Atingida',
     progressAria: 'Progresso em direção à meta',
-    progress:
-      '{percent}% da meta na escala do 1RM estimado (melhor: {best}; meta: {target}).',
+    progress: '{percent}% da meta na escala do 1RM estimado (melhor: {best}; meta: {target}).',
     targetLoad: 'Carga alvo ({unit})',
     targetReps: 'Reps alvo',
     bodyweightHelp:
@@ -194,5 +195,27 @@ export const progress = {
     regionLabel: '{name}: {sets, plural, one {# série} other {# séries}} nesta semana, {status}',
     hint: 'Toque em um músculo para ver os detalhes.',
     empty: 'Nenhuma série válida naquela semana; registre uma sessão e o corpo se acende.',
+  },
+  photos: {
+    title: 'Fotos de progresso',
+    photo: 'Foto',
+    date: 'Data',
+    note: 'Nota (opcional)',
+    notePlaceholder: 'ex.: fim da fase de definição',
+    chooseFirst: 'Escolha uma foto primeiro.',
+    uploadError: 'Não foi possível enviar a foto.',
+    added: 'Foto adicionada.',
+    deleteConfirm: 'Excluir a foto de {date}?',
+    deleteError: 'Não foi possível excluir a foto.',
+    deleted: 'Foto excluída.',
+    empty:
+      'Ainda não há fotos de progresso. Elas são armazenadas localmente no seu servidor e só você pode vê-las. Envie a primeira para acompanhar as mudanças.',
+    imageAlt: 'Foto de progresso de {date}',
+    deleteAria: 'Excluir foto de {date}',
+    compare: 'Comparar',
+    before: 'Antes',
+    after: 'Depois',
+    compareAlt: 'Foto de {label} de {date}',
+    uploading: 'Enviando...',
   },
 } satisfies MessageShape<typeof english>;

@@ -78,6 +78,8 @@ export const common = {
     polish: 'Lehçe',
     turkish: 'Türkçe',
     error: 'Dil değiştirilemedi.',
+
+    chinese: 'Basitleştirilmiş Çince',
   },
   theme: {
     dark: 'Koyu',

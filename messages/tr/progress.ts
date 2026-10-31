@@ -102,6 +102,9 @@ export const progress = {
     title: 'Kondisyon',
     description:
       'Haftalık kardiyo dakikaları, haftada {target} dk önerisine göre. Mesafe ve seanslar ipucunda görünür.',
+
+    summary:
+      'Bu hafta: {minutes} dk{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# seans} other {# seans}}}} · {weeks} haftalık toplam: {totalMinutes} dk{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Deload haftası devam ediyor',
@@ -192,5 +195,28 @@ export const progress = {
     regionLabel: '{name}: bu hafta {sets, plural, one {# set} other {# set}}, {status}',
     hint: 'Ayrıntılar için bir kasa dokun.',
     empty: 'O hafta çalışma seti yok; bir seans kaydet, vücut haritası canlansın.',
+  },
+
+  photos: {
+    title: 'İlerleme fotoğrafları',
+    photo: 'Fotoğraf',
+    date: 'Tarih',
+    note: 'Not (isteğe bağlı)',
+    notePlaceholder: 'ör. yağ kaybı döneminin sonu',
+    chooseFirst: 'Önce bir fotoğraf seç.',
+    uploadError: 'Fotoğraf yüklenemedi.',
+    added: 'Fotoğraf eklendi.',
+    deleteConfirm: '{date} tarihli fotoğraf silinsin mi?',
+    deleteError: 'Fotoğraf silinemedi.',
+    deleted: 'Fotoğraf silindi.',
+    empty:
+      'Henüz ilerleme fotoğrafı yok. Fotoğraflar sunucunda yerel olarak saklanır ve yalnızca sen görebilirsin. Zaman çizelgesini başlatmak için ilk fotoğrafı yükle.',
+    imageAlt: '{date} tarihli ilerleme fotoğrafı',
+    deleteAria: '{date} tarihli fotoğrafı sil',
+    compare: 'Karşılaştır',
+    before: 'Önce',
+    after: 'Sonra',
+    compareAlt: '{label}: {date} tarihli fotoğraf',
+    uploading: 'Yükleniyor...',
   },
 } satisfies MessageShape<typeof english>;

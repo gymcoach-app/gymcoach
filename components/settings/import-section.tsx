@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useFormatter, useTranslations } from 'next-intl';
+import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import { FileUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { cn } from '@/lib/utils';
 
 // Client-side mirror of the server cap (the server re-enforces it).
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -108,7 +109,7 @@ const FORMAT_META: Record<
     label: string;
     source: string;
     endpoint: string;
-    exportHint: string;
+    exportHint: 'strong' | 'hevy' | 'gymcoach' | 'tcx' | 'gpx' | 'fit';
     hasUnitToggle: boolean;
     accept: string;
     fileKind: string;
@@ -118,7 +119,7 @@ const FORMAT_META: Record<
     label: 'Strong',
     source: 'the Strong app',
     endpoint: '/api/import/strong',
-    exportHint: 'export it as CSV (Settings, then Export data)',
+    exportHint: 'strong',
     hasUnitToggle: true,
     accept: '.csv,text/csv',
     fileKind: 'CSV',
@@ -127,7 +128,7 @@ const FORMAT_META: Record<
     label: 'Hevy',
     source: 'the Hevy app',
     endpoint: '/api/import/hevy',
-    exportHint: 'export it as CSV (Settings, then Export & Import Data)',
+    exportHint: 'hevy',
     hasUnitToggle: false,
     accept: '.csv,text/csv',
     fileKind: 'CSV',
@@ -136,8 +137,7 @@ const FORMAT_META: Record<
     label: 'GymCoach',
     source: 'a GymCoach history CSV',
     endpoint: '/api/import/gymcoach',
-    exportHint:
-      'use the CSV from the History page export, or any spreadsheet with the same columns (session_date, workout, exercise, set_number, external_load_kg, reps, ...)',
+    exportHint: 'gymcoach',
     hasUnitToggle: false,
     accept: '.csv,text/csv',
     fileKind: 'CSV',
@@ -146,8 +146,7 @@ const FORMAT_META: Record<
     label: 'TCX file',
     source: 'a TCX file',
     endpoint: '/api/import/tcx',
-    exportHint:
-      'export the activity as TCX from your watch platform (Garmin Connect, Polar Flow, ...) and it becomes one cardio session with duration, distance and heart rate',
+    exportHint: 'tcx',
     hasUnitToggle: false,
     accept: '.tcx,application/vnd.garmin.tcx+xml,application/xml,text/xml',
     fileKind: 'TCX',
@@ -156,8 +155,7 @@ const FORMAT_META: Record<
     label: 'GPX file',
     source: 'a GPX file',
     endpoint: '/api/import/gpx',
-    exportHint:
-      'export the route as GPX from Strava, Komoot or Apple Fitness and it becomes one cardio session with duration, distance and heart rate',
+    exportHint: 'gpx',
     hasUnitToggle: false,
     accept: '.gpx,application/gpx+xml,application/xml,text/xml',
     fileKind: 'GPX',
@@ -166,8 +164,7 @@ const FORMAT_META: Record<
     label: 'FIT file',
     source: 'a FIT file',
     endpoint: '/api/import/fit',
-    exportHint:
-      'export the activity as a FIT file from your Garmin (or other) watch and it becomes one cardio session with duration, distance and heart rate',
+    exportHint: 'fit',
     hasUnitToggle: false,
     accept: '.fit,application/vnd.ant.fit,application/octet-stream',
     fileKind: 'FIT',
@@ -178,6 +175,7 @@ const FORMAT_META: Record<
 // the export file, dry-run preview (counts + per-line errors, nothing
 // written), then explicitly confirm.
 export function ImportSection() {
+  const locale = useLocale();
   const t = useTranslations('settings.imports');
   const common = useTranslations('common');
   const intl = useFormatter();
@@ -392,12 +390,12 @@ export function ImportSection() {
         </h2>
         <p className="text-xs text-muted-foreground">
           {isCardioActivity
-            ? t('cardioDescription', { hint: meta.exportHint })
-            : t('appDescription', { app: meta.label, hint: meta.exportHint })}
+            ? t('cardioDescription', { hint: t(`exportHints.${meta.exportHint}`) })
+            : t('appDescription', { app: meta.label, hint: t(`exportHints.${meta.exportHint}`) })}
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <div className="flex items-end gap-2">
+        <div className={cn('flex items-end gap-2', locale === 'zh-CN' && 'flex-wrap')}>
           <div className="space-y-1">
             <Label htmlFor="import-format">{t('source')}</Label>
             <Select value={format} onValueChange={(v) => switchFormat(v as ImportFormat)}>
@@ -408,9 +406,9 @@ export function ImportSection() {
                 <SelectItem value="STRONG">Strong</SelectItem>
                 <SelectItem value="HEVY">Hevy</SelectItem>
                 <SelectItem value="GYMCOACH">GymCoach CSV</SelectItem>
-                <SelectItem value="TCX">TCX file</SelectItem>
-                <SelectItem value="GPX">GPX file</SelectItem>
-                <SelectItem value="FIT">FIT file</SelectItem>
+                <SelectItem value="TCX">{t('file', { format: 'TCX' })}</SelectItem>
+                <SelectItem value="GPX">{t('file', { format: 'GPX' })}</SelectItem>
+                <SelectItem value="FIT">{t('file', { format: 'FIT' })}</SelectItem>
               </SelectContent>
             </Select>
           </div>
