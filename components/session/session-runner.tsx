@@ -843,6 +843,18 @@ export function SessionRunner({
       }
     }
 
+    // Check if a superset partner is resting (edge case: manual navigation to partner)
+    if (currentPE.supersetGroup != null) {
+      for (const pe of programExercises) {
+        if (pe.id !== currentPE.id && pe.supersetGroup === currentPE.supersetGroup) {
+          const partnerState = exerciseStates.get(pe.id);
+          if (partnerState?.kind === 'rest') {
+            return pe.id; // Found the resting partner
+          }
+        }
+      }
+    }
+
     // Otherwise it's the current exercise itself
     return currentPE.id;
   }
