@@ -189,13 +189,13 @@ export function SessionExerciseStrip({
                 })()}
                 {/* State indicator badge (issue #542, PR1): timer countdown when resting */}
                 {(() => {
-                  // Show timer badge if this exercise is resting OR if this is the current
-                  // exercise and it's blocked by a superset transition rest from another exercise
+                  // Show timer badge if this exercise is resting OR if another exercise's
+                  // superset transition rest is blocking this one
                   let state = exerciseStates?.get(programExercise.id);
 
-                  // Check if this is the current exercise blocked by a superset transition rest
-                  if (isCurrent && (!state || state.kind !== 'rest')) {
-                    // Find if any other exercise is resting and navigated to this one
+                  // Check if any other exercise is resting and navigated to this one
+                  // (superset transition rest blocks this exercise)
+                  if (!state || state.kind !== 'rest') {
                     for (const [, otherState] of exerciseStates?.entries() ?? []) {
                       if (
                         otherState.kind === 'rest' &&
