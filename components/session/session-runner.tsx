@@ -672,6 +672,21 @@ export function SessionRunner({
     const restingExerciseId = currentPE.id;
     if (navigatedImmediately) selectExercise(nextIdx);
 
+    // Check if any exercise in the same superset group is already resting (issue #542, edge case).
+    // If so, don't start a new competing rest timer.
+    const currentSupersetGroup = currentPE.supersetGroup;
+    const supersetPartnerAlreadyResting = currentSupersetGroup != null &&
+      programExercises.some(pe =>
+        pe.id !== currentPE.id &&
+        pe.supersetGroup === currentSupersetGroup &&
+        exerciseStates.get(pe.id)?.kind === 'rest'
+      );
+
+    if (supersetPartnerAlreadyResting) {
+      // Don't start a new rest - the superset partner is already resting
+      return;
+    }
+
     // Set rest state for this specific exercise (issue #542, PR1).
     setExerciseStates(prev => {
       const next = new Map(prev);
