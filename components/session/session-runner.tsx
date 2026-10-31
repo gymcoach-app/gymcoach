@@ -800,45 +800,69 @@ export function SessionRunner({
 
   // handleRestEnd removed (issue #542, PR1): logic moved to global background timer.
 
+  // Find which exercise is actually resting (may be different from currentPE during superset transition)
+  function getRestingExerciseId(): string | null {
+    if (!currentPE || currentState.kind !== 'rest') return null;
+
+    // Check if currentState is from a superset transition (another exercise navigated to current)
+    for (const pe of programExercises) {
+      const state = exerciseStates.get(pe.id);
+      if (
+        state?.kind === 'rest' &&
+        state.navigatedImmediately &&
+        state.nextExerciseIdx === currentIdx
+      ) {
+        return pe.id; // Found the exercise that's actually resting
+      }
+    }
+
+    // Otherwise it's the current exercise itself
+    return currentPE.id;
+  }
+
   function handleSkipRest() {
-    if (!currentPE || currentState.kind !== 'rest') return;
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
 
     // Navigate if we haven't already
     if (!currentState.navigatedImmediately && currentState.nextExerciseIdx != null) {
       selectExercise(currentState.nextExerciseIdx);
     }
 
-    // Clear this exercise's rest state
+    // Clear the resting exercise's state
     setExerciseStates(prev => {
       const next = new Map(prev);
-      next.set(currentPE.id, { kind: 'input' });
+      next.set(restingId, { kind: 'input' });
       return next;
     });
   }
 
   function handlePauseRest() {
-    if (!currentPE || currentState.kind !== 'rest') return;
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
     setExerciseStates(prev => {
       const next = new Map(prev);
-      next.set(currentPE.id, pauseRest(currentState, Date.now()));
+      next.set(restingId, pauseRest(currentState, Date.now()));
       return next;
     });
   }
 
   function handleResumeRest() {
-    if (!currentPE || currentState.kind !== 'rest') return;
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
     setExerciseStates(prev => {
       const next = new Map(prev);
-      next.set(currentPE.id, resumeRest(currentState, Date.now()));
+      next.set(restingId, resumeRest(currentState, Date.now()));
       return next;
     });
   }
 
   function handleAdjustRest(deltaMs: number) {
-    if (!currentPE || currentState.kind !== 'rest') return;
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
     setExerciseStates(prev => {
       const next = new Map(prev);
-      next.set(currentPE.id, adjustRest(currentState, deltaMs, Date.now()));
+      next.set(restingId, adjustRest(currentState, deltaMs, Date.now()));
       return next;
     });
   }
