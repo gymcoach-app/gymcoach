@@ -285,6 +285,18 @@ export function SessionRunner({
       }
     }
 
+    // Check if a superset partner is resting (edge case: prevents logging on A1 when A2 is resting)
+    if (currentPE.supersetGroup != null) {
+      for (const pe of programExercises) {
+        if (pe.id !== currentPE.id && pe.supersetGroup === currentPE.supersetGroup) {
+          const partnerState = exerciseStates.get(pe.id);
+          if (partnerState?.kind === 'rest') {
+            return partnerState;
+          }
+        }
+      }
+    }
+
     // Otherwise use this exercise's own state
     return exerciseStates.get(currentPE.id) ?? { kind: 'input' };
   })();
