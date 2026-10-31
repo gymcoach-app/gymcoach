@@ -19,7 +19,6 @@ type MenuProps = {
 };
 type CardProps = {
   onOpenMenu?: () => void;
-  menuDisabled?: boolean;
   lastDoneDaysAgo?: number | null;
   lastDonePending?: boolean;
   timeZone?: string | null;
@@ -256,23 +255,22 @@ describe('SessionRunner exercise menu wiring', () => {
     );
   });
 
-  it('keeps the actions button on the card during a rest, disabled', async () => {
+  it('keeps the actions button on the card always enabled (issue #542, PR1)', async () => {
     await renderRunner(runner([row('bench', 1), row('fly', 2)]));
     expect(card().onOpenMenu).toBeTypeOf('function');
-    expect(card().menuDisabled).toBe(false);
 
     await act(async () => {
       await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
     });
 
-    // Resting: the button keeps its box (so the header does not jump) but
-    // cannot open the menu.
+    // Resting: the button and menu remain functional (menuDisabled removed in #542 PR1).
     expect(await screen.findByRole('button', { name: 'skip rest' })).toBeInTheDocument();
     expect(card().onOpenMenu).toBeTypeOf('function');
-    expect(card().menuDisabled).toBe(true);
 
+    // Skip rest returns to input mode
     fireEvent.click(screen.getByRole('button', { name: 'skip rest' }));
-    await waitFor(() => expect(card().menuDisabled).toBe(false));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument());
+    expect(card().onOpenMenu).toBeTypeOf('function');
   });
 
   it('does not jump to a newly added row after the list shrank under the selection', async () => {
@@ -291,7 +289,7 @@ describe('SessionRunner exercise menu wiring', () => {
 });
 
 describe('SessionRunner superset transition', () => {
-  it('navigates to the next member once: skipping the transition rest does not navigate again', async () => {
+  it('navigates to the next member once (issue #542, PR1: per-exercise rest)', async () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     await renderRunner(runner([row('a1', 1, 1), row('a2', 2, 1), row('a3', 3, 1)]));
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a1');
@@ -300,15 +298,13 @@ describe('SessionRunner superset transition', () => {
       await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
     });
 
-    // The next member is shown right away, while the transition rest runs.
+    // The next member is shown right away, while the transition rest runs on a1.
+    // Since this is a superset transition, a2 shows a1's rest timer (#542 PR1).
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'skip rest' }));
-
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument(),
-    );
+    // a1's timer continues in background and is visible on a2. We stay on a2.
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
   });

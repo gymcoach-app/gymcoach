@@ -67,7 +67,7 @@ describe('SessionExerciseStrip', () => {
     expect(onOpen).toHaveBeenCalledWith(0);
   });
 
-  it('ignores every tap while disabled, including the current tile', () => {
+  it('is always clickable (issue #542, PR1: strip stays usable during rest)', () => {
     const onSelect = vi.fn();
     const onOpen = vi.fn();
     render(
@@ -77,17 +77,22 @@ describe('SessionExerciseStrip', () => {
         completedProgramExerciseIds={new Set()}
         onSelect={onSelect}
         onOpen={onOpen}
-        disabled
       />,
     );
 
     const active = screen.getByRole('button', { name: '1. Squats · Barbell' });
     const inactive = screen.getByRole('button', { name: '2. Custom Rear Delt Raise' });
-    expect(active).toHaveAttribute('aria-disabled', 'true');
+
+    // Strip is never disabled (no aria-disabled attribute)
+    expect(active).not.toHaveAttribute('aria-disabled');
+
+    // Clicking current opens detail
     fireEvent.click(active);
+    expect(onOpen).toHaveBeenCalledWith(0);
+
+    // Clicking non-current selects it
     fireEvent.click(inactive);
-    expect(onOpen).not.toHaveBeenCalled();
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith(1);
   });
 
   it('marks completion per program row, so a repeated exercise is tracked separately', () => {

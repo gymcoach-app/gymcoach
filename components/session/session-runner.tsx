@@ -135,18 +135,21 @@ type SessionRunnerProps = {
   userId: string;
 };
 
-type Mode =
+// Per-exercise state for independent rest timers (issue #542, PR1).
+// Each exercise in the workout tracks its own state: input (ready for next set)
+// or rest (timer running). All timers run simultaneously in the background.
+type ExerciseState =
   | { kind: 'input' }
   | {
       kind: 'rest';
       endsAt: number;
-      // Set while the rest is paused (issue #393); see lib/rest-timer.ts.
       pausedRemainingMs: number | null;
       totalSec: number;
       nextExerciseIdx: number | null;
       navigatedImmediately: boolean;
-    }
-  | { kind: 'summary' };
+    };
+
+type GlobalMode = 'active' | 'summary';
 
 export function SessionRunner({
   session,
@@ -221,7 +224,12 @@ export function SessionRunner({
     selectProgramExerciseId: string;
     removedProgramExerciseId?: string;
   } | null>(null);
-  const [mode, setMode] = useState<Mode>({ kind: 'input' });
+  // Per-exercise rest states (issue #542, PR1): each exercise tracks its own
+  // rest timer independently. All timers run simultaneously in the background.
+  const [exerciseStates, setExerciseStates] = useState<Map<string, ExerciseState>>(
+    new Map()
+  );
+  const [globalMode, setGlobalMode] = useState<GlobalMode>('active');
   // Bumped each time a rest runs out with the flash preference on (issue #393).
   const [restFlashCount, setRestFlashCount] = useState(0);
   const [closing, setClosing] = useState(false);
@@ -258,6 +266,40 @@ export function SessionRunner({
 
   const currentPE = programExercises[currentIdx];
   const currentTarget = effectiveProgramExercises[currentIdx];
+
+  // Derive current exercise's state from the map (issue #542, PR1).
+  // For superset transitions with navigatedImmediately, show the rest timer of
+  // the previous exercise that navigated here.
+  const currentState: ExerciseState = (() => {
+    if (!currentPE) return { kind: 'input' };
+
+    // Check if any exercise is resting and navigated here immediately
+    for (const pe of programExercises) {
+      const state = exerciseStates.get(pe.id);
+      if (
+        state?.kind === 'rest' &&
+        state.navigatedImmediately &&
+        state.nextExerciseIdx === currentIdx
+      ) {
+        return state;
+      }
+    }
+
+    // Check if a superset partner is resting (edge case: prevents logging on A1 when A2 is resting)
+    if (currentPE.supersetGroup != null) {
+      for (const pe of programExercises) {
+        if (pe.id !== currentPE.id && pe.supersetGroup === currentPE.supersetGroup) {
+          const partnerState = exerciseStates.get(pe.id);
+          if (partnerState?.kind === 'rest') {
+            return partnerState;
+          }
+        }
+      }
+    }
+
+    // Otherwise use this exercise's own state
+    return exerciseStates.get(currentPE.id) ?? { kind: 'input' };
+  })();
 
   // Write the clamp back. If a pending selection never lands (failed refresh,
   // target row gone), an index left past the end would make a later add jump
@@ -343,6 +385,58 @@ export function SessionRunner({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Global background timer (issue #542, PR1): checks ALL exercises every second,
+  // not just the current one. Timers run continuously regardless of which
+  // exercise is viewed. Auto-navigate only if viewing the exercise whose timer expired.
+  useEffect(() => {
+    if (globalMode !== 'active') return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+
+      setExerciseStates(prev => {
+        const next = new Map(prev);
+        let changed = false;
+
+        // Check every exercise's timer
+        for (const pe of programExercises) {
+          const state = prev.get(pe.id);
+          if (!state || state.kind !== 'rest') continue;
+
+          // Skip paused timers
+          if (state.pausedRemainingMs != null) continue;
+
+          // Timer expired?
+          if (now >= state.endsAt) {
+            // Auto-navigate only if this is the currently viewed exercise
+            const isViewing = currentPE && pe.id === currentPE.id;
+            if (isViewing) {
+              vibrate(VIBRATION_PATTERNS.restEnd);
+              if (isRestEndFlashEnabled()) {
+                setRestFlashCount(count => count + 1);
+              }
+
+              // Navigate if we haven't already
+              if (!state.navigatedImmediately && state.nextExerciseIdx != null) {
+                selectExercise(state.nextExerciseIdx);
+              }
+            }
+
+            // Transition to input regardless of whether viewing
+            next.set(pe.id, { kind: 'input' });
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+    // selectExercise is stable (doesn't depend on state), currentPE is derived
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programExercises, currentPE?.id, globalMode]);
 
   // Live query: all sets of this session, from IndexedDB.
   const liveSets = useLiveQuery(
@@ -502,6 +596,24 @@ export function SessionRunner({
     return completed;
   }, [effectiveProgramExercises, setsByExercise, keyOf]);
 
+  const startedProgramExerciseIds = useMemo(() => {
+    const started = new Set<string>();
+    for (const pe of effectiveProgramExercises) {
+      const done = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
+      if (done > 0) started.add(pe.id);
+    }
+    return started;
+  }, [effectiveProgramExercises, setsByExercise, keyOf]);
+
+  const exerciseProgress = useMemo(() => {
+    const progress = new Map<string, { done: number; target: number }>();
+    for (const pe of effectiveProgramExercises) {
+      const done = setsByExercise.get(keyOf(pe))?.filter((s) => !s.isWarmup).length ?? 0;
+      progress.set(pe.id, { done, target: pe.targetSets });
+    }
+    return progress;
+  }, [effectiveProgramExercises, setsByExercise, keyOf]);
+
   const progressPct =
     programExercises.length === 0
       ? 0
@@ -568,15 +680,37 @@ export function SessionRunner({
     // the lifter can get into position while the short transition rest runs.
     // The timer still keeps input locked until it ends or is skipped.
     const navigatedImmediately = transition && nextIdx != null;
+    // Capture the exercise ID before navigation (issue #542, PR1).
+    const restingExerciseId = currentPE.id;
     if (navigatedImmediately) selectExercise(nextIdx);
 
-    setMode({
-      kind: 'rest',
-      endsAt: Date.now() + restSec * 1000,
-      pausedRemainingMs: null,
-      totalSec: restSec,
-      nextExerciseIdx: nextIdx,
-      navigatedImmediately,
+    // Check if any exercise in the same superset group is already resting (issue #542, edge case).
+    // If so, don't start a new competing rest timer.
+    const currentSupersetGroup = currentPE.supersetGroup;
+    const supersetPartnerAlreadyResting = currentSupersetGroup != null &&
+      programExercises.some(pe =>
+        pe.id !== currentPE.id &&
+        pe.supersetGroup === currentSupersetGroup &&
+        exerciseStates.get(pe.id)?.kind === 'rest'
+      );
+
+    if (supersetPartnerAlreadyResting) {
+      // Don't start a new rest - the superset partner is already resting
+      return;
+    }
+
+    // Set rest state for this specific exercise (issue #542, PR1).
+    setExerciseStates(prev => {
+      const next = new Map(prev);
+      next.set(restingExerciseId, {
+        kind: 'rest',
+        endsAt: Date.now() + restSec * 1000,
+        pausedRemainingMs: null,
+        totalSec: restSec,
+        nextExerciseIdx: nextIdx,
+        navigatedImmediately,
+      });
+      return next;
     });
   }
 
@@ -691,40 +825,90 @@ export function SessionRunner({
     window.history.replaceState(window.history.state, '', sessionExercisePath(session.id, next.id));
   }
 
-  function handleRestEnd() {
-    vibrate(VIBRATION_PATTERNS.restEnd);
-    if (isRestEndFlashEnabled()) setRestFlashCount((count) => count + 1);
-    if (mode.kind === 'rest' && !mode.navigatedImmediately && mode.nextExerciseIdx != null) {
-      selectExercise(mode.nextExerciseIdx);
+  // handleRestEnd removed (issue #542, PR1): logic moved to global background timer.
+
+  // Find which exercise is actually resting (may be different from currentPE during superset transition)
+  function getRestingExerciseId(): string | null {
+    if (!currentPE || currentState.kind !== 'rest') return null;
+
+    // Check if currentState is from a superset transition (another exercise navigated to current)
+    for (const pe of programExercises) {
+      const state = exerciseStates.get(pe.id);
+      if (
+        state?.kind === 'rest' &&
+        state.navigatedImmediately &&
+        state.nextExerciseIdx === currentIdx
+      ) {
+        return pe.id; // Found the exercise that's actually resting
+      }
     }
-    setMode({ kind: 'input' });
+
+    // Check if a superset partner is resting (edge case: manual navigation to partner)
+    if (currentPE.supersetGroup != null) {
+      for (const pe of programExercises) {
+        if (pe.id !== currentPE.id && pe.supersetGroup === currentPE.supersetGroup) {
+          const partnerState = exerciseStates.get(pe.id);
+          if (partnerState?.kind === 'rest') {
+            return pe.id; // Found the resting partner
+          }
+        }
+      }
+    }
+
+    // Otherwise it's the current exercise itself
+    return currentPE.id;
   }
 
   function handleSkipRest() {
-    if (mode.kind === 'rest' && !mode.navigatedImmediately && mode.nextExerciseIdx != null) {
-      selectExercise(mode.nextExerciseIdx);
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
+
+    // Navigate if we haven't already
+    if (!currentState.navigatedImmediately && currentState.nextExerciseIdx != null) {
+      selectExercise(currentState.nextExerciseIdx);
     }
-    setMode({ kind: 'input' });
+
+    // Clear the resting exercise's state
+    setExerciseStates(prev => {
+      const next = new Map(prev);
+      next.set(restingId, { kind: 'input' });
+      return next;
+    });
   }
 
   function handlePauseRest() {
-    if (mode.kind !== 'rest') return;
-    setMode(pauseRest(mode, Date.now()));
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
+    setExerciseStates(prev => {
+      const next = new Map(prev);
+      next.set(restingId, pauseRest(currentState, Date.now()));
+      return next;
+    });
   }
 
   function handleResumeRest() {
-    if (mode.kind !== 'rest') return;
-    setMode(resumeRest(mode, Date.now()));
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
+    setExerciseStates(prev => {
+      const next = new Map(prev);
+      next.set(restingId, resumeRest(currentState, Date.now()));
+      return next;
+    });
   }
 
   function handleAdjustRest(deltaMs: number) {
-    if (mode.kind !== 'rest') return;
-    setMode(adjustRest(mode, deltaMs, Date.now()));
+    const restingId = getRestingExerciseId();
+    if (!restingId || currentState.kind !== 'rest') return;
+    setExerciseStates(prev => {
+      const next = new Map(prev);
+      next.set(restingId, adjustRest(currentState, deltaMs, Date.now()));
+      return next;
+    });
   }
 
   function goPrev() {
     selectExercise(Math.max(0, currentIdx - 1));
-    setMode({ kind: 'input' });
+    // No setMode call - state is preserved (issue #542, PR1)
   }
   // Next is linear for standalone exercises (unchanged) and cycles within a
   // superset group before advancing past it (issue #146).
@@ -738,10 +922,10 @@ export function SessionRunner({
   function goNext() {
     if (navNextIdx == null) return;
     selectExercise(navNextIdx);
-    setMode({ kind: 'input' });
+    // No setMode call - state is preserved (issue #542, PR1)
   }
 
-  if (mode.kind === 'summary') {
+  if (globalMode === 'summary') {
     return (
       <SessionSummary
         session={session}
@@ -749,7 +933,7 @@ export function SessionRunner({
         programExercises={effectiveProgramExercises}
         unit={unit}
         priorSets={priorSetsByExercise}
-        onBack={() => setMode({ kind: 'input' })}
+        onBack={() => setGlobalMode('active')}
         onFinish={handleFinishSession}
         finishing={closing}
       />
@@ -770,24 +954,24 @@ export function SessionRunner({
   const currentReturnRecommendation = returnRecommendations[currentPE.id];
   const currentRecommendation = recommendationFor(currentTarget, Date.now());
   const restNextPe =
-    mode.kind === 'rest'
-      ? mode.nextExerciseIdx != null
-        ? (effectiveProgramExercises[mode.nextExerciseIdx] ?? null)
+    currentState.kind === 'rest'
+      ? currentState.nextExerciseIdx != null
+        ? (effectiveProgramExercises[currentState.nextExerciseIdx] ?? null)
         : currentSets.filter((set) => !set.isWarmup).length < currentTarget.targetSets
           ? currentTarget
           : null
       : null;
   const restNextLabel =
-    mode.kind === 'rest' && !mode.navigatedImmediately && restNextPe
+    currentState.kind === 'rest' && !currentState.navigatedImmediately && restNextPe
       ? exerciseName(restNextPe.exercise.name)
       : null;
   const restRecommendation =
-    mode.kind === 'rest' && restNextPe
+    currentState.kind === 'rest' && restNextPe
       ? // A paused rest has not used its remaining time yet, so the recovery the
         // recommendation assumes runs until now plus what is left.
         recommendationFor(
           restNextPe,
-          mode.pausedRemainingMs != null ? Date.now() + mode.pausedRemainingMs : mode.endsAt,
+          currentState.pausedRemainingMs != null ? Date.now() + currentState.pausedRemainingMs : currentState.endsAt,
         )
       : null;
 
@@ -834,10 +1018,11 @@ export function SessionRunner({
           exercises={programExercises}
           currentIndex={currentIdx}
           completedProgramExerciseIds={completedProgramExerciseIds}
-          disabled={mode.kind !== 'input'}
+          startedProgramExerciseIds={startedProgramExerciseIds}
+          exerciseProgress={exerciseProgress}
+          exerciseStates={exerciseStates}
           onSelect={(index) => {
             selectExercise(index);
-            setMode({ kind: 'input' });
           }}
           onOpen={(index) => {
             const pe = programExercises[index];
@@ -861,7 +1046,6 @@ export function SessionRunner({
           gymName={session.gym?.name ?? null}
           loadConstraints={loadConstraintsFor(currentPE)}
           onOpenMenu={() => setExerciseMenuOpen(true)}
-          menuDisabled={mode.kind !== 'input'}
         />
         <SessionExerciseMenu
           open={exerciseMenuOpen}
@@ -891,7 +1075,7 @@ export function SessionRunner({
           <SetsList
             programExercise={currentTarget}
             sets={currentSets}
-            isInputActive={mode.kind === 'input'}
+            isInputActive={currentState.kind === 'input'}
             onDeleteSet={handleDeleteSet}
             priorSets={lastPerf?.sets}
           />
@@ -912,7 +1096,7 @@ export function SessionRunner({
                 !droppedEquipmentIds.includes(item.id) &&
                 item.exerciseLinks.some((link) => link.exerciseId === currentPE.exerciseId),
             )}
-            disabled={!hydrated || mode.kind !== 'input'}
+            disabled={!hydrated || currentState.kind !== 'input'}
             onEquipmentWeightsUpdated={handleEquipmentWeightsUpdated}
             onSubmit={handleValidate}
             onDeleteSet={handleDeleteSet}
@@ -923,7 +1107,7 @@ export function SessionRunner({
         {/* Keep the full logger available while the inline table is introduced:
             strength users still retain warmup/drop-set, notes, AI parsing and
             equipment selection; cardio continues to use this as its only input. */}
-        {!hydrated ? null : mode.kind === 'input' ? (
+        {!hydrated ? null : currentState.kind === 'input' ? (
           <SetInput
             programExercise={currentTarget}
             existingSets={currentSets}
@@ -940,21 +1124,21 @@ export function SessionRunner({
             )}
             onSubmit={handleValidate}
           />
-        ) : (
+        ) : currentState.kind === 'rest' ? (
           <RestTimer
-            endsAt={mode.endsAt}
-            pausedRemainingMs={mode.pausedRemainingMs}
-            totalSec={mode.totalSec}
+            endsAt={currentState.endsAt}
+            pausedRemainingMs={currentState.pausedRemainingMs}
+            totalSec={currentState.totalSec}
             nextLabel={restNextLabel}
             recommendation={restRecommendation}
             unit={unit}
-            onEnd={handleRestEnd}
+            onEnd={() => {}}  // Handled by global background timer (issue #542, PR1)
             onSkip={handleSkipRest}
             onPause={handlePauseRest}
             onResume={handleResumeRest}
             onAdjust={handleAdjustRest}
           />
-        )}
+        ) : null}
 
         {/* In-session coach access (issue #111): opens the chat with this
             session attached so the advice is grounded in the live workout.
@@ -971,7 +1155,7 @@ export function SessionRunner({
             variant="outline"
             size="sm"
             onClick={goPrev}
-            disabled={currentIdx === 0 || mode.kind !== 'input'}
+            disabled={currentIdx === 0}
             className="min-h-tap"
           >
             <ChevronLeft className="size-4" />
@@ -981,7 +1165,7 @@ export function SessionRunner({
           <Button
             variant="default"
             size="sm"
-            onClick={() => setMode({ kind: 'summary' })}
+            onClick={() => setGlobalMode('summary')}
             className="min-h-tap"
           >
             <Flag className="size-4" />
@@ -992,7 +1176,7 @@ export function SessionRunner({
             variant="outline"
             size="sm"
             onClick={goNext}
-            disabled={navNextIdx == null || mode.kind !== 'input'}
+            disabled={navNextIdx == null}
             className="min-h-tap"
           >
             <span className="mr-1">{t('next')}</span>
