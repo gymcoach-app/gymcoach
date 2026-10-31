@@ -299,12 +299,12 @@ describe('SessionRunner superset transition', () => {
     });
 
     // The next member is shown right away, while the transition rest runs on a1.
-    // Since we're viewing a2 (input mode), no rest timer is visible (#542 PR1).
+    // Since this is a superset transition, a2 shows a1's rest timer (#542 PR1).
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
 
-    // a1's timer continues in background. We stay on a2.
+    // a1's timer continues in background and is visible on a2. We stay on a2.
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
   });

@@ -211,7 +211,7 @@ export function SessionExerciseStrip({
                   // Check if any other exercise is resting and navigated to this one
                   // (superset transition rest blocks this exercise)
                   if (!state || state.kind !== 'rest') {
-                    for (const [peId, otherState] of exerciseStates?.entries() ?? []) {
+                    for (const [, otherState] of exerciseStates?.entries() ?? []) {
                       if (
                         otherState.kind === 'rest' &&
                         'navigatedImmediately' in otherState &&
