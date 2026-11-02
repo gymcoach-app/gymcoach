@@ -19,6 +19,7 @@ export const session = {
   exerciseProgress: '动作 {current}/{total} · {name}',
   exerciseStripLabel: '本次训练动作',
   exerciseCompleted: '已完成',
+  exerciseResting: '剩余 {time}',
   superset: '超级组 {label}',
   deloadWeek: '减量周',
   quit: '放弃本次训练',

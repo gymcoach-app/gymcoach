@@ -412,7 +412,7 @@ export function SessionRunner({
 
           // Timer expired?
           if (now >= state.endsAt) {
-            const isViewing = currentPE && pe.id === currentPE.id;
+            const isViewing = !!(currentPE && pe.id === currentPE.id);
             expired.push({
               peId: pe.id,
               supersetGroup: pe.supersetGroup,
