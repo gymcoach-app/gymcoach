@@ -24,6 +24,8 @@ interface Props {
     navigatedImmediately?: boolean;
     nextExerciseIdx?: number | null;
   }>;
+  // True when ANY exercise is resting (maintainer review): guards onOpen to prevent timer loss.
+  anyResting?: boolean;
   onSelect: (index: number) => void;
   onOpen: (index: number) => void;
 }
@@ -56,6 +58,7 @@ export function SessionExerciseStrip({
   startedProgramExerciseIds,
   exerciseProgress,
   exerciseStates,
+  anyResting,
   onSelect,
   onOpen,
 }: Props) {
@@ -94,18 +97,14 @@ export function SessionExerciseStrip({
             supersetGroup != null && exercises[index + 1]?.supersetGroup === supersetGroup;
           const isInSuperset = previousInGroup || nextInGroup;
 
-          // Check if current tile is resting (disable onOpen to prevent navigation loss)
-          const currentState = exerciseStates?.get(programExercise.id);
-          const isCurrentResting = isCurrent && currentState?.kind === 'rest';
-
           return (
             <button
               key={programExercise.id}
               ref={isCurrent ? currentRef : undefined}
               type="button"
               onClick={() => {
-                // Disable detail navigation during rest to prevent timer loss (PR1 scope)
-                if (isCurrent && !isCurrentResting) onOpen(index);
+                // Disable detail navigation when ANY exercise resting (maintainer review)
+                if (isCurrent && !anyResting) onOpen(index);
                 else if (!isCurrent) onSelect(index);
               }}
               aria-label={`${index + 1}. ${displayName}${isComplete ? ` · ${t('exerciseCompleted')}` : ''}`}

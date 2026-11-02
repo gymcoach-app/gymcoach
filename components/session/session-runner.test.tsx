@@ -20,6 +20,7 @@ type MenuProps = {
 };
 type CardProps = {
   onOpenMenu?: () => void;
+  menuDisabled?: boolean;
   lastDoneDaysAgo?: number | null;
   lastDonePending?: boolean;
   timeZone?: string | null;
@@ -259,19 +260,22 @@ describe('SessionRunner exercise menu wiring', () => {
   it('disables the exercise menu during rest (PR1: defer add/delete to PR2)', async () => {
     await renderRunner(runner([row('bench', 1), row('fly', 2)]));
     expect(card().onOpenMenu).toBeTypeOf('function');
+    expect(card().menuDisabled).toBe(false);
 
     await act(async () => {
       await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
     });
 
-    // Resting: menu is disabled (PR2 will handle add/delete with index-based nextExerciseIdx).
+    // Resting: menu button stays rendered but disabled (maintainer review: prevents header jump).
     expect(await screen.findByRole('button', { name: 'skip rest' })).toBeInTheDocument();
-    expect(card().onOpenMenu).toBeUndefined();
+    expect(card().onOpenMenu).toBeTypeOf('function');
+    expect(card().menuDisabled).toBe(true);
 
     // Skip rest returns to input mode, menu enabled again
     fireEvent.click(screen.getByRole('button', { name: 'skip rest' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument());
     expect(card().onOpenMenu).toBeTypeOf('function');
+    expect(card().menuDisabled).toBe(false);
   });
 
   it('does not jump to a newly added row after the list shrank under the selection', async () => {
@@ -306,7 +310,13 @@ describe('SessionRunner superset transition', () => {
     expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
 
     // Skipping the transition rest does not navigate a second time (already on a2).
-    await userEvent.click(screen.getByRole('button', { name: 'skip rest' }));
+    const skipButton = screen.getByRole('button', { name: 'skip rest' });
+    await userEvent.click(skipButton);
+
+    // Wait for skip button to disappear (rest ended)
+    await waitFor(() => expect(skipButton).not.toBeInTheDocument());
+
+    // Verify still on a2 (skip did not navigate again)
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
   });
@@ -363,6 +373,38 @@ describe('SessionRunner superset transition', () => {
     });
     expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument();
 
+    vi.useRealTimers();
+  });
+
+  it('fires cues for rest expiring on non-viewed exercise (maintainer review)', async () => {
+    vi.useFakeTimers();
+    const mockVibrate = vi.fn();
+    const vibrateModule = await import('@/lib/vibrate');
+    const originalVibrate = vibrateModule.vibrate;
+    vibrateModule.vibrate = mockVibrate;
+
+    // Superset: A and B
+    await renderRunner(runner([row('a', 1, 1), row('b', 2, 1)]));
+
+    // Log set on A, auto-navigates to B (superset transition)
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+
+    // A's timer runs in background. Clear mock to only count expiry vibration.
+    mockVibrate.mockClear();
+
+    // Advance time past A's rest duration (120s + 1s)
+    await act(async () => {
+      vi.advanceTimersByTime(121000);
+    });
+
+    // Vibration should have fired when A's rest expired, even though viewing B
+    // (maintainer review: fire cues for ALL expired rests)
+    expect(mockVibrate).toHaveBeenCalled();
+
+    vibrateModule.vibrate = originalVibrate;
     vi.useRealTimers();
   });
 });

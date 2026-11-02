@@ -95,6 +95,33 @@ describe('SessionExerciseStrip', () => {
     expect(onSelect).toHaveBeenCalledWith(1);
   });
 
+  it('does not call onOpen when any exercise is resting (maintainer review)', () => {
+    const onSelect = vi.fn();
+    const onOpen = vi.fn();
+    render(
+      <SessionExerciseStrip
+        exercises={exercises}
+        currentIndex={0}
+        completedProgramExerciseIds={new Set()}
+        anyResting={true}
+        onSelect={onSelect}
+        onOpen={onOpen}
+      />,
+    );
+
+    // Click current (viewing) tile
+    const active = screen.getByRole('button', { name: '1. Squats · Barbell' });
+    fireEvent.click(active);
+
+    // onOpen should NOT be called because anyResting=true
+    expect(onOpen).not.toHaveBeenCalled();
+
+    // Clicking non-current should still select
+    const inactive = screen.getByRole('button', { name: '2. Custom Rear Delt Raise' });
+    fireEvent.click(inactive);
+    expect(onSelect).toHaveBeenCalledWith(1);
+  });
+
   it('marks completion per program row, so a repeated exercise is tracked separately', () => {
     const repeated = [
       ...(exercises as unknown as Array<Record<string, unknown>>),

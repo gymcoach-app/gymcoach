@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -229,6 +229,8 @@ export function SessionRunner({
   const [exerciseStates, setExerciseStates] = useState<Map<string, ExerciseState>>(
     new Map()
   );
+  // Ref to track latest state for pure timer expiry logic (maintainer review).
+  const statesRef = useRef<Map<string, ExerciseState>>(new Map());
   const [globalMode, setGlobalMode] = useState<GlobalMode>('active');
   // Bumped each time a rest runs out with the flash preference on (issue #393).
   const [restFlashCount, setRestFlashCount] = useState(0);
@@ -300,6 +302,18 @@ export function SessionRunner({
     // Otherwise use this exercise's own state
     return exerciseStates.get(currentPE.id) ?? { kind: 'input' };
   })();
+
+  // Check if ANY exercise is resting (issue #542, maintainer review):
+  // Guards details and menu to prevent unmounting the runner and losing all timers.
+  const anyResting = useMemo(
+    () => [...exerciseStates.values()].some((s) => s.kind === 'rest'),
+    [exerciseStates]
+  );
+
+  // Keep ref in sync with state when state changes from other sources (not timer)
+  useEffect(() => {
+    statesRef.current = exerciseStates;
+  }, [exerciseStates]);
 
   // Write the clamp back. If a pending selection never lands (failed refresh,
   // target row gone), an index left past the end would make a later add jump
@@ -389,60 +403,65 @@ export function SessionRunner({
   // Global background timer (issue #542, PR1): checks ALL exercises every second,
   // not just the current one. Timers run continuously regardless of which
   // exercise is viewed. Auto-navigate only if viewing the exercise whose timer expired.
+  // Maintainer review: compute expired from ref, call pure setState, then run side effects.
   useEffect(() => {
     if (globalMode !== 'active') return;
 
     const interval = setInterval(() => {
       const now = Date.now();
 
-      // Compute expired exercises (pure, no side effects)
-      const expired: Array<{ peId: string; supersetGroup: number | null; isViewing: boolean; shouldNavigate: boolean; nextIdx: number | null }> = [];
+      // Read from ref (not state) for pure computation
+      const currentStates = statesRef.current;
+      const expired: Array<{
+        peId: string;
+        supersetGroup: number | null;
+        isViewing: boolean;
+        shouldNavigate: boolean;
+        nextIdx: number | null;
+      }> = [];
+      const nextStates = new Map(currentStates);
+      let changed = false;
 
-      setExerciseStates(prev => {
-        const next = new Map(prev);
-        let changed = false;
+      // Check every exercise's timer
+      for (const pe of programExercises) {
+        const state = currentStates.get(pe.id);
+        if (!state || state.kind !== 'rest') continue;
 
-        // Check every exercise's timer
-        for (const pe of programExercises) {
-          const state = prev.get(pe.id);
-          if (!state || state.kind !== 'rest') continue;
+        // Skip paused timers
+        if (state.pausedRemainingMs != null) continue;
 
-          // Skip paused timers
-          if (state.pausedRemainingMs != null) continue;
+        // Timer expired?
+        if (now >= state.endsAt) {
+          const isViewing = !!(currentPE && pe.id === currentPE.id);
+          expired.push({
+            peId: pe.id,
+            supersetGroup: pe.supersetGroup,
+            isViewing,
+            shouldNavigate: isViewing && !state.navigatedImmediately && state.nextExerciseIdx != null,
+            nextIdx: state.nextExerciseIdx,
+          });
 
-          // Timer expired?
-          if (now >= state.endsAt) {
-            const isViewing = !!(currentPE && pe.id === currentPE.id);
-            expired.push({
-              peId: pe.id,
-              supersetGroup: pe.supersetGroup,
-              isViewing,
-              shouldNavigate: isViewing && !state.navigatedImmediately && state.nextExerciseIdx != null,
-              nextIdx: state.nextExerciseIdx,
-            });
+          // Transition to input regardless of whether viewing
+          nextStates.set(pe.id, { kind: 'input' });
+          changed = true;
+        }
+      }
 
-            // Transition to input regardless of whether viewing
-            next.set(pe.id, { kind: 'input' });
-            changed = true;
-          }
+      // Pure setState if anything changed
+      if (changed) {
+        setExerciseStates(nextStates);
+        statesRef.current = nextStates;
+      }
+
+      // Run side effects AFTER setState (maintainer review: fire cues for ALL expired rests)
+      for (const { isViewing, shouldNavigate, nextIdx } of expired) {
+        // Fire cues for EVERY expired rest (no conditional)
+        vibrate(VIBRATION_PATTERNS.restEnd);
+        if (isRestEndFlashEnabled()) {
+          setRestFlashCount(count => count + 1);
         }
 
-        return changed ? next : prev;
-      });
-
-      // Run side effects after state update (maintainer review: keep updater pure)
-      // Rest-end cue fires when viewing any exercise in the same superset group
-      for (const { supersetGroup, isViewing, shouldNavigate, nextIdx } of expired) {
-        const shouldCue = isViewing ||
-          (supersetGroup != null && currentPE?.supersetGroup === supersetGroup);
-
-        if (shouldCue) {
-          vibrate(VIBRATION_PATTERNS.restEnd);
-          if (isRestEndFlashEnabled()) {
-            setRestFlashCount(count => count + 1);
-          }
-        }
-
+        // Auto-advance ONLY when viewing
         if (isViewing && shouldNavigate && nextIdx != null) {
           selectExercise(nextIdx);
         }
@@ -692,16 +711,8 @@ export function SessionRunner({
     const transition = isSupersetTransitionRest(supersetView, currentIdx, nextIdx);
     const restSec = transition ? SUPERSET_TRANSITION_REST_SEC : currentTarget.restSec;
 
-    // For a same-superset transition, show the next exercise immediately so
-    // the lifter can get into position while the short transition rest runs.
-    // The timer still keeps input locked until it ends or is skipped.
-    const navigatedImmediately = transition && nextIdx != null;
-    // Capture the exercise ID before navigation (issue #542, PR1).
-    const restingExerciseId = currentPE.id;
-    if (navigatedImmediately) selectExercise(nextIdx);
-
     // Check if any exercise in the same superset group is already resting (issue #542, edge case).
-    // If so, don't start a new competing rest timer.
+    // If so, don't start a new competing rest timer (maintainer review: check BEFORE navigation).
     const currentSupersetGroup = currentPE.supersetGroup;
     const supersetPartnerAlreadyResting = currentSupersetGroup != null &&
       programExercises.some(pe =>
@@ -714,6 +725,14 @@ export function SessionRunner({
       // Don't start a new rest - the superset partner is already resting
       return;
     }
+
+    // For a same-superset transition, show the next exercise immediately so
+    // the lifter can get into position while the short transition rest runs.
+    // The timer still keeps input locked until it ends or is skipped.
+    const navigatedImmediately = transition && nextIdx != null;
+    // Capture the exercise ID before navigation (issue #542, PR1).
+    const restingExerciseId = currentPE.id;
+    if (navigatedImmediately) selectExercise(nextIdx);
 
     // Set rest state for this specific exercise (issue #542, PR1).
     setExerciseStates(prev => {
@@ -1037,6 +1056,7 @@ export function SessionRunner({
           startedProgramExerciseIds={startedProgramExerciseIds}
           exerciseProgress={exerciseProgress}
           exerciseStates={exerciseStates}
+          anyResting={anyResting}
           onSelect={(index) => {
             selectExercise(index);
           }}
@@ -1061,11 +1081,8 @@ export function SessionRunner({
           unit={unit}
           gymName={session.gym?.name ?? null}
           loadConstraints={loadConstraintsFor(currentPE)}
-          onOpenMenu={
-            currentState.kind === 'rest'
-              ? undefined  // Disable menu during rest (PR1 scope: add/delete uses nextExerciseIdx)
-              : () => setExerciseMenuOpen(true)
-          }
+          onOpenMenu={() => setExerciseMenuOpen(true)}
+          menuDisabled={anyResting}
         />
         <SessionExerciseMenu
           open={exerciseMenuOpen}
@@ -1152,7 +1169,30 @@ export function SessionRunner({
             nextLabel={restNextLabel}
             recommendation={restRecommendation}
             unit={unit}
-            onEnd={() => {}}  // Handled by global background timer (issue #542, PR1)
+            onEnd={() => {
+              // RestTimer's countdown can reach 0 up to 1s before the interval detects it
+              // (maintainer review): flip state immediately to prevent re-beep on remount
+              const restingId = getRestingExerciseId();
+              if (restingId && currentState.kind === 'rest') {
+                setExerciseStates(prev => {
+                  const next = new Map(prev);
+                  next.set(restingId, { kind: 'input' });
+                  return next;
+                });
+                statesRef.current = new Map(statesRef.current).set(restingId, { kind: 'input' });
+
+                // Fire cues (same as interval expiry)
+                vibrate(VIBRATION_PATTERNS.restEnd);
+                if (isRestEndFlashEnabled()) {
+                  setRestFlashCount(count => count + 1);
+                }
+
+                // Auto-advance if needed
+                if (!currentState.navigatedImmediately && currentState.nextExerciseIdx != null) {
+                  selectExercise(currentState.nextExerciseIdx);
+                }
+              }
+            }}
             onSkip={handleSkipRest}
             onPause={handlePauseRest}
             onResume={handleResumeRest}
