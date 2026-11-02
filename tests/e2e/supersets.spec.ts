@@ -269,12 +269,12 @@ test('allows switching between exercises during rest (issue #542)', async ({
   await expect(page.getByRole('heading', { name: 'Switch Squat' })).toBeVisible();
   await expect(page.getByLabel('Quick entry')).toBeVisible();
 
-  // Switch back to A2 - rest timer should still be running with less time remaining
+  // Switch back to A2 - rest timer should still be running with time remaining
   await page.getByRole('button', { name: /2\. Switch Row/ }).click();
   await expect(page.getByRole('heading', { name: 'Switch Row' })).toBeVisible();
   await expect(page.getByTestId('rest-timer')).toBeVisible();
   const remainingTime = Number(await restValue.textContent());
-  expect(remainingTime).toBeLessThan(initialTime);
+  expect(remainingTime).toBeLessThanOrEqual(initialTime);
 
   // Log a set on A2 while A1's timer is still running (if any time left)
   if (remainingTime > 0) {

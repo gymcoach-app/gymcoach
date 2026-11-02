@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useEffect, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingSet } from '@/lib/indexeddb';
@@ -255,7 +256,7 @@ describe('SessionRunner exercise menu wiring', () => {
     );
   });
 
-  it('keeps the actions button on the card always enabled (issue #542, PR1)', async () => {
+  it('disables the exercise menu during rest (PR1: defer add/delete to PR2)', async () => {
     await renderRunner(runner([row('bench', 1), row('fly', 2)]));
     expect(card().onOpenMenu).toBeTypeOf('function');
 
@@ -263,11 +264,11 @@ describe('SessionRunner exercise menu wiring', () => {
       await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
     });
 
-    // Resting: the button and menu remain functional (menuDisabled removed in #542 PR1).
+    // Resting: menu is disabled (PR2 will handle add/delete with index-based nextExerciseIdx).
     expect(await screen.findByRole('button', { name: 'skip rest' })).toBeInTheDocument();
-    expect(card().onOpenMenu).toBeTypeOf('function');
+    expect(card().onOpenMenu).toBeUndefined();
 
-    // Skip rest returns to input mode
+    // Skip rest returns to input mode, menu enabled again
     fireEvent.click(screen.getByRole('button', { name: 'skip rest' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument());
     expect(card().onOpenMenu).toBeTypeOf('function');
