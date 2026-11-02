@@ -94,14 +94,19 @@ export function SessionExerciseStrip({
             supersetGroup != null && exercises[index + 1]?.supersetGroup === supersetGroup;
           const isInSuperset = previousInGroup || nextInGroup;
 
+          // Check if current tile is resting (disable onOpen to prevent navigation loss)
+          const currentState = exerciseStates?.get(programExercise.id);
+          const isCurrentResting = isCurrent && currentState?.kind === 'rest';
+
           return (
             <button
               key={programExercise.id}
               ref={isCurrent ? currentRef : undefined}
               type="button"
               onClick={() => {
-                if (isCurrent) onOpen(index);
-                else onSelect(index);
+                // Disable detail navigation during rest to prevent timer loss (PR1 scope)
+                if (isCurrent && !isCurrentResting) onOpen(index);
+                else if (!isCurrent) onSelect(index);
               }}
               aria-label={`${index + 1}. ${displayName}${isComplete ? ` · ${t('exerciseCompleted')}` : ''}`}
               aria-current={isCurrent ? 'step' : undefined}

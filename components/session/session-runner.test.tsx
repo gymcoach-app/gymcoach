@@ -304,7 +304,8 @@ describe('SessionRunner superset transition', () => {
     expect(replaceState).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
 
-    // a1's timer continues in background and is visible on a2. We stay on a2.
+    // Skipping the transition rest does not navigate a second time (already on a2).
+    await userEvent.click(screen.getByRole('button', { name: 'skip rest' }));
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
   });

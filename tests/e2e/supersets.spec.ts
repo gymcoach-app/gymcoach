@@ -201,7 +201,7 @@ test('allows switching between exercises during rest (issue #542)', async ({
   page,
 }) => {
   const registerRes = await page.request.post('/api/auth/register', {
-    headers: { 'x-forwarded-for': '10.111.0.10' },
+    headers: { 'x-forwarded-for': '10.111.0.12' },  // Fresh IP (10.111.0.10 used by progress-photos)
     data: {
       displayName: 'Switch E2E',
       email: `e2e-switch-${Date.now()}@test.dev`,
@@ -254,8 +254,10 @@ test('allows switching between exercises during rest (issue #542)', async ({
   await page.getByRole('button', { name: /log the set/i }).click();
 
   // Wait for rest timer to start and verify we're on A2
-  await expect(page.getByTestId('rest-remaining')).toBeVisible();
+  const restValue = page.getByTestId('rest-remaining');
+  await expect(restValue).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Switch Row' })).toBeVisible();
+  const initialTime = Number(await restValue.textContent());
 
   // Switch back to A1 - should show rest timer, not input
   await page.getByRole('button', { name: /1\. Switch Bench/ }).click();
@@ -267,17 +269,26 @@ test('allows switching between exercises during rest (issue #542)', async ({
   await expect(page.getByRole('heading', { name: 'Switch Squat' })).toBeVisible();
   await expect(page.getByLabel('Quick entry')).toBeVisible();
 
-  // Switch back to A2 - rest timer should still be running
+  // Switch back to A2 - rest timer should still be running with less time remaining
   await page.getByRole('button', { name: /2\. Switch Row/ }).click();
   await expect(page.getByRole('heading', { name: 'Switch Row' })).toBeVisible();
   await expect(page.getByTestId('rest-timer')).toBeVisible();
+  const remainingTime = Number(await restValue.textContent());
+  expect(remainingTime).toBeLessThan(initialTime);
+
+  // Log a set on A2 while A1's timer is still running (if any time left)
+  if (remainingTime > 0) {
+    await page.getByRole('button', { name: /skip/i }).click();
+  }
+  await page.getByLabel('Quick entry').fill('50x10@2');
+  await page.getByRole('button', { name: /log the set/i }).click();
 });
 
 test('superset partner resting blocks input and shares timer (issue #542 edge case)', async ({
   page,
 }) => {
   const registerRes = await page.request.post('/api/auth/register', {
-    headers: { 'x-forwarded-for': '10.111.0.11' },
+    headers: { 'x-forwarded-for': '10.111.0.13' },  // Fresh IP (different from 10.111.0.12)
     data: {
       displayName: 'Edge Case E2E',
       email: `e2e-edge-case-${Date.now()}@test.dev`,

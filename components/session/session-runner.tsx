@@ -395,6 +395,9 @@ export function SessionRunner({
     const interval = setInterval(() => {
       const now = Date.now();
 
+      // Compute expired exercises (pure, no side effects)
+      const expired: Array<{ peId: string; supersetGroup: number | null; isViewing: boolean; shouldNavigate: boolean; nextIdx: number | null }> = [];
+
       setExerciseStates(prev => {
         const next = new Map(prev);
         let changed = false;
@@ -409,19 +412,14 @@ export function SessionRunner({
 
           // Timer expired?
           if (now >= state.endsAt) {
-            // Auto-navigate only if this is the currently viewed exercise
             const isViewing = currentPE && pe.id === currentPE.id;
-            if (isViewing) {
-              vibrate(VIBRATION_PATTERNS.restEnd);
-              if (isRestEndFlashEnabled()) {
-                setRestFlashCount(count => count + 1);
-              }
-
-              // Navigate if we haven't already
-              if (!state.navigatedImmediately && state.nextExerciseIdx != null) {
-                selectExercise(state.nextExerciseIdx);
-              }
-            }
+            expired.push({
+              peId: pe.id,
+              supersetGroup: pe.supersetGroup,
+              isViewing,
+              shouldNavigate: isViewing && !state.navigatedImmediately && state.nextExerciseIdx != null,
+              nextIdx: state.nextExerciseIdx,
+            });
 
             // Transition to input regardless of whether viewing
             next.set(pe.id, { kind: 'input' });
@@ -431,6 +429,24 @@ export function SessionRunner({
 
         return changed ? next : prev;
       });
+
+      // Run side effects after state update (maintainer review: keep updater pure)
+      // Rest-end cue fires when viewing any exercise in the same superset group
+      for (const { supersetGroup, isViewing, shouldNavigate, nextIdx } of expired) {
+        const shouldCue = isViewing ||
+          (supersetGroup != null && currentPE?.supersetGroup === supersetGroup);
+
+        if (shouldCue) {
+          vibrate(VIBRATION_PATTERNS.restEnd);
+          if (isRestEndFlashEnabled()) {
+            setRestFlashCount(count => count + 1);
+          }
+        }
+
+        if (isViewing && shouldNavigate && nextIdx != null) {
+          selectExercise(nextIdx);
+        }
+      }
     }, 1000);
 
     return () => clearInterval(interval);
@@ -1045,7 +1061,11 @@ export function SessionRunner({
           unit={unit}
           gymName={session.gym?.name ?? null}
           loadConstraints={loadConstraintsFor(currentPE)}
-          onOpenMenu={() => setExerciseMenuOpen(true)}
+          onOpenMenu={
+            currentState.kind === 'rest'
+              ? undefined  // Disable menu during rest (PR1 scope: add/delete uses nextExerciseIdx)
+              : () => setExerciseMenuOpen(true)
+          }
         />
         <SessionExerciseMenu
           open={exerciseMenuOpen}
