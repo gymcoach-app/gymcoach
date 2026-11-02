@@ -310,6 +310,61 @@ describe('SessionRunner superset transition', () => {
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a2');
     expect(replaceState).toHaveBeenCalledTimes(1);
   });
+
+  it('background timer expires and flips state without auto-navigate', async () => {
+    vi.useFakeTimers();
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    await renderRunner(runner([row('a', 1, 1), row('b', 2, 1)]));
+
+    // Log set on A, auto-navigates to B (superset transition)
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+    expect(replaceState).toHaveBeenCalledTimes(1);
+
+    // A's timer runs in background. Advance time past A's rest duration (120s + 1s)
+    await act(async () => {
+      vi.advanceTimersByTime(121000);
+    });
+
+    // A's timer expired in background - no navigation (we're viewing B, not A)
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+    expect(replaceState).toHaveBeenCalledTimes(1);  // No additional navigation
+
+    vi.useRealTimers();
+  });
+
+  it('runs two independent rest timers without interference', async () => {
+    vi.useFakeTimers();
+    await renderRunner(runner([row('a', 1, 1), row('b', 2, 1)]));
+
+    // Log set on A, starts transition rest and auto-navigates to B (superset)
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
+
+    // Skip A's rest and log set on B, starting B's timer (120s, from row restSec)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'skip rest' }));
+    });
+    await act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+
+    // B's timer is independent: it should run for its full 120s, not affected by A
+    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
+
+    // Advance 120s - B's timer expires
+    await act(async () => {
+      vi.advanceTimersByTime(121000);
+    });
+    expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
 });
 
 describe('SessionRunner live equipment weights', () => {
