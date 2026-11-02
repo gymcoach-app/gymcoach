@@ -844,7 +844,9 @@ describe('tamperViolations', () => {
   // The whitespace inside the lookahead keeps it from backtracking onto the
   // space before the value, where `(?!false)` would not see `false` at all.
   const FLAGS = /\b(?:fails|skip|todo|only)\s*:\s*(?!\s*(?:false|0)\s*[,}])/;
-  // A slash after one of these starts a regex, not a division.
+  // A slash after one of these starts a regex, not a division. A postfix
+  // `++` or `--` is the exception: `i++ / 2` divides, so it is checked
+  // before this set is consulted (review of #533).
   const REGEX_AFTER = new Set([
     '',
     '(',
@@ -901,6 +903,15 @@ describe('tamperViolations', () => {
       const end = k + 1;
       while (k >= 0 && /[\w$]/.test(src[k]!)) k -= 1;
       return src.slice(k + 1, end);
+    };
+    // A slash after a postfix `++` or `--` is a division: the operator is read
+    // as regex-prefix punctuation by REGEX_AFTER, which would blank the code to
+    // the next slash or the end of the line (review of #533).
+    const afterPostfix = (): boolean => {
+      let k = i - 1;
+      while (k >= 0 && /\s/.test(src[k]!)) k -= 1;
+      const op = src[k];
+      return (op === '+' || op === '-') && src[k - 1] === op;
     };
     const opens: number[] = [];
     let inTemplate = false;
@@ -961,7 +972,12 @@ describe('tamperViolations', () => {
       }
       // A closing JSX tag (< /div>) is not a regex however it is spaced.
       const jsxClose = last === '<' && /[A-Za-z>_]/.test(src[i + 1] ?? '');
-      if (c === '/' && !jsxClose && (REGEX_AFTER.has(last) || REGEX_WORDS.has(wordBefore(i)))) {
+      if (
+        c === '/' &&
+        !jsxClose &&
+        !afterPostfix() &&
+        (REGEX_AFTER.has(last) || REGEX_WORDS.has(wordBefore(i)))
+      ) {
         let j = i + 1;
         let inClass = false;
         while (j < src.length && src[j] !== '\n') {
@@ -1083,6 +1099,12 @@ describe('tamperViolations', () => {
       'const el = (\n  <div>\n    {n}\n  </div>\n);\nrepeats: 3,',
       "const el = () => <div>a</div>; it.fails('x', fn);",
       "const re = /[/*]/.test(s);\ncontext.skip();",
+      // A postfix ++ or -- makes the next slash a division, not a regex.
+      "let i = 0;\ni++ / 2; it.skip('x', fn);",
+      "let n = 4;\nn-- / 2; it.fails('x', fn);",
+      // A binary + or - still starts one.
+      'const x = a - /[/*]/.test(s); context.skip();',
+      'const y = a + /[/*]/.test(s); it.fails("x", fn);',
     ])
       expect(declares(decl), decl).toBe(true);
   });
