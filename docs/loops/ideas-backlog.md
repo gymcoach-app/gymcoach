@@ -96,3 +96,17 @@ usual cap of three for this round).
 - proposed - celebrate a personal record in-session (issue #304) - CSS-only burst over the existing detectPRs badge, reusing lib/vibrate.ts and lib/sound.ts, gated on a sound preference and prefers-reduced-motion; no confetti dependency
 - NOT FILED (deferred slice) - PNG/OG image export of the recap poster via next/og; wanted, but the Docker standalone bundling of the wasm/font is its own risk and belongs in a second PR once the poster exists
 - NOT FILED (still an epic, for a human) - the longitudinal training-load model (CTL/ATL/Form) noted in the 2026-06-30 batch remains the highest-value multi-PR opportunity
+
+## 2026-10-29 - competitor scan (operator request, recurring daily)
+
+Scanned openGym (17.2k stars), wger, workout.cool, SparkyFitness, Liftosaur, LiftLog, plus Fitbod, Hevy and Strong. The open list was at 19 of 20, so one idea was opened and the rest parked in #484.
+
+- proposed - generate today's session from muscle recovery and the chosen gym's equipment (issue #539) - Fitbod's flagship; new pure lib/muscle-recovery.ts, a separate single-workout schema so the debrief contract is unchanged
+- parked (#484) - body-fat estimate from tape measurements, US Navy method (openGym #648, #197)
+- parked (#484) - scheduled automatic backups to a mounted folder with retention (LiftLog #533)
+- parked (#484) - conditioning timers: EMOM, AMRAP and Tabata
+- parked (#484) - merge a duplicate exercise into another
+- parked (#484) - mark each set against the same set last time
+- parked (#484) - weekly debrief pushed to the user's own ntfy or Gotify (sends data off-box: maintainer decision)
+- parked (#484) - switch off unused modules
+- NOT FILED - native apps, F-Droid builds (most-reacted competitor asks; GymCoach is a PWA by design); OIDC and invite-only signup are already tracked (#407, #408)

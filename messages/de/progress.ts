@@ -102,6 +102,8 @@ export const progress = {
     title: 'Kondition',
     description:
       'Wöchentliche Kardio-Minuten versus {target} min/Woche-Richtlinie. Distanz und Einheiten erscheinen im Tooltip.',
+    summary:
+      'Diese Woche: {minutes} Min.{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# Einheit} other {# Einheiten}}}} · Gesamt ({weeks} Wo.): {totalMinutes} Min.{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Deload-Woche läuft',
@@ -123,7 +125,8 @@ export const progress = {
   },
   records: {
     title: 'Rekorde',
-    description: 'Allzeit-Bestleistungen pro Übung: schwerster Arbeitssatz und bestes geschätztes 1RM.',
+    description:
+      'Allzeit-Bestleistungen pro Übung: schwerster Arbeitssatz und bestes geschätztes 1RM.',
     heaviest: 'Schwerstes: {value}',
     bestOneRm: 'Bestes 1RM: {value}',
   },
@@ -149,7 +152,8 @@ export const progress = {
       '{percent}% des Ziels auf der geschätzten-1RM-Skala ({best} Bestleistung vs {target} Ziel).',
     targetLoad: 'Zielgewicht ({unit})',
     targetReps: 'Ziel-Wiederholungen',
-    bodyweightHelp: 'Bodyweight-Übung: gib die gesamte effektive Last ein (Körpergewicht + zusätzliches Gewicht).',
+    bodyweightHelp:
+      'Bodyweight-Übung: gib die gesamte effektive Last ein (Körpergewicht + zusätzliches Gewicht).',
     save: 'Ziel speichern',
     invalid: 'Gib ein positives Zielgewicht und mindestens 1 Wiederholung ein.',
     saved: 'Ziel gespeichert.',
@@ -191,5 +195,27 @@ export const progress = {
     regionLabel: '{name}: {sets, plural, one {# Satz} other {# Sätze}} diese Woche, {status}',
     hint: 'Tippe einen Muskel für Details an.',
     empty: 'Keine Arbeitssätze diese Woche; logge eine Einheit und der Körper leuchtet auf.',
+  },
+  photos: {
+    title: 'Fortschrittsfotos',
+    photo: 'Foto',
+    date: 'Datum',
+    note: 'Notiz (optional)',
+    notePlaceholder: 'z. B. Ende der Diät',
+    chooseFirst: 'Wähle zuerst ein Foto aus.',
+    uploadError: 'Das Foto konnte nicht hochgeladen werden.',
+    added: 'Foto hinzugefügt.',
+    deleteConfirm: 'Foto vom {date} löschen?',
+    deleteError: 'Das Foto konnte nicht gelöscht werden.',
+    deleted: 'Foto gelöscht.',
+    empty:
+      'Noch keine Fortschrittsfotos. Die Fotos werden lokal auf deinem Server gespeichert und sind nur für dich sichtbar. Lade das erste Foto hoch, um Veränderungen zu verfolgen.',
+    imageAlt: 'Fortschrittsfoto vom {date}',
+    deleteAria: 'Foto vom {date} löschen',
+    compare: 'Vergleichen',
+    before: 'Vorher',
+    after: 'Nachher',
+    compareAlt: '{label}-Foto vom {date}',
+    uploading: 'Wird hochgeladen...',
   },
 } satisfies MessageShape<typeof english>;

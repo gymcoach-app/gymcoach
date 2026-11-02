@@ -51,7 +51,8 @@ export const settings = {
     deleted: 'Gym gelöscht.',
     deleteError: 'Gym konnte nicht gelöscht werden.',
     deleteTitle: 'Dieses Gym löschen?',
-    deleteDescription: '{name} wird entfernt. Bestehende Einheiten behalten ihre Trainingshistorie.',
+    deleteDescription:
+      '{name} wird entfernt. Bestehende Einheiten behalten ihre Trainingshistorie.',
   },
   profile: {
     title: 'Profil',
@@ -118,7 +119,8 @@ export const settings = {
     previewOf: 'Vorschau von {file}',
     cardioTitle: '{kind}-Aktivität importieren',
     appTitle: 'Von {app} importieren',
-    cardioDescription: 'Bring ein Kardio-Workout: {hint}. Zeige es hier in der Vorschau, dann bestätige.',
+    cardioDescription:
+      'Bring ein Kardio-Workout: {hint}. Zeige es hier in der Vorschau, dann bestätige.',
     appDescription:
       'Bring deinen Trainingsverlauf aus der {app}-App: {hint}, zeige ihn hier in der Vorschau, dann bestätige.',
     activitiesSummary:
@@ -149,6 +151,16 @@ export const settings = {
       '{sessions, plural, one {# Einheit} other {# Einheiten}} importiert, {sets, plural, one {# Satz} other {# Sätze}}{exercises, plural, =0 {} one {, # neue Übung} other {, # neue Übungen}}.',
     fitImportDone:
       '{sessions, plural, one {# Einheit} other {# Einheiten}} importiert{exercises, plural, =0 {} one {, # neue Übung} other {, # neue Übungen}}{skipped, plural, =0 {.} one { (# Datei übersprungen).} other { (# Dateien übersprungen).}}',
+    file: '{format}-Datei',
+    exportHints: {
+      strong: 'exportiere als CSV (Settings, dann Export data)',
+      hevy: 'exportiere als CSV (Settings, dann Export & Import Data)',
+      gymcoach:
+        'verwende die CSV aus dem Trainingsverlauf oder eine Tabelle mit denselben Spalten (session_date, workout, exercise, set_number, external_load_kg, reps, ...)',
+      tcx: 'exportiere die Aktivität als TCX von deiner Uhrenplattform (Garmin Connect, Polar Flow, ...), um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
+      gpx: 'exportiere die Route als GPX aus Strava, Komoot oder Apple Fitness, um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
+      fit: 'exportiere die Aktivität als FIT von deiner Garmin oder anderen Uhr, um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
+    },
   },
   mcp: {
     title: 'ChatGPT und MCP',

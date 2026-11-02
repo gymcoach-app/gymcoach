@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Camera, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,14 +23,6 @@ interface Props {
   photos: ProgressPhotoView[];
 }
 
-function shortDate(iso: string) {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-  }).format(new Date(iso));
-}
-
 function imageUrl(id: string) {
   return `/api/progress-photos/${id}/image`;
 }
@@ -39,6 +32,11 @@ function imageUrl(id: string) {
 // two photos side by side to see visual progress.
 export function PhotosCard({ photos }: Props) {
   const router = useRouter();
+  const t = useTranslations('progress.photos');
+  const common = useTranslations('common');
+  const format = useFormatter();
+  const shortDate = (iso: string) =>
+    format.dateTime(new Date(iso), { year: 'numeric', month: 'short', day: '2-digit' });
   const fileRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState('');
   const [takenAt, setTakenAt] = useState('');
@@ -56,7 +54,7 @@ export function PhotosCard({ photos }: Props) {
   async function upload() {
     const file = fileRef.current?.files?.[0];
     if (!file) {
-      toast.error('Choose a photo first.');
+      toast.error(t('chooseFirst'));
       return;
     }
     setBusy(true);
@@ -77,10 +75,10 @@ export function PhotosCard({ photos }: Props) {
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        toast.error(data?.error ?? 'Could not upload the photo.');
+        toast.error(data?.error ?? t('uploadError'));
         return;
       }
-      toast.success('Photo added.');
+      toast.success(t('added'));
       setNote('');
       setTakenAt('');
       if (fileRef.current) fileRef.current.value = '';
@@ -91,7 +89,7 @@ export function PhotosCard({ photos }: Props) {
   }
 
   async function deletePhoto(photo: ProgressPhotoView) {
-    if (!confirm(`Delete the photo of ${shortDate(photo.takenAt)}?`)) return;
+    if (!confirm(t('deleteConfirm', { date: shortDate(photo.takenAt) }))) return;
     setBusy(true);
     try {
       const res = await fetch(`/api/progress-photos/${photo.id}`, {
@@ -99,10 +97,10 @@ export function PhotosCard({ photos }: Props) {
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        toast.error(data?.error ?? 'Could not delete the photo.');
+        toast.error(data?.error ?? t('deleteError'));
         return;
       }
-      toast.success('Photo deleted.');
+      toast.success(t('deleted'));
       router.refresh();
     } finally {
       setBusy(false);
@@ -114,7 +112,7 @@ export function PhotosCard({ photos }: Props) {
       <CardHeader className="pb-3">
         <h2 className="flex items-center gap-2 text-base font-semibold">
           <Camera className="size-4" />
-          Progress photos
+          {t('title')}
         </h2>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -127,7 +125,7 @@ export function PhotosCard({ photos }: Props) {
           }}
         >
           <div className="min-w-40 flex-1 space-y-1">
-            <Label htmlFor="progress-photo-file">Photo</Label>
+            <Label htmlFor="progress-photo-file">{t('photo')}</Label>
             <Input
               id="progress-photo-file"
               ref={fileRef}
@@ -136,7 +134,7 @@ export function PhotosCard({ photos }: Props) {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="progress-photo-date">Date</Label>
+            <Label htmlFor="progress-photo-date">{t('date')}</Label>
             <Input
               id="progress-photo-date"
               type="date"
@@ -145,25 +143,22 @@ export function PhotosCard({ photos }: Props) {
             />
           </div>
           <div className="min-w-32 flex-1 space-y-1">
-            <Label htmlFor="progress-photo-note">Note (optional)</Label>
+            <Label htmlFor="progress-photo-note">{t('note')}</Label>
             <Input
               id="progress-photo-note"
               value={note}
               maxLength={500}
-              placeholder="e.g. end of cut"
+              placeholder={t('notePlaceholder')}
               onChange={(e) => setNote(e.target.value)}
             />
           </div>
           <Button type="submit" disabled={busy}>
-            {busy ? 'Uploading...' : 'Upload'}
+            {busy ? t('uploading') : common('actions.upload')}
           </Button>
         </form>
 
         {photos.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No progress photos yet. Photos are stored locally on your server
-            and only visible to you. Upload the first one to start the timeline.
-          </p>
+          <p className="text-sm text-muted-foreground">{t('empty')}</p>
         ) : (
           <>
             {/* Gallery: newest first, deletable */}
@@ -173,7 +168,7 @@ export function PhotosCard({ photos }: Props) {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={imageUrl(p.id)}
-                    alt={`Progress photo of ${shortDate(p.takenAt)}${p.note ? ` - ${p.note}` : ''}`}
+                    alt={`${t('imageAlt', { date: shortDate(p.takenAt) })}${p.note ? ` - ${p.note}` : ''}`}
                     className="aspect-square w-full rounded-md border object-cover"
                     loading="lazy"
                   />
@@ -185,7 +180,7 @@ export function PhotosCard({ photos }: Props) {
                     variant="secondary"
                     size="icon"
                     className="absolute right-1 top-1 size-7 opacity-80"
-                    aria-label={`Delete photo of ${shortDate(p.takenAt)}`}
+                    aria-label={t('deleteAria', { date: shortDate(p.takenAt) })}
                     onClick={() => void deletePhoto(p)}
                     disabled={busy}
                   >
@@ -198,20 +193,30 @@ export function PhotosCard({ photos }: Props) {
             {/* Before/after side-by-side compare */}
             {photos.length >= 2 && (
               <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-medium">Compare</h3>
+                <h3 className="text-sm font-medium">{t('compare')}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   {(
                     [
-                      { label: 'Before', photo: before, value: beforeId || oldest?.id || '', set: setBeforeId },
-                      { label: 'After', photo: after, value: afterId || newest?.id || '', set: setAfterId },
+                      {
+                        key: 'before',
+                        label: t('before'),
+                        photo: before,
+                        value: beforeId || oldest?.id || '',
+                        set: setBeforeId,
+                      },
+                      {
+                        key: 'after',
+                        label: t('after'),
+                        photo: after,
+                        value: afterId || newest?.id || '',
+                        set: setAfterId,
+                      },
                     ] as const
-                  ).map(({ label, photo, value, set }) => (
-                    <div key={label} className="flex flex-col gap-1">
-                      <Label htmlFor={`progress-photo-${label.toLowerCase()}`}>
-                        {label}
-                      </Label>
+                  ).map(({ key, label, photo, value, set }) => (
+                    <div key={key} className="flex flex-col gap-1">
+                      <Label htmlFor={`progress-photo-${key}`}>{label}</Label>
                       <select
-                        id={`progress-photo-${label.toLowerCase()}`}
+                        id={`progress-photo-${key}`}
                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         value={value}
                         onChange={(e) => set(e.target.value)}
@@ -227,7 +232,7 @@ export function PhotosCard({ photos }: Props) {
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={imageUrl(photo.id)}
-                          alt={`${label} photo of ${shortDate(photo.takenAt)}`}
+                          alt={t('compareAlt', { label, date: shortDate(photo.takenAt) })}
                           className="w-full rounded-md border object-contain"
                         />
                       )}

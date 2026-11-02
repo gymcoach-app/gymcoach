@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { SessionExerciseStrip } from './session-exercise-strip';
+import { SessionExerciseStrip, abbreviation } from './session-exercise-strip';
 
 vi.mock('@/components/shared/use-exercise-name', () => ({
   useExerciseName: () => (name: string) => name,
@@ -139,5 +139,18 @@ describe('SessionExerciseStrip', () => {
     expect(firstLine).toHaveClass('-mr-1', 'rounded-l-full', 'rounded-r-none');
     expect(secondLine).toHaveClass('-ml-1', 'rounded-l-none', 'rounded-r-full');
     expect(standaloneLine).not.toBeInTheDocument();
+  });
+});
+
+describe('abbreviation', () => {
+  it('builds up to three initials, or the first three letters of one word', () => {
+    expect(abbreviation('Custom Rear Delt Raise')).toBe('CRD');
+    expect(abbreviation('Plank')).toBe('PLA');
+    expect(abbreviation('   ')).toBe('?');
+  });
+
+  it('uppercases with the locale, so Turkish initials keep the dotted I', () => {
+    expect(abbreviation('Dambıl ile kürek çekme', 'tr')).toBe('DİK');
+    expect(abbreviation('Dambıl ile kürek çekme', 'en')).toBe('DIK');
   });
 });

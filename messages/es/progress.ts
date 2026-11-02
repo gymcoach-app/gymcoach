@@ -103,6 +103,8 @@ export const progress = {
     title: 'Cardio',
     description:
       'Minutos semanales de cardio frente a la recomendación de {target} min/semana. La distancia y las sesiones aparecen en la información emergente.',
+    summary:
+      'Esta semana: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# sesión} other {# sesiones}}}} · Total ({weeks} sem.): {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Semana de descarga en curso',
@@ -194,5 +196,27 @@ export const progress = {
     regionLabel: '{name}: {sets, plural, one {# serie} other {# series}} esta semana, {status}',
     hint: 'Toca un músculo para ver los detalles.',
     empty: 'No hubo series efectivas esa semana; registra una sesión y el cuerpo se iluminará.',
+  },
+  photos: {
+    title: 'Fotos de progreso',
+    photo: 'Foto',
+    date: 'Fecha',
+    note: 'Nota (opcional)',
+    notePlaceholder: 'p. ej., fin de definición',
+    chooseFirst: 'Elige primero una foto.',
+    uploadError: 'No se pudo subir la foto.',
+    added: 'Foto añadida.',
+    deleteConfirm: '¿Eliminar la foto del {date}?',
+    deleteError: 'No se pudo eliminar la foto.',
+    deleted: 'Foto eliminada.',
+    empty:
+      'Aún no hay fotos de progreso. Se guardan localmente en tu servidor y solo tú puedes verlas. Sube la primera para registrar los cambios.',
+    imageAlt: 'Foto de progreso del {date}',
+    deleteAria: 'Eliminar foto del {date}',
+    compare: 'Comparar',
+    before: 'Antes',
+    after: 'Después',
+    compareAlt: 'Foto de {label} del {date}',
+    uploading: 'Subiendo...',
   },
 } satisfies MessageShape<typeof english>;

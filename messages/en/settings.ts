@@ -146,6 +146,16 @@ export const settings = {
       'Imported {sessions, plural, one {# session} other {# sessions}}, {sets, plural, one {# set} other {# sets}}{exercises, plural, =0 {} one {, # new exercise} other {, # new exercises}}.',
     fitImportDone:
       'Imported {sessions, plural, one {# session} other {# sessions}}{exercises, plural, =0 {} one {, # new exercise} other {, # new exercises}}{skipped, plural, =0 {.} one { (# file skipped).} other { (# files skipped).}}',
+    file: '{format} file',
+    exportHints: {
+      strong: 'export it as CSV (Settings, then Export data)',
+      hevy: 'export it as CSV (Settings, then Export & Import Data)',
+      gymcoach:
+        'use the CSV from the History page export, or any spreadsheet with the same columns (session_date, workout, exercise, set_number, external_load_kg, reps, ...)',
+      tcx: 'export the activity as TCX from your watch platform (Garmin Connect, Polar Flow, ...) and it becomes one cardio session with duration, distance and heart rate',
+      gpx: 'export the route as GPX from Strava, Komoot or Apple Fitness and it becomes one cardio session with duration, distance and heart rate',
+      fit: 'export the activity as a FIT file from your Garmin (or other) watch and it becomes one cardio session with duration, distance and heart rate',
+    },
   },
   mcp: {
     title: 'ChatGPT and MCP',

@@ -11,6 +11,10 @@ const loaders = {
   es: () => import('@/messages/es').then((module) => module.default),
   pt: () => import('@/messages/pt').then((module) => module.default),
   it: () => import('@/messages/it').then((module) => module.default),
+  nl: () => import('@/messages/nl').then((module) => module.default),
+  pl: () => import('@/messages/pl').then((module) => module.default),
+  tr: () => import('@/messages/tr').then((module) => module.default),
+  'zh-CN': () => import('@/messages/zh-CN').then((module) => module.default),
 } satisfies Record<Locale, () => Promise<AppMessages>>;
 
 export async function loadMessages(locale: Locale): Promise<AppMessages> {

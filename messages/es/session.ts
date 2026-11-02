@@ -125,6 +125,8 @@ export const session = {
     note: 'Nota rápida (opcional)',
     notePlaceholder: 'p. ej. dolor de muñeca, bajé el peso a mitad de serie, fue fácil',
     logSet: 'Registrar la serie',
+    decreaseReps: '-1 repetición',
+    increaseReps: '+1 repetición',
   },
   summary: {
     back: 'Volver a la sesión',

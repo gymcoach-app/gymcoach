@@ -74,6 +74,10 @@ export const common = {
     spanish: 'Spagnolo',
     portuguese: 'Portoghese',
     italian: 'Italiano',
+    dutch: 'Olandese',
+    polish: 'Polacco',
+    turkish: 'Turco',
+    chinese: 'Cinese semplificato',
     error: 'Impossibile cambiare la lingua.',
   },
   theme: {

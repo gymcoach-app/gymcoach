@@ -17,6 +17,10 @@ import germanMessages from '@/messages/de';
 import spanishMessages from '@/messages/es';
 import portugueseMessages from '@/messages/pt';
 import italianMessages from '@/messages/it';
+import dutchMessages from '@/messages/nl';
+import polishMessages from '@/messages/pl';
+import turkishMessages from '@/messages/tr';
+import chineseMessages from '@/messages/zh-CN';
 
 // How far back to look when judging stalled lifts and all-time records for the
 // home insight. Matches the progress page's recent window so the home nudge and
@@ -69,6 +73,10 @@ const messageCatalogs = {
   es: spanishMessages,
   pt: portugueseMessages,
   it: italianMessages,
+  nl: dutchMessages,
+  pl: polishMessages,
+  tr: turkishMessages,
+  'zh-CN': chineseMessages,
 } satisfies Record<Locale, typeof englishMessages>;
 
 export function createHomeInsightTranslator(locale: string): HomeInsightTranslator {

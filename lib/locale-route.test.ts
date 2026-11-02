@@ -14,6 +14,15 @@ function request(url: string, body: unknown, headers: Record<string, string> = {
 }
 
 describe('POST /api/locale', () => {
+  it('accepts Simplified Chinese and persists its exact locale identifier', async () => {
+    const response = await POST(
+      request('http://gymcoach.local:3030/api/locale', { locale: 'zh-CN' }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ locale: 'zh-CN' });
+    expect(response.headers.get('set-cookie')).toContain('gymcoach.locale=zh-CN');
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

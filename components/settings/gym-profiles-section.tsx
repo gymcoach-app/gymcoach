@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { formatPlateList, parseWeightList } from '@/lib/plate-list';
+import { matchesSearch } from '@/lib/search-fold';
 
 type GymWithConfigs = Gym & { exerciseConfigs: GymExerciseConfig[] };
 
@@ -53,6 +54,7 @@ export function GymProfilesSection({ initialGyms, activeGymId: initialActive, ex
   const t = useTranslations('settings.gyms');
   const common = useTranslations('common');
   const exerciseName = useExerciseName();
+  const locale = useLocale();
   const router = useRouter();
   const [gyms, setGyms] = useState(initialGyms);
   const [activeGymId, setActiveGymId] = useState(initialActive);
@@ -64,12 +66,12 @@ export function GymProfilesSection({ initialGyms, activeGymId: initialActive, ex
   const [saving, setSaving] = useState(false);
 
   const filteredExercises = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
+    const query = search.trim();
     if (!query) return exercises;
     return exercises.filter((exercise) =>
-      exerciseName(exercise.name).toLocaleLowerCase().includes(query),
+      matchesSearch(exerciseName(exercise.name), query, locale),
     );
-  }, [exerciseName, exercises, search]);
+  }, [exerciseName, exercises, locale, search]);
 
   function selectGym(id: string) {
     setSelectedId(id);

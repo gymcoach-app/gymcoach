@@ -16,6 +16,21 @@ function input(over: Partial<HomeInsightInput>): HomeInsightInput {
 }
 
 describe('selectHomeInsight (issue #237)', () => {
+  it('renders Chinese insight numbers, exercise names and singular advice', () => {
+    const translate = createHomeInsightTranslator('zh-CN');
+    const stalled = selectHomeInsight(input({ stalledExerciseNames: ['卧推'] }), translate);
+    expect(stalled?.title).toBe('有 1 个动作的训练表现停滞');
+    expect(stalled?.detail).toContain('卧推');
+    expect(stalled?.detail).toContain('小幅调整重量、次数或动作技术');
+    const consistent = selectHomeInsight(input({ trainingDaysThisWeek: 3 }), translate);
+    expect(consistent?.detail).toBe('本周已训练 3 天，继续保持！');
+    const pr = selectHomeInsight(
+      input({ recentPR: { exerciseName: '硬拉', kind: 'e1rm' } }),
+      translate,
+    );
+    expect(pr?.detail).toContain('硬拉 的估算 1RM');
+  });
+
   it('returns null when there is nothing to surface', () => {
     expect(selectHomeInsight(input({}))).toBeNull();
     // trainingDaysThisWeek of 0 is still nothing worth a card.

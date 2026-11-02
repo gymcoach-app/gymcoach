@@ -151,6 +151,16 @@ export const settings = {
       'Импортировано: {sessions, plural, one {# тренировка} few {# тренировки} many {# тренировок} other {# тренировки}}, {sets, plural, one {# подход} few {# подхода} many {# подходов} other {# подхода}}{exercises, plural, =0 {} one {, # новое упражнение} few {, # новых упражнения} many {, # новых упражнений} other {, # новых упражнения}}.',
     fitImportDone:
       'Импортировано: {sessions, plural, one {# тренировка} few {# тренировки} many {# тренировок} other {# тренировки}}{exercises, plural, =0 {} one {, # новое упражнение} few {, # новых упражнения} many {, # новых упражнений} other {, # новых упражнения}}{skipped, plural, =0 {.} one { (# файл пропущен).} few { (# файла пропущены).} many { (# файлов пропущено).} other { (# файла пропущены).}}',
+    file: 'Файл {format}',
+    exportHints: {
+      strong: 'экспортируйте CSV (Settings, затем Export data)',
+      hevy: 'экспортируйте CSV (Settings, затем Export & Import Data)',
+      gymcoach:
+        'используйте CSV из истории тренировок или таблицу с теми же столбцами (session_date, workout, exercise, set_number, external_load_kg, reps, ...)',
+      tcx: 'экспортируйте активность в TCX с платформы часов (Garmin Connect, Polar Flow, ...) для импорта кардиотренировки с длительностью, расстоянием и пульсом',
+      gpx: 'экспортируйте маршрут в GPX из Strava, Komoot или Apple Fitness для импорта кардиотренировки с длительностью, расстоянием и пульсом',
+      fit: 'экспортируйте активность в FIT с часов Garmin или других часов для импорта кардиотренировки с длительностью, расстоянием и пульсом',
+    },
   },
   mcp: {
     title: 'ChatGPT и MCP',
