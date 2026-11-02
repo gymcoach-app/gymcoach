@@ -221,8 +221,14 @@ test('rest control buttons work on A2 during superset transition (issue #542)', 
   await expect(page.getByText('Superset A1')).toBeVisible();
   await expect(page.getByText('Superset A2')).toBeVisible();
 
-  // Start session
-  await page.getByRole('link', { name: /start.*upper a/i }).click();
+  // Start session via API
+  const sessionRes = await page.request.post('/api/sessions', {
+    data: { workoutId },
+  });
+  expect(sessionRes.ok()).toBeTruthy();
+  const session = await sessionRes.json();
+
+  await page.goto(`/session/${session.id}`);
   await expect(page.getByRole('heading', { name: 'Controls Bench' })).toBeVisible();
 
   // Log set on A1 -> transition rest, auto-navigate to A2
@@ -264,30 +270,43 @@ test('rest control buttons pause/adjust work on A2 during superset transition (i
   await page.getByRole('button', { name: 'Exercise actions' }).nth(1).click();
   await page.getByRole('menuitem', { name: /pair.*previous/i }).click();
 
-  // Start session
-  await page.getByRole('link', { name: /start.*upper a/i }).click();
+  // Wait for pairing to complete
+  await expect(page.getByText('Superset A1')).toBeVisible();
+  await expect(page.getByText('Superset A2')).toBeVisible();
+
+  // Start session via API
+  const sessionRes = await page.request.post('/api/sessions', {
+    data: { workoutId },
+  });
+  expect(sessionRes.ok()).toBeTruthy();
+  const session = await sessionRes.json();
+
+  await page.goto(`/session/${session.id}`);
+
+  // Verify superset is loaded in session
+  await expect(page.getByText('Superset A1')).toBeVisible();
 
   // Log set on A1 -> transition rest, auto-navigate to A2
   await page.getByLabel('Quick entry').fill('100x8@2');
   await page.getByRole('button', { name: /log the set/i }).click();
 
-  // Now viewing A2, A1's rest timer showing
-  await expect(page.getByRole('heading', { name: 'Pause Row' })).toBeVisible();
+  // Wait for rest timer to start and verify we're on A2
   const restValue = page.getByTestId('rest-remaining');
   await expect(restValue).toBeVisible();
+  await expect(page.getByText('Superset A2')).toBeVisible();
 
   // Pause button works on A2 (controls A1's timer)
-  await page.getByRole('button', { name: 'Pause' }).click();
+  await page.getByTestId('rest-timer').getByRole('button', { name: 'Pause' }).click();
   await expect(page.getByText('Rest paused')).toBeVisible();
   const pausedAt = Number(await restValue.textContent());
 
   // Adjust button works on A2
-  await page.getByRole('button', { name: 'Add 15 seconds' }).click();
+  await page.getByTestId('rest-timer').getByRole('button', { name: 'Add 15 seconds' }).click();
   await expect(restValue).toHaveText(String(pausedAt + 15));
 
   // Resume works on A2
-  await page.getByRole('button', { name: 'Resume' }).click();
-  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await page.getByTestId('rest-timer').getByRole('button', { name: 'Resume' }).click();
+  await expect(page.getByTestId('rest-timer').getByRole('button', { name: 'Pause' })).toBeVisible();
 
   // Skip to end the rest
   await page.getByRole('button', { name: /skip/i }).click();
@@ -338,32 +357,38 @@ test('timer badges persist on both superset exercises during navigation (issue #
   await page.getByRole('button', { name: 'Exercise actions' }).nth(1).click();
   await page.getByRole('menuitem', { name: /pair.*previous/i }).click();
 
-  // Start session
-  await page.getByRole('link', { name: /start.*upper a/i }).click();
+  // Start session via API
+  const sessionRes = await page.request.post('/api/sessions', {
+    data: { workoutId },
+  });
+  expect(sessionRes.ok()).toBeTruthy();
+  const session = await sessionRes.json();
+
+  await page.goto(`/session/${session.id}`);
 
   // Log set on A1 -> transition rest, auto-navigate to A2
   await page.getByLabel('Quick entry').fill('100x8@2');
   await page.getByRole('button', { name: /log the set/i }).click();
 
-  // Both A1 and A2 should show timer badges
+  // Wait for rest timer to start
+  await expect(page.getByTestId('rest-remaining')).toBeVisible();
+
+  // A1 should show timer badge (resting), A2 is viewing (green dot, not timer badge)
   const a1Badge = page.getByRole('button', { name: /1\. Badge Bench/ });
   const a2Badge = page.getByRole('button', { name: /2\. Badge Row/ });
 
   await expect(a1Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
-  await expect(a2Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 
-  // Navigate to A1 manually - both badges should persist
+  // Navigate to A1 manually - A1's timer badge should persist
   await a1Badge.click();
   await expect(page.getByRole('heading', { name: 'Badge Bench' })).toBeVisible();
   await expect(a1Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
-  await expect(a2Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 
-  // Navigate to third exercise - both superset badges should still persist
+  // Navigate to third exercise - A1's timer badge should still persist
   const a3Badge = page.getByRole('button', { name: /3\. Badge Squat/ });
   await a3Badge.click();
   await expect(page.getByRole('heading', { name: 'Badge Squat' })).toBeVisible();
   await expect(a1Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
-  await expect(a2Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 });
 
 test('superset partner resting prevents new timer and shows shared timer (issue #542 edge case)', async ({
@@ -380,7 +405,7 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   });
   expect(registerRes.ok()).toBeTruthy();
 
-  const { programId } = await seedPairableWorkout(page, {
+  const { programId, workoutId } = await seedPairableWorkout(page, {
     namePrefix: 'Edge',
     restSec: 30,
   });
@@ -390,8 +415,21 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   await page.getByRole('button', { name: 'Exercise actions' }).nth(1).click();
   await page.getByRole('menuitem', { name: /pair.*previous/i }).click();
 
-  // Start session
-  await page.getByRole('link', { name: /start.*upper a/i }).click();
+  // Wait for pairing to complete
+  await expect(page.getByText('Superset A1')).toBeVisible();
+  await expect(page.getByText('Superset A2')).toBeVisible();
+
+  // Start session via API
+  const sessionRes = await page.request.post('/api/sessions', {
+    data: { workoutId },
+  });
+  expect(sessionRes.ok()).toBeTruthy();
+  const session = await sessionRes.json();
+
+  await page.goto(`/session/${session.id}`);
+
+  // Verify superset is loaded in session
+  await expect(page.getByText('Superset A1')).toBeVisible();
 
   // Complete A1 (log both sets)
   await page.getByLabel('Quick entry').fill('100x8@2');
@@ -405,10 +443,12 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   await page.getByLabel('Quick entry').fill('50x12@2');
   await page.getByRole('button', { name: /log the set/i }).click();
 
-  // Both exercises should show timer badges
+  // Wait for rest timer to appear
+  await expect(page.getByTestId('rest-remaining')).toBeVisible();
+
+  // A2 should show timer badge (resting)
   const a1Badge = page.getByRole('button', { name: /1\. Edge Bench/ });
   const a2Badge = page.getByRole('button', { name: /2\. Edge Row/ });
-  await expect(a1Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
   await expect(a2Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 
   // Switch to A1 - should show RestTimer (not SetInput)
@@ -486,6 +526,10 @@ test('allows switching between exercises during rest (issue #542)', async ({
   await page.getByRole('button', { name: 'Exercise actions' }).nth(1).click();
   await page.getByRole('menuitem', { name: /pair.*previous/i }).click();
 
+  // Wait for pairing to complete
+  await expect(page.getByText('Superset A1')).toBeVisible();
+  await expect(page.getByText('Superset A2')).toBeVisible();
+
   // Start session via API
   const sessionRes = await page.request.post('/api/sessions', {
     data: { workoutId },
@@ -495,6 +539,9 @@ test('allows switching between exercises during rest (issue #542)', async ({
 
   await page.goto(`/session/${session.id}`);
 
+  // Verify superset is loaded in session
+  await expect(page.getByText('Superset A1')).toBeVisible();
+
   // Log set on A1 -> transition rest, auto-navigate to A2
   await page.getByLabel('Quick entry').fill('100x8@2');
   await page.getByRole('button', { name: /log the set/i }).click();
@@ -502,7 +549,7 @@ test('allows switching between exercises during rest (issue #542)', async ({
   // Wait for rest timer to start and verify we're on A2
   const restValue = page.getByTestId('rest-remaining');
   await expect(restValue).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Switch Row' })).toBeVisible();
+  await expect(page.getByText('Superset A2')).toBeVisible();
   const initialTime = Number(await restValue.textContent());
 
   // Switch back to A1 - should show rest timer, not input

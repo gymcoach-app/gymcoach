@@ -148,7 +148,7 @@ test('switches between exercises preserving rest timers', async ({ page }) => {
 
   // Verify exercise 2 still has timer badge on strip
   const ex2Badge = page.getByRole('button', { name: /2\. E2E Multi Ex 2/ });
-  await expect(ex2Badge.locator('text=/⏱️/')).toBeVisible();
+  await expect(ex2Badge.locator('[data-testid="exercise-strip-timer-badge"]')).toBeVisible();
 });
 
 test('does not auto-navigate when timer expires on non-viewed exercise', async ({ page }) => {
