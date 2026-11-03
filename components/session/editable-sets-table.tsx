@@ -501,7 +501,7 @@ export function EditableSetsTable({
           >
             <span>#</span>
             <span>{unit}</span>
-            <span>REPS</span>
+            <span>{locale === 'zh-CN' ? inputT('reps') : 'REPS'}</span>
             <span>RIR</span>
             {metrics.map((metric) => (
               <span key={metric} data-testid={`set-metric-header-${metric}`}>

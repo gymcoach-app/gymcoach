@@ -77,6 +77,7 @@ export const common = {
     dutch: 'Niederländisch',
     polish: 'Polnisch',
     turkish: 'Türkisch',
+    chinese: 'Vereinfachtes Chinesisch',
     error: 'Sprache konnte nicht geändert werden.',
   },
   theme: {

@@ -78,6 +78,8 @@ export const common = {
     polish: 'Pools',
     turkish: 'Turks',
     error: 'Kon de taal niet wijzigen.',
+
+    chinese: 'Vereenvoudigd Chinees',
   },
   theme: {
     dark: 'Donker',

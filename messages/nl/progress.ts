@@ -102,6 +102,9 @@ export const progress = {
     title: 'Conditie',
     description:
       'Cardiominuten per week tegenover de richtlijn van {target} min/week. Afstand en sessies zie je in de tooltip.',
+
+    summary:
+      'Deze week: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# sessie} other {# sessies}}}} · Totaal over {weeks} weken: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Deloadweek bezig',
@@ -192,5 +195,28 @@ export const progress = {
     regionLabel: '{name}: {sets, plural, one {# set} other {# sets}} deze week, {status}',
     hint: 'Tik op een spier voor details.',
     empty: 'Geen werksets in die week; log een sessie en het lichaam licht op.',
+  },
+
+  photos: {
+    title: 'Voortgangsfoto’s',
+    photo: 'Foto',
+    date: 'Datum',
+    note: 'Notitie (optioneel)',
+    notePlaceholder: 'bijv. einde van de cut',
+    chooseFirst: 'Kies eerst een foto.',
+    uploadError: 'Kon de foto niet uploaden.',
+    added: 'Foto toegevoegd.',
+    deleteConfirm: 'De foto van {date} verwijderen?',
+    deleteError: 'Kon de foto niet verwijderen.',
+    deleted: 'Foto verwijderd.',
+    empty:
+      'Nog geen voortgangsfoto’s. Foto’s worden lokaal op je server opgeslagen en zijn alleen voor jou zichtbaar. Upload de eerste om de tijdlijn te starten.',
+    imageAlt: 'Voortgangsfoto van {date}',
+    deleteAria: 'Foto van {date} verwijderen',
+    compare: 'Vergelijken',
+    before: 'Voor',
+    after: 'Na',
+    compareAlt: '{label}: foto van {date}',
+    uploading: 'Uploaden...',
   },
 } satisfies MessageShape<typeof english>;

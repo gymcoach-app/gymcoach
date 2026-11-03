@@ -82,6 +82,8 @@ export const common = {
     polish: 'Polski',
     turkish: 'Turecki',
     error: 'Nie udało się zmienić języka.',
+
+    chinese: 'Chiński uproszczony',
   },
   theme: {
     dark: 'Ciemny',

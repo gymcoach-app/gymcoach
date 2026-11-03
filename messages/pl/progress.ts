@@ -102,6 +102,9 @@ export const progress = {
     title: 'Kondycja',
     description:
       'Minuty cardio w tygodniu na tle zalecenia {target} min/tydz. Dystans i sesje widać w podpowiedzi.',
+
+    summary:
+      'W tym tygodniu: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# trening} few {# treningi} many {# treningów} other {# treningu}}}} · Łącznie przez {weeks} tyg.: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
   },
   deload: {
     activeTitle: 'Trwa tydzień deloadu',
@@ -195,5 +198,28 @@ export const progress = {
       '{name}: {sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} w tym tygodniu, {status}',
     hint: 'Dotknij mięśnia, aby zobaczyć szczegóły.',
     empty: 'Brak serii roboczych w tym tygodniu; zapisz sesję, a sylwetka się podświetli.',
+  },
+
+  photos: {
+    title: 'Zdjęcia postępów',
+    photo: 'Zdjęcie',
+    date: 'Data',
+    note: 'Notatka (opcjonalnie)',
+    notePlaceholder: 'np. koniec redukcji',
+    chooseFirst: 'Najpierw wybierz zdjęcie.',
+    uploadError: 'Nie udało się przesłać zdjęcia.',
+    added: 'Zdjęcie dodane.',
+    deleteConfirm: 'Usunąć zdjęcie z {date}?',
+    deleteError: 'Nie udało się usunąć zdjęcia.',
+    deleted: 'Zdjęcie usunięte.',
+    empty:
+      'Nie masz jeszcze zdjęć postępów. Zdjęcia są przechowywane lokalnie na Twoim serwerze i widoczne tylko dla Ciebie. Prześlij pierwsze zdjęcie, aby rozpocząć oś czasu.',
+    imageAlt: 'Zdjęcie postępów z {date}',
+    deleteAria: 'Usuń zdjęcie z {date}',
+    compare: 'Porównaj',
+    before: 'Przed',
+    after: 'Po',
+    compareAlt: '{label}: zdjęcie z {date}',
+    uploading: 'Przesyłanie...',
   },
 } satisfies MessageShape<typeof english>;

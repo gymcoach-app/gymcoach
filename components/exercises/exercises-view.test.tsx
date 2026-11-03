@@ -69,6 +69,33 @@ describe('ExercisesView search (issue #238)', () => {
     expect(screen.queryByText('Back Squat')).not.toBeInTheDocument();
   });
 
+  describe('in Simplified Chinese after the locale-aware search merge', () => {
+    beforeEach(() => {
+      vi.spyOn(nextIntl, 'useLocale').mockReturnValue('zh-CN');
+    });
+
+    it.each(['卧推', '  BENCH  '])('finds the translated exercise using %s', async (query) => {
+      const user = userEvent.setup({ delay: null });
+      render(<ExercisesView exercises={exercises} />);
+      await user.type(screen.getByRole('searchbox'), query);
+      expect(screen.getByText('杠铃卧推')).toBeInTheDocument();
+      expect(screen.queryByText('罗马尼亚硬拉')).not.toBeInTheDocument();
+      expect(exercises[0]?.name).toBe('Barbell Bench Press');
+    });
+
+    it('searches custom Chinese names without translating them', async () => {
+      const user = userEvent.setup({ delay: null });
+      render(
+        <ExercisesView
+          exercises={[...exercises, exercise({ id: 'custom', name: '自定义 RPE 练习' })]}
+        />,
+      );
+      await user.type(screen.getByRole('searchbox'), '自定义');
+      expect(screen.getByText('自定义 RPE 练习')).toBeInTheDocument();
+      expect(screen.queryByText('杠铃卧推')).not.toBeInTheDocument();
+    });
+  });
+
   describe('in Turkish (follow-up to #537)', () => {
     const turkish: Exercise[] = [
       exercise({ id: 't1', name: 'Jump rope', muscleGroup: 'OTHER' }),

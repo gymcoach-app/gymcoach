@@ -1,0 +1,88 @@
+import { coach as english } from '../en/coach';
+import type { MessageShape } from '@/i18n/message-types';
+
+export const coach = {
+  title: 'AI 教练',
+  description: '每周 AI 训练总结与分析。',
+  chatTitle: '教练对话',
+  chatDescription: '与 AI 教练交流，教练会结合你的训练数据提供建议。',
+  conversation: '对话记录',
+  client: {
+    generating: '正在生成（约 10～20 秒）...',
+    request: '生成每周训练总结',
+    empty: '暂无训练总结。点击上方按钮生成第一份总结。',
+    unknownError: '未知错误',
+    keyMissing: '缺少 {provider} API 密钥',
+    keySetup: '请在 .env 中设置 {variable} 以启用 AI 教练。',
+    applied: '已应用',
+    debriefFrom: '{date} 的训练总结',
+    weekOf: '{date} 所在周',
+
+    tooManyDebriefs: '请求训练总结过于频繁，请稍后重试。',
+  },
+  chat: {
+    apiKey: '请在 .env 中设置 {variable} 以启用教练对话。',
+    liveSession: '已关联正在进行的训练。',
+    new: '新对话',
+    placeholder: '向 AI 教练发送消息...',
+    send: '发送',
+    liveSessionDescription: '教练可以参考本次训练已记录的组数、负重和训练计划目标。',
+    emptySession: '训练中遇到问题？可以询问下一组如何安排、负重是否合适，或者是否需要更换动作。',
+    empty:
+      '可以询问如何突破训练平台期、调整训练容量、实现渐进超负荷、改善恢复，或根据伤病情况调整训练。',
+    advisory:
+      '教练对话仅提供建议，不能直接修改你的数据。请自行在训练计划页面调整，或通过每周训练总结应用建议。',
+  },
+  context: {
+    title: '教练可以参考的数据',
+    teaser: '查看每次训练总结所依据的训练数据，点击展开详情。',
+    history: '训练历史',
+    goals: '训练目标',
+    achieved: '已达成',
+    noGoals: '尚未设置动作训练目标。',
+    fatigue: '疲劳状况',
+    conditioning: '心肺训练',
+    readiness: '训练状态',
+    historySummary:
+      '最近 {weeks, plural, other {# 周}}的训练历史，涵盖 {exercises, plural, other {# 个动作}}。',
+    noHistory: '暂无训练记录。完成第一次训练后，教练就可以开始分析你的训练数据。',
+    goalProgress: '（已完成 {percent}%）',
+    stalled: '训练表现停滞的动作：{names}。',
+    noStalled: '未发现训练表现停滞的动作。',
+    deloadActive: '当前正在执行计划减量周。',
+    deloadRecommended: '建议安排减量周{reasons, select, none {。} other {：{reasons}。}}',
+    noDeload: '目前无需安排减量周。',
+    conditioningSummary:
+      '本周：{minutes} 分钟{km, select, none {} other { · {km} 公里}} · {sessions, plural, other {# 次训练}}（目标：每周 {target} 分钟）',
+    today: '今天',
+    daysAgo: '{days, plural, other {# 天前}}',
+    readinessSummary: '上次状态评估（{when}）：训练状态 {readiness}/5，睡眠质量 {sleep}/5。',
+    noReadiness: '最近 7 天没有训练状态评估记录。',
+    privacy:
+      'AI 会接收类似上述的简要训练数据，以及你近期逐组记录的训练日志；不会接收你的账户信息或训练历史以外的其他数据。',
+  },
+  note: {
+    title: '给教练的备注',
+    description: '补充训练数据无法体现的情况，例如伤病、生病或旅行安排。',
+    placeholder: '例如：最近肩膀不太舒服，这周请减少推举类训练强度。',
+    clear: '清除',
+    save: '保存',
+    saved: '备注已保存。',
+    cleared: '备注已清除。',
+    error: '保存备注失败。',
+  },
+  adjustments: {
+    title: '建议的训练调整',
+    applied: '已应用',
+    description: '选择需要应用到当前训练计划的调整。确认前可以修改具体数值。',
+    aria: '将调整应用到 {exercise}',
+    repsMin: '最少次数',
+    repsMax: '最多次数',
+    sets: '组数',
+    rest: '休息（秒）',
+    targetLoad: '目标负重',
+    versus: '（原值：{value}）',
+    applying: '正在应用...',
+    apply: '{count, plural, other {应用 # 项调整}}',
+  },
+} satisfies MessageShape<typeof english>;

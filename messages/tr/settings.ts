@@ -149,6 +149,17 @@ export const settings = {
       'İçe aktarıldı: {sessions, plural, one {# seans} other {# seans}}, {sets, plural, one {# set} other {# set}}{exercises, plural, =0 {} one {, # yeni egzersiz} other {, # yeni egzersiz}}.',
     fitImportDone:
       'İçe aktarıldı: {sessions, plural, one {# seans} other {# seans}}{exercises, plural, =0 {} one {, # yeni egzersiz} other {, # yeni egzersiz}}{skipped, plural, =0 {.} one { (# dosya atlandı).} other { (# dosya atlandı).}}',
+
+    file: '{format} dosyası',
+    exportHints: {
+      strong: 'CSV olarak dışa aktar (Settings, ardından Export data)',
+      hevy: 'CSV olarak dışa aktar (Settings, ardından Export & Import Data)',
+      gymcoach:
+        'Geçmiş sayfasından dışa aktarılan CSV dosyasını veya aynı sütunlara sahip bir elektronik tabloyu kullan (session_date, workout, exercise, set_number, external_load_kg, reps, ...)',
+      tcx: 'etkinliği saat platformundan (Garmin Connect, Polar Flow, ...) TCX olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
+      gpx: 'rotayı Strava, Komoot veya Apple Fitness üzerinden GPX olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
+      fit: 'etkinliği Garmin (veya başka bir marka) saatinden FIT dosyası olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
+    },
   },
   mcp: {
     title: 'ChatGPT ve MCP',

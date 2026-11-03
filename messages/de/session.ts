@@ -52,10 +52,13 @@ export const session = {
     nextSet: 'Automatischer nächster Satz',
     reasons: {
       'hold-load': 'Der vorherige Satz entsprach dem Ziel; behalte das gleiche Gewicht.',
-      'adjust-reps': 'Behalte das Gewicht und passe Wiederholungen an, um das Ziel-RIR zu erhalten.',
+      'adjust-reps':
+        'Behalte das Gewicht und passe Wiederholungen an, um das Ziel-RIR zu erhalten.',
       'reduce-load': 'Reduziere das Gewicht, um das programmierte Ziel zu erhalten.',
-      'increase-load': 'Der vorherige Satz war leichter als geplant; füge eine Gewichtsstufe hinzu.',
-      'bodyweight-adjust-reps': 'Gewicht kann nicht unter Körpergewicht reduziert werden; passe stattdessen Wiederholungen an.',
+      'increase-load':
+        'Der vorherige Satz war leichter als geplant; füge eine Gewichtsstufe hinzu.',
+      'bodyweight-adjust-reps':
+        'Gewicht kann nicht unter Körpergewicht reduziert werden; passe stattdessen Wiederholungen an.',
     },
   },
   returnToTraining: {
@@ -78,7 +81,8 @@ export const session = {
     open: 'Bereitschafts-Check-in (optional)',
     update: 'Bereitschafts-Check-in aktualisieren',
     title: 'Wie erholt fühlst du dich?',
-    description: 'Optional. Bewerte 1 (niedrig) bis 5 (hoch); der Coach nutzt es zur Autoregulation.',
+    description:
+      'Optional. Bewerte 1 (niedrig) bis 5 (hoch); der Coach nutzt es zur Autoregulation.',
     overall: 'Gesamtbereitschaft',
     sleep: 'Schlafqualität',
     details: 'Muskelkater / Notiz hinzufügen (optional)',
@@ -112,7 +116,8 @@ export const session = {
     distanceError: 'Gib eine Distanz zwischen 0 und 1000 km ein.',
     quickEntry: 'Schnelleingabe',
     quickEntryExample: 'z.B. 100x8@9 ({unit} x Wdh. @ RPE)',
-    quickEntryError: 'Erwartetes Format: Gewicht x Wiederholungen, optional @ RPE - z.B. 100x8 oder 62.5x8@8.5',
+    quickEntryError:
+      'Erwartetes Format: Gewicht x Wiederholungen, optional @ RPE - z.B. 100x8 oder 62.5x8@8.5',
     equipment: 'Maschine / Ausrüstung',
     equipmentNone: 'Keine spezifische Maschine',
     load: 'Gewicht ({unit})',
@@ -123,6 +128,8 @@ export const session = {
     note: 'Schnelle Notiz (optional)',
     notePlaceholder: 'z.B. Handgelenksschmerz, Gewicht mittendrin reduziert, fühlte sich leicht an',
     logSet: 'Satz loggen',
+    decreaseReps: '-1 Wiederholung',
+    increaseReps: '+1 Wiederholung',
   },
   summary: {
     back: 'Zurück zur Einheit',
@@ -243,7 +250,8 @@ export const session = {
       'Bereits in dieser Einheit geloggte Sätze bleiben in deiner Historie unter der ursprünglichen Übung, werden aber auf diesem Bildschirm nicht mehr angezeigt. Dein gespeichertes Programm ändert sich auch für zukünftige Einheiten. Ersetzen?',
     removeLoggedWarning:
       'Bereits geloggte Sätze bleiben in der Historie, werden aber auf diesem Bildschirm nicht mehr angezeigt. Die Übung wird aus deinem gespeicherten Programm entfernt, auch für zukünftige Einheiten.',
-    removeConfirm: 'Diese Übung aus deinem gespeicherten Programm entfernen? Zukünftige Einheiten ändern sich auch.',
+    removeConfirm:
+      'Diese Übung aus deinem gespeicherten Programm entfernen? Zukünftige Einheiten ändern sich auch.',
     removeLastBlocked:
       'Dies ist die einzige Übung im Workout, daher kann sie hier nicht entfernt werden. Ersetze sie stattdessen.',
     confirmReplace: 'Durch {name} ersetzen',

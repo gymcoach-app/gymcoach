@@ -2,6 +2,7 @@ import type { Locale } from '@/i18n/config';
 
 interface TrainingNameRules {
   phrases: Readonly<Record<string, string>>;
+  generatedSegmentPattern?: RegExp;
   day: (number: string) => string;
   week: (number: string) => string;
   weeks: (count: number) => string;
@@ -10,6 +11,69 @@ interface TrainingNameRules {
 // Program and workout identity remains exactly as imported or entered by the
 // user. These rules only localize common generated names at display time.
 const rulesByLocale: Partial<Record<Locale, TrainingNameRules>> = {
+  'zh-CN': {
+    phrases: {
+      'New plan': '新训练计划',
+      'Full Body Hybrid': '全身混合训练',
+      'Full Body': '全身训练',
+      Upper: '上肢训练',
+      Lower: '下肢训练',
+      'Upper Body': '上肢训练',
+      'Lower Body': '下肢训练',
+      'Push Day': '推训练日',
+      'Pull Day': '拉训练日',
+      'Leg Day': '腿部训练日',
+      'Push Pull Legs': '推拉腿分化训练',
+      'Upper Lower': '上下肢分化训练',
+      Strength: '力量',
+      Hypertrophy: '增肌',
+      General: '综合训练',
+      'Day 1 - Overhead Press': '第 1 天 - 过顶推举',
+      'Day 2 - Deadlift': '第 2 天 - 硬拉',
+      'Day 3 - Bench Press': '第 3 天 - 卧推',
+      'Day 4 - Squat': '第 4 天 - 深蹲',
+      'Day A - Squat / Bench': '训练日 A - 深蹲 / 卧推',
+      'Day B - Overhead Press / Deadlift': '训练日 B - 过顶推举 / 硬拉',
+      'Day C - Bench / Squat': '训练日 C - 卧推 / 深蹲',
+      'Push A': '推训练 A',
+      'Push B': '推训练 B',
+      'Pull A': '拉训练 A',
+      'Pull B': '拉训练 B',
+      'Legs A': '腿部训练 A',
+      'Legs B': '腿部训练 B',
+      'Upper A': '上肢训练 A',
+      'Upper B': '上肢训练 B',
+      'Lower A': '下肢训练 A',
+      'Lower B': '下肢训练 B',
+      'Day 1 - Bench / OHP': '第 1 天 - 卧推 / OHP',
+      'Day 2 - Squat / Sumo Deadlift': '第 2 天 - 深蹲 / 相扑硬拉',
+      'Day 3 - OHP / Incline Bench': '第 3 天 - OHP / 上斜卧推',
+      'Day 4 - Deadlift / Front Squat': '第 4 天 - 硬拉 / 前蹲',
+      'Workout A - Squat / Bench / Deadlift': '训练 A - 深蹲 / 卧推 / 硬拉',
+      'Workout B - Squat / Press / Power Clean': '训练 B - 深蹲 / 推举 / 高翻',
+      'Workout A - Squat / Bench / Row': '训练 A - 深蹲 / 卧推 / 划船',
+      'Workout B - Squat / Press / Deadlift': '训练 B - 深蹲 / 推举 / 硬拉',
+      'Monday - Heavy Ramp': '周一 - 大重量递增训练',
+      'Wednesday - Light': '周三 - 轻重量训练',
+      'Friday - Top Set / PR': '周五 - 顶组 / PR',
+      'Upper Power': '上肢力量训练',
+      'Lower Power': '下肢力量训练',
+      'Upper Hypertrophy': '上肢增肌训练',
+      'Lower Hypertrophy': '下肢增肌训练',
+      'Back / Shoulders Hypertrophy': '背部 / 肩部增肌训练',
+      'Chest / Arms Hypertrophy': '胸部 / 手臂增肌训练',
+      'Full Body 3x': '全身训练（每周 3 次）',
+      'Full Body A': '全身训练 A',
+      'Full Body B': '全身训练 B',
+      'Full Body C': '全身训练 C',
+    },
+    // Only translate complete generated segments, not numbers embedded in custom names.
+    generatedSegmentPattern:
+      /^(?:Day\s+\d+|Week\s+\d+|\d+\s+weeks?)(?:\s+\(\d{4}-\d{2}-\d{2}\))?$/i,
+    day: (number) => `第 ${number} 天`,
+    week: (number) => `第 ${number} 周`,
+    weeks: (count) => `${count} 周`,
+  },
   ru: {
     phrases: {
       'New plan': 'Новый план',
@@ -154,6 +218,9 @@ function localizeSegment(segment: string, rules: TrainingNameRules): string {
   const phrase = Object.entries(rules.phrases).find(
     ([source]) => source.toLocaleLowerCase('en-US') === value.toLocaleLowerCase('en-US'),
   );
+  if (!phrase && rules.generatedSegmentPattern && !rules.generatedSegmentPattern.test(value)) {
+    return segment;
+  }
   const localized = (phrase?.[1] ?? value)
     .replace(/\bDay\s+(\d+)\b/gi, (_, number: string) => rules.day(number))
     .replace(/\bWeek\s+(\d+)\b/gi, (_, number: string) => rules.week(number))

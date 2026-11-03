@@ -125,6 +125,9 @@ export const session = {
     note: 'Kısa not (isteğe bağlı)',
     notePlaceholder: 'örn. bilek ağrısı, set ortasında ağırlığı düşürdüm, kolay geldi',
     logSet: 'Seti kaydet',
+
+    decreaseReps: '1 tekrar azalt',
+    increaseReps: '1 tekrar artır',
   },
   summary: {
     back: 'Seansa dön',

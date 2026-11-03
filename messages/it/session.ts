@@ -128,6 +128,8 @@ export const session = {
     note: 'Nota veloce (facoltativa)',
     notePlaceholder: 'Es. dolore al polso, peso ridotto a metà serie, è stata facile',
     logSet: 'Registra la serie',
+    decreaseReps: '-1 ripetizione',
+    increaseReps: '+1 ripetizione',
   },
   summary: {
     back: 'Torna alla sessione',
