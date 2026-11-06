@@ -20,7 +20,7 @@ export const session = {
   exerciseProgress: 'Egzersiz {current}/{total} · {name}',
   exerciseStripLabel: 'Antrenmandaki egzersizler',
   exerciseCompleted: 'Tamamlandı',
-  exerciseResting: '{time} remaining',
+  exerciseResting: '{time} kaldı',
   superset: 'Süperset {label}',
   deloadWeek: 'Deload haftası',
   quit: 'Bitirmeden çık',

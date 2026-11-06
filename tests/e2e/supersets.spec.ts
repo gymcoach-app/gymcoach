@@ -197,7 +197,9 @@ test('a superset gives a short rest between members and a full rest after the gr
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 });
 
-test('rest control buttons work on A2 during superset transition (issue #542)', async ({ page }) => {
+test('rest control buttons work on A2 during superset transition (issue #542)', async ({
+  page,
+}) => {
   // Sign up
   const registerRes = await page.request.post('/api/auth/register', {
     headers: { 'x-forwarded-for': '10.111.0.8' },
@@ -391,7 +393,7 @@ test('timer badges persist on both superset exercises during navigation (issue #
   await expect(a1Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 });
 
-test('superset partner resting prevents new timer and shows shared timer (issue #542 edge case)', async ({
+test('a superset rest is shared by both members and its controls work from either (issue #542 edge case)', async ({
   page,
 }) => {
   // Sign up
@@ -431,7 +433,9 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   // Verify superset is loaded in session
   await expect(page.getByText('Superset A1')).toBeVisible();
 
-  // Complete A1 (log both sets)
+  // The superset alternates after every set. Set 1 on A1 (the runner moves to
+  // A2), skip the transition rest; set 1 on A2 (the runner moves back to A1),
+  // skip again.
   await page.getByLabel('Quick entry').fill('100x8@2');
   await page.getByRole('button', { name: /log the set/i }).click();
   await page.getByRole('button', { name: /skip/i }).click();
@@ -439,25 +443,26 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   await page.getByRole('button', { name: /log the set/i }).click();
   await page.getByRole('button', { name: /skip/i }).click();
 
-  // Now on A2, log a set - A2 starts resting
+  // Back on A1: its second set starts A1's transition rest and the runner
+  // shows A2, where that rest is displayed.
   await page.getByLabel('Quick entry').fill('50x12@2');
   await page.getByRole('button', { name: /log the set/i }).click();
 
   // Wait for rest timer to appear
   await expect(page.getByTestId('rest-remaining')).toBeVisible();
 
-  // A2 should show timer badge (resting)
+  // A2 carries the timer badge: A1's rest is the one holding it back
   const a1Badge = page.getByRole('button', { name: /1\. Edge Bench/ });
   const a2Badge = page.getByRole('button', { name: /2\. Edge Row/ });
   await expect(a2Badge.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 
-  // Switch to A1 - should show RestTimer (not SetInput)
+  // Switch to A1, the member that is resting - RestTimer, not SetInput
   await a1Badge.click();
   await expect(page.getByRole('heading', { name: 'Edge Bench' })).toBeVisible();
   const restTimer = page.getByTestId('rest-timer');
   await expect(restTimer).toBeVisible();
 
-  // Rest control buttons should work on A2's timer (via A1)
+  // The rest controls act on that one rest from either member
   const restValue = page.getByTestId('rest-remaining');
   const initialTime = Number(await restValue.textContent());
 
@@ -465,7 +470,7 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   await page.getByRole('button', { name: 'Pause' }).click();
   await expect(page.getByText('Rest paused')).toBeVisible();
 
-  // Adjust the timer (+15s should affect A2's timer)
+  // Adjust the timer (+15s on the shared rest)
   await page.getByRole('button', { name: 'Add 15 seconds' }).click();
   await expect(restValue).toHaveText(String(initialTime + 15));
 
@@ -483,11 +488,9 @@ test('superset partner resting prevents new timer and shows shared timer (issue 
   await expect(a2Badge.getByTestId('exercise-strip-timer-badge')).not.toBeVisible();
 });
 
-test('allows switching between exercises during rest (issue #542)', async ({
-  page,
-}) => {
+test('allows switching between exercises during rest (issue #542)', async ({ page }) => {
   const registerRes = await page.request.post('/api/auth/register', {
-    headers: { 'x-forwarded-for': '10.111.0.18' },  // Fresh IP
+    headers: { 'x-forwarded-for': '10.111.0.18' }, // Fresh IP
     data: {
       displayName: 'Switch E2E',
       email: `e2e-switch-${Date.now()}@test.dev`,
@@ -573,19 +576,22 @@ test('allows switching between exercises during rest (issue #542)', async ({
     expect(remainingTime).toBeLessThan(initialTime);
   }).toPass({ timeout: 5000 });
 
-  // Log a set on A2 while A1's timer is still running (if any time left)
-  if (remainingTime > 0) {
-    await page.getByRole('button', { name: /skip/i }).click();
-  }
+  expect(remainingTime).toBeGreaterThan(0);
+
+  // The rest survived the switching, so it can still be skipped; a set on A2
+  // then sends the superset back to A1 with a new transition rest.
+  await page.getByRole('button', { name: /skip/i }).click();
   await page.getByLabel('Quick entry').fill('50x10@2');
   await page.getByRole('button', { name: /log the set/i }).click();
+  await expect(page.getByRole('heading', { name: 'Switch Bench' })).toBeVisible();
+  await expect(page.getByTestId('rest-timer')).toBeVisible();
 });
 
 test('superset partner resting blocks input and shares timer (issue #542 edge case)', async ({
   page,
 }) => {
   const registerRes = await page.request.post('/api/auth/register', {
-    headers: { 'x-forwarded-for': '10.111.0.19' },  // Fresh IP
+    headers: { 'x-forwarded-for': '10.111.0.19' }, // Fresh IP
     data: {
       displayName: 'Edge Case E2E',
       email: `e2e-edge-case-${Date.now()}@test.dev`,
@@ -632,4 +638,3 @@ test('superset partner resting blocks input and shares timer (issue #542 edge ca
   await expect(page.getByTestId('rest-timer')).toBeVisible();
   await expect(page.getByLabel('Quick entry')).not.toBeVisible();
 });
-

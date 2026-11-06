@@ -229,8 +229,21 @@ export function SessionRunner({
   const [exerciseStates, setExerciseStates] = useState<Map<string, ExerciseState>>(
     new Map()
   );
-  // Ref to track latest state for pure timer expiry logic (maintainer review).
+  // The same map, readable outside render: the background timer reads it on
+  // every tick.
   const statesRef = useRef<Map<string, ExerciseState>>(new Map());
+  // The one place the map is written. The ref moves in the same call as the
+  // state, so the timer never works from a map that is a render behind: a tick
+  // landing between a handler's write and the next render used to put back a
+  // rest the lifter had just skipped, paused or adjusted (follow-up to #544).
+  const updateExerciseStates = useCallback(
+    (update: (prev: Map<string, ExerciseState>) => Map<string, ExerciseState>) => {
+      const next = update(statesRef.current);
+      statesRef.current = next;
+      setExerciseStates(next);
+    },
+    [],
+  );
   const [globalMode, setGlobalMode] = useState<GlobalMode>('active');
   // Bumped each time a rest runs out with the flash preference on (issue #393).
   const [restFlashCount, setRestFlashCount] = useState(0);
@@ -309,11 +322,6 @@ export function SessionRunner({
     () => [...exerciseStates.values()].some((s) => s.kind === 'rest'),
     [exerciseStates]
   );
-
-  // Keep ref in sync with state when state changes from other sources (not timer)
-  useEffect(() => {
-    statesRef.current = exerciseStates;
-  }, [exerciseStates]);
 
   // Write the clamp back. If a pending selection never lands (failed refresh,
   // target row gone), an index left past the end would make a later add jump
@@ -410,7 +418,7 @@ export function SessionRunner({
     const interval = setInterval(() => {
       const now = Date.now();
 
-      // Read from ref (not state) for pure computation
+      // The ref always holds the latest map (see updateExerciseStates).
       const currentStates = statesRef.current;
       const expired: Array<{
         peId: string;
@@ -447,11 +455,7 @@ export function SessionRunner({
         }
       }
 
-      // Pure setState if anything changed
-      if (changed) {
-        setExerciseStates(nextStates);
-        statesRef.current = nextStates;
-      }
+      if (changed) updateExerciseStates(() => nextStates);
 
       // Run side effects AFTER setState (maintainer review: fire cues for ALL expired rests)
       for (const { isViewing, shouldNavigate, nextIdx } of expired) {
@@ -718,7 +722,7 @@ export function SessionRunner({
       programExercises.some(pe =>
         pe.id !== currentPE.id &&
         pe.supersetGroup === currentSupersetGroup &&
-        exerciseStates.get(pe.id)?.kind === 'rest'
+        statesRef.current.get(pe.id)?.kind === 'rest'
       );
 
     if (supersetPartnerAlreadyResting) {
@@ -735,7 +739,7 @@ export function SessionRunner({
     if (navigatedImmediately) selectExercise(nextIdx);
 
     // Set rest state for this specific exercise (issue #542, PR1).
-    setExerciseStates(prev => {
+    updateExerciseStates(prev => {
       const next = new Map(prev);
       next.set(restingExerciseId, {
         kind: 'rest',
@@ -904,7 +908,7 @@ export function SessionRunner({
     }
 
     // Clear the resting exercise's state
-    setExerciseStates(prev => {
+    updateExerciseStates(prev => {
       const next = new Map(prev);
       next.set(restingId, { kind: 'input' });
       return next;
@@ -914,7 +918,7 @@ export function SessionRunner({
   function handlePauseRest() {
     const restingId = getRestingExerciseId();
     if (!restingId || currentState.kind !== 'rest') return;
-    setExerciseStates(prev => {
+    updateExerciseStates(prev => {
       const next = new Map(prev);
       next.set(restingId, pauseRest(currentState, Date.now()));
       return next;
@@ -924,7 +928,7 @@ export function SessionRunner({
   function handleResumeRest() {
     const restingId = getRestingExerciseId();
     if (!restingId || currentState.kind !== 'rest') return;
-    setExerciseStates(prev => {
+    updateExerciseStates(prev => {
       const next = new Map(prev);
       next.set(restingId, resumeRest(currentState, Date.now()));
       return next;
@@ -934,7 +938,7 @@ export function SessionRunner({
   function handleAdjustRest(deltaMs: number) {
     const restingId = getRestingExerciseId();
     if (!restingId || currentState.kind !== 'rest') return;
-    setExerciseStates(prev => {
+    updateExerciseStates(prev => {
       const next = new Map(prev);
       next.set(restingId, adjustRest(currentState, deltaMs, Date.now()));
       return next;
@@ -1174,12 +1178,11 @@ export function SessionRunner({
               // (maintainer review): flip state immediately to prevent re-beep on remount
               const restingId = getRestingExerciseId();
               if (restingId && currentState.kind === 'rest') {
-                setExerciseStates(prev => {
+                updateExerciseStates(prev => {
                   const next = new Map(prev);
                   next.set(restingId, { kind: 'input' });
                   return next;
                 });
-                statesRef.current = new Map(statesRef.current).set(restingId, { kind: 'input' });
 
                 // Fire cues (same as interval expiry)
                 vibrate(VIBRATION_PATTERNS.restEnd);

@@ -122,6 +122,24 @@ describe('SessionExerciseStrip', () => {
     expect(onSelect).toHaveBeenCalledWith(1);
   });
 
+  it('names the progress pie of a started exercise from the catalog', () => {
+    render(
+      <SessionExerciseStrip
+        exercises={exercises}
+        currentIndex={0}
+        completedProgramExerciseIds={new Set()}
+        startedProgramExerciseIds={new Set(['pe-3'])}
+        exerciseProgress={new Map([['pe-3', { done: 1, target: 3 }]])}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    // Read by screen readers only: the same translated text as the summary.
+    const pie = screen.getByRole('img', { name: '1/3 sets' });
+    expect(screen.getByRole('button', { name: '3. Standing Calf Raise' })).toContainElement(pie);
+  });
+
   it('marks completion per program row, so a repeated exercise is tracked separately', () => {
     const repeated = [
       ...(exercises as unknown as Array<Record<string, unknown>>),

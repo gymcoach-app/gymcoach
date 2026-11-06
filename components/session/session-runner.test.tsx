@@ -48,6 +48,7 @@ const harness = vi.hoisted(() => ({
   table: null as unknown,
   tableUnmounts: 0,
   refresh: vi.fn(),
+  vibrate: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -75,8 +76,8 @@ vi.mock('@/lib/wake-lock', () => ({
   releaseWakeLock: async () => undefined,
 }));
 vi.mock('@/lib/vibrate', () => ({
-  vibrate: () => undefined,
-  VIBRATION_PATTERNS: { validate: [], restEnd: [] },
+  vibrate: (pattern: unknown) => harness.vibrate(pattern),
+  VIBRATION_PATTERNS: { validate: 'validate', restEnd: 'rest-end' },
 }));
 vi.mock('@/components/shared/use-exercise-name', () => ({
   useExerciseName: () => (name: string) => name,
@@ -98,7 +99,13 @@ vi.mock('@/components/session/return-to-training-notice', () => ({
   ReturnToTrainingNotice: () => null,
 }));
 vi.mock('@/components/session/session-exercise-strip', () => ({
-  SessionExerciseStrip: ({ onSelect, exercises }: { onSelect: (index: number) => void; exercises: Array<{ id: string }> }) => (
+  SessionExerciseStrip: ({
+    onSelect,
+    exercises,
+  }: {
+    onSelect: (index: number) => void;
+    exercises: Array<{ id: string }>;
+  }) => (
     <div data-testid="exercise-strip">
       {exercises.map((pe, idx) => (
         <button
@@ -132,7 +139,15 @@ vi.mock('@/components/session/editable-sets-table', () => ({
   },
 }));
 vi.mock('@/components/session/rest-timer', () => ({
-  RestTimer: ({ endsAt, pausedRemainingMs, onSkip }: { endsAt: number; pausedRemainingMs?: number | null; onSkip: () => void }) => {
+  RestTimer: ({
+    endsAt,
+    pausedRemainingMs,
+    onSkip,
+  }: {
+    endsAt: number;
+    pausedRemainingMs?: number | null;
+    onSkip: () => void;
+  }) => {
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
       const id = setInterval(() => setNow(Date.now()), 100);
@@ -241,6 +256,7 @@ beforeEach(() => {
   harness.table = null;
   harness.tableUnmounts = 0;
   harness.refresh.mockClear();
+  harness.vibrate.mockClear();
 });
 
 afterEach(() => {
@@ -298,7 +314,9 @@ describe('SessionRunner exercise menu wiring', () => {
 
     // Skip rest returns to input mode, menu enabled again
     fireEvent.click(screen.getByRole('button', { name: 'skip rest' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument(),
+    );
     expect(card().onOpenMenu).toBeTypeOf('function');
     expect(card().menuDisabled).toBe(false);
   });
@@ -318,7 +336,27 @@ describe('SessionRunner exercise menu wiring', () => {
   });
 });
 
-describe('SessionRunner superset transition', () => {
+describe('SessionRunner rest timers and auto-advance', () => {
+  // The tests below drive the clock; a failed assertion must not leave fake
+  // timers on for the rest of the file.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const logSet = () =>
+    act(async () => {
+      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
+    });
+  const advance = (ms: number) =>
+    act(async () => {
+      vi.advanceTimersByTime(ms);
+    });
+  const selectInStrip = (id: string) =>
+    act(async () => {
+      fireEvent.click(screen.getByTestId(`strip-${id}`));
+    });
+  const skipRest = () => screen.queryByRole('button', { name: 'skip rest' });
+
   it('navigates to the next member once (issue #542, PR1: per-exercise rest)', async () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     await renderRunner(runner([row('a1', 1, 1), row('a2', 2, 1), row('a3', 3, 1)]));
@@ -352,117 +390,120 @@ describe('SessionRunner superset transition', () => {
     await renderRunner(runner([row('a', 1, 1), row('b', 2, 1)]));
 
     // Log set on A, auto-navigates to B (superset transition)
-    await act(async () => {
-      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
-    });
+    await logSet();
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
     expect(replaceState).toHaveBeenCalledTimes(1);
 
     // A's timer runs in background. Advance time past A's rest duration (120s + 1s)
-    await act(async () => {
-      vi.advanceTimersByTime(121000);
-    });
+    await advance(121000);
 
     // A's timer expired in background - no navigation (we're viewing B, not A)
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
-    expect(replaceState).toHaveBeenCalledTimes(1);  // No additional navigation
-
-    vi.useRealTimers();
+    expect(replaceState).toHaveBeenCalledTimes(1); // No additional navigation
   });
 
   it('runs two independent rest timers without interference', async () => {
     vi.useFakeTimers();
-    const rows = [row('a', 1), row('b', 2)];
-    await renderRunner(runner(rows));
+    await renderRunner(runner([row('a', 1), row('b', 2)]));
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a');
 
-    // Log set on A (starts A's 120s rest timer)
-    await act(async () => {
-      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
-    });
-    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
+    // A set on A starts A's 120 s rest.
+    await logSet();
+    expect(skipRest()).toBeInTheDocument();
 
-    // Switch to B using the strip
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('strip-pe-b'));
-    });
+    // 30 s later the lifter moves to B and logs a set there: B gets its own
+    // 120 s rest while A's keeps running.
+    await advance(30000);
+    await selectInStrip('pe-b');
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+    await logSet();
+    expect(skipRest()).toBeInTheDocument();
 
-    // Log set on B (starts B's 120s rest timer - now TWO timers running)
-    await act(async () => {
-      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
-    });
-    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
+    // Another 30 s: B has rested 30 s and A 60 s. One shared clock, or B's set
+    // restarting A's rest, would show the same value on both.
+    await advance(30000);
+    expect(screen.getByTestId('rest-remaining')).toHaveTextContent(/^90$/);
 
-    // Advance 30 seconds
-    await act(async () => {
-      vi.advanceTimersByTime(30000);
-    });
-
-    // B should show ~90s remaining (120s - 30s)
-    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
-    expect(screen.getByTestId('rest-remaining')).toHaveTextContent('90');
-
-    // Switch back to A using the strip
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('strip-pe-a'));
-    });
+    await selectInStrip('pe-a');
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a');
-
-    // A should also show rest timer with ~90s remaining
-    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
-    expect(screen.getByTestId('rest-remaining')).toHaveTextContent('90');
-
-    vi.useRealTimers();
+    expect(skipRest()).toBeInTheDocument();
+    expect(screen.getByTestId('rest-remaining')).toHaveTextContent(/^60$/);
   });
 
-  it('fires cues for rest expiring on non-viewed exercise (maintainer review)', async () => {
+  it('stays on the viewed exercise when a rest ends on another one, and still fires the cue', async () => {
     vi.useFakeTimers();
-    const mockVibrate = vi.fn();
-    const vibrateModule = await import('@/lib/vibrate');
-    const originalVibrate = vibrateModule.vibrate;
-    vibrateModule.vibrate = mockVibrate;
-
-    // Three non-superset exercises: A, B, C
-    const rows = [row('a', 1), row('b', 2), row('c', 3)];
-    await renderRunner(runner(rows));
+    // A is complete after one set, so its rest carries B as the exercise to
+    // advance to. That is the case the "only when viewing" guard exists for.
+    await renderRunner(runner([{ ...row('a', 1), targetSets: 1 }, row('b', 2), row('c', 3)]));
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a');
 
-    // Log set on A (starts A's 120s rest, nextExerciseIdx points to B)
-    await act(async () => {
-      await table().onSubmit({ ...loggedSet, isWarmup: false, isDropSet: false, notes: null });
-    });
-    expect(screen.getByRole('button', { name: 'skip rest' })).toBeInTheDocument();
+    await logSet();
+    expect(skipRest()).toBeInTheDocument();
 
-    // Switch to C using the strip
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('strip-pe-c'));
-    });
+    // The lifter moves on to C while A rests.
+    await selectInStrip('pe-c');
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-c');
+    harness.vibrate.mockClear();
 
-    // Clear mock to only count expiry vibration
-    mockVibrate.mockClear();
+    // A's 120 s rest runs out in the background.
+    await advance(121000);
 
-    // Advance time past A's rest duration (120s + 1s)
-    await act(async () => {
-      vi.advanceTimersByTime(121000);
-    });
-
-    // Verify: still on C (no auto-advance)
+    // No jump to B: the lifter is not looking at A.
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-c');
+    // The rest-end cue fired once, for A's rest.
+    expect(harness.vibrate).toHaveBeenCalledTimes(1);
+    expect(harness.vibrate).toHaveBeenCalledWith('rest-end');
 
-    // Vibration should have fired when A's rest expired
-    expect(mockVibrate).toHaveBeenCalled();
-
-    // Switch back to A using the strip - should show input form, not rest timer (state flipped to input)
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('strip-pe-a'));
-    });
+    // Back on A, the rest is over: input again, no timer.
+    await selectInStrip('pe-a');
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a');
-    expect(screen.queryByRole('button', { name: 'skip rest' })).not.toBeInTheDocument();
+    expect(skipRest()).not.toBeInTheDocument();
+  });
 
-    vibrateModule.vibrate = originalVibrate;
-    vi.useRealTimers();
+  it('advances to the next exercise when the rest ends on the viewed, completed exercise', async () => {
+    vi.useFakeTimers();
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    await renderRunner(runner([{ ...row('a', 1), targetSets: 1 }, row('b', 2)]));
+
+    // The only target set of A: its rest carries B as the next exercise, and
+    // the lifter stays on A while it runs.
+    await logSet();
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-a');
+    expect(skipRest()).toBeInTheDocument();
+    expect(replaceState).not.toHaveBeenCalled();
+
+    await advance(121000);
+
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+    expect(skipRest()).not.toBeInTheDocument();
+    expect(replaceState).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a rest change made in the same instant as another rest running out', async () => {
+    vi.useFakeTimers();
+    await renderRunner(runner([row('a', 1), row('b', 2)]));
+
+    // A rests from 0 s to 120 s, B (logged one minute later) from 60 s to 180 s.
+    await logSet();
+    await advance(60000);
+    await selectInStrip('pe-b');
+    await logSet();
+    await advance(59000);
+    expect(skipRest()).toBeInTheDocument();
+
+    // The lifter skips B's rest and, before React has rendered that change,
+    // the background tick finds A's rest over. The tick must flip A without
+    // putting B's skipped rest back.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'skip rest' }));
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-b');
+    expect(skipRest()).not.toBeInTheDocument();
+
+    await selectInStrip('pe-a');
+    expect(skipRest()).not.toBeInTheDocument();
   });
 });
 
