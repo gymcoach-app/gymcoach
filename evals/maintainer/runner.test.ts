@@ -840,7 +840,8 @@ describe('tamperViolations', () => {
   // visible. Only a literal `false` or `0` ends an options object as plain
   // (`skip: 0.5`, `fails: 0 + 1` and `only: false || true` all declare), and
   // an around hook counts wherever the name is read: registered, aliased,
-  // assigned, or called as a member or through ?. .
+  // assigned, or called as a member or through ?. . A modifier read through
+  // brackets is a member read, not text, so its name stays visible too.
   // The whitespace inside the lookahead keeps it from backtracking onto the
   // space before the value, where `(?!false)` would not see `false` at all.
   const FLAGS = /\b(?:fails|skip|todo|only)\s*:\s*(?!\s*(?:false|0)\s*[,}])/;
@@ -904,6 +905,13 @@ describe('tamperViolations', () => {
       while (k >= 0 && /[\w$]/.test(src[k]!)) k -= 1;
       return src.slice(k + 1, end);
     };
+    // The nearest non-space index in either direction, so a bracket may be
+    // spaced away from the name it reads (describe[ 'only' ]).
+    const skipSpace = (from: number, step: number): number => {
+      let at = from;
+      while (at >= 0 && at < src.length && /\s/.test(src[at]!)) at += step;
+      return at;
+    };
     // A slash after a postfix `++` or `--` is a division: the operator is read
     // as regex-prefix punctuation by REGEX_AFTER, which would blank the code to
     // the next slash or the end of the line (review of #533).
@@ -960,7 +968,21 @@ describe('tamperViolations', () => {
       if (c === "'" || c === '"') {
         let j = i + 1;
         while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
-        blank(i + 1, j);
+        // A modifier read through brackets is code, not text: it['skip']
+        // declares a skip the way it.skip does. A plain name stays visible only
+        // where brackets reach it as a member read (it['skip'], fn()['only']) or
+        // as a computed key ({ ['aroundEach']: fn }), so the strings of an array
+        // literal like ['aroundEach'] still name nothing.
+        const open = skipSpace(i - 1, -1);
+        const close = skipSpace(j + 1, 1);
+        const receiver = skipSpace(open - 1, -1);
+        const after = skipSpace(close + 1, 1);
+        const read =
+          src[open] === '[' &&
+          src[close] === ']' &&
+          (/[\w$)\]]/.test(src[receiver] ?? '') ||
+            ((src[receiver] === '{' || src[receiver] === ',') && src[after] === ':'));
+        if (!(read && /^[A-Za-z_$][\w$]*$/.test(src.slice(i + 1, j)))) blank(i + 1, j);
         i = j + 1;
         last = c;
         continue;
@@ -1021,9 +1043,14 @@ describe('tamperViolations', () => {
     }
     return out.join('');
   };
+  // A modifier read through brackets names the same modifier as a dot read:
+  // it['skip'] and describe[ 'only' ] count now that the scan keeps such a name.
+  const MODIFIER_BRACKETS =
+    /\b(?:it|test|describe|suite)\s*\[\s*['"](?:skip|todo|fails|only|skipIf|runIf)['"]\s*\]/;
   const declares = (src: string): boolean => {
     const code = codeOnly(src);
     if (
+      MODIFIER_BRACKETS.test(code) ||
       /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b/.test(code) ||
       /\bskip\s*\(/.test(code) ||
       /\b(?:retry|repeats)\s*:/.test(code) ||
@@ -1069,6 +1096,13 @@ describe('tamperViolations', () => {
       "it('x', { only: false || true }, fn);",
       "const s = `a${it.skip('x', fn) ? 1 : 0}`;",
       "const $opts = { skip: true };\nit('x', $opts, fn);",
+      // A modifier read through brackets names the same modifier as a dot read.
+      "it['skip']('x', fn);",
+      'test["todo"]("x", fn);',
+      "describe[ 'only' ]('x', fn);",
+      "it['fails']('x', fn);",
+      "it['skipIf'](c)('x', fn);",
+      "describe('x', { ['aroundEach']: fn });",
     ])
       expect(declares(decl), decl).toBe(true);
     for (const plain of [
@@ -1086,6 +1120,15 @@ describe('tamperViolations', () => {
       "const re = /['\"`]/;\nit('x', fn);",
       "// a stray ` and ' and / in a comment\nit('x', fn);",
       "/* a stray \" */\naroundEachLater(fn);",
+      // Brackets only carry a name as a member read or a computed key; a list of
+      // strings, a longer name and a name that is part of prose name nothing.
+      "const hooks = ['aroundEach'];\nit('x', fn);",
+      "const names = ['skip', 'only'];\nit('x', fn);",
+      "const m = { ['later']: 1 };\nit('x', fn);",
+      "const x = it['skipLike'](fn);",
+      "const re = fn['skip(now)'];\nit('x', fn);",
+      "// it['skip'] and describe['only'] are mentioned here, not called.",
+      'it("documents it[\\"skip\\"]", () => {});',
     ])
       expect(declares(plain), plain).toBe(false);
   });
