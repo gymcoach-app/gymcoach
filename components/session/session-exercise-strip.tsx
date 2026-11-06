@@ -202,7 +202,12 @@ export function SessionExerciseStrip({
                       style={{
                         background: `conic-gradient(from 0deg, #f97316 0deg, #f97316 ${degrees}deg, #fed7aa ${degrees}deg, #fed7aa 360deg)`
                       }}
-                      aria-label={progress ? `${progress.done} of ${progress.target} sets` : undefined}
+                      role={progress ? 'img' : undefined}
+                      aria-label={
+                        progress
+                          ? t('summary.setProgress', { done: progress.done, target: progress.target })
+                          : undefined
+                      }
                     />
                   );
                 })()}

@@ -5,12 +5,12 @@ import { test, expect, type Page } from '@playwright/test';
 // timers, they continue running in the background, and visual indicators show
 // which exercises are resting.
 
-// Dedicated IP for this spec's register rate limit bucket.
+// Dedicated IPs for this spec's register rate limit buckets: this default,
+// which the first test registers from, and a second one for the other test's
+// register call, so a retry of one test never spends the other's allowance.
 test.use({ extraHTTPHeaders: { 'x-forwarded-for': '10.111.2.1' } });
 
-async function seedMultiExerciseSession(
-  page: Page,
-): Promise<{
+async function seedMultiExerciseSession(page: Page): Promise<{
   sessionId: string;
   exercises: Array<{ name: string; id: string }>;
 }> {
@@ -86,7 +86,7 @@ test('switches between exercises preserving rest timers', async ({ page }) => {
   });
   expect(registerRes.ok()).toBeTruthy();
 
-  const { sessionId, exercises } = await seedMultiExerciseSession(page);
+  const { sessionId } = await seedMultiExerciseSession(page);
 
   // Navigate to session
   await page.goto(`/session/${sessionId}`);
@@ -105,9 +105,6 @@ test('switches between exercises preserving rest timers', async ({ page }) => {
   const initialSeconds = parseInt(initialTimeText!);
   expect(initialSeconds).toBeGreaterThanOrEqual(13);
   expect(initialSeconds).toBeLessThanOrEqual(15);
-
-  // Wait 5 seconds
-  await page.waitForTimeout(5000);
 
   // Switch to exercise 2 via strip (find by aria-label containing "2.")
   const ex2Button = page.getByRole('button', { name: /2\. E2E Multi Ex 2/ });
@@ -129,8 +126,14 @@ test('switches between exercises preserving rest timers', async ({ page }) => {
   // Verify rest timer appears for exercise 2
   await expect(page.getByTestId('rest-timer')).toBeVisible({ timeout: 3000 });
 
-  // Wait 3 more seconds (total 8 seconds elapsed on ex 1)
-  await page.waitForTimeout(3000);
+  // Exercise 1 keeps counting down while it is off screen: its strip badge
+  // drops by at least 8 seconds.
+  const ex1BadgeTimer = ex1Badge.getByTestId('exercise-strip-timer-badge');
+  await expect(async () => {
+    const badgeSeconds = Number(await ex1BadgeTimer.textContent());
+    expect(badgeSeconds).toBeGreaterThan(0);
+    expect(badgeSeconds).toBeLessThanOrEqual(initialSeconds - 8);
+  }).toPass({ timeout: 15000 });
 
   // Switch back to exercise 1
   const ex1Button = page.getByRole('button', { name: /1\. E2E Multi Ex 1/ });
@@ -154,7 +157,7 @@ test('switches between exercises preserving rest timers', async ({ page }) => {
 test('does not auto-navigate when timer expires on non-viewed exercise', async ({ page }) => {
   // Sign up through API
   const registerRes = await page.request.post('/api/auth/register', {
-    headers: { 'x-forwarded-for': '10.111.2.1' },
+    headers: { 'x-forwarded-for': '10.111.2.2' },
     data: {
       displayName: 'No Auto Nav E2E',
       email: `e2e-no-auto-nav-${Date.now()}@test.dev`,
@@ -163,7 +166,9 @@ test('does not auto-navigate when timer expires on non-viewed exercise', async (
   });
   expect(registerRes.ok()).toBeTruthy();
 
-  // Create session with 2 exercises, 15-second rest
+  // Three exercises with a 15-second rest. Exercise 1 has a single target set,
+  // so the rest after it carries exercise 2 as the one to advance to: an
+  // auto-advance that ignored what is on screen would leave exercise 3.
   const ex1Res = await page.request.post('/api/exercises', {
     data: { name: 'E2E Auto Nav Ex 1', muscleGroup: 'CHEST', category: 'COMPOUND' },
   });
@@ -175,6 +180,12 @@ test('does not auto-navigate when timer expires on non-viewed exercise', async (
   });
   expect(ex2Res.ok()).toBeTruthy();
   const ex2 = await ex2Res.json();
+
+  const ex3Res = await page.request.post('/api/exercises', {
+    data: { name: 'E2E Auto Nav Ex 3', muscleGroup: 'QUADS', category: 'COMPOUND' },
+  });
+  expect(ex3Res.ok()).toBeTruthy();
+  const ex3 = await ex3Res.json();
 
   const programRes = await page.request.post('/api/programs', {
     data: { name: 'E2E Auto Nav Program', phase: 'Base' },
@@ -188,11 +199,11 @@ test('does not auto-navigate when timer expires on non-viewed exercise', async (
   expect(workoutRes.ok()).toBeTruthy();
   const workout = await workoutRes.json();
 
-  for (const exercise of [ex1, ex2]) {
+  for (const exercise of [ex1, ex2, ex3]) {
     const peRes = await page.request.post(`/api/workouts/${workout.id}/program-exercises`, {
       data: {
         exerciseId: exercise.id,
-        targetSets: 2,
+        targetSets: exercise.id === ex1.id ? 1 : 2,
         targetRepsMin: 8,
         targetRepsMax: 12,
         targetRIR: 2,
@@ -222,20 +233,23 @@ test('does not auto-navigate when timer expires on non-viewed exercise', async (
   // Wait for rest timer
   await expect(page.getByTestId('rest-timer')).toBeVisible({ timeout: 3000 });
 
-  // Switch to ex 2 immediately
-  const ex2Button = page.getByRole('button', { name: /2\. E2E Auto Nav Ex 2/ });
-  await ex2Button.click();
-  await expect(page.getByRole('heading', { name: 'E2E Auto Nav Ex 2' })).toBeVisible();
+  // Switch to ex 3 right away: ex 1 rests in the background
+  const ex1Button = page.getByRole('button', { name: /1\. E2E Auto Nav Ex 1/ });
+  const ex3Button = page.getByRole('button', { name: /3\. E2E Auto Nav Ex 3/ });
+  await ex3Button.click();
+  await expect(page.getByRole('heading', { name: 'E2E Auto Nav Ex 3' })).toBeVisible();
+  await expect(ex1Button.getByTestId('exercise-strip-timer-badge')).toBeVisible();
 
-  // Wait 17 seconds for ex 1 timer to expire
-  await page.waitForTimeout(17000);
+  // Ex 1's rest runs out: its badge leaves the strip
+  await expect(ex1Button.getByTestId('exercise-strip-timer-badge')).not.toBeVisible({
+    timeout: 20000,
+  });
 
-  // Verify still viewing ex 2 (no auto-navigate)
-  await expect(page.getByRole('heading', { name: 'E2E Auto Nav Ex 2' })).toBeVisible();
+  // Still viewing ex 3 (no jump to ex 2, the exercise ex 1's rest pointed at)
+  await expect(page.getByRole('heading', { name: 'E2E Auto Nav Ex 3' })).toBeVisible();
   await expect(page.getByLabel('Quick entry')).toBeVisible();
 
   // Switch back to ex 1
-  const ex1Button = page.getByRole('button', { name: /1\. E2E Auto Nav Ex 1/ });
   await ex1Button.click();
 
   // Verify ex 1 is in input mode (timer expired silently)
