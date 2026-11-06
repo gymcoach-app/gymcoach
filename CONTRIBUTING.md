@@ -58,11 +58,16 @@ See the README for the full quick start. In short:
 ```bash
 cp .env.example .env
 npm install
-docker compose up -d db
+docker compose up -d db    # or: podman-compose up -d db
 npm run db:migrate
 npm run db:seed
 npm run dev
 ```
+
+**Note:** If you use Podman instead of Docker, substitute `podman-compose` (or
+`podman compose`) for `docker compose` in all commands. The test infrastructure
+(`scripts/test-db.sh`) will automatically detect and use either Docker or
+Podman, whichever is available.
 
 ## Project conventions
 
@@ -89,6 +94,14 @@ npx prisma migrate deploy   # DATABASE_URL pointing at the test DB (port 5434)
 npm run test:integration    # Vitest against real Postgres
 npm run build && npm run test:e2e   # Playwright (builds, then drives the app)
 docker compose -f docker-compose.test.yml down
+
+# With Podman (if you prefer podman over docker):
+podman-compose -f docker-compose.test.yml up -d
+DATABASE_URL='postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test' \
+  npx prisma migrate deploy
+npm run test:integration
+npm run build && npm run test:e2e
+podman-compose -f docker-compose.test.yml down
 ```
 
 CI runs lint, typecheck, unit, integration, build and E2E on every pull

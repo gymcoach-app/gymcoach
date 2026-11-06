@@ -832,22 +832,229 @@ describe('tamperViolations', () => {
   // Chained forms (it.fails), a skip from the context, the options object
   // vitest also accepts (it('x', { fails: true }, fn)) and the same object
   // passed through a variable (issue #506). A flag only counts as declared in
-  // code: comments and titles are blanked first, so prose about an aroundEach
-  // hook or a title that reads "skip: later" is not a declaration, and a title
-  // may hold parentheses. `false` and `0` are not declarations either, and an
-  // around hook counts where it is registered (a call, a key or an
-  // assignment), not where it is mentioned.
-  const FLAGS = /\b(?:fails|skip|todo|only)\s*:\s*(?!false\b|0\b)/;
+  // code: one left-to-right scan blanks the comments and the text of strings,
+  // template literals and regex literals, so prose about an aroundEach hook or
+  // a title that reads "skip: later" is not a declaration, a title may hold
+  // parentheses, and a stray quote, backtick or slash cannot blank the code
+  // that follows it. The interpolation of a template literal is code and stays
+  // visible. Only a literal `false` or `0` ends an options object as plain
+  // (`skip: 0.5`, `fails: 0 + 1` and `only: false || true` all declare), and
+  // an around hook counts wherever the name is read: registered, aliased,
+  // assigned, or called as a member or through ?. . A modifier read through
+  // brackets is a member read, not text, so its name stays visible too.
+  // The whitespace inside the lookahead keeps it from backtracking onto the
+  // space before the value, where `(?!false)` would not see `false` at all.
+  const FLAGS = /\b(?:fails|skip|todo|only)\s*:\s*(?!\s*(?:false|0)\s*[,}])/;
+  // A slash after one of these starts a regex, not a division. A postfix
+  // `++` or `--` is the exception: `i++ / 2` divides, so it is checked
+  // before this set is consulted (review of #533).
+  const REGEX_AFTER = new Set([
+    '',
+    '(',
+    ',',
+    '=',
+    ':',
+    '[',
+    '!',
+    '&',
+    '|',
+    '?',
+    '{',
+    '}',
+    ';',
+    '+',
+    '-',
+    '*',
+    '%',
+    '<',
+    '>',
+    '~',
+    '^',
+  ]);
+  const REGEX_WORDS = new Set([
+    'return',
+    'typeof',
+    'instanceof',
+    'in',
+    'of',
+    'new',
+    'delete',
+    'void',
+    'case',
+    'do',
+    'else',
+    'yield',
+    'await',
+    'throw',
+  ]);
+  const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Everything that is not code becomes a space, newlines kept. Template text
+  // is blanked up to its closing backtick or its ${, whose expression is
+  // scanned as code with a brace counter so the template resumes at its own }.
+  const codeOnly = (src: string): string => {
+    const out = src.split('');
+    const blank = (from: number, to: number) => {
+      for (let k = Math.max(from, 0); k < Math.min(to, src.length); k += 1) {
+        if (out[k] !== '\n') out[k] = ' ';
+      }
+    };
+    const wordBefore = (at: number): string => {
+      let k = at - 1;
+      while (k >= 0 && /\s/.test(src[k]!)) k -= 1;
+      const end = k + 1;
+      while (k >= 0 && /[\w$]/.test(src[k]!)) k -= 1;
+      return src.slice(k + 1, end);
+    };
+    // The nearest non-space index in either direction, so a bracket may be
+    // spaced away from the name it reads (describe[ 'only' ]).
+    const skipSpace = (from: number, step: number): number => {
+      let at = from;
+      while (at >= 0 && at < src.length && /\s/.test(src[at]!)) at += step;
+      return at;
+    };
+    // A slash after a postfix `++` or `--` is a division: the operator is read
+    // as regex-prefix punctuation by REGEX_AFTER, which would blank the code to
+    // the next slash or the end of the line (review of #533).
+    const afterPostfix = (): boolean => {
+      let k = i - 1;
+      while (k >= 0 && /\s/.test(src[k]!)) k -= 1;
+      const op = src[k];
+      return (op === '+' || op === '-') && src[k - 1] === op;
+    };
+    const opens: number[] = [];
+    let inTemplate = false;
+    let last = '';
+    let i = 0;
+    while (i < src.length) {
+      const c = src[i]!;
+      if (inTemplate) {
+        if (c === '\\') {
+          blank(i, i + 2);
+          i += 2;
+          continue;
+        }
+        if (c === '`') {
+          inTemplate = false;
+          last = '`';
+          i += 1;
+          continue;
+        }
+        if (c === '$' && src[i + 1] === '{') {
+          inTemplate = false;
+          opens.push(0);
+          last = '{';
+          i += 2;
+          continue;
+        }
+        blank(i, i + 1);
+        i += 1;
+        continue;
+      }
+      if (c === '/' && src[i + 1] === '/') {
+        let j = i + 2;
+        while (j < src.length && src[j] !== '\n') j += 1;
+        blank(i, j);
+        i = j;
+        continue;
+      }
+      if (c === '/' && src[i + 1] === '*') {
+        let j = i + 2;
+        while (j < src.length && !(src[j] === '*' && src[j + 1] === '/')) j += 1;
+        j = Math.min(j + 2, src.length);
+        blank(i, j);
+        i = j;
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        let j = i + 1;
+        while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+        // A modifier read through brackets is code, not text: it['skip']
+        // declares a skip the way it.skip does. A plain name stays visible only
+        // where brackets reach it as a member read (it['skip'], fn()['only']) or
+        // as a computed key ({ ['aroundEach']: fn }), so the strings of an array
+        // literal like ['aroundEach'] still name nothing.
+        const open = skipSpace(i - 1, -1);
+        const close = skipSpace(j + 1, 1);
+        const receiver = skipSpace(open - 1, -1);
+        const after = skipSpace(close + 1, 1);
+        const read =
+          src[open] === '[' &&
+          src[close] === ']' &&
+          (/[\w$)\]]/.test(src[receiver] ?? '') ||
+            ((src[receiver] === '{' || src[receiver] === ',') && src[after] === ':'));
+        if (!(read && /^[A-Za-z_$][\w$]*$/.test(src.slice(i + 1, j)))) blank(i + 1, j);
+        i = j + 1;
+        last = c;
+        continue;
+      }
+      if (c === '`') {
+        inTemplate = true;
+        i += 1;
+        continue;
+      }
+      // A closing JSX tag (< /div>) is not a regex however it is spaced.
+      const jsxClose = last === '<' && /[A-Za-z>_]/.test(src[i + 1] ?? '');
+      if (
+        c === '/' &&
+        !jsxClose &&
+        !afterPostfix() &&
+        (REGEX_AFTER.has(last) || REGEX_WORDS.has(wordBefore(i)))
+      ) {
+        let j = i + 1;
+        let inClass = false;
+        while (j < src.length && src[j] !== '\n') {
+          const d = src[j]!;
+          if (d === '\\') {
+            j += 2;
+            continue;
+          }
+          if (inClass) {
+            if (d === ']') inClass = false;
+          } else if (d === '[') inClass = true;
+          else if (d === '/') {
+            j += 1;
+            break;
+          }
+          j += 1;
+        }
+        while (j < src.length && /[a-z]/.test(src[j]!)) j += 1;
+        blank(i, j);
+        i = j;
+        last = ')';
+        continue;
+      }
+      if (c === '{' && opens.length) {
+        opens[opens.length - 1] = opens[opens.length - 1]! + 1;
+      }
+      if (c === '}') {
+        if (opens.length) {
+          const top = opens[opens.length - 1]!;
+          if (top === 0) {
+            opens.pop();
+            inTemplate = true;
+            i += 1;
+            continue;
+          }
+          opens[opens.length - 1] = top - 1;
+        }
+      }
+      if (!/\s/.test(c)) last = c;
+      i += 1;
+    }
+    return out.join('');
+  };
+  // A modifier read through brackets names the same modifier as a dot read:
+  // it['skip'] and describe[ 'only' ] count now that the scan keeps such a name.
+  const MODIFIER_BRACKETS =
+    /\b(?:it|test|describe|suite)\s*\[\s*['"](?:skip|todo|fails|only|skipIf|runIf)['"]\s*\]/;
   const declares = (src: string): boolean => {
-    const code = src
-      .replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, "''")
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/[^\n]*/g, '');
+    const code = codeOnly(src);
     if (
+      MODIFIER_BRACKETS.test(code) ||
       /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b/.test(code) ||
       /\bskip\s*\(/.test(code) ||
       /\b(?:retry|repeats)\s*:/.test(code) ||
-      /\baround(?:Each|All)\s*[:(=]/.test(code) ||
+      /\baround(?:Each|All)\b/.test(code) ||
       new RegExp(`\\b(?:it|test|describe|suite)\\s*\\([^;]*?\\{[^}]*${FLAGS.source}`).test(code)
     )
       return true;
@@ -855,7 +1062,7 @@ describe('tamperViolations', () => {
       /\b(?:it|test|describe|suite)\s*\([^,;]*,\s*([A-Za-z_$][\w$]*)\s*[,)]/g,
     )) {
       const bound = new RegExp(
-        `\\b(?:const|let|var)\\s+${call[1]}\\s*(?::[^=]+)?=\\s*\\{[^}]*${FLAGS.source}`,
+        `\\b(?:const|let|var)\\s+${escapeRe(call[1]!)}\\s*(?::[^=]+)?=\\s*\\{[^}]*${FLAGS.source}`,
       );
       if (bound.test(code)) return true;
     }
@@ -879,6 +1086,23 @@ describe('tamperViolations', () => {
       "describe('x', { aroundEach: fn });",
       "it('skips (fast)', { skip: true }, fn);",
       "const opts = { fails: true };\nit('x', opts, fn);",
+      'aroundEach = fn;',
+      "import { aroundEach as hook } from 'vitest';\nhook(fn);",
+      'const h = aroundEach;\nh(fn);',
+      'aroundEach?.(fn);',
+      'aroundEach.call(null, fn);',
+      "it('x', { skip: 0.5 }, fn);",
+      "it('x', { fails: 0 + 1 }, fn);",
+      "it('x', { only: false || true }, fn);",
+      "const s = `a${it.skip('x', fn) ? 1 : 0}`;",
+      "const $opts = { skip: true };\nit('x', $opts, fn);",
+      // A modifier read through brackets names the same modifier as a dot read.
+      "it['skip']('x', fn);",
+      'test["todo"]("x", fn);',
+      "describe[ 'only' ]('x', fn);",
+      "it['fails']('x', fn);",
+      "it['skipIf'](c)('x', fn);",
+      "describe('x', { ['aroundEach']: fn });",
     ])
       expect(declares(decl), decl).toBe(true);
     for (const plain of [
@@ -888,8 +1112,44 @@ describe('tamperViolations', () => {
       '// an aroundEach hook would run before the guard, so none is used.',
       "it('why skip: later is wrong', () => {});",
       "it('adds', fn, 1000);",
+      "it('x', { skip: false }, fn);",
+      "it('x', { todo: false, only: 0 }, fn);",
+      "it('documents it.skip and aroundEach', () => {});",
+      "throw new Error('call it.skip to skip, aroundEach to hook');",
+      "const aroundEachLike = fn;\nit('x', fn);",
+      "const re = /['\"`]/;\nit('x', fn);",
+      "// a stray ` and ' and / in a comment\nit('x', fn);",
+      "/* a stray \" */\naroundEachLater(fn);",
+      // Brackets only carry a name as a member read or a computed key; a list of
+      // strings, a longer name and a name that is part of prose name nothing.
+      "const hooks = ['aroundEach'];\nit('x', fn);",
+      "const names = ['skip', 'only'];\nit('x', fn);",
+      "const m = { ['later']: 1 };\nit('x', fn);",
+      "const x = it['skipLike'](fn);",
+      "const re = fn['skip(now)'];\nit('x', fn);",
+      "// it['skip'] and describe['only'] are mentioned here, not called.",
+      'it("documents it[\\"skip\\"]", () => {});',
     ])
       expect(declares(plain), plain).toBe(false);
+  });
+
+  it('still reads the code after a quote, a backtick or a slash that opens no literal', () => {
+    for (const decl of [
+      "const re = /['\"`]/;\nconst o = 1 / 2;\nit.skip('x', fn);",
+      "// don't skip this one\nit.skip('x', fn);",
+      "// it's fine to mention it\nit('x', { skip: true }, fn);",
+      "const t = `it's ${a / b} fine`;\naroundEach = fn;",
+      'const el = (\n  <div>\n    {n}\n  </div>\n);\nrepeats: 3,',
+      "const el = () => <div>a</div>; it.fails('x', fn);",
+      "const re = /[/*]/.test(s);\ncontext.skip();",
+      // A postfix ++ or -- makes the next slash a division, not a regex.
+      "let i = 0;\ni++ / 2; it.skip('x', fn);",
+      "let n = 4;\nn-- / 2; it.fails('x', fn);",
+      // A binary + or - still starts one.
+      'const x = a - /[/*]/.test(s); context.skip();',
+      'const y = a + /[/*]/.test(s); it.fails("x", fn);',
+    ])
+      expect(declares(decl), decl).toBe(true);
   });
 
   // Grading counts a skipped or todo test as a fail and the canary fixes each

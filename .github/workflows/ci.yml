@@ -8,10 +8,13 @@ on:
 env:
   TEST_DATABASE_URL: postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test
 
+# Runners are pinned to ubuntu-24.04: on ubuntu-26.04 (ubuntu-latest since
+# 2026-11-03) an image loaded from the Actions cache reports a different ID, so
+# start-postgres refuses the pinned Postgres image.
 jobs:
   quality:
     name: Lint, typecheck, unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -26,7 +29,7 @@ jobs:
 
   integration:
     name: Integration tests (Postgres)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       # Pinned Postgres from the Actions cache, no service container: a
@@ -52,7 +55,7 @@ jobs:
 
   build:
     name: Production build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -68,7 +71,7 @@ jobs:
 
   docker-smoke:
     name: Docker smoke test (production image)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The image build alone can take 6-8 minutes on a cold GHA cache since the
     # exercise-media and MCP/i18n dependencies landed; 10 was hit twice.
     timeout-minutes: 15
@@ -151,7 +154,7 @@ jobs:
 
   e2e:
     name: End to end (Playwright)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       DATABASE_URL: postgresql://gymcoach_test:gymcoach_test@localhost:5434/gymcoach_test
       JWT_SECRET: e2e-test-secret-at-least-32-characters
