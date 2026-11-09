@@ -972,7 +972,10 @@ describe('tamperViolations', () => {
         // declares a skip the way it.skip does. A plain name stays visible only
         // where brackets reach it as a member read (it['skip'], fn()['only']) or
         // as a computed key ({ ['aroundEach']: fn }), so the strings of an array
-        // literal like ['aroundEach'] still name nothing.
+        // literal like ['aroundEach'] still name nothing. A keyword is not a
+        // receiver: `return ['aroundEach']` names nothing, and every word in
+        // REGEX_WORDS is reserved, so excluding them can hide no real member
+        // read.
         const open = skipSpace(i - 1, -1);
         const close = skipSpace(j + 1, 1);
         const receiver = skipSpace(open - 1, -1);
@@ -980,7 +983,8 @@ describe('tamperViolations', () => {
         const read =
           src[open] === '[' &&
           src[close] === ']' &&
-          (/[\w$)\]]/.test(src[receiver] ?? '') ||
+          (/[)\]]/.test(src[receiver] ?? '') ||
+            (/[\w$]/.test(src[receiver] ?? '') && !REGEX_WORDS.has(wordBefore(open))) ||
             ((src[receiver] === '{' || src[receiver] === ',') && src[after] === ':'));
         if (!(read && /^[A-Za-z_$][\w$]*$/.test(src.slice(i + 1, j)))) blank(i + 1, j);
         i = j + 1;
@@ -1103,6 +1107,12 @@ describe('tamperViolations', () => {
       "it['fails']('x', fn);",
       "it['skipIf'](c)('x', fn);",
       "describe('x', { ['aroundEach']: fn });",
+      // Fail-closed by design, pinned here so a later change has to mean it:
+      // an around hook counts in a type position, as a plain property read, and
+      // read through brackets as a member.
+      'type Hooks = { aroundEach: Hook };',
+      'const h = obj.aroundEach;',
+      "const h = hooks['aroundEach'];",
     ])
       expect(declares(decl), decl).toBe(true);
     for (const plain of [
@@ -1127,6 +1137,12 @@ describe('tamperViolations', () => {
       "const m = { ['later']: 1 };\nit('x', fn);",
       "const x = it['skipLike'](fn);",
       "const re = fn['skip(now)'];\nit('x', fn);",
+      // A keyword is not a receiver, so a name returned or compared as a
+      // string still names nothing.
+      "const keys = () => {\n  return ['aroundEach'];\n};",
+      "const kinds = typeof ['aroundEach'];",
+      "for (const h of ['aroundEach']) run(h);",
+      "switch (h) { case ['aroundEach']: break; }",
       "// it['skip'] and describe['only'] are mentioned here, not called.",
       'it("documents it[\\"skip\\"]", () => {});',
     ])
