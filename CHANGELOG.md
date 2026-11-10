@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   training, progress, settings, the AI coach and data import. Common exercise,
   program and workout names are displayed in Chinese, and some static UI text
   that was not yet translated (progress photos, cardio summaries, workout
-  import, accessible control labels) now goes through the catalogs. Community
+  import, accessible control labels) now goes through the catalogs. Chinese
+  navigation, forms and set labels fit mobile screens. Community
   contribution by @XiaoMingMingBai (#545, closes #525).
 - Podman support for the test database: `scripts/test-db.sh` uses Docker or
   Podman, whichever is available, and works without GNU `timeout` (macOS);

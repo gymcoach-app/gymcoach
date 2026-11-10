@@ -332,7 +332,11 @@ Operator directive 2026-10-22, after #505 (lesson L51):
   missing test proof or polish is graded minor after about two needs-changes rounds; the
   PR merges on clean records and the loop closes the gap in a maintainer follow-up
   (#544, four rounds, then #548). A finding that changes behavior or safety stays
-  blocking.
+  blocking. This regrade never covers a security, data-loss or behavior finding, never
+  lifts the group A conditions (clean security lenses, rollback tag) or the group B
+  human-merge rule, and never runs unvetted code locally. The maintainer follow-up is
+  mandatory and lands the same day: closing #544's test gap in #548 found a real bug, so
+  an unproven guard is not proven behavior.
 
 ## Maintainer fixups on a vetted fork PR
 

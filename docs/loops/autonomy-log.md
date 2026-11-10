@@ -3523,7 +3523,7 @@ English interface, so no screenshot or clip work.
 
 ## 2026-11-10 - seven interface languages from two new contributors, a security hardening pass, free exercise switching, and RPE
 
-**Context.** Since the 2026-10-26 write-up (#512), in merge order: **#513**, **#516**,
+**Context.** Since the 2026-10-26 write-up (#512), in rough merge order, grouped by topic: **#513**, **#516**,
 **#518** (@sapatmohit, Spanish, Portuguese and Italian, part of #414) with wording
 polish in **#515**, **#519**, **#520**; **#517** (review lens routing in the merge gate,
 roadmap M4); **#522** (@sapatmohit, decimal comma in the plate list, closes #514) and
@@ -3550,14 +3550,18 @@ round on the contributor's branch (L51). @XiaoMingMingBai (unvetted) delivered
 Simplified Chinese as offered in #525, on the first review round, after the tag
 `autonomy-baseline-2026-10-31`. @f1dot4 sent three: #541 took two rounds (the first
 version deleted unsynced edits too), #543 one. #543 changes `scripts/test-db.sh`, a group
-B path that `verify.sh --full` runs, so it heads the reading list in the digest. @Retsumdk
-(vetted) continued #506 in four small test-only PRs, each with a mutation table.
+B path that `verify.sh --full` runs: it was merged on 2026-11-03 only after the operator's
+explicit go-ahead in session (group B stays human-decided), and it heads the reading list
+in the digest. @Retsumdk
+(vetted) continued #506 in four small test-only PRs, three of them (#533, #547, #549) with a
+mutation table.
 
 **#544, merge then fix ourselves.** The correctness and tests lens returned needs-changes
 three times (2026-10-31, 11-02, 11-03), and the contributor answered each round within
-two days. On the fourth round the only open point was that the tests did not yet prove
-the rest guards. The operator asked to stop requesting changes and finish it ourselves:
-the gap was regraded minor, #544 merged on ready records after the tag
+two days. The fourth round was again a needs-changes record (1 major): the only open point was
+that the tests did not yet prove the rest guards. The operator asked to stop requesting changes and finish it ourselves:
+the reviewer confirmed the product code by reading and regraded the gap to minor on the
+same head, #544 merged on ready records after the tag
 `autonomy-baseline-2026-11-06`, and #548 the same day added the proving tests, a fix for
 a rest change lost when it landed in the same tick as another exercise's expiry (ref and
 state now written together), and the resting badge label in nine languages. Now in
@@ -3581,8 +3585,9 @@ write-up.
   one morning; pinning the runner kept the guard as it was. Moving to 26.04 is parked in
   #484.
 
-**Green gate.** `bash scripts/verify.sh` ran locally before the merge of each maintainer
-PR; external PRs from unvetted contributors ran only in CI. Ledger count: `verify` lines
+**Green gate.** `bash scripts/verify.sh` has a ledger line before the merge of every
+maintainer PR except #540 (docs) and #546 (CI runner pin), which merged without a local
+run; external PRs ran only in CI. Ledger count: `verify` lines
 whose time is after the #512 merge (2026-10-26T08:02:02Z), excluding this write-up's own
 run: 20 lines, 15 green, 5 failed (exit 1: 3 on the default tier, 2 on `--full`).
 

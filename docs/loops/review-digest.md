@@ -1037,4 +1037,4 @@ Merged: **#513**, **#515**, **#516**, **#518**, **#519**, **#520**, **#532**, **
 
 **Trust the gate (lower risk):** #515, #519, #520, #534, #536 (wording polish), #538
 (search folding with tests), #522, #526 (parser with tests), #523, #533, #547, #549
-(test-only, mutation-checked), #546 (runner pin), #540 and the docs here.
+(test-only; #533, #547, #549 mutation-checked), #546 (runner pin), #540 and the docs here.

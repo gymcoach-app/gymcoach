@@ -928,7 +928,7 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 - **Trigger:** 2026-11-06, #544 (@f1dot4, free exercise switching, part 1 of #542). The
   correctness and tests lens returned needs-changes in three rounds (2026-10-31, 11-02,
   11-03: 9, 11, then 2 major findings) while the security lenses were clean from round 2.
-  The contributor answered every round within a day or two. On the fourth round the only
+  The contributor answered every round within a day or two. The fourth round was a needs-changes record too (1 major): the only
   open point was a test-proof gap (the tests did not yet prove the rest guards), and the
   operator asked to stop requesting changes and finish the work ourselves. The gap was
   regraded minor, #544 merged on ready records, and the maintainer follow-up #548 added
@@ -939,6 +939,8 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   fourth round that only asks for more proof costs the contributor more than it buys:
   regrade a pure test-proof or polish gap as minor, merge on clean records, and close it
   in a maintainer follow-up the same day. A finding that changes behavior or safety stays
-  blocking whatever the round count.
+  blocking whatever the round count. Closing the gap in #548 found a real bug, so an
+  unproven guard is not proven behavior: the regrade never covers security, data-loss or
+  group B, and the follow-up lands the same day.
 - **Status:** graduated -> `10-external-contributions.md` ("Verdict etiquette", "Stop
   asking after about two rounds").
