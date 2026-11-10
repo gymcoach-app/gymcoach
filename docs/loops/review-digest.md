@@ -1038,3 +1038,27 @@ Merged: **#513**, **#515**, **#516**, **#518**, **#519**, **#520**, **#532**, **
 **Trust the gate (lower risk):** #515, #519, #520, #534, #536 (wording polish), #538
 (search folding with tests), #522, #526 (parser with tests), #523, #533, #547, #549
 (test-only; #533, #547, #549 mutation-checked), #546 (runner pin), #540 and the docs here.
+
+## 2026-11-10 (second cycle) - RPE follow-ups, free session, OpenAI-compatible provider
+
+Merged: **#552** (effort editors on the user's scale), **#553** (free session, closes
+#388), **#554** (OpenAI-compatible provider, closes #528). In this PR: changelog fold,
+lesson L54, a convention line in `CONTRIBUTING.md`, README.
+
+**Read first:**
+
+1. **#553 - a schema change and a new delete path.** `gh pr diff 553`. A `SessionExercise`
+   table and a `Session.freestyle` column (additive migration), backup format v10, two
+   new owner-only routes, and `DELETE /api/sessions/[id]?discardEmpty=1`, which must
+   never delete a session with sets. A set insert racing a confirmed discard is not yet
+   covered (row lock parked in #484).
+2. **#554 - training data leaves the app for an operator-named URL.** `gh pr diff 554`.
+   `lib/llm/chat-completions.ts` now carries OpenRouter too; check the base URL checks,
+   the refused redirects and the key masking in errors. Tested only against a stubbed
+   `fetch`.
+3. **#552 - what gets stored as effort.** `gh pr diff 552`. `components/shared/effort-input.tsx`
+   converts every typed RPE to the stored RIR; a wrong conversion or a stray rewrite
+   shifts a program's targets.
+
+**Trust the gate (lower risk):** the message catalog strings in #552 and #553 (translation
+lens), the docs here.

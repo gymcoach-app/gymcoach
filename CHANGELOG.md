@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The AI coach can run on a local model: `LLM_PROVIDER=openai-compatible`
+  is meant for any OpenAI Chat Completions server (Ollama, LM Studio, vLLM,
+  llama.cpp server, or another gateway) at `OPENAI_COMPATIBLE_BASE_URL`, with
+  `OPENAI_COMPATIBLE_MODEL`, an optional `OPENAI_COMPATIBLE_API_KEY` and an
+  optional `OPENAI_COMPATIBLE_MAX_TOKENS` output budget. The base URL is checked
+  before any request (http or https, no credentials in it), a redirect is
+  refused, and the self-hosting guide has an Ollama example with the context
+  length to raise. Tested with a stubbed server only, not yet against a real
+  Ollama, LM Studio or vLLM instance (#554, closes #528).
+- Free session: "Start empty session" on the start page begins a session
+  without a program. Pick exercises from your catalog as you train; the list
+  belongs to that session, so no saved program changes. The session counts in
+  history, records, progress and the coach like any other, and backups carry
+  it (format v10). The runner discards a free session only while it holds
+  no set, and the server refuses the discard otherwise. Stored as a new `SessionExercise` table and a
+  `Session.freestyle` column (additive migration) (#553, closes #388).
 - Effort can be shown and entered as RPE instead of RIR: a new "Effort scale"
   setting in the profile switches the logger (quick-pick chips with a
   plain-language label per level, the sets table), the history, the program
@@ -195,6 +211,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An open session whose workout was deleted no longer opens on a 404: it opens
+  on an empty exercise list, like a free session (#553).
 - During a session, a rest that was skipped, paused or adjusted in the same
   instant as another exercise's rest ran out could come back as it was before
   the change; every change now holds. The resting badge on the exercise strip
@@ -335,6 +353,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- With the RPE effort scale, the effort target is also shown and typed as RPE in
+  the program exercise editor, the AI program draft and the coach's suggested
+  adjustments (stored as RIR as before), and the in-session hints and the "Save
+  as a workout" description name the chosen scale. The effort chips in the
+  logger announce their plain-language level to screen readers. The CSV export
+  keeps its `rir` column. An effort target that is not a whole number on the
+  scale (RPE 5 to 10, RIR 0 to 5) is shown as invalid and not stored, instead
+  of being rounded or clamped (#552, follow-up to #550).
 - Changelog entries are now fragments: a pull request adds
   `changelog.d/<issue-or-pr>-<slug>.md` instead of editing `CHANGELOG.md`, and
   `automation/changelog/assemble.ts` folds them into the Unreleased section in

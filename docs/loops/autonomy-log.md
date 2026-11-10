@@ -3606,3 +3606,64 @@ $0.33, #540 $0.27; seven subagents named two PRs ($8.82 together); eleven named 
 and the profile gained the effort-scale setting (#550); neither is on a captured page
 (home, progress, generator, catalog), so no screenshot work. The recorded session clip
 predates free switching and RPE; re-record it within the next batches (staleness cap).
+
+## 2026-11-10 (second cycle) - RPE follow-ups, a free session, and a local-model provider; three first reviews, three real majors
+
+**Context.** Since the morning write-up (#551): **#552** (the RPE follow-ups: program,
+draft and coach editors on the user's effort scale, no rounding or clamping), **#553**
+(free session without a program, closes #388) and **#554** (`LLM_PROVIDER=openai-compatible`
+with a configurable base URL, closes #528). All three are loop-authored; no external PR
+arrived in this cycle.
+
+**This cycle's loop.** Ship first: #552 (the reviewers' minors from #550) merged at
+09:44Z. Triage and ideation were skipped again: actionable issues were open, so there
+was nothing to file. Implement: #388 and #528 were taken in parallel from the same base
+(84ed699), as #553 and #554. Each touches group A paths (#553 the Prisma schema, a
+migration, the backup route and the message catalogs; #554 `lib/llm/**`), so each had a
+security and threat-model record next to correctness and tests (plus translation quality
+for #553 and docs accuracy for #554). Merge through `merge.ts`: #553 at 13:23Z, #554 at
+13:31Z. Leftovers for all three are parked in two comments on #484.
+
+**The review gate caught a real major on every first round.** Each first correctness
+record was needs-changes with one major, and each was fixed and re-reviewed to ready
+before the merge:
+- **#552:** in the program generator an emptied field was patched to RIR 0, so the
+  effort input rewrote itself; on the RPE scale, clearing the field then typing 8
+  stored RPE 10 instead of RPE 8. Fixed by not patching on an empty value, with a
+  clear-then-type test.
+- **#553:** "Discard this empty session" was gated on the client's list of logged sets,
+  which is empty until it has loaded (and stays empty if IndexedDB fails). A session
+  that held sets could be discarded with no confirmation, and the delete cascades to
+  the sets. Fixed on both sides: the client waits for the load, checks the server's sets
+  too and asks for a confirmation, and a new `?discardEmpty=1` delete refuses a session
+  that holds a set (409). Recorded as L54.
+- **#554:** the self-hosting guide's Ollama example would likely run the coach on a cut prompt (reasoned, not tested),
+  because Ollama's default context can be a few thousand tokens and its OpenAI endpoint
+  does not take a per-request context size. Fixed in the docs (raise
+  `OLLAMA_CONTEXT_LENGTH` or a Modelfile `num_ctx`).
+
+**Not tested against a real server.** #554 is tested with `fetch` stubbed: no test or
+manual run has talked to a real Ollama, LM Studio or vLLM server. The Ollama context
+variable was confirmed only through search results. The README and the changelog say
+so, and a live check is in the #484 leftovers.
+
+**Green gate.** Ledger `verify` lines after the #551 merge (2026-11-10T09:33:38Z),
+excluding this write-up's own run: 7, all `--full`, 5 green and 2 failed (one at
+typecheck, one at E2E, both during the parallel #553/#554 work). All seven ran on a
+dirty tree, so the ledger cannot tie each line to one PR; each PR body reports a green
+`--full` on its final head.
+
+**One metric.** 3 PRs merged (all loop-authored), 0 abandoned, 0 reverted. Token spend
+is left out: the implementing subagents' ledger lines name no PR, so cost per PR cannot
+be attributed from the ledger for this cycle.
+
+**Lessons.** L54 (guard a delete of user data on the server), graduated into
+`CONTRIBUTING.md` ("Project conventions"); the matching `implement-issue` skill line is
+left to a maintainer (`.claude/**` is group B).
+
+**Media.** The start page gained the "Free session" card, which is not a captured page.
+The home page links to it only when there is no active program or the program is empty,
+and the demo data behind the screenshots has an active program, so the captured home is
+unchanged; no screenshot work. The recorded session clip still predates
+free switching, RPE and the free session; re-record it within the next batches
+(staleness cap).
