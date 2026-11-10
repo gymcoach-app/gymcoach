@@ -318,7 +318,7 @@ The app:
 
 The AI layer:
 
-- A single provider interface (`lib/llm`) sits in front of the Anthropic SDK, any OpenRouter model, any OpenAI Chat Completions-compatible server (`openai-compatible`: Ollama, LM Studio, vLLM), or an OpenAI Responses-compatible `codex-lb` endpoint. You pick one with the `LLM_PROVIDER` env var; the rest of the app does not care which.
+- A single provider interface (`lib/llm`) sits in front of the Anthropic SDK, any OpenRouter model, any OpenAI Chat Completions-compatible server (`openai-compatible`: aimed at Ollama, LM Studio, vLLM; tested against a stubbed server only), or an OpenAI Responses-compatible `codex-lb` endpoint. You pick one with the `LLM_PROVIDER` env var; the rest of the app does not care which.
 - For every AI call the server builds a compact, structured payload (your profile + recent sessions + active program + per-exercise progression) instead of dumping raw rows, then:
   - Weekly debrief and program adjustments: one completion that returns markdown plus an optional structured block of suggested changes, validated with Zod before anything touches your program.
   - Chat coach: the same context plus your conversation, streamed back token by token.
@@ -510,7 +510,7 @@ than CI reaching in to a small VPS.
 
 - [x] Single user MVP (logging, progress, weekly AI debrief, program adjustments)
 - [x] Pluggable LLM provider (Anthropic SDK or OpenRouter, switchable via env)
-- [x] Local models through any OpenAI-compatible server (Ollama, LM Studio, vLLM)
+- [x] Local models through any OpenAI-compatible server (Ollama, LM Studio, vLLM; tested against a stubbed server so far)
 - [x] Multi user support (registration, profiles, data isolation)
 - [x] AI program generation from a natural language goal
 - [x] Conversational AI coach (streaming chat with your training context)

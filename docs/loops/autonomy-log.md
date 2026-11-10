@@ -3637,7 +3637,7 @@ before the merge:
   the sets. Fixed on both sides: the client waits for the load, checks the server's sets
   too and asks for a confirmation, and a new `?discardEmpty=1` delete refuses a session
   that holds a set (409). Recorded as L54.
-- **#554:** the self-hosting guide's Ollama example would run the coach on a cut prompt,
+- **#554:** the self-hosting guide's Ollama example would likely run the coach on a cut prompt (reasoned, not tested),
   because Ollama's default context can be a few thousand tokens and its OpenAI endpoint
   does not take a per-request context size. Fixed in the docs (raise
   `OLLAMA_CONTEXT_LENGTH` or a Modelfile `num_ctx`).

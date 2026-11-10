@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The AI coach can run on a local model: `LLM_PROVIDER=openai-compatible`
-  talks to any OpenAI Chat Completions server (Ollama, LM Studio, vLLM,
+  is meant for any OpenAI Chat Completions server (Ollama, LM Studio, vLLM,
   llama.cpp server, or another gateway) at `OPENAI_COMPATIBLE_BASE_URL`, with
   `OPENAI_COMPATIBLE_MODEL`, an optional `OPENAI_COMPATIBLE_API_KEY` and an
   optional `OPENAI_COMPATIBLE_MAX_TOKENS` output budget. The base URL is checked
@@ -22,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a program. Pick exercises from your catalog as you train; the list
   belongs to that session, so no saved program changes. The session counts in
   history, records, progress and the coach like any other, and backups carry
-  it (format v10). Discarding an empty free session is refused by the server
-  once the session holds a set. Stored as a new `SessionExercise` table and a
+  it (format v10). The runner discards a free session only while it holds
+  no set, and the server refuses the discard otherwise. Stored as a new `SessionExercise` table and a
   `Session.freestyle` column (additive migration) (#553, closes #388).
 - Effort can be shown and entered as RPE instead of RIR: a new "Effort scale"
   setting in the profile switches the logger (quick-pick chips with a
