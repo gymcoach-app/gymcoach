@@ -20,6 +20,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { muscleGroupMessageKeys } from '@/i18n/enum-keys';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
+import { EffortInput } from '@/components/shared/effort-input';
 
 type Draft = GeneratedProgram;
 
@@ -28,6 +30,9 @@ export function ProgramGenerator() {
   const common = useTranslations('common');
   const exerciseT = useTranslations('exercises');
   const router = useRouter();
+  // The effort target is shown and typed on the user's scale and kept in the
+  // draft as the stored RIR (issue #390).
+  const effortScale = useEffortScale();
   const [goal, setGoal] = useState('');
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -255,11 +260,24 @@ export function ProgramGenerator() {
                           value={ex.targetRepsMax}
                           onChange={(v) => patchExercise(wi, ei, { targetRepsMax: num(v) })}
                         />
-                        <NumField
-                          label="RIR"
-                          value={ex.targetRIR}
-                          onChange={(v) => patchExercise(wi, ei, { targetRIR: num(v) })}
-                        />
+                        <div className="space-y-1">
+                          <Label
+                            htmlFor={`effort-${wi}-${ei}`}
+                            className="text-[11px] text-muted-foreground"
+                          >
+                            {effortScale}
+                          </Label>
+                          <EffortInput
+                            id={`effort-${wi}-${ei}`}
+                            rir={ex.targetRIR}
+                            // An empty or invalid entry writes nothing: the draft
+                            // keeps its target and the field shows it again on blur.
+                            onRirChange={(rir) => {
+                              if (rir != null) patchExercise(wi, ei, { targetRIR: rir });
+                            }}
+                            className="h-8 text-sm"
+                          />
+                        </div>
                         <NumField
                           label={t('exercise.rest')}
                           value={ex.restSec}

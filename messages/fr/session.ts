@@ -53,7 +53,7 @@ export const session = {
     nextSet: 'Série suivante automatique',
     reasons: {
       'hold-load': 'La série précédente a atteint la cible ; gardez la même charge.',
-      'adjust-reps': 'Gardez la charge et ajustez les répétitions pour préserver le RIR cible.',
+      'adjust-reps': 'Gardez la charge et ajustez les répétitions pour préserver le {scale} cible.',
       'reduce-load': 'Réduisez la charge pour préserver la cible programmée.',
       'increase-load':
         'La série précédente était plus facile que prévu ; ajoutez un cran de charge.',
@@ -76,7 +76,7 @@ export const session = {
       'Choisissez une charge de calibration volontairement légère pour la première série.',
     ceiling: 'Ne dépassez pas aujourd’hui le plafond issu de votre historique : {weight}.',
     calibrate:
-      'Notez un RIR honnête après la première série. La recommandation de la série suivante s’adaptera au résultat.',
+      'Notez un {scale} honnête après la première série. La recommandation de la série suivante s’adaptera au résultat.',
   },
   readiness: {
     open: 'Bilan de forme (facultatif)',

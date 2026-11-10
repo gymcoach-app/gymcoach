@@ -51,7 +51,7 @@ export const session = {
     nextSet: '自动调整下一组',
     reasons: {
       'hold-load': '上一组达到目标，保持相同负重。',
-      'adjust-reps': '保持负重，通过调整次数来维持目标 RIR。',
+      'adjust-reps': '保持负重，通过调整次数来维持目标 {scale}。',
       'reduce-load': '降低负重，以保持计划的训练目标。',
       'increase-load': '上一组比预期轻松，将负重提高一个档位。',
       'bodyweight-adjust-reps': '负重不能低于自身体重，因此改为调整次数。',
@@ -69,7 +69,7 @@ export const session = {
     bodyweightStart: '从自重开始，不增加额外负重。',
     chooseLoad: '第一组请选择明显偏轻的负重，以评估当前状态。',
     ceiling: '今日请勿超过根据历史记录计算的负重上限：{weight}。',
-    calibrate: '完成第一组后，请如实记录 RIR。系统将根据结果调整下一组建议。',
+    calibrate: '完成第一组后，请如实记录 {scale}。系统将根据结果调整下一组建议。',
   },
   readiness: {
     open: '训练状态评估（选填）',

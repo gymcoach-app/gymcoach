@@ -53,7 +53,7 @@ export const session = {
     nextSet: 'Serie successiva automatica',
     reasons: {
       'hold-load': 'La serie precedente ha centrato l’obiettivo; mantieni lo stesso carico.',
-      'adjust-reps': 'Mantieni il carico e adatta le ripetizioni per conservare il RIR obiettivo.',
+      'adjust-reps': 'Mantieni il carico e adatta le ripetizioni per conservare il {scale} obiettivo.',
       'reduce-load': 'Riduci il carico per mantenere l’obiettivo programmato.',
       'increase-load':
         'La serie precedente è stata più facile del previsto; aggiungi un incremento di carico.',
@@ -75,7 +75,7 @@ export const session = {
     chooseLoad: 'Scegli un carico di calibrazione volutamente leggero per la prima serie.',
     ceiling: 'Oggi non superare il limite basato sul tuo storico: {weight}.',
     calibrate:
-      'Registra un RIR onesto dopo la prima serie. Il suggerimento per la serie successiva si adatterà al risultato.',
+      'Registra un {scale} onesto dopo la prima serie. Il suggerimento per la serie successiva si adatterà al risultato.',
   },
   readiness: {
     open: 'Check-in sullo stato di forma (facoltativo)',

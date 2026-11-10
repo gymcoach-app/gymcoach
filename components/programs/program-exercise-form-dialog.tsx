@@ -21,6 +21,9 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { EffortInput } from '@/components/shared/effort-input';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
+import { effortRange } from '@/lib/effort';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -102,6 +105,21 @@ export function ProgramExerciseFormDialog(props: Props) {
     resolver: zodResolver(programExerciseInputSchema),
     defaultValues: initial,
   });
+
+  // The effort target is typed on the user's scale (issue #390) and written
+  // to the form as the stored RIR.
+  const effortScale = useEffortScale();
+  const watchedRir = form.watch('targetRIR');
+
+  // The target is required. An emptied or invalid field holds NaN, which the
+  // schema refuses, so the form cannot save a target the field does not show
+  // (an empty string would be coerced to RIR 0, a maximal effort).
+  function setTargetRir(rir: number | null) {
+    form.setValue('targetRIR', rir ?? Number.NaN, {
+      shouldDirty: true,
+      shouldValidate: form.formState.isSubmitted,
+    });
+  }
 
   useEffect(() => {
     if (props.open) form.reset(initial);
@@ -201,15 +219,19 @@ export function ProgramExerciseFormDialog(props: Props) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="targetRIR">RIR</Label>
-              <Input
+              <Label htmlFor="targetRIR">{effortScale}</Label>
+              <EffortInput
                 id="targetRIR"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={5}
-                {...form.register('targetRIR')}
+                rir={typeof watchedRir === 'number' && Number.isFinite(watchedRir) ? watchedRir : null}
+                aria-invalid={form.formState.errors.targetRIR ? true : undefined}
+                onRirChange={(rir) => setTargetRir(rir)}
+                onInvalidEntry={() => setTargetRir(null)}
               />
+              {form.formState.errors.targetRIR && (
+                <p className="text-sm text-destructive">
+                  {t('effortRange', effortRange(effortScale))}
+                </p>
+              )}
             </div>
           </div>
 

@@ -57,7 +57,7 @@ export const history = {
     button: '保存为训练模板',
     title: '保存为训练模板',
     description:
-      '根据本次实际完成的动作和正式组，在训练计划中创建一项训练，包括组数、次数范围和平均剩余次数（RIR）。',
+      '根据本次实际完成的动作和正式组，在训练计划中创建一项训练，包括组数、次数范围和平均 {scale}。',
     program: '训练计划',
     programPlaceholder: '选择训练计划',
     noPrograms: '请先创建训练计划，再将本次训练保存到计划中。',

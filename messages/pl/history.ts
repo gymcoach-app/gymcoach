@@ -59,7 +59,7 @@ export const history = {
     button: 'Zapisz jako trening',
     title: 'Zapisz jako trening',
     description:
-      'Dodaje do programu trening z ćwiczeniami i seriami roboczymi, które faktycznie wykonano: liczbą serii, zakresem powtórzeń i średnim RIR.',
+      'Dodaje do programu trening z ćwiczeniami i seriami roboczymi, które faktycznie wykonano: liczbą serii, zakresem powtórzeń i średnim {scale}.',
     program: 'Program',
     programPlaceholder: 'Wybierz program',
     noPrograms: 'Najpierw utwórz program, aby zapisać w nim tę sesję.',

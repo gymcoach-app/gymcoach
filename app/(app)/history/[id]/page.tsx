@@ -218,6 +218,7 @@ export default async function HistorySessionPage(props: Params) {
                 }))}
                 defaultProgramId={session.programId}
                 defaultName={sessionTitle}
+                effortScale={effortScale}
               />
             )}
             {hasCardio && (

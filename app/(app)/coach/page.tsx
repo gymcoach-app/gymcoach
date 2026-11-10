@@ -11,12 +11,13 @@ import {
 } from '@/components/coach/coach-client';
 import { CoachContextCard } from '@/components/coach/coach-context-card';
 import { CoachNoteCard } from '@/components/coach/coach-note-card';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 
 export default async function CoachPage() {
   const t = await getTranslations('coach');
   const auth = await requireSession();
 
-  const [history, activeProgram, coachPayload] = await Promise.all([
+  const [history, activeProgram, coachPayload, user] = await Promise.all([
     db.coachSession.findMany({
       where: { userId: auth.userId },
       orderBy: { createdAt: 'desc' },
@@ -45,6 +46,8 @@ export default async function CoachPage() {
     // "What your coach sees" (issue #154): the SAME builder the debrief and
     // chat routes use, so the card cannot drift from the payload the AI gets.
     buildCoachPayload(auth.userId),
+    // The adjustments editor follows the user's effort scale (issue #390).
+    db.user.findUnique({ where: { id: auth.userId }, select: { effortScale: true } }),
   ]);
 
   const coachContext = summarizeCoachPayload(coachPayload);
@@ -98,13 +101,15 @@ export default async function CoachPage() {
 
         <CoachNoteCard initialNote={coachPayload.userProfile.coachNote} />
 
-        <CoachClient
-          initialHistory={initialHistory}
-          hasApiKey={hasApiKey}
-          providerLabel={provider.label}
-          apiKeyEnvVar={provider.apiKeyEnvVar}
-          programDefaults={programDefaults}
-        />
+        <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
+          <CoachClient
+            initialHistory={initialHistory}
+            hasApiKey={hasApiKey}
+            providerLabel={provider.label}
+            apiKeyEnvVar={provider.apiKeyEnvVar}
+            programDefaults={programDefaults}
+          />
+        </EffortScaleProvider>
       </div>
     </main>
   );

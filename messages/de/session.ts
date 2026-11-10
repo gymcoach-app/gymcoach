@@ -54,7 +54,7 @@ export const session = {
     reasons: {
       'hold-load': 'Der vorherige Satz entsprach dem Ziel; behalte das gleiche Gewicht.',
       'adjust-reps':
-        'Behalte das Gewicht und passe Wiederholungen an, um das Ziel-RIR zu erhalten.',
+        'Behalte das Gewicht und passe Wiederholungen an, um das Ziel-{scale} zu erhalten.',
       'reduce-load': 'Reduziere das Gewicht, um das programmierte Ziel zu erhalten.',
       'increase-load':
         'Der vorherige Satz war leichter als geplant; füge eine Gewichtsstufe hinzu.',
@@ -76,7 +76,7 @@ export const session = {
     chooseLoad: 'Wähle ein bewusst leichtes Kalibrierungsgewicht für den ersten Satz.',
     ceiling: 'Überschreite heute nicht die historiebasierte Obergrenze: {weight}.',
     calibrate:
-      'Zeichne ein ehrliches RIR nach dem ersten Satz auf. Die Empfehlung für den nächsten Satz passt sich dem Ergebnis an.',
+      'Zeichne ein ehrliches {scale} nach dem ersten Satz auf. Die Empfehlung für den nächsten Satz passt sich dem Ergebnis an.',
   },
   readiness: {
     open: 'Bereitschafts-Check-in (optional)',

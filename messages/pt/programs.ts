@@ -79,6 +79,7 @@ export const programs = {
     copySuffix: '(cópia)',
   },
   exercise: {
+    effortRange: 'Digite um número inteiro de {min} a {max}.',
     actions: 'Ações do exercício',
     edit: 'Editar exercício programado',
     add: 'Adicionar um exercício',

@@ -696,6 +696,41 @@ describe('POST /api/backup - malformed and oversized input (issue #168)', () => 
     expect(await countsFor(user.id)).toEqual(before);
   });
 
+  it('keeps the account effort scale when a version 8 backup has none (issue #390)', async () => {
+    // seedFullUser sets RPE, so a restore that fell back to the column default
+    // (RIR) instead of leaving the account alone would show here.
+    const user = await seedFullUser('v8-scale@test.dev');
+    actAs(user.id);
+    const dump = await (await getBackup()).json();
+
+    dump.version = 8;
+    delete dump.profile.effortScale;
+    // A value that differs from the seed, to see the profile being restored.
+    dump.profile.displayName = 'Restored From V8';
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+
+    const after = await db.user.findUnique({ where: { id: user.id } });
+    expect(after?.effortScale).toBe('RPE');
+    // The rest of the profile was still restored from the file.
+    expect(after?.displayName).toBe('Restored From V8');
+  });
+
+  it('rejects an unknown effort scale without touching existing data (issue #390)', async () => {
+    const user = await seedFullUser('victim-scale@test.dev');
+    actAs(user.id);
+    const before = await countsFor(user.id);
+    const dump = await (await getBackup()).json();
+
+    dump.profile.effortScale = 'BORG';
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(400);
+
+    expect(await countsFor(user.id)).toEqual(before);
+    const after = await db.user.findUnique({ where: { id: user.id } });
+    expect(after?.effortScale).toBe('RPE');
+  });
+
   it('rejects a non-JSON body and a missing confirmReplace', async () => {
     const user = await seedFullUser('victim2@test.dev');
     actAs(user.id);

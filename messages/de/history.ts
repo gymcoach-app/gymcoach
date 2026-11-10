@@ -58,7 +58,7 @@ export const history = {
     button: 'Als Workout speichern',
     title: 'Als Workout speichern',
     description:
-      'Fügt einem Programm ein Workout mit den Übungen und Arbeitssätzen hinzu, die du tatsächlich gemacht hast: Sätze, Wiederholungen und durchschnittliche RIR.',
+      'Fügt einem Programm ein Workout mit den Übungen und Arbeitssätzen hinzu, die du tatsächlich gemacht hast: Sätze, Wiederholungen und durchschnittliche {scale}.',
     program: 'Programm',
     programPlaceholder: 'Programm wählen',
     noPrograms: 'Erstelle zuerst ein Programm, um diese Einheit darin zu speichern.',

@@ -24,6 +24,7 @@ function open(props: Partial<Parameters<typeof SaveAsWorkoutButton>[0]> = {}) {
       programs={programs}
       defaultProgramId="p-source"
       defaultName="Push day"
+      effortScale="RIR"
       {...props}
     />,
   );
@@ -31,6 +32,17 @@ function open(props: Partial<Parameters<typeof SaveAsWorkoutButton>[0]> = {}) {
 }
 
 describe('SaveAsWorkoutButton (issue #394)', () => {
+  it("names the trainee's effort scale in the description", () => {
+    open({ effortScale: 'RPE' });
+    expect(screen.getByText(/rep range and average RPE\./)).toBeInTheDocument();
+    expect(screen.queryByText(/average RIR/)).not.toBeInTheDocument();
+  });
+
+  it('keeps naming RIR on the RIR scale', () => {
+    open();
+    expect(screen.getByText(/rep range and average RIR\./)).toBeInTheDocument();
+  });
+
   it("saves into the session's own program and opens it", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 201 }));
     vi.stubGlobal('fetch', fetchMock);

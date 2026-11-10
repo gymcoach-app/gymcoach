@@ -112,7 +112,7 @@ export function RestTimer({
               × {recommendation.reps} · {formatEffort(effortScale, recommendation.rir)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {autoT(`reasons.${recommendation.reason}`)}
+              {autoT(`reasons.${recommendation.reason}`, { scale: effortScale })}
             </p>
           </div>
         )}

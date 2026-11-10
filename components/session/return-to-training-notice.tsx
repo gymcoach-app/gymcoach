@@ -75,7 +75,7 @@ export function ReturnToTrainingNotice({ recommendation, unit, usesBodyweight }:
               })}
             </p>
           )}
-          <p>{t('calibrate')}</p>
+          <p>{t('calibrate', { scale: effortScale })}</p>
         </div>
       </div>
     </section>

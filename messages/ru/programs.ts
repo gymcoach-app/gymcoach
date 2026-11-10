@@ -79,6 +79,7 @@ export const programs = {
     copySuffix: '(копия)',
   },
   exercise: {
+    effortRange: 'Введите целое число от {min} до {max}.',
     actions: 'Действия с упражнением',
     edit: 'Изменить упражнение программы',
     add: 'Добавить упражнение',

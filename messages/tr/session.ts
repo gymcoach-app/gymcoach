@@ -52,7 +52,7 @@ export const session = {
     nextSet: 'Otomatik sonraki set',
     reasons: {
       'hold-load': 'Önceki set hedefi tutturdu; aynı ağırlıkla devam et.',
-      'adjust-reps': 'Ağırlığı koru ve hedef RIR için tekrarı ayarla.',
+      'adjust-reps': 'Ağırlığı koru ve hedef {scale} için tekrarı ayarla.',
       'reduce-load': 'Programlanan hedefi korumak için ağırlığı düşür.',
       'increase-load': 'Önceki set planlanandan kolaydı; bir ağırlık kademesi ekle.',
       'bodyweight-adjust-reps':
@@ -72,7 +72,7 @@ export const session = {
     bodyweightStart: 'Ek ağırlık olmadan, vücut ağırlığıyla başla.',
     chooseLoad: 'İlk set için bilerek hafif bir deneme ağırlığı seç.',
     ceiling: 'Bugün geçmişe dayalı üst sınırı aşma: {weight}.',
-    calibrate: 'İlk setten sonra dürüst bir RIR gir. Sonraki set önerisi sonuca göre uyarlanır.',
+    calibrate: 'İlk setten sonra dürüst bir {scale} gir. Sonraki set önerisi sonuca göre uyarlanır.',
   },
   readiness: {
     open: "Hazırlık check-in'i (isteğe bağlı)",

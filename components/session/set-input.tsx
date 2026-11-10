@@ -332,7 +332,7 @@ export function SetInput({
               {unitLabel(unit)} × {recommendation.reps} · {formatEffort(effortScale, recommendation.rir)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {autoT(`reasons.${recommendation.reason}`)}
+              {autoT(`reasons.${recommendation.reason}`, { scale: effortScale })}
             </p>
           </div>
         )}
@@ -584,6 +584,7 @@ export function SetInput({
                     variant={form.rir === opt ? 'default' : 'outline'}
                     aria-pressed={form.rir === opt}
                     title={t('effortLevel', { rir: opt })}
+                    aria-label={`${formatEffort(effortScale, opt)}: ${t('effortLevel', { rir: opt })}`}
                     onClick={() => setForm((f) => ({ ...f, rir: opt }))}
                     className={`min-h-tap border-b-4 text-lg font-semibold ${EFFORT_TONE_CLASSES[effortTone(opt)]}`}
                   >

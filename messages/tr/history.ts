@@ -57,7 +57,7 @@ export const history = {
     button: 'Antrenman olarak kaydet',
     title: 'Antrenman olarak kaydet',
     description:
-      'Gerçekten yaptığın egzersizler ve çalışma setleriyle bir programa antrenman ekler: set sayısı, tekrar aralığı ve ortalama RIR.',
+      'Gerçekten yaptığın egzersizler ve çalışma setleriyle bir programa antrenman ekler: set sayısı, tekrar aralığı ve ortalama {scale}.',
     program: 'Program',
     programPlaceholder: 'Bir program seç',
     noPrograms: 'Bu seansı kaydetmek için önce bir program oluştur.',

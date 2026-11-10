@@ -53,7 +53,7 @@ export const session = {
     nextSet: 'Próxima série automática',
     reasons: {
       'hold-load': 'A série anterior bateu a meta; mantenha a mesma carga.',
-      'adjust-reps': 'Mantenha a carga e ajuste as reps para preservar o RIR alvo.',
+      'adjust-reps': 'Mantenha a carga e ajuste as reps para preservar o {scale} alvo.',
       'reduce-load': 'Reduza a carga para manter a meta programada.',
       'increase-load': 'A série anterior foi mais fácil que o planejado; suba um degrau de carga.',
       'bodyweight-adjust-reps':
@@ -74,7 +74,7 @@ export const session = {
     chooseLoad: 'Escolha uma carga de calibração bem leve para a primeira série.',
     ceiling: 'Não passe hoje do teto baseado no seu histórico: {weight}.',
     calibrate:
-      'Registre um RIR honesto depois da primeira série. A recomendação da próxima série vai se adaptar ao resultado.',
+      'Registre um {scale} honesto depois da primeira série. A recomendação da próxima série vai se adaptar ao resultado.',
   },
   readiness: {
     open: 'Registro de prontidão (opcional)',

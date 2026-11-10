@@ -38,6 +38,7 @@ describe('ReturnToTrainingNotice', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Sets today: 2. Target RIR: 3.')).toBeInTheDocument();
+    expect(screen.getByText(/^Record an honest RIR after the first set\./)).toBeInTheDocument();
     expect(screen.getByText('Conservative starting load: 60 kg.')).toBeInTheDocument();
   });
 });
@@ -50,5 +51,7 @@ describe('ReturnToTrainingNotice effort scale (issue #390)', () => {
       </EffortScaleProvider>,
     );
     expect(screen.getByText('Sets today: 2. Target RPE: 7.')).toBeInTheDocument();
+    expect(screen.getByText(/^Record an honest RPE after the first set\./)).toBeInTheDocument();
+    expect(screen.queryByText(/honest RIR/)).not.toBeInTheDocument();
   });
 });
