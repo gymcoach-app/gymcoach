@@ -24,6 +24,8 @@ import {
 } from '@/lib/preferences';
 import { formatWeight, fromDisplayWeight, roundWeight, toDisplayWeight } from '@/lib/units';
 import { detectPRs, type PRType } from '@/lib/records';
+import { effortOptions, effortValue, formatEffortValue } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SetValuePicker } from '@/components/session/set-value-picker';
@@ -171,6 +173,10 @@ export function EditableSetsTable({
   const t = useTranslations('session.editableSets');
   const inputT = useTranslations('session.input');
   const locale = useLocale();
+  // Effort scale (issue #390): the selects keep the stored RIR as their
+  // value, so only the numbers and labels on screen follow the scale.
+  const effortScale = useEffortScale();
+  const effortChoices = effortOptions(effortScale, [0, 1, 2, 3, 4, 5]);
   const [metrics, setMetrics] = useState<SetTableMetric[]>(['1RM']);
   const [draft, setDraft] = useState<DraftSet>(() =>
     initialDraft(programExercise, sets, lastPerformance, readiness, deloadActive, loadConstraints),
@@ -502,7 +508,7 @@ export function EditableSetsTable({
             <span>#</span>
             <span>{unit}</span>
             <span>{locale === 'zh-CN' ? inputT('reps') : 'REPS'}</span>
-            <span>RIR</span>
+            <span data-testid="effort-header">{effortScale}</span>
             {metrics.map((metric) => (
               <span key={metric} data-testid={`set-metric-header-${metric}`}>
                 {metricLabel(metric, true)}
@@ -595,16 +601,16 @@ export function EditableSetsTable({
                   }
                 >
                   <SelectTrigger
-                    aria-label={t('rir', { number: set.setNumber })}
+                    aria-label={t(effortScale === 'RPE' ? 'rpe' : 'rir', { number: set.setNumber })}
                     className="h-9 border-transparent bg-transparent px-2 text-center [&>svg]:hidden"
                   >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">-</SelectItem>
-                    {[0, 1, 2, 3, 4, 5].map((value) => (
+                    {effortChoices.map((value) => (
                       <SelectItem key={value} value={String(value)}>
-                        {value}
+                        {effortValue(effortScale, value)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -699,16 +705,16 @@ export function EditableSetsTable({
               }}
             >
               <SelectTrigger
-                aria-label={t('rir', { number: currentNumber })}
+                aria-label={t(effortScale === 'RPE' ? 'rpe' : 'rir', { number: currentNumber })}
                 className="h-11 px-2 text-center text-base font-semibold [&>svg]:hidden"
               >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">-</SelectItem>
-                {[0, 1, 2, 3, 4, 5].map((value) => (
+                {effortChoices.map((value) => (
                   <SelectItem key={value} value={String(value)}>
-                    {value}
+                    {effortValue(effortScale, value)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -758,7 +764,7 @@ export function EditableSetsTable({
                     : '-'}
                 </span>
                 <span>{previous?.reps ?? '-'}</span>
-                <span>{previous?.rir ?? '-'}</span>
+                <span>{formatEffortValue(effortScale, previous?.rir)}</span>
                 {metrics.map((metric) => (
                   <span key={metric}>
                     {previous

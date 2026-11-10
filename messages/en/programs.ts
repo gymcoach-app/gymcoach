@@ -104,7 +104,7 @@ export const programs = {
     pairPrevious: 'Pair with previous',
     unpair: 'Unpair superset',
     superset: 'Superset {label}',
-    prescription: '{sets} sets × {reps} reps · RIR {rir} · rest {seconds}s',
+    prescription: '{sets} sets × {reps} reps · {effort} · rest {seconds}s',
     tempoValue: ' · tempo {tempo}',
   },
   print: {
@@ -119,7 +119,7 @@ export const programs = {
     reps: 'Reps',
     rir: 'RIR',
     notes: 'Notes',
-    planLine: '{sets} x {min}-{max} reps, RIR {rir}',
+    planLine: '{sets} x {min}-{max} reps, {effort}',
     rest: 'Rest {seconds}s',
     tempo: 'Tempo {tempo}',
     empty: 'No exercises in this session.',

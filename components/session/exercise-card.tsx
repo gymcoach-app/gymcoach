@@ -15,6 +15,8 @@ import {
 } from '@/lib/progression';
 import { formatWeight } from '@/lib/units';
 import { formatCardioSet } from '@/lib/cardio';
+import { formatEffort } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import type { SerializedLastPerformance } from './session-runner';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import type { GymLoadConstraints } from '@/lib/gym-loads';
@@ -69,6 +71,7 @@ export function ExerciseCard({
   menuDisabled = false,
 }: Props) {
   const t = useTranslations('session.exerciseCard');
+  const effortScale = useEffortScale();
   const exerciseT = useTranslations('exercises');
   const locale = useLocale();
   const exerciseName = useExerciseName();
@@ -220,7 +223,7 @@ export function ExerciseCard({
               {t('strengthPrescription', {
                 sets: programExercise.targetSets,
                 reps: repsLabel,
-                rir: programExercise.targetRIR,
+                effort: formatEffort(effortScale, programExercise.targetRIR),
                 seconds: programExercise.restSec,
                 tempo: programExercise.tempo ?? 'none',
               })}

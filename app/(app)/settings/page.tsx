@@ -24,6 +24,7 @@ export default async function SettingsPage() {
         goal: true,
         weeklyFrequency: true,
         unit: true,
+        effortScale: true,
         activeGymId: true,
       },
     }),
@@ -79,6 +80,7 @@ export default async function SettingsPage() {
             goal: user?.goal ?? null,
             weeklyFrequency: user?.weeklyFrequency ?? null,
             unit: user?.unit ?? 'KG',
+            effortScale: user?.effortScale ?? 'RIR',
           }}
         />
 

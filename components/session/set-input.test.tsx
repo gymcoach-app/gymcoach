@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { SetInput } from './set-input';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 
 const exo: Exercise = {
   id: 'e1',
@@ -540,5 +541,68 @@ describe('SetInput AI parse', () => {
     expect(screen.getByText(/could not parse that/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /log the set/i }));
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ weight: 0, reps: 8 }));
+  });
+});
+
+describe('SetInput effort scale (issue #390)', () => {
+  function renderWithScale(scale: 'RIR' | 'RPE') {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <EffortScaleProvider scale={scale}>
+        <SetInput
+          programExercise={pe}
+          existingSets={[]}
+          lastPerformance={undefined}
+          readiness={null}
+          deloadActive={false}
+          unit="KG"
+          onSubmit={onSubmit}
+        />
+      </EffortScaleProvider>,
+    );
+    return { onSubmit };
+  }
+
+  function chipLabels() {
+    return Array.from(screen.getByTestId('effort-chips').querySelectorAll('button')).map(
+      (chip) => chip.textContent,
+    );
+  }
+
+  it('shows RIR chips with a plain-language label by default', () => {
+    renderSetInput('KG');
+    expect(screen.getByText('RIR (reps in reserve)')).toBeInTheDocument();
+    expect(chipLabels()).toEqual(['0', '1', '2', '3']);
+    // The pre-fill is the target RIR (2).
+    expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RIR 2: 2 reps left');
+  });
+
+  it('shows RPE chips, and RPE 8 is the pre-selected target RIR 2', () => {
+    renderWithScale('RPE');
+    expect(screen.getByText('RPE (perceived exertion)')).toBeInTheDocument();
+    expect(screen.queryByText('RIR (reps in reserve)')).not.toBeInTheDocument();
+    expect(chipLabels()).toEqual(['7', '8', '9', '10']);
+    const chips = screen.getByTestId('effort-chips');
+    expect(within(chips).getByRole('button', { name: '8' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 8: 2 reps left');
+  });
+
+  it('stores the RIR behind the RPE chip the lifter picks', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderWithScale('RPE');
+    const chips = screen.getByTestId('effort-chips');
+
+    await user.click(within(chips).getByRole('button', { name: '9' }));
+    expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 9: 1 rep left');
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ rir: 1 }));
+
+    await user.click(within(chips).getByRole('button', { name: '10' }));
+    expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 10: No reps left');
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ rir: 0 }));
   });
 });

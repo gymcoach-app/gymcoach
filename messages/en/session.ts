@@ -64,7 +64,7 @@ export const session = {
       'The latest session was recent, but it followed a {days}-day gap, so return calibration remains active.',
     muscleReintro:
       'The primary muscle has had no recorded working sets for more than six weeks. Volume and effort are reduced for this session.',
-    targets: 'Sets today: {sets}. Target RIR: {rir}.',
+    targets: 'Sets today: {sets}. Target {scale}: {value}.',
     startWeight: 'Conservative starting load: {weight}.',
     bodyweightStart: 'Start with bodyweight and no added load.',
     chooseLoad: 'Choose a deliberately light calibration load for the first set.',
@@ -116,6 +116,9 @@ export const session = {
     load: 'Load ({unit})',
     reps: 'Reps',
     repsInReserve: 'RIR (reps in reserve)',
+    perceivedExertion: 'RPE (perceived exertion)',
+    effortLevel:
+      '{rir, plural, =0 {No reps left} one {# rep left} other {# reps left}}',
     dropSet: 'Drop set',
     warmup: 'Warmup',
     note: 'Quick note (optional)',
@@ -185,6 +188,7 @@ export const session = {
     weight: 'Set {number} weight in {unit}',
     reps: 'Set {number} repetitions',
     rir: 'Set {number} reps in reserve',
+    rpe: 'Set {number} perceived exertion',
     confirm: 'Confirm set {number}',
     applyRecommendation: 'Apply recommendation to set {number}',
     undo: 'Undo set {number}',
@@ -262,7 +266,7 @@ export const session = {
     notAvailable: 'Not available in this gym',
     cardioPrescription: '{sets, plural, one {# set} other {# sets}} · Rest {seconds}s',
     strengthPrescription:
-      '{sets} sets × {reps} reps · RIR {rir} · Rest {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} sets × {reps} reps · {effort} · Rest {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Last session ({date})',
     lastDone:
       '{days, plural, =0 {Last done today} =1 {Last done yesterday} other {Last done # days ago}}',

@@ -107,7 +107,7 @@ export const programs = {
     pairPrevious: 'Mit vorigem paaren',
     unpair: 'Supersatz auflösen',
     superset: 'Supersatz {label}',
-    prescription: '{sets} Sätze × {reps} Wdh. · RIR {rir} · Pause {seconds}s',
+    prescription: '{sets} Sätze × {reps} Wdh. · {effort} · Pause {seconds}s',
     tempoValue: ' · Tempo {tempo}',
   },
   print: {
@@ -122,7 +122,7 @@ export const programs = {
     reps: 'Wdh.',
     rir: 'RIR',
     notes: 'Notizen',
-    planLine: '{sets} x {min}-{max} Wdh., RIR {rir}',
+    planLine: '{sets} x {min}-{max} Wdh., {effort}',
     rest: 'Pause {seconds}s',
     tempo: 'Tempo {tempo}',
     empty: 'Keine Übungen in dieser Einheit.',

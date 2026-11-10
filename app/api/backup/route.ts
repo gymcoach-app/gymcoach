@@ -10,6 +10,7 @@ import {
   Sex,
   TrainingGoal,
   WeightUnit,
+  EffortScale,
 } from '@/lib/prisma-client';
 import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
@@ -45,7 +46,7 @@ import {
 //
 // Exported models and fields:
 // - User: profile fields (displayName, bodyweight, bodyweightGoalKg, sex,
-//   heightCm, goal, weeklyFrequency, unit, deloadUntil). email/createdAt ride along for
+//   heightCm, goal, weeklyFrequency, unit, effortScale, deloadUntil). email/createdAt ride along for
 //   reference but are NEVER imported (they identify the importing account).
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
 //   usesBodyweight, equipmentType, isFavorite.
@@ -63,7 +64,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 8;
+const VERSION = 9;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -112,6 +113,7 @@ export async function GET() {
           goal: true,
           weeklyFrequency: true,
           unit: true,
+          effortScale: true,
           deloadUntil: true,
           activeGymId: true,
         },
@@ -191,6 +193,8 @@ export async function GET() {
         goal: user.goal,
         weeklyFrequency: user.weeklyFrequency,
         unit: user.unit,
+        // New in v9 (issue #390); absent from older backups.
+        effortScale: user.effortScale,
         deloadUntil: user.deloadUntil?.toISOString() ?? null,
         activeGymName: gyms.find((gym) => gym.id === user.activeGymId)?.name ?? null,
       },
@@ -500,6 +504,8 @@ const importSchema = z.object({
       goal: z.nativeEnum(TrainingGoal).nullable().optional(),
       weeklyFrequency: z.number().int().min(1).max(14).nullable().optional(),
       unit: z.nativeEnum(WeightUnit).optional(),
+      // v9 (issue #390); absent in older backups, which keep the account's scale.
+      effortScale: z.nativeEnum(EffortScale).optional(),
       deloadUntil: dateString.nullable().optional(),
       activeGymName: z.string().max(80).nullable().optional(),
     })
@@ -690,6 +696,7 @@ export async function POST(req: Request) {
               ...(p.goal !== undefined ? { goal: p.goal } : {}),
               ...(p.weeklyFrequency !== undefined ? { weeklyFrequency: p.weeklyFrequency } : {}),
               ...(p.unit !== undefined ? { unit: p.unit } : {}),
+              ...(p.effortScale !== undefined ? { effortScale: p.effortScale } : {}),
               ...(p.deloadUntil !== undefined
                 ? { deloadUntil: p.deloadUntil ? new Date(p.deloadUntil) : null }
                 : {}),

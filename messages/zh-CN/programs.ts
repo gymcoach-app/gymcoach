@@ -106,7 +106,7 @@ export const programs = {
     pairPrevious: '与上一动作组成超级组',
     unpair: '取消超级组',
     superset: '超级组 {label}',
-    prescription: '{sets} 组 × {reps} 次 · RIR {rir} · 休息 {seconds} 秒',
+    prescription: '{sets} 组 × {reps} 次 · {effort} · 休息 {seconds} 秒',
     tempoValue: ' · 节奏 {tempo}',
   },
   print: {
@@ -121,7 +121,7 @@ export const programs = {
     reps: '次数',
     rir: 'RIR',
     notes: '备注',
-    planLine: '{sets} 组 × {min}-{max} 次，RIR {rir}',
+    planLine: '{sets} 组 × {min}-{max} 次，{effort}',
     rest: '休息 {seconds} 秒',
     tempo: '节奏 {tempo}',
     empty: '本次训练暂无动作。',

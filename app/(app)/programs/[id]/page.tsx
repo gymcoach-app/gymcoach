@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { ProgramDetailView } from '@/components/programs/program-detail-view';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -28,14 +29,20 @@ export default async function ProgramDetailPage(props: Props) {
 
   if (!program) notFound();
 
-  const exercisesCatalog = await db.exercise.findMany({
-    where: { userId: session.userId },
-    orderBy: [{ muscleGroup: 'asc' }, { name: 'asc' }],
-  });
+  const [exercisesCatalog, user] = await Promise.all([
+    db.exercise.findMany({
+      where: { userId: session.userId },
+      orderBy: [{ muscleGroup: 'asc' }, { name: 'asc' }],
+    }),
+    // The prescription line of each exercise follows the effort scale (#390).
+    db.user.findUnique({ where: { id: session.userId }, select: { effortScale: true } }),
+  ]);
 
   return (
     <main className="flex-1 px-4 py-6">
-      <ProgramDetailView program={program} catalog={exercisesCatalog} />
+      <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
+        <ProgramDetailView program={program} catalog={exercisesCatalog} />
+      </EffortScaleProvider>
     </main>
   );
 }

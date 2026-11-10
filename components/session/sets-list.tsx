@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import type { PendingSet } from '@/lib/indexeddb';
 import { detectPRs, type PRType } from '@/lib/records';
 import { formatCardioSet } from '@/lib/cardio';
+import { formatEffort } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 
 interface Props {
   programExercise: ProgramExercise & { exercise: Exercise };
@@ -76,6 +78,7 @@ function RowDone({
   onDelete: () => void;
 }) {
   const t = useTranslations('session.setsList');
+  const effortScale = useEffortScale();
   const weightLabel = set.weight === 0 ? t('bodyweight') : `${set.weight} kg`;
   // Cardio sets (issue #133) render as duration/distance, never weight x reps.
   const isCardio = set.durationSec != null;
@@ -94,7 +97,7 @@ function RowDone({
           ) : (
             <>
               {weightLabel} × {set.reps}
-              {set.rir != null && ` · RIR ${set.rir}`}
+              {set.rir != null && ` · ${formatEffort(effortScale, set.rir)}`}
             </>
           )}
         </span>

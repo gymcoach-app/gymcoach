@@ -74,6 +74,11 @@ export const settings = {
     unit: 'Gewichtseinheit',
     unitDescription:
       'Ändert, wie Gewichte angezeigt und eingegeben werden. Deine Daten werden immer in kg gespeichert, daher verändert ein Wechsel niemals vergangene Einheiten.',
+    effortScale: 'Anstrengungsskala',
+    effortScaleDescription:
+      'Ändert, wie die Anstrengung angezeigt und eingegeben wird. Sätze speichern immer die Wiederholungen in Reserve (RPE = 10 - RIR), daher verändert ein Wechsel niemals vergangene Einheiten.',
+    effortRir: 'RIR (Wiederholungen in Reserve)',
+    effortRpe: 'RPE (empfundene Anstrengung)',
     notSet: 'Nicht gesetzt',
     fixFields: 'Bitte korrigiere die markierten Felder.',
     saved: 'Profil aktualisiert.',

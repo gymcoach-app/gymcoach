@@ -73,6 +73,11 @@ export const settings = {
     unit: 'Unité de poids',
     unitDescription:
       'Change l’affichage et la saisie des charges. Vos données sont toujours stockées en kg, donc changer d’unité ne modifie jamais les séances passées.',
+    effortScale: 'Échelle d’effort',
+    effortScaleDescription:
+      'Change l’affichage et la saisie de l’effort. Les séries enregistrent toujours les répétitions en réserve (RPE = 10 - RIR), donc changer d’échelle ne modifie jamais les séances passées.',
+    effortRir: 'RIR (répétitions en réserve)',
+    effortRpe: 'RPE (effort perçu)',
     notSet: 'Non renseigné',
     fixFields: 'Corrigez les champs signalés.',
     saved: 'Profil mis à jour.',

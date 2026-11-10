@@ -65,6 +65,7 @@ async function seedFullUser(email: string) {
       goal: 'HYPERTROPHY',
       weeklyFrequency: 4,
       unit: 'LB',
+      effortScale: 'RPE',
       deloadUntil: new Date('2026-07-05T00:00:00.000Z'),
     },
   });
@@ -314,7 +315,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/backup - export completeness (issue #168)', () => {
-  it('exports version 8 with set blocks and all earlier backup fields', async () => {
+  it('exports version 9 with the effort scale and all earlier backup fields', async () => {
     const user = await seedFullUser('a@test.dev');
     actAs(user.id);
 
@@ -322,7 +323,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(8);
+    expect(dump.version).toBe(9);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -332,6 +333,8 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
       goal: 'HYPERTROPHY',
       weeklyFrequency: 4,
       unit: 'LB',
+      // v9 (issue #390): the effort scale preference rides along.
+      effortScale: 'RPE',
       deloadUntil: '2026-07-05T00:00:00.000Z',
       activeGymName: 'Basement',
     });
@@ -507,6 +510,7 @@ describe('POST /api/backup - restore round trip (issue #168)', () => {
     const profileB = await db.user.findUnique({ where: { id: userB.id } });
     expect(profileB?.displayName).toBe('Julien');
     expect(profileB?.unit).toBe('LB');
+    expect(profileB?.effortScale).toBe('RPE');
     expect(profileB?.bodyweightGoalKg).toBe(78);
     expect(profileB?.deloadUntil?.toISOString()).toBe('2026-07-05T00:00:00.000Z');
     const activeGymB = await db.gym.findFirst({ where: { id: profileB?.activeGymId ?? '' } });

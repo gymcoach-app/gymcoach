@@ -69,7 +69,7 @@ export const session = {
       'La dernière séance est récente, mais elle suivait une coupure de {days} jours, donc la calibration de reprise reste active.',
     muscleReintro:
       'Le muscle principal n’a aucune série effective enregistrée depuis plus de six semaines. Le volume et l’effort sont réduits pour cette séance.',
-    targets: 'Séries aujourd’hui : {sets}. RIR cible : {rir}.',
+    targets: 'Séries aujourd’hui : {sets}. {scale} cible : {value}.',
     startWeight: 'Charge de départ prudente : {weight}.',
     bodyweightStart: 'Commencez au poids de corps, sans charge ajoutée.',
     chooseLoad:
@@ -125,6 +125,9 @@ export const session = {
     load: 'Charge ({unit})',
     reps: 'Reps',
     repsInReserve: 'RIR (répétitions en réserve)',
+    perceivedExertion: 'RPE (effort perçu)',
+    effortLevel:
+      '{rir, plural, =0 {Aucune répétition en réserve} one {# répétition en réserve} other {# répétitions en réserve}}',
     dropSet: 'Série dégressive',
     warmup: 'Échauffement',
     note: 'Note rapide (facultatif)',
@@ -196,6 +199,7 @@ export const session = {
     weight: 'Charge de la série {number} en {unit}',
     reps: 'Répétitions de la série {number}',
     rir: 'Répétitions en réserve de la série {number}',
+    rpe: 'Effort perçu de la série {number}',
     confirm: 'Valider la série {number}',
     applyRecommendation: 'Appliquer la recommandation à la série {number}',
     undo: 'Annuler la série {number}',
@@ -274,7 +278,7 @@ export const session = {
     notAvailable: 'Indisponible dans cette salle',
     cardioPrescription: '{sets, plural, one {# série} other {# séries}} · Repos {seconds} s',
     strengthPrescription:
-      '{sets} séries × {reps} reps · RIR {rir} · Repos {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} séries × {reps} reps · {effort} · Repos {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Dernière séance ({date})',
     lastDone: '{days, plural, =0 {Fait aujourd’hui} =1 {Fait hier} other {Fait il y a # jours}}',
     lastDoneNever: 'Jamais fait',

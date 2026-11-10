@@ -4,6 +4,7 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { unitLabel } from '@/lib/units';
+import { formatEffort } from '@/lib/effort';
 import { getExerciseDisplayName } from '@/i18n/exercise-names';
 import { getTrainingDisplayName } from '@/i18n/training-names';
 import { PrintSheet, type PrintSheetLabels } from '@/components/programs/print-sheet';
@@ -43,7 +44,7 @@ export default async function ProgramPrintPage(props: Props) {
         },
       },
     }),
-    db.user.findUnique({ where: { id: session.userId }, select: { unit: true } }),
+    db.user.findUnique({ where: { id: session.userId }, select: { unit: true, effortScale: true } }),
   ]);
   if (!program || !user) notFound();
 
@@ -66,9 +67,10 @@ export default async function ProgramPrintPage(props: Props) {
     set: (n) => t('set', { n }),
     weight: unitLabel(user.unit),
     reps: t('reps'),
-    rir: t('rir'),
+    // The effort column and the plan line follow the user's scale (issue #390).
+    rir: user.effortScale === 'RPE' ? 'RPE' : t('rir'),
     notes: t('notes'),
-    planLine: ({ sets, min, max, rir }) => t('planLine', { sets, min, max, rir }),
+    planLine: ({ sets, min, max, rir }) => t('planLine', { sets, min, max, effort: formatEffort(user.effortScale, rir) }),
     rest: (seconds) => t('rest', { seconds }),
     tempo: (tempo) => t('tempo', { tempo }),
     empty: t('empty'),

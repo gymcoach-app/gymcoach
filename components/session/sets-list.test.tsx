@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import type { PendingSet } from '@/lib/indexeddb';
 import { SetsList } from './sets-list';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 
 const exo: Exercise = {
   id: 'e1',
@@ -85,5 +86,26 @@ describe('SetsList PR badge', () => {
     );
     expect(screen.queryByText('Weight PR')).toBeNull();
     expect(screen.queryByText('e1RM PR')).toBeNull();
+  });
+});
+
+describe('SetsList effort scale (issue #390)', () => {
+  const sets = [pendingSet({ localId: 'a', setNumber: 1, weight: 100, reps: 5, rir: 2 })];
+
+  it('shows the logged effort as RIR by default', () => {
+    render(
+      <SetsList programExercise={pe} sets={sets} isInputActive={false} onDeleteSet={() => {}} />,
+    );
+    expect(screen.getByText(/× 5 · RIR 2/)).toBeInTheDocument();
+  });
+
+  it('shows the same set as RPE when the lifter uses RPE', () => {
+    render(
+      <EffortScaleProvider scale="RPE">
+        <SetsList programExercise={pe} sets={sets} isInputActive={false} onDeleteSet={() => {}} />
+      </EffortScaleProvider>,
+    );
+    expect(screen.getByText(/× 5 · RPE 8/)).toBeInTheDocument();
+    expect(screen.queryByText(/RIR/)).not.toBeInTheDocument();
   });
 });

@@ -66,7 +66,7 @@ export const session = {
       'Последняя тренировка была недавно, но перед ней был перерыв {days} дней, поэтому калибровка возврата ещё активна.',
     muscleReintro:
       'По основной мышечной группе не было рабочих подходов более шести недель. На эту тренировку объём и усилие автоматически снижены.',
-    targets: 'Подходов сегодня: {sets}. Целевой RIR: {rir}.',
+    targets: 'Подходов сегодня: {sets}. Целевой {scale}: {value}.',
     startWeight: 'Консервативный стартовый вес: {weight}.',
     bodyweightStart: 'Начните с собственного веса без дополнительного отягощения.',
     chooseLoad: 'Для первого подхода выберите заведомо лёгкий калибровочный вес.',
@@ -118,6 +118,9 @@ export const session = {
     load: 'Вес ({unit})',
     reps: 'Повторы',
     repsInReserve: 'RIR (повторов в запасе)',
+    perceivedExertion: 'RPE (воспринимаемое усилие)',
+    effortLevel:
+      '{rir, plural, =0 {Повторов в запасе нет} one {# повтор в запасе} few {# повтора в запасе} many {# повторов в запасе} other {# повтора в запасе}}',
     dropSet: 'Дроп-сет',
     warmup: 'Разминка',
     note: 'Краткая заметка (необязательно)',
@@ -187,6 +190,7 @@ export const session = {
     weight: 'Вес подхода {number} в {unit}',
     reps: 'Повторения подхода {number}',
     rir: 'Повторы в запасе для подхода {number}',
+    rpe: 'Воспринимаемое усилие для подхода {number}',
     confirm: 'Подтвердить подход {number}',
     applyRecommendation: 'Применить рекомендацию к подходу {number}',
     undo: 'Отменить подход {number}',
@@ -266,7 +270,7 @@ export const session = {
     cardioPrescription:
       '{sets, plural, one {# подход} few {# подхода} many {# подходов} other {# подхода}} · отдых {seconds} с',
     strengthPrescription:
-      '{sets} подх. × {reps} повт. · RIR {rir} · отдых {seconds} с{tempo, select, none {} other { · темп {tempo}}}',
+      '{sets} подх. × {reps} повт. · {effort} · отдых {seconds} с{tempo, select, none {} other { · темп {tempo}}}',
     lastSession: 'Прошлая тренировка ({date})',
     lastDone:
       '{days, plural, =0 {Выполнялось сегодня} =1 {Выполнялось вчера} one {Выполнялось # день назад} few {Выполнялось # дня назад} many {Выполнялось # дней назад} other {Выполнялось # дня назад}}',

@@ -74,6 +74,11 @@ export const settings = {
     unit: 'Unità di peso',
     unitDescription:
       'Cambia come i pesi vengono mostrati e inseriti. I tuoi dati sono sempre salvati in kg, quindi cambiare unità non modifica mai le sessioni passate.',
+    effortScale: 'Scala dello sforzo',
+    effortScaleDescription:
+      'Cambia come lo sforzo viene mostrato e inserito. Le serie salvano sempre le ripetizioni in riserva (RPE = 10 - RIR), quindi cambiare scala non modifica mai le sessioni passate.',
+    effortRir: 'RIR (ripetizioni in riserva)',
+    effortRpe: 'RPE (sforzo percepito)',
     notSet: 'Non impostato',
     fixFields: 'Correggi i campi evidenziati.',
     saved: 'Profilo aggiornato.',

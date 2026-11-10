@@ -109,7 +109,7 @@ export const programs = {
     pairPrevious: 'Объединить с предыдущим',
     unpair: 'Разъединить суперсет',
     superset: 'Суперсет {label}',
-    prescription: '{sets} подх. × {reps} повт. · RIR {rir} · отдых {seconds} с',
+    prescription: '{sets} подх. × {reps} повт. · {effort} · отдых {seconds} с',
     tempoValue: ' · темп {tempo}',
   },
   print: {
@@ -124,7 +124,7 @@ export const programs = {
     reps: 'Повт.',
     rir: 'RIR',
     notes: 'Заметки',
-    planLine: '{sets} x {min}-{max} повт., RIR {rir}',
+    planLine: '{sets} x {min}-{max} повт., {effort}',
     rest: 'Отдых {seconds}с',
     tempo: 'Темп {tempo}',
     empty: 'В этой тренировке нет упражнений.',

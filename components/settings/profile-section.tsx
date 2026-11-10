@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Save, User } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
+import type { EffortScale, Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
+import { EFFORT_SCALES } from '@/lib/effort';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,7 @@ export interface ProfileData {
   goal: TrainingGoal | null;
   weeklyFrequency: number | null;
   unit: WeightUnit;
+  effortScale: EffortScale;
 }
 
 interface Props {
@@ -59,6 +61,7 @@ export function ProfileSection({ initial }: Props) {
     initial.goal ?? undefined,
   );
   const [unit, setUnit] = useState<WeightUnit>(initial.unit);
+  const [effortScale, setEffortScale] = useState<EffortScale>(initial.effortScale);
   const [pending, setPending] = useState(false);
 
   function rangeOk(value: string, min: number, max: number): boolean {
@@ -88,6 +91,7 @@ export function ProfileSection({ initial }: Props) {
       if (sex) body.sex = sex;
       if (goal) body.goal = goal;
       body.unit = unit;
+      body.effortScale = effortScale;
 
       const res = await fetch('/api/profile', {
         method: 'PATCH',
@@ -247,6 +251,25 @@ export function ProfileSection({ initial }: Props) {
           <p className="text-xs text-muted-foreground">
             {t('unitDescription')}
           </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="effortScale" className="text-sm">
+            {t('effortScale')}
+          </Label>
+          <Select value={effortScale} onValueChange={(v) => setEffortScale(v as EffortScale)}>
+            <SelectTrigger id="effortScale" className="max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EFFORT_SCALES.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option === 'RPE' ? t('effortRpe') : t('effortRir')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t('effortScaleDescription')}</p>
         </div>
 
         <div>
