@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Effort can be shown and entered as RPE instead of RIR: a new "Effort scale"
+  setting in the profile switches the logger (quick-pick chips with a
+  plain-language label per level, the sets table), the history, the program
+  prescriptions and the print sheet. Sets still store RIR (RPE = 10 - RIR), so
+  switching never changes past sessions, and the setting rides along in the
+  backup (format v9). Stored as one `User.effortScale` column (additive
+  migration, default RIR) (#550, closes #390).
+- Free exercise switching in a live session: the exercise strip and the
+  exercise menu stay usable while a rest runs, and each exercise keeps its own
+  rest timer, which keeps counting when you switch away. The strip marks an
+  exercise as resting (with its countdown), in progress (sets done out of
+  target) or completed. Auto-advance happens only when you are viewing the
+  exercise whose rest ends. Community contribution by @f1dot4 (#544, part 1 of
+  #542); follow-ups in #548.
+- Simplified Chinese interface (`zh-CN`), selectable as 简体中文, covering
+  training, progress, settings, the AI coach and data import. Common exercise,
+  program and workout names are displayed in Chinese, and some static UI text
+  that was not yet translated (progress photos, cardio summaries, workout
+  import, accessible control labels) now goes through the catalogs. Chinese
+  navigation, forms and set labels fit mobile screens. Community
+  contribution by @XiaoMingMingBai (#545, closes #525).
+- Podman support for the test database: `scripts/test-db.sh` uses Docker or
+  Podman, whichever is available, and works without GNU `timeout` (macOS);
+  `CONTRIBUTING.md` shows the Podman commands. Community contribution by
+  @f1dot4 (#543).
+- Dutch interface (`nl`), thanks @sapatmohit (#532, part of #527). The history calendar
+  starts weeks on Monday in Dutch, and the built-in exercise names and generated
+  program and workout names (Day N, Week N, Full Body, Upper, Lower) are shown in
+  Dutch.
+- Polish interface (`pl`), thanks @sapatmohit (#535, part of #527). The history calendar
+  starts weeks on Monday in Polish, counts use the Polish plural forms, and the
+  built-in exercise names and generated program and workout names (Day N, Week N,
+  Full Body, Upper, Lower) are shown in Polish.
+- Turkish interface (`tr`), thanks @sapatmohit (#537, part of #527). The history calendar
+  starts weeks on Monday in Turkish, and the built-in exercise names and generated
+  program and workout names (Day N, Week N, Full Body, Upper, Lower) are shown in
+  Turkish.
+- The merge gate now derives the review lenses a PR needs from its changed
+  paths and its author's trust tier, and refuses a merge whose ready review
+  records do not cover them (`automation/review/lenses.ts`, #517, roadmap M4).
+- Italian interface (`it`), thanks @sapatmohit (#518, part of #414). The history calendar
+  starts weeks on Monday in Italian, and the built-in exercise names and
+  generated program and workout names (Day N, Week N, Full Body, Upper, Lower)
+  are shown in Italian.
+- Portuguese interface (`pt`), thanks @sapatmohit (#516, part of #414). It follows Brazilian
+  Portuguese, so the history calendar keeps Sunday-first weeks, and the built-in
+  exercise names and generated program and workout names (Day N, Week N, Full
+  Body, Upper, Lower) are shown in Portuguese.
+- Spanish interface (`es`), thanks @sapatmohit (#513, part of #414). The history calendar
+  starts weeks on Monday in Spanish, and the built-in exercise names and
+  generated program and workout names (Day N, Week N, Full Body, Upper, Lower)
+  are shown in Spanish. The calendar month and day headings now capitalize only
+  their first letter, so they read "Octubre de 2026" and "Lundi 26 octobre 2026"
+  instead of capitalizing every word.
 - Week summaries in the coach payload and the MCP `get_training_context` response
   now include each exercise's `exerciseId`, so external integrations can match
   exercises by id rather than by name. Community contribution by @f1dot4 (#510).
@@ -141,6 +195,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- During a session, a rest that was skipped, paused or adjusted in the same
+  instant as another exercise's rest ran out could come back as it was before
+  the change; every change now holds. The resting badge on the exercise strip
+  ("{time} remaining") is translated in German, Spanish, French, Italian,
+  Dutch, Polish, Portuguese, Russian and Turkish, and the progress ring of a
+  started exercise takes its screen-reader label from the translated set count
+  (#548, follow-up to #544).
+- Reloading the session page during a workout, for example after switching
+  language, no longer shows logged sets twice: hydration from the server
+  replaces the synced local copy of each set instead of adding a second row.
+  Unsynced edits and the "machine was not recorded" notice are kept.
+  Community contribution by @f1dot4 (#541).
+- The eval harness's self-check for graded test declarations (skip, only,
+  fails, around hooks) reads code rather than text: comments and string
+  contents no longer count, a declaration through an options variable, an
+  alias or bracket access (`it['skip']`) does, and a keyword before a bracket
+  (`return ['aroundEach']`) is not read as a receiver. Community contributions
+  by @Retsumdk (#523, #533, #547, #549, part of #506).
+- Exercise search ignores case and accents in every language, and matches the
+  dotted and dotless i in Turkish: "incline" finds "Incline ..." names and
+  "ip atlama" finds "İp atlama" on a Turkish phone. Fallback exercise initials
+  also follow the language's casing (#538, follow-up to #537 by @sapatmohit).
+- The gym equipment editor in Settings now reads a decimal comma too, with the
+  same rules as the plate list (#526, follow-up to #522 by @sapatmohit): `2,5` is one
+  2.5 kg weight in comma-decimal languages, and its placeholders use the
+  language's decimal mark. In both editors a comma at either end of an entry
+  separates, so `25, 20, 2,5,` keeps the 2.5 kg plate. In comma-decimal languages
+  an unspaced pair such as `25,20` reads as 25.2; write `25, 20` for two plates.
+- The plate list in Settings reads a decimal comma in comma-decimal languages
+  (French, German, Spanish, Portuguese, Italian, Russian), so `2,5` is one
+  2.5 kg plate instead of plates 2 and 5, thanks @sapatmohit (#522, closes #514). Plates are
+  separated by a comma and a space, a semicolon or a space, an unspaced list such
+  as `25,20,15` still reads as separate plates, and the list is shown back with
+  the language's decimal mark. English input parses as before.
 - The self-host compose file now passes `OPENROUTER_MAX_TOKENS` and the
   codex-lb variables (`CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`,
   `CODEX_LB_MODEL`) to the app, so setting them in `.env` takes effect, and maps
@@ -270,6 +358,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The weekly coach debrief (`POST /api/coach`) is rate-limited per user, 3 a
+  minute and 20 a day, like the chat and the program generator already were:
+  each call spends the instance's AI budget and stores a row. The coach page
+  says so in the user's language when the limit is reached (#531).
+- Every JSON request body is read under a byte cap, so one huge body can no
+  longer exhaust memory before validation: 1 MiB for routes without their own
+  cap, 16 KiB for login, signup, the language switch and program activation,
+  and a 413 past it. Login now answers invalid JSON with 400 instead of 500
+  (#531).
+- The rate limiter drops expired buckets once it holds many and never holds
+  more than 50,000, and `TRUSTED_PROXY_HOPS=0` serves an instance published
+  with no proxy: forwarded headers are ignored, so a client cannot pick its own
+  login or signup budget, but one client can then block every login and signup,
+  so it is a last resort behind the recommended reverse proxy. The default stays
+  1, and only an IP literal from those headers is used as a key (#531).
+- Every response carries `X-Content-Type-Options`, `Referrer-Policy`,
+  `X-Frame-Options` with a `frame-ancestors` policy, and a `Permissions-Policy`
+  that turns off camera, microphone and geolocation. HSTS stays with the HTTPS
+  proxy; the self-hosting guide shows how to add it (#531).
+- Upgraded Next.js to 15.5.28, the MCP SDK to 1.32.2 and Prisma to 7.10.1, and
+  refreshed the vulnerable transitive packages (sharp, proxy-addr, body-parser,
+  qs, fast-uri and others) within their existing ranges. This closes the
+  published Next.js advisories up to 15.5.28, including remote code execution in
+  the image optimizer and several Server Action denial-of-service issues. The MCP
+  server also caps one tool call's arguments at 10,000 array elements and object
+  members before validating them, since the 8 MiB body cap alone does not bound
+  how much memory their validation can take (#530).
 - The login and signup rate limits read the client IP from the right end of
   `X-Forwarded-For` (the entry the nearest proxy added) instead of the leftmost
   one, which a client behind an appending proxy could choose itself to get a
