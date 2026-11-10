@@ -7,14 +7,18 @@ import { Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
+// Without a `workoutId` the button starts a freestyle session (issue #388):
+// no workout, exercises picked from the catalog while training.
 export function StartWorkoutButton({
   workoutId,
   gymId,
   disabled,
+  variant = 'default',
 }: {
-  workoutId: string;
+  workoutId?: string;
   gymId?: string | null;
   disabled?: boolean;
+  variant?: 'default' | 'outline';
 }) {
   const t = useTranslations('session');
   const router = useRouter();
@@ -41,10 +45,11 @@ export function StartWorkoutButton({
     <Button
       onClick={handleStart}
       disabled={disabled || isPending}
+      variant={variant}
       className="min-h-tap w-full text-base"
     >
       <Play className="size-5" />
-      <span className="ml-2">{isPending ? t('starting') : t('startThis')}</span>
+      <span className="ml-2">{isPending ? t('starting') : workoutId ? t('startThis') : t('startEmpty')}</span>
     </Button>
   );
 }

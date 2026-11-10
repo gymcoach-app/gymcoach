@@ -90,24 +90,24 @@ export default async function NewSessionPage() {
             </CardContent>
           </Card>
         ) : (
-          <>
-            <ReadinessCheckin />
-            <WorkoutStartList
-              activeGymId={user?.activeGymId ?? null}
-              gyms={gyms}
-              workouts={activeProgram.workouts.map((w) => {
-                const dayKey = w.dayOfWeek != null ? DAY_KEYS[w.dayOfWeek - 1] : null;
-                const day = dayKey ? common(`days.${dayKey}`) : null;
-                return {
-                  id: w.id,
-                  name: getTrainingDisplayName(w.name, locale),
-                  day,
-                  exerciseCount: w._count.exercises,
-                };
-              })}
-            />
-          </>
+          <ReadinessCheckin />
         )}
+        {/* Always rendered: with no program or no workout it still offers the
+            freestyle session (issue #388) and the gym choice that goes with it. */}
+        <WorkoutStartList
+          activeGymId={user?.activeGymId ?? null}
+          gyms={gyms}
+          workouts={(activeProgram?.workouts ?? []).map((w) => {
+            const dayKey = w.dayOfWeek != null ? DAY_KEYS[w.dayOfWeek - 1] : null;
+            const day = dayKey ? common(`days.${dayKey}`) : null;
+            return {
+              id: w.id,
+              name: getTrainingDisplayName(w.name, locale),
+              day,
+              exerciseCount: w._count.exercises,
+            };
+          })}
+        />
       </div>
     </main>
   );

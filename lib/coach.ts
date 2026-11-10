@@ -893,6 +893,15 @@ export async function buildCurrentSessionContext(
             },
           },
         },
+        // Freestyle sessions (issue #388) plan their exercises on the session.
+        exercises: {
+          orderBy: { order: 'asc' },
+          include: {
+            exercise: {
+              select: { id: true, name: true, muscleGroup: true, usesBodyweight: true },
+            },
+          },
+        },
         sets: {
           orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }],
           include: {
@@ -915,7 +924,9 @@ export async function buildCurrentSessionContext(
   // handed the same interleaved list, so the coach read a 5/3/1 workout's
   // 5x10 back-off sets as more of the top set and could not tell the two
   // targets apart.
-  const plannedExercises = session.workout?.exercises ?? [];
+  // Without a workout the plan is the session's own list (issue #388): a
+  // freestyle exercise keeps its targets and shows before its first set.
+  const plannedExercises = session.workout?.exercises ?? session.exercises;
   const rowBlocks = blockIndexByRow(plannedExercises);
   const exerciseOccurrences = occurrenceCounts(plannedExercises);
 

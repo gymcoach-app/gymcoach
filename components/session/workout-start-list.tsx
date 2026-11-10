@@ -84,6 +84,21 @@ export function WorkoutStartList({
             </Card>
           </li>
         ))}
+        {/* Freestyle (issue #388): train off-plan without a throwaway program. */}
+        <li>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{t('freestyleSession')}</CardTitle>
+              <CardDescription className="text-xs">{t('startEmptyDescription')}</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <StartWorkoutButton
+                gymId={gymId === 'none' ? null : gymId}
+                variant={workouts.length > 0 ? 'outline' : 'default'}
+              />
+            </CardContent>
+          </Card>
+        </li>
       </ul>
     </>
   );

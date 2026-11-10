@@ -39,6 +39,10 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   'app/api/workouts/[id]/duplicate/route.ts': 'tests/integration/program-copy.test.ts',
   // Also body-addressed: the target programId is checked there too.
   'app/api/sessions/[id]/save-as-workout/route.ts': 'tests/integration/program-copy.test.ts',
+  // Freestyle list (issue #388). Also body-addressed: the exerciseId is checked there too.
+  'app/api/sessions/[id]/exercises/route.ts': 'tests/integration/freestyle-session.test.ts',
+  'app/api/sessions/[id]/exercises/[rowId]/route.ts':
+    'tests/integration/freestyle-session.test.ts',
 };
 
 // Routes that take a resource id in the request body AND are not already

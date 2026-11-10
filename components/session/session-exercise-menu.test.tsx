@@ -411,3 +411,103 @@ describe('SessionExerciseMenu', () => {
     expect(pressChoices()).toEqual(['favourite: Decline Press', 'Incline Press']);
   });
 });
+
+// Freestyle session (issue #388): the list belongs to the session, so every
+// action goes to the session's routes and the copy stops naming the program.
+describe('SessionExerciseMenu in a freestyle session', () => {
+  const freestyleRow = { ...programExercise, id: 'se-bench', workoutId: '' } as ProgramExercise & {
+    exercise: Exercise;
+  };
+
+  function renderFreestyle(loggedSetCount = 0, onChanged = vi.fn()) {
+    return render(
+      <SessionExerciseMenu
+        open
+        onOpenChange={vi.fn()}
+        programExercise={freestyleRow}
+        programExercises={[freestyleRow]}
+        catalog={[bench, incline, row]}
+        loggedSetCount={loggedSetCount}
+        freestyleSessionId="session 1"
+        onChanged={onChanged}
+      />,
+    );
+  }
+
+  it('says the change stays in this session, on every view', () => {
+    renderFreestyle();
+    expect(screen.getByText(/only changes the current session/i)).toBeInTheDocument();
+    for (const [view, back] of [
+      ['Replace exercise', 'Back'],
+      ['Add exercise', 'Back'],
+      ['Remove exercise', 'Cancel'],
+    ] as const) {
+      fireEvent.click(screen.getByRole('button', { name: view }));
+      expect(screen.getByText(/only changes the current session/i)).toBeInTheDocument();
+      expect(screen.queryByText(/future sessions/i)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: back }));
+    }
+  });
+
+  it('adds through the session route, never a workout route', async () => {
+    const onChanged = vi.fn();
+    renderFreestyle(0, onChanged);
+    fireEvent.click(screen.getByRole('button', { name: 'Add exercise' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cable Row' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe('/api/sessions/session%201/exercises');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(init?.body as string)).toEqual({
+      exerciseId: 'row',
+      targetSets: 4,
+      targetRepsMin: 8,
+      targetRepsMax: 12,
+      targetRIR: 2,
+      restSec: 90,
+    });
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+  });
+
+  it('replaces through the session row route with targets only', async () => {
+    renderFreestyle();
+    fireEvent.click(screen.getByRole('button', { name: 'Replace exercise' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Incline Press' }));
+    expect(screen.getByText('Replace this exercise in the current session?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /replace with incline press/i }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe('/api/sessions/session%201/exercises/se-bench');
+    expect(init?.method).toBe('PUT');
+    // The row's own targets carry over; no program-only field is sent.
+    expect(JSON.parse(init?.body as string)).toEqual({
+      exerciseId: 'incline',
+      targetSets: 4,
+      targetRepsMin: 8,
+      targetRepsMax: 10,
+      targetRIR: 2,
+      restSec: 120,
+    });
+  });
+
+  it('removes the only exercise through the session row route', async () => {
+    const onChanged = vi.fn();
+    renderFreestyle(2, onChanged);
+    // Not blocked: a freestyle session has an empty state to return to.
+    const remove = screen.getByRole('button', { name: 'Remove exercise' });
+    expect(remove).toBeEnabled();
+    fireEvent.click(remove);
+    expect(screen.getByText(/remain in history.*remove the exercise\?/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove exercise' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe('/api/sessions/session%201/exercises/se-bench');
+    expect(init?.method).toBe('DELETE');
+    await waitFor(() =>
+      expect(onChanged).toHaveBeenCalledWith({
+        selectProgramExerciseId: undefined,
+        removedProgramExerciseId: 'se-bench',
+      }),
+    );
+  });
+});

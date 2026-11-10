@@ -8,6 +8,7 @@ import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { favoritesFirst } from '@/lib/exercise-favorites';
 import { matchesSearch } from '@/lib/search-fold';
 import { defaultIntraSetConfig } from '@/lib/intra-set-autoregulation';
+import { addedExerciseTargets } from '@/lib/freestyle';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -29,6 +30,10 @@ interface Props {
   programExercises: SessionProgramExercise[];
   catalog: SessionCatalogExercise[];
   loggedSetCount: number;
+  // Set for a freestyle session (issue #388): the list belongs to the session,
+  // so every action goes to the session's own routes and no saved program
+  // changes. Absent, the actions edit the workout the session runs.
+  freestyleSessionId?: string;
   onChanged: (options?: { selectProgramExerciseId?: string; removedProgramExerciseId?: string }) => void;
 }
 
@@ -37,15 +42,27 @@ interface Props {
 // lib/prompts/program-system-prompt.ts). The autoregulation config is left out:
 // the POST route derives it from the exercise.
 function additionPayload(exercise: Pick<Exercise, 'id' | 'category' | 'defaultRestSec'>) {
-  const cardio = exercise.category === 'CARDIO';
-  return {
-    exerciseId: exercise.id,
-    targetSets: cardio ? 1 : 4,
-    targetRepsMin: cardio ? 1 : 8,
-    targetRepsMax: cardio ? 1 : 12,
-    targetRIR: cardio ? 0 : 2,
-    restSec: exercise.defaultRestSec,
-  };
+  return addedExerciseTargets(exercise);
+}
+
+// A freestyle row stores targets only, so a swap sends just those: the old
+// row's when both exercises are of the same kind, the defaults otherwise.
+function freestyleReplacementPayload(
+  programExercise: SessionProgramExercise,
+  exercise: SessionCatalogExercise,
+) {
+  const sameKind =
+    (programExercise.exercise.category === 'CARDIO') === (exercise.category === 'CARDIO');
+  return sameKind
+    ? {
+        exerciseId: exercise.id,
+        targetSets: programExercise.targetSets,
+        targetRepsMin: programExercise.targetRepsMin,
+        targetRepsMax: programExercise.targetRepsMax,
+        targetRIR: programExercise.targetRIR,
+        restSec: programExercise.restSec,
+      }
+    : addedExerciseTargets(exercise);
 }
 
 function replacementPayload(
@@ -88,6 +105,7 @@ export function SessionExerciseMenu({
   programExercises,
   catalog,
   loggedSetCount,
+  freestyleSessionId,
   onChanged,
 }: Props) {
   const t = useTranslations('session.exerciseMenu');
@@ -105,8 +123,15 @@ export function SessionExerciseMenu({
   const previous = currentIndex > 0 ? programExercises[currentIndex - 1] : undefined;
   const next = currentIndex >= 0 ? programExercises[currentIndex + 1] : undefined;
   // Removing the only exercise would leave the runner on its empty state,
-  // which has no Finish button. Replace stays available.
-  const onlyExercise = programExercises.length <= 1;
+  // which has no Finish button. Replace stays available. A freestyle session
+  // has an empty state of its own (pick an exercise), so nothing is blocked.
+  const onlyExercise = !freestyleSessionId && programExercises.length <= 1;
+  const freestyleRowsUrl = freestyleSessionId
+    ? '/api/sessions/' + encodeURIComponent(freestyleSessionId) + '/exercises'
+    : null;
+  const rowUrl = freestyleRowsUrl
+    ? freestyleRowsUrl + '/' + encodeURIComponent(programExercise.id)
+    : '/api/program-exercises/' + encodeURIComponent(programExercise.id);
   const removeBlockedId = useId();
   const existingExerciseIds = useMemo(
     () => new Set(programExercises.map((item) => item.exerciseId)),
@@ -165,14 +190,15 @@ export function SessionExerciseMenu({
     inFlight.current = true;
     setBusy(true);
     try {
-      const response = await fetch(
-        '/api/program-exercises/' + encodeURIComponent(programExercise.id),
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(replacementPayload(programExercise, exercise)),
-        },
-      );
+      const response = await fetch(rowUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          freestyleSessionId
+            ? freestyleReplacementPayload(programExercise, exercise)
+            : replacementPayload(programExercise, exercise),
+        ),
+      });
       if (!response.ok) {
         toast.error(response.status === 409 ? t('duplicate') : t('replaceError'));
         return;
@@ -203,7 +229,8 @@ export function SessionExerciseMenu({
     setBusy(true);
     try {
       const response = await fetch(
-        '/api/workouts/' + encodeURIComponent(programExercise.workoutId) + '/program-exercises',
+        freestyleRowsUrl ??
+          '/api/workouts/' + encodeURIComponent(programExercise.workoutId) + '/program-exercises',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -232,12 +259,7 @@ export function SessionExerciseMenu({
     inFlight.current = true;
     setBusy(true);
     try {
-      const response = await fetch(
-        '/api/program-exercises/' + encodeURIComponent(programExercise.id),
-        {
-          method: 'DELETE',
-        },
-      );
+      const response = await fetch(rowUrl, { method: 'DELETE' });
       if (!response.ok) throw new Error('remove failed');
       toast.success(t('removed'));
       onOpenChange(false);
@@ -268,13 +290,15 @@ export function SessionExerciseMenu({
                 : t('remove')}
         </DialogTitle>
         <DialogDescription>
-          {view === 'actions'
-            ? t('actionsDescription')
-            : view === 'replace'
-              ? t('replaceDescription')
-              : view === 'add'
-                ? t('addDescription')
-                : t('removeDescription')}
+          {freestyleSessionId
+            ? t('freestyleScope')
+            : view === 'actions'
+              ? t('actionsDescription')
+              : view === 'replace'
+                ? t('replaceDescription')
+                : view === 'add'
+                  ? t('addDescription')
+                  : t('removeDescription')}
         </DialogDescription>
 
         {view === 'actions' && (
@@ -319,7 +343,13 @@ export function SessionExerciseMenu({
         {view === 'removeConfirm' && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {loggedSetCount > 0 ? t('removeLoggedWarning') : t('removeConfirm')}
+              {freestyleSessionId
+                ? loggedSetCount > 0
+                  ? t('freestyleRemoveLoggedWarning')
+                  : t('freestyleRemoveConfirm')
+                : loggedSetCount > 0
+                  ? t('removeLoggedWarning')
+                  : t('removeConfirm')}
             </p>
             <div className="flex justify-end gap-2">
               <Button
@@ -347,7 +377,13 @@ export function SessionExerciseMenu({
         {(view === 'replace' || view === 'add') && pendingReplacement ? (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {loggedSetCount > 0 ? t('replaceLoggedWarning') : t('replaceConfirm')}
+              {freestyleSessionId
+                ? loggedSetCount > 0
+                  ? t('freestyleReplaceLoggedWarning')
+                  : t('freestyleReplaceConfirm')
+                : loggedSetCount > 0
+                  ? t('replaceLoggedWarning')
+                  : t('replaceConfirm')}
             </p>
             <div className="flex justify-end gap-2">
               <Button

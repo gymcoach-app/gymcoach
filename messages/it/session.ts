@@ -11,6 +11,18 @@ export const session = {
   noSessionDescription: 'Aggiungi almeno una sessione con esercizi prima di iniziare.',
   configureProgram: 'Configura il programma',
   startThis: 'Inizia questa sessione',
+  startEmpty: 'Inizia una sessione vuota',
+  startEmptyDescription:
+    'Non serve un programma. Aggiungi esercizi dal tuo catalogo mentre ti alleni.',
+  freestyleSession: 'Sessione libera',
+  freestyleEmptyTitle: 'Aggiungi il primo esercizio',
+  freestyleEmptyDescription:
+    'Scegli un esercizio per iniziare a registrare. Puoi aggiungerne altri dal menu dell’esercizio.',
+  freestyleDiscard: 'Scarta questa sessione vuota',
+  freestyleDiscardError: 'Impossibile scartare la sessione.',
+  freestyleDiscardConfirm: 'Scartare questa sessione? Non contiene nulla di registrato.',
+  freestyleLoggedSets:
+    '{count, plural, one {# serie è già registrata} other {# serie sono già registrate}} in questa sessione. Terminala per vederle nel riepilogo.',
   starting: 'Avvio...',
   startError: 'Impossibile iniziare la sessione.',
   trainingGym: 'Palestra per questa sessione',
@@ -267,6 +279,14 @@ export const session = {
     replaceError: 'Impossibile sostituire l’esercizio.',
     added: 'Esercizio aggiunto.',
     addError: 'Impossibile aggiungere l’esercizio.',
+    freestyleScope:
+      'Questo modifica solo la sessione in corso. I tuoi programmi salvati restano invariati.',
+    freestyleReplaceConfirm: 'Sostituire questo esercizio nella sessione in corso?',
+    freestyleReplaceLoggedWarning:
+      'Le serie già registrate restano nello storico sotto l’esercizio originale, ma non vengono più mostrate in questa schermata. Sostituirlo?',
+    freestyleRemoveConfirm: 'Rimuovere questo esercizio dalla sessione in corso?',
+    freestyleRemoveLoggedWarning:
+      'Le serie già registrate restano nello storico, ma non vengono più mostrate in questa schermata. Rimuovere l’esercizio?',
     duplicate: 'Questo esercizio è già in questo allenamento.',
     removed: 'Esercizio rimosso.',
     removeError: 'Impossibile rimuovere l’esercizio.',

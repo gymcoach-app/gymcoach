@@ -177,6 +177,7 @@ model Exercise {
   isFavorite        Boolean                @default(false)
   createdAt         DateTime               @default(now())
   programExercises  ProgramExercise[]
+  sessionExercises  SessionExercise[]
   sets              Set[]
   goals             ExerciseGoal[]
   gymConfigs        GymExerciseConfig[]
@@ -301,8 +302,37 @@ model Session {
   gymId      String?
   gym        Gym?      @relation(fields: [gymId], references: [id], onDelete: SetNull)
   sets       Set[]
+  // Freestyle sessions (issue #388): true for a session started without a
+  // workout. A NULL workoutId alone does not say that: an imported session
+  // and a session whose workout or program was deleted have none either.
+  freestyle  Boolean   @default(false)
+  // A freestyle session keeps its own exercise list here, so adding or
+  // removing an exercise never touches a saved program. Always empty for a
+  // session run from a workout.
+  exercises  SessionExercise[]
 
   @@index([userId, startedAt])
+}
+
+// One exercise of a freestyle session (issue #388, additive): the row the live
+// runner shows in place of a ProgramExercise when the session has no workout.
+// An exercise appears at most once per session, like in a workout (issue #379).
+model SessionExercise {
+  id            String   @id @default(cuid())
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exerciseId    String
+  exercise      Exercise @relation(fields: [exerciseId], references: [id])
+  order         Int
+  targetSets    Int
+  targetRepsMin Int
+  targetRepsMax Int
+  targetRIR     Int
+  restSec       Int
+
+  @@unique([sessionId, exerciseId])
+  @@index([sessionId, order])
+  @@index([exerciseId])
 }
 
 model Gym {
