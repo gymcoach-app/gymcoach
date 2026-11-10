@@ -27,8 +27,11 @@
 #                                   0 only as a last resort with no proxy: one
 #                                   client can then block every login and signup
 #   Behind a proxy, publish the port on loopback only: GYMCOACH_PORT=127.0.0.1:3000
-#   LLM_PROVIDER=anthropic | openrouter | demo
+#   LLM_PROVIDER=anthropic | openrouter | openai-compatible | demo
 #   ANTHROPIC_API_KEY=...  or  OPENROUTER_API_KEY=... + OPENROUTER_MODEL=...
+#   A local model (Ollama, LM Studio, vLLM): LLM_PROVIDER=openai-compatible,
+#   OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:11434/v1 and
+#   OPENAI_COMPATIBLE_MODEL=<model name>
 # Without an AI key GymCoach is a plain tracker; the coach and chat screens
 # say so.
 #
@@ -68,7 +71,16 @@ services:
       OPENROUTER_APP_NAME: GymCoach
       OPENROUTER_APP_URL: ${OPENROUTER_APP_URL:-https://github.com/gymcoach-app/gymcoach}
       OPENROUTER_MAX_TOKENS: ${OPENROUTER_MAX_TOKENS:-}
-      # codex-lb: an OpenAI-compatible endpoint. From inside this container,
+      # openai-compatible: any Chat Completions server (Ollama, LM Studio,
+      # vLLM, llama.cpp server). A server on the host is reached at
+      # host.docker.internal (see extra_hosts below), not localhost. The key
+      # is optional: most local servers need none. An http:// URL to another
+      # machine sends training data and the key in clear text; use https there.
+      OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-}
+      OPENAI_COMPATIBLE_MODEL: ${OPENAI_COMPATIBLE_MODEL:-}
+      OPENAI_COMPATIBLE_API_KEY: ${OPENAI_COMPATIBLE_API_KEY:-}
+      OPENAI_COMPATIBLE_MAX_TOKENS: ${OPENAI_COMPATIBLE_MAX_TOKENS:-}
+      # codex-lb: an OpenAI Responses-compatible endpoint. From inside this container,
       # a server on the host is reached at host.docker.internal (see
       # extra_hosts below), not localhost. Empty values use the code defaults.
       CODEX_LB_BASE_URL: ${CODEX_LB_BASE_URL:-}
@@ -80,7 +92,7 @@ services:
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-}
       NODE_ENV: production
       UPLOADS_DIR: /app/uploads
-    # Lets the app reach a model server on the host (codex-lb) on Linux too.
+    # Lets the app reach a model server on the host (Ollama, codex-lb) on Linux too.
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:

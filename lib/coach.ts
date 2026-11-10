@@ -1028,8 +1028,8 @@ export interface CoachCompletion {
   promptText: string; // JSON payload sent, for auditing
 }
 
-// Builds the prompt and delegates to the active LLM provider (Anthropic SDK or
-// OpenRouter, selected via LLM_PROVIDER). Provider errors surface as LlmError,
+// Builds the prompt and delegates to the active LLM provider (selected via
+// LLM_PROVIDER). Provider errors surface as LlmError,
 // which the API route maps to an HTTP status.
 export async function callCoach(payload: CoachPayload): Promise<CoachCompletion> {
   const provider = getLlmProvider();
