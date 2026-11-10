@@ -50,6 +50,22 @@ describe('CoachAdjustments effort target', () => {
     expect(await appliedRir(fetchMock)).toBe(3);
   });
 
+  it('does not send a fractional RIR the apply route would refuse', async () => {
+    const fetchMock = renderAdjustments('RIR');
+    const field = screen.getByLabelText('RIR') as HTMLInputElement;
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '2.5' } });
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    // Nothing fractional leaves the field: the suggestion keeps its whole RIR.
+    expect(await appliedRir(fetchMock)).toBe(3);
+  });
+
+  it('clears the suggested effort when the field is emptied', async () => {
+    const fetchMock = renderAdjustments('RPE');
+    fireEvent.change(screen.getByLabelText('RPE'), { target: { value: '' } });
+    expect(await appliedRir(fetchMock)).toBeNull();
+  });
+
   it('keeps the RIR field and value as they were on the RIR scale', async () => {
     const fetchMock = renderAdjustments('RIR');
     const field = screen.getByLabelText('RIR') as HTMLInputElement;

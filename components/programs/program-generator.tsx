@@ -270,7 +270,11 @@ export function ProgramGenerator() {
                           <EffortInput
                             id={`effort-${wi}-${ei}`}
                             rir={ex.targetRIR}
-                            onRirChange={(rir) => patchExercise(wi, ei, { targetRIR: rir ?? 0 })}
+                            // An empty or invalid entry writes nothing: the draft
+                            // keeps its target and the field shows it again on blur.
+                            onRirChange={(rir) => {
+                              if (rir != null) patchExercise(wi, ei, { targetRIR: rir });
+                            }}
                             className="h-8 text-sm"
                           />
                         </div>

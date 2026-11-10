@@ -56,24 +56,82 @@ describe('EffortInput', () => {
     expect(field().value).toBe('8');
   });
 
-  it('does not rewrite the text while an RPE of 10 is being typed', () => {
+  it('stores nothing for the "1" typed on the way to RPE 10', () => {
     const onStore = vi.fn();
     render(<Harness scale="RPE" initial={2} onStore={onStore} />);
-    // "1" is below the scale and clamps to the easiest RIR; the field must
-    // keep showing what was typed so the following "0" lands on "10".
+    fireEvent.focus(field());
     fireEvent.change(field(), { target: { value: '1' } });
-    expect(onStore).toHaveBeenLastCalledWith(5);
+    // Below the scale: not clamped to a RIR, not stored, shown as invalid.
+    expect(onStore).not.toHaveBeenCalled();
     expect(field().value).toBe('1');
+    expect(field()).toHaveAttribute('aria-invalid', 'true');
     fireEvent.change(field(), { target: { value: '10' } });
     expect(onStore).toHaveBeenLastCalledWith(0);
     expect(field().value).toBe('10');
+    expect(field()).not.toHaveAttribute('aria-invalid');
   });
 
-  it('settles on the stored value when the field loses focus', () => {
-    render(<Harness scale="RPE" initial={2} onStore={vi.fn()} />);
-    fireEvent.change(field(), { target: { value: '1' } });
+  it.each([
+    ['RPE', '4'],
+    ['RPE', '11'],
+    ['RPE', '8.5'],
+    ['RIR', '6'],
+    ['RIR', '-1'],
+    ['RIR', '2.5'],
+  ] as const)('treats %s %s as invalid instead of clamping or rounding it', (scale, typed) => {
+    const onStore = vi.fn();
+    const onInvalid = vi.fn();
+    render(
+      <EffortScaleProvider scale={scale}>
+        <EffortInput aria-label="effort" rir={2} onRirChange={onStore} onInvalidEntry={onInvalid} />
+      </EffortScaleProvider>,
+    );
+    fireEvent.focus(field());
+    fireEvent.change(field(), { target: { value: typed } });
+    expect(onStore).not.toHaveBeenCalled();
+    expect(onInvalid).toHaveBeenCalledTimes(1);
+    expect(field().value).toBe(typed);
+    expect(field()).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('shows the stored value again when an invalid entry loses the focus', () => {
+    const onStore = vi.fn();
+    render(<Harness scale="RPE" initial={2} onStore={onStore} />);
+    fireEvent.focus(field());
+    fireEvent.change(field(), { target: { value: '4' } });
     fireEvent.blur(field());
-    expect(field().value).toBe('5');
+    expect(field().value).toBe('8');
+    expect(field()).not.toHaveAttribute('aria-invalid');
+    expect(onStore).not.toHaveBeenCalled();
+  });
+
+  it('is not rewritten by the parent while it has the focus', () => {
+    // A parent that answers an emptied field with a value of its own (the
+    // regression behind "108"): the text stays what the user typed.
+    function Stubborn({ onStore }: { onStore: (rir: number) => void }) {
+      const [rir, setRir] = useState(2);
+      return (
+        <EffortScaleProvider scale="RPE">
+          <EffortInput
+            aria-label="effort"
+            rir={rir}
+            onRirChange={(next) => {
+              const stored = next ?? 0;
+              onStore(stored);
+              setRir(stored);
+            }}
+          />
+        </EffortScaleProvider>
+      );
+    }
+    const onStore = vi.fn();
+    render(<Stubborn onStore={onStore} />);
+    fireEvent.focus(field());
+    fireEvent.change(field(), { target: { value: '' } });
+    expect(field().value).toBe('');
+    fireEvent.change(field(), { target: { value: '8' } });
+    expect(field().value).toBe('8');
+    expect(onStore).toHaveBeenLastCalledWith(2);
   });
 
   it('reports an empty field as no value', () => {
@@ -88,5 +146,14 @@ describe('EffortInput', () => {
     render(<Harness scale="RPE" initial={3} onStore={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'reset' }));
     expect(field().value).toBe('9');
+  });
+
+  it('keeps an invalid entry visible on blur when there is no stored value', () => {
+    render(<Harness scale="RIR" initial={null} onStore={vi.fn()} />);
+    fireEvent.focus(field());
+    fireEvent.change(field(), { target: { value: '9' } });
+    fireEvent.blur(field());
+    expect(field().value).toBe('9');
+    expect(field()).toHaveAttribute('aria-invalid', 'true');
   });
 });

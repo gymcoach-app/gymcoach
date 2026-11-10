@@ -83,11 +83,36 @@ describe('ProgramExerciseFormDialog effort target', () => {
     expect(await savedRir(fetchMock)).toBe(1);
   });
 
-  it('still refuses a RIR above the stored range on the RIR scale', async () => {
-    const fetchMock = renderDialog('RIR');
-    fireEvent.change(screen.getByLabelText('RIR'), { target: { value: '7' } });
+  it.each([
+    ['RIR', '7', 'Enter a whole number from 0 to 5.'],
+    ['RPE', '4', 'Enter a whole number from 5 to 10.'],
+    ['RPE', '11', 'Enter a whole number from 5 to 10.'],
+    // An empty target used to be coerced to RIR 0, a maximal effort.
+    ['RIR', '', 'Enter a whole number from 0 to 5.'],
+    ['RPE', '', 'Enter a whole number from 5 to 10.'],
+  ] as const)('refuses %s "%s" with a message and saves nothing', async (scale, typed, message) => {
+    const fetchMock = renderDialog(scale);
+    const field = screen.getByLabelText(scale);
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: typed } });
+    // Submitted while the field still has the focus (Enter before blur).
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('saves again once the refused target is corrected', async () => {
+    const fetchMock = renderDialog('RPE');
+    const field = screen.getByLabelText('RPE');
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Enter a whole number from 5 to 10.');
+    fireEvent.change(field, { target: { value: '8' } });
+    await waitFor(() =>
+      expect(screen.queryByText('Enter a whole number from 5 to 10.')).not.toBeInTheDocument(),
+    );
+    expect(await savedRir(fetchMock)).toBe(2);
   });
 });

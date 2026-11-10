@@ -76,6 +76,7 @@ export const programs = {
     copySuffix: '（副本）',
   },
   exercise: {
+    effortRange: '请输入 {min} 到 {max} 之间的整数。',
     actions: '动作操作',
     edit: '编辑计划中的动作',
     add: '添加动作',

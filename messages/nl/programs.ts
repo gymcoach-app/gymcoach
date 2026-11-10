@@ -79,6 +79,7 @@ export const programs = {
     copySuffix: '(kopie)',
   },
   exercise: {
+    effortRange: 'Voer een geheel getal van {min} tot {max} in.',
     actions: 'Oefeningacties',
     edit: 'Geplande oefening bewerken',
     add: 'Oefening toevoegen',

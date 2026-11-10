@@ -79,6 +79,7 @@ export const programs = {
     copySuffix: '(kopya)',
   },
   exercise: {
+    effortRange: '{min} ile {max} arasında bir tam sayı gir.',
     actions: 'Egzersiz işlemleri',
     edit: 'Programlanmış egzersizi düzenle',
     add: 'Egzersiz ekle',

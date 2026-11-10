@@ -69,6 +69,37 @@ describe('ProgramGenerator effort target', () => {
     expect(await savedRir(fetchMock)).toBe(2);
   });
 
+  it('lets an RPE user clear the field and type a new value', async () => {
+    const fetchMock = await renderDraft('RPE');
+    const field = screen.getByLabelText('RPE') as HTMLInputElement;
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    // The emptied field is not rewritten (it used to jump to "10").
+    expect(field.value).toBe('');
+    fireEvent.change(field, { target: { value: '8' } });
+    expect(field.value).toBe('8');
+    expect(await savedRir(fetchMock)).toBe(2);
+  });
+
+  it('keeps the draft target when the field is left empty', async () => {
+    const fetchMock = await renderDraft('RPE');
+    const field = screen.getByLabelText('RPE') as HTMLInputElement;
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.blur(field);
+    expect(field.value).toBe('7');
+    expect(await savedRir(fetchMock)).toBe(3);
+  });
+
+  it('does not store an RPE outside the scale', async () => {
+    const fetchMock = await renderDraft('RPE');
+    const field = screen.getByLabelText('RPE') as HTMLInputElement;
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '11' } });
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(await savedRir(fetchMock)).toBe(3);
+  });
+
   it('saves an untouched draft with its stored RIR on the RPE scale', async () => {
     const fetchMock = await renderDraft('RPE');
     expect(await savedRir(fetchMock)).toBe(3);

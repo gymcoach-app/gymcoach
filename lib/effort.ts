@@ -26,6 +26,15 @@ export function effortToRir(scale: EffortScale, value: number): number {
   return scale === 'RPE' ? rpeToRir(value) : value;
 }
 
+// The whole numbers a target can take on the given scale. The stored RIR runs
+// from 0 to 5 (the schema bound), so RPE runs from 5 to 10.
+const MAX_TARGET_RIR = 5;
+export function effortRange(scale: EffortScale): { min: number; max: number } {
+  return scale === 'RPE'
+    ? { min: rirToRpe(MAX_TARGET_RIR), max: rirToRpe(0) }
+    : { min: 0, max: MAX_TARGET_RIR };
+}
+
 // A bare cell value: the number on the user's scale, or a dash when the set
 // has no effort recorded.
 export function formatEffortValue(scale: EffortScale, rir: number | null | undefined): string {
