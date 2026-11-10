@@ -1,6 +1,6 @@
 import {
   completeChat,
-  resolveMaxTokensWithFloor,
+  DEFAULT_CHAT_MAX_TOKENS,
   streamChat,
   type ChatCompletionsEndpoint,
 } from './chat-completions';
@@ -54,8 +54,35 @@ export function validateOpenAiCompatibleBaseUrl(value: string | undefined): Base
   return { ok: true, url: `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}` };
 }
 
+// Below this a reply cannot hold a debrief or a program, so a smaller value is
+// treated as a typo and ignored.
+export const OPENAI_COMPATIBLE_MIN_MAX_TOKENS = 256;
+
+// OPENAI_COMPATIBLE_MAX_TOKENS sets the output budget of every call exactly,
+// up or down. Unlike OpenRouter's floor it can lower the budget: a local
+// server has a fixed context window, vLLM answers 400 when the prompt plus
+// max_tokens exceed it, and others truncate the prompt. A reasoning model
+// needs it raised instead. Unset or invalid: the caller's own budget.
 export function resolveOpenAiCompatibleMaxTokens(requested: number | undefined): number {
-  return resolveMaxTokensWithFloor(requested, process.env.OPENAI_COMPATIBLE_MAX_TOKENS);
+  const raw = process.env.OPENAI_COMPATIBLE_MAX_TOKENS?.trim() ?? '';
+  const exact = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+  if (Number.isSafeInteger(exact) && exact >= OPENAI_COMPATIBLE_MIN_MAX_TOKENS) return exact;
+  return requested ?? DEFAULT_CHAT_MAX_TOKENS;
+}
+
+// A refused setting is logged once per reason per process, so the operator
+// finds the cause in the server log without it repeating on every page
+// render. The reason never holds the URL value or the key.
+const loggedReasons = new Set<string>();
+function logOnce(reason: string): void {
+  if (loggedReasons.has(reason)) return;
+  loggedReasons.add(reason);
+  console.error(`[llm] openai-compatible provider is not usable: ${reason}`);
+}
+
+// Test hook: forget what was logged.
+export function resetOpenAiCompatibleLogForTests(): void {
+  loggedReasons.clear();
 }
 
 export class OpenAiCompatibleProvider implements LlmProvider {
@@ -76,6 +103,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     this.apiKey = process.env.OPENAI_COMPATIBLE_API_KEY?.trim() || undefined;
     this.apiKeyEnvVar =
       this.baseUrl.ok && !this.model ? 'OPENAI_COMPATIBLE_MODEL' : 'OPENAI_COMPATIBLE_BASE_URL';
+    if (!this.baseUrl.ok) logOnce(this.baseUrl.reason);
+    else if (!this.model) logOnce('OPENAI_COMPATIBLE_MODEL is not configured.');
   }
 
   isConfigured(): boolean {
@@ -86,7 +115,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     if (!this.baseUrl.ok) throw new LlmError(503, this.baseUrl.reason);
     if (!this.model) throw new LlmError(503, 'OPENAI_COMPATIBLE_MODEL is not configured.');
     return {
-      label: 'The model server',
+      label: 'the model server',
       url: `${this.baseUrl.url}/chat/completions`,
       model: this.model,
       // No Authorization header without a key, and no attribution headers.
@@ -94,6 +123,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       resolveMaxTokens: resolveOpenAiCompatibleMaxTokens,
       maxTokensEnvVar: 'OPENAI_COMPATIBLE_MAX_TOKENS',
       secrets: [this.apiKey],
+      refuseRedirects: true,
+      redirectHint: 'Set OPENAI_COMPATIBLE_BASE_URL to the final address of the server.',
     };
   }
 

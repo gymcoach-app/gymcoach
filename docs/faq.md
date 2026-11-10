@@ -150,7 +150,10 @@ container, `localhost` is the container itself. A server that exposes the OpenAI
 Responses API instead works with `LLM_PROVIDER=codex-lb` (`CODEX_LB_BASE_URL`).
 The chat works with almost any model; suggested program changes, program
 generation and the free-text set parser need a capable one, because they ask for
-strict JSON that is validated before it is applied. The current prebuilt compose
+strict JSON that is validated before it is applied. Raise the server's context
+length first (for Ollama, `OLLAMA_CONTEXT_LENGTH`, for example 16384): the
+default is often too small for the coach's prompt, which is then cut without an
+error. The current prebuilt compose
 file already maps `host.docker.internal` and forwards these variables; an older
 copy may need both added, see
 [a local model](self-hosting.md#run-the-coach-on-a-local-model). The `demo`

@@ -16,7 +16,9 @@ GymCoach is self-hosted. Operators are responsible for:
   `OPENROUTER_API_KEY` or `OPENAI_COMPATIBLE_API_KEY`) secret. Note that the AI
   coach sends the user's training data to the configured provider, which with
   `LLM_PROVIDER=openai-compatible` is whatever host
-  `OPENAI_COMPATIBLE_BASE_URL` names.
+  `OPENAI_COMPATIBLE_BASE_URL` names. An `http://` base URL to another machine
+  sends that data and the optional key in clear text: use `https`, or `http`
+  only to the same host or a trusted private network.
 - Running the app behind HTTPS (a reverse proxy such as Nginx, Caddy or
   Traefik) in production.
 - Keeping dependencies up to date (`npm audit`).

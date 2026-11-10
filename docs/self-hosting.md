@@ -459,22 +459,59 @@ OPENAI_COMPATIBLE_MODEL=llama3.1
 ```
 
 - `OPENAI_COMPATIBLE_BASE_URL` includes the `/v1` path. It must be an `http` or
-  `https` URL with no `user:password@` part and no query string; anything else
-  is refused with a message on the coach screens, before any request is sent.
-  LM Studio listens on `http://host.docker.internal:1234/v1` by default, vLLM
-  and the llama.cpp server on port `8000` and `8080`.
+  `https` URL with no `user:password@` part and no query string. Anything else
+  is refused before any request is sent: the coach screens then ask you to set
+  the variable, and the exact reason is written once to the app's log
+  (`docker compose logs app`, a line starting with `[llm]`), without the URL
+  or the key. LM Studio listens on `http://host.docker.internal:1234/v1` by
+  default, vLLM and the llama.cpp server on port `8000` and `8080`.
 - `OPENAI_COMPATIBLE_MODEL` is the exact model name on that server (for Ollama,
   a name from `ollama list`). There is no default.
 - `OPENAI_COMPATIBLE_API_KEY` is optional. Most local servers need none, and
   without it no `Authorization` header is sent. Set it for a gateway that
   wants a Bearer token.
-- `OPENAI_COMPATIBLE_MAX_TOKENS` is an optional floor on each call's output
-  budget, for reasoning models whose thinking counts against it.
+- `OPENAI_COMPATIBLE_MAX_TOKENS` is optional. When set (256 or more), every
+  call asks for exactly that many output tokens, whatever the screen would
+  have asked for (the coach and program generation ask for 8000, the chat
+  for 4096). Lower it when the model's context window is small, raise it for
+  a reasoning model whose thinking counts against the budget.
+- A redirect from the server is refused, not followed, so the prompt is never
+  re-sent to an address you did not name. Point the base URL at the final
+  address.
 
-Ollama only accepts connections from the machine itself by default. For the
-container to reach it, start it with `OLLAMA_HOST=0.0.0.0` (and keep port 11434
-closed to the outside), or run Ollama as another Compose service and use its
-service name in the base URL.
+**Give the model enough context.** This is the setting most likely to make a
+local coach look broken. The coach's instructions alone are a few thousand
+tokens, and the training data comes on top, so the server's context window
+must hold the whole prompt plus the output budget above. Ollama's default
+context depends on its version and on your hardware and can be as low as a few
+thousand tokens, and a prompt that does not fit is cut without an error: the
+coach then answers from a truncated prompt. Raise it on the Ollama server, for
+example with `OLLAMA_CONTEXT_LENGTH=16384` in the environment of `ollama
+serve` (or a Modelfile with `PARAMETER num_ctx 16384`); GymCoach does not
+send a context size with its requests. The variable name and the defaults are
+Ollama's and may change, so check the
+[Ollama FAQ](https://docs.ollama.com/faq) for your version. The same rule
+holds for LM Studio (the context length chosen when the model is loaded) and
+for vLLM (`--max-model-len`), where a request whose prompt plus
+`OPENAI_COMPATIBLE_MAX_TOKENS` exceeds the limit is answered with an error
+instead: lower the variable or raise the limit.
+
+**Reaching Ollama from the container.** Ollama only accepts connections from
+the machine itself by default. With Docker Desktop (macOS, Windows)
+`host.docker.internal` usually reaches it as it is. On Linux the container
+arrives on the Docker bridge, so Ollama has to listen there. Ollama has no
+authentication: `OLLAMA_HOST=0.0.0.0` opens it to every network the host is
+on, and anyone who can reach port 11434 can use your models. Prefer binding
+it to the Docker bridge address only (often `OLLAMA_HOST=172.17.0.1`, check
+with `ip addr show docker0`), or keep `0.0.0.0` and close port 11434 in the
+firewall to everything but the Docker network. Running Ollama as another
+Compose service, with its service name in the base URL and no published port,
+avoids the question.
+
+**Use `https`, or stay on the machine.** An `http://` base URL to another
+machine sends your training and health data, and the key if you set one, in
+clear text. Use `http` only for a server on the same host or on a private
+network you trust, and `https` for anything else.
 
 What to expect from a small model: the chat works with almost anything. The
 weekly debrief's suggested program changes, program generation and the

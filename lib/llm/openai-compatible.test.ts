@@ -1,11 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { extractAdjustments } from '@/lib/coach-adjustments';
-import { parseGeneratedProgram } from '@/lib/schemas/program-generation';
+import { generateProgram } from '@/lib/program-generation';
 import { aiParseSet } from '@/lib/set-parse';
 import { getLlmProvider, resolveProviderId } from './index';
-import { OpenAiCompatibleProvider, validateOpenAiCompatibleBaseUrl } from './openai-compatible';
+import {
+  OpenAiCompatibleProvider,
+  resetOpenAiCompatibleLogForTests,
+  validateOpenAiCompatibleBaseUrl,
+} from './openai-compatible';
 import { OpenRouterProvider } from './openrouter';
 import { LlmError } from './types';
+
+// generateProgram reads the profile and the exercise list before it calls the
+// model; nothing here reaches a database.
+vi.mock('@/lib/db', () => ({
+  db: {
+    user: { findUnique: vi.fn(async () => null) },
+    exercise: { findMany: vi.fn(async () => []) },
+  },
+}));
 
 const ENV_KEYS = [
   'LLM_PROVIDER',
@@ -25,6 +37,9 @@ const savedEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
   for (const k of ENV_KEYS) delete process.env[k];
+  resetOpenAiCompatibleLogForTests();
+  // The provider logs a refused setting; keep the test output quiet.
+  vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -33,6 +48,7 @@ afterEach(() => {
     else process.env[k] = savedEnv[k];
   }
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 type FakeResponse = Partial<Response> & { json?: () => unknown; text?: () => unknown };
@@ -246,23 +262,111 @@ describe('OpenAiCompatibleProvider', () => {
     expect('stream' in body).toBe(false);
   });
 
-  it('OPENAI_COMPATIBLE_MAX_TOKENS raises the per-call budget but never lowers it', async () => {
-    configure({ OPENAI_COMPATIBLE_MAX_TOKENS: '100000' });
+  it('OPENAI_COMPATIBLE_MAX_TOKENS sets the budget of every call exactly, up or down', async () => {
+    configure({ OPENAI_COMPATIBLE_MAX_TOKENS: '2048' });
     // The OpenRouter floor is a different setting and must not apply here.
     process.env.OPENROUTER_MAX_TOKENS = '999999';
     const fetchFn = mockFetch(() => reply('ok'));
     const p = new OpenAiCompatibleProvider();
-    await p.complete({ ...ASK, maxTokens: 200 });
-    await p.complete(ASK);
-    await p.complete({ ...ASK, maxTokens: 250000 });
-    const budgets = fetchFn.mock.calls.map(
-      ([, init]) => JSON.parse(init.body as string).max_tokens,
-    );
-    expect(budgets).toEqual([100000, 100000, 250000]);
+    const budgets = async () => {
+      fetchFn.mockClear();
+      await p.complete({ ...ASK, maxTokens: 200 });
+      await p.complete(ASK);
+      await p.complete({ ...ASK, maxTokens: 8000 });
+      return fetchFn.mock.calls.map(([, init]) => JSON.parse(init.body as string).max_tokens);
+    };
+    // Lowered for a small context window, raised for the tiny set-parse call.
+    expect(await budgets()).toEqual([2048, 2048, 2048]);
 
-    process.env.OPENAI_COMPATIBLE_MAX_TOKENS = 'nope';
-    await p.complete({ ...ASK, maxTokens: 200 });
-    expect(JSON.parse(fetchFn.mock.calls[3]![1].body as string).max_tokens).toBe(200);
+    process.env.OPENAI_COMPATIBLE_MAX_TOKENS = '100000';
+    expect(await budgets()).toEqual([100000, 100000, 100000]);
+
+    process.env.OPENAI_COMPATIBLE_MAX_TOKENS = ' 256 ';
+    expect(await budgets()).toEqual([256, 256, 256]);
+  });
+
+  it.each(['', 'nope', '255', '0', '-4096', '4096.5', '1e5', '4096 tokens'])(
+    "ignores OPENAI_COMPATIBLE_MAX_TOKENS=%j and keeps each call's own budget",
+    async (value) => {
+      configure({ OPENAI_COMPATIBLE_MAX_TOKENS: value });
+      const fetchFn = mockFetch(() => reply('ok'));
+      const p = new OpenAiCompatibleProvider();
+      await p.complete({ ...ASK, maxTokens: 200 });
+      await p.complete(ASK);
+      const budgets = fetchFn.mock.calls.map(
+        ([, init]) => JSON.parse(init.body as string).max_tokens,
+      );
+      expect(budgets).toEqual([200, 8000]);
+    },
+  );
+
+  it('refuses a redirect instead of re-sending the prompt and the key elsewhere', async () => {
+    configure({ OPENAI_COMPATIBLE_API_KEY: 'sk-local-secret' });
+    const fetchFn = mockFetch(() => ({
+      ok: false,
+      status: 307,
+      headers: new Headers({ location: 'https://elsewhere.example.test/v1/chat/completions' }),
+      text: async () => '',
+    }));
+    const p = new OpenAiCompatibleProvider();
+
+    const failure = await p.complete(ASK).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(LlmError);
+    expect((failure as LlmError).status).toBe(502);
+    expect((failure as LlmError).message).toBe(
+      'The model server answered with a redirect, which is not followed. ' +
+        'Set OPENAI_COMPATIBLE_BASE_URL to the final address of the server.',
+    );
+    expect((failure as LlmError).message).not.toContain('elsewhere.example.test');
+    // One request only, and fetch was told not to follow.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0]![1].redirect).toBe('manual');
+
+    const streamFailure = await (async () => {
+      for await (const _ of p.stream(ASK)) void _;
+    })().catch((err: unknown) => err);
+    expect((streamFailure as LlmError).message).toContain('redirect');
+    expect(fetchFn.mock.calls[1]![1].redirect).toBe('manual');
+
+    // The opaque form a browser-like fetch gives for a manual redirect.
+    mockFetch(() => ({ ok: false, status: 0, type: 'opaqueredirect', text: async () => '' }));
+    await expect(p.complete(ASK)).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringContaining('redirect'),
+    });
+  });
+
+  it('logs why it is not usable once, without the URL value or the key', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    configure({
+      OPENAI_COMPATIBLE_BASE_URL: 'https://user:hunter2@llm.example.test/v1',
+      OPENAI_COMPATIBLE_API_KEY: 'sk-local-secret',
+    });
+    new OpenAiCompatibleProvider();
+    new OpenAiCompatibleProvider();
+    new OpenAiCompatibleProvider();
+
+    expect(log).toHaveBeenCalledTimes(1);
+    const line = log.mock.calls[0]!.join(' ');
+    expect(line).toContain('OPENAI_COMPATIBLE_BASE_URL must not contain credentials');
+    expect(line).not.toContain('hunter2');
+    expect(line).not.toContain('llm.example.test');
+    expect(line).not.toContain('sk-local-secret');
+
+    // A different reason is logged too, once.
+    process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://127.0.0.1:11434/v1';
+    delete process.env.OPENAI_COMPATIBLE_MODEL;
+    new OpenAiCompatibleProvider();
+    new OpenAiCompatibleProvider();
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(log.mock.calls[1]!.join(' ')).toContain('OPENAI_COMPATIBLE_MODEL is not configured.');
+  });
+
+  it('logs nothing when it is configured', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    configure({ OPENAI_COMPATIBLE_API_KEY: 'sk-local-secret' });
+    new OpenAiCompatibleProvider();
+    expect(log).not.toHaveBeenCalled();
   });
 
   it('maps a non-ok response to its status and masks an echoed key', async () => {
@@ -294,7 +398,7 @@ describe('OpenAiCompatibleProvider', () => {
     const failure = await new OpenAiCompatibleProvider().complete(ASK).catch((err: unknown) => err);
     expect(failure).toBeInstanceOf(LlmError);
     expect((failure as LlmError).status).toBe(502);
-    expect((failure as LlmError).message).toContain('Network failure to The model server');
+    expect((failure as LlmError).message).toContain('Network failure to the model server: ');
     expect((failure as LlmError).message).not.toContain('sk-local-secret');
     expect((failure as LlmError).message).not.toContain('llm.internal.example.test');
   });
@@ -306,6 +410,24 @@ describe('OpenAiCompatibleProvider', () => {
       status: 502,
       message: 'The model server: model not found',
     });
+  });
+
+  it.each([
+    ['no message', { error: {} }, 'The model server: unknown error'],
+    ['a null message', { error: { message: null } }, 'The model server: unknown error'],
+    [
+      'an object message',
+      { error: { message: { detail: 'bad model', key: 'sk-local-secret' } } },
+      'The model server: {"detail":"bad model","key":"[redacted]"}',
+    ],
+    ['a number message', { error: { message: 42 } }, 'The model server: 42'],
+  ])('throws 502, not a TypeError, when the error field has %s', async (_name, body, expected) => {
+    configure({ OPENAI_COMPATIBLE_API_KEY: 'sk-local-secret' });
+    mockFetch(() => ({ ok: true, json: async () => body }));
+    const failure = await new OpenAiCompatibleProvider().complete(ASK).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(LlmError);
+    expect((failure as LlmError).status).toBe(502);
+    expect((failure as LlmError).message).toBe(expected);
   });
 
   it('throws 502 when a 200 response is not JSON (a proxy page, a wrong path)', async () => {
@@ -418,6 +540,39 @@ describe('OpenRouterProvider on the shared Chat Completions client', () => {
     expect(JSON.parse(init.body as string).max_tokens).toBe(300);
   });
 
+  it('follows redirects as before: no redirect option is set', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    const fetchFn = mockFetch(() => reply('ok'));
+    await new OpenRouterProvider().complete(ASK);
+    expect('redirect' in fetchFn.mock.calls[0]![1]).toBe(false);
+  });
+
+  it('keeps OPENROUTER_MAX_TOKENS a floor: it raises a budget, never lowers it', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.OPENROUTER_MAX_TOKENS = '2048';
+    const fetchFn = mockFetch(() => reply('ok'));
+    const p = new OpenRouterProvider();
+    await p.complete({ ...ASK, maxTokens: 200 });
+    await p.complete(ASK);
+    const budgets = fetchFn.mock.calls.map(
+      ([, init]) => JSON.parse(init.body as string).max_tokens,
+    );
+    expect(budgets).toEqual([2048, 8000]);
+  });
+
+  it.each([
+    ['no message', { error: {} }],
+    ['a null message', { error: { message: null } }],
+    ['an object message', { error: { message: { detail: 'bad model' } } }],
+  ])('throws a 502 LlmError when the error field has %s', async (_name, body) => {
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    mockFetch(() => ({ ok: true, json: async () => body }));
+    const failure = await new OpenRouterProvider().complete(ASK).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(LlmError);
+    expect((failure as LlmError).status).toBe(502);
+    expect((failure as LlmError).message.startsWith('OpenRouter: ')).toBe(true);
+  });
+
   it('streams with the same headers and stream: true', async () => {
     process.env.OPENROUTER_API_KEY = 'or-key';
     const fetchFn = mockFetch(() => ({
@@ -471,35 +626,34 @@ describe('structured outputs from a weak model stay validated', () => {
     expect(result).toMatchObject({ kind: 'strength', weight: 100, reps: 8, rir: 2 });
   });
 
-  it('a malformed generated program is refused by the program schema', async () => {
+  it('a malformed generated program is refused before anything is saved', async () => {
     configure();
-    mockFetch(() => reply('Here is your plan:\n{"name": "Push Pull", "workouts": [{"name": '));
-    const { text } = await getLlmProvider().complete(ASK);
-    expect(parseGeneratedProgram(text).ok).toBe(false);
+    const fetchFn = mockFetch(() =>
+      reply('Here is your plan:\n{"name": "Push Pull", "workouts": [{"name": '),
+    );
+    const failure = await generateProgram('user-1', 'get stronger').catch((err: unknown) => err);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(failure).toBeInstanceOf(LlmError);
+    expect((failure as LlmError).status).toBe(502);
+    expect((failure as LlmError).message).toContain('could not be parsed');
   });
 
-  it('a program with the wrong shape is refused by the program schema', async () => {
+  it('a generated program with the wrong shape is refused before anything is saved', async () => {
     configure();
     mockFetch(() => reply('{"name":"Push Pull","phase":"NOT_A_PHASE","workouts":"three"}'));
-    const { text } = await getLlmProvider().complete(ASK);
-    expect(parseGeneratedProgram(text).ok).toBe(false);
+    await expect(generateProgram('user-1', 'get stronger')).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringContaining('could not be parsed'),
+    });
   });
 
-  it('malformed or invalid coach adjustments are dropped, the debrief stays readable', async () => {
-    configure();
-    mockFetch(() => reply('Good week.\n<adjustments>[{"exerciseName": "Squat", </adjustments>'));
-    const broken = extractAdjustments((await getLlmProvider().complete(ASK)).text);
-    expect(broken.adjustments).toEqual([]);
-    expect(broken.parseErrors).toHaveLength(1);
-    expect(broken.cleaned).toBe('Good week.');
-
-    mockFetch(() =>
-      reply(
-        'Good week.\n<adjustments>[{"exerciseName":"Squat","summary":"more","suggestedRIR":99}]</adjustments>',
-      ),
-    );
-    const invalid = extractAdjustments((await getLlmProvider().complete(ASK)).text);
-    expect(invalid.adjustments).toEqual([]);
-    expect(invalid.cleaned).toBe('Good week.');
+  it('the generation call reaches the configured server with the configured budget', async () => {
+    configure({ OPENAI_COMPATIBLE_MAX_TOKENS: '4096' });
+    const fetchFn = mockFetch(() => reply('not a program'));
+    await generateProgram('user-1', 'get stronger').catch(() => undefined);
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(url).toBe('http://host.docker.internal:11434/v1/chat/completions');
+    expect(JSON.parse(init.body as string).max_tokens).toBe(4096);
+    expect(getLlmProvider().id).toBe('openai-compatible');
   });
 });

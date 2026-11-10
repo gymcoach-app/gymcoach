@@ -8,7 +8,8 @@ import { LlmError, type LlmCompletionRequest, type LlmCompletionResult } from '.
 export const DEFAULT_CHAT_MAX_TOKENS = 8000;
 
 export interface ChatCompletionsEndpoint {
-  // Name used in error messages ("OpenRouter", "The model server").
+  // Name used in error messages ("OpenRouter", "the model server"). Its first
+  // letter is capitalised where it opens a sentence.
   label: string;
   // Full URL of the chat/completions endpoint. Never put in an error message:
   // a self-hoster's base URL is theirs to disclose.
@@ -22,6 +23,12 @@ export interface ChatCompletionsEndpoint {
   // Values that must never appear in an error message (the API key). An
   // upstream that echoes the Authorization header back gets it masked.
   secrets?: readonly (string | undefined)[];
+  // When true, a redirect is refused instead of followed: following one
+  // would send the prompt (training data) and the key to a host the operator
+  // did not name. Off for OpenRouter, whose endpoint is fixed.
+  refuseRedirects?: boolean;
+  // Hint appended to the redirect error (which variable to fix).
+  redirectHint?: string;
 }
 
 // Optional floor on the output budget of every call. Reasoning models spend
@@ -40,7 +47,7 @@ export function resolveMaxTokensWithFloor(
 interface ChatCompletionsResponse {
   model?: string;
   choices?: Array<{ message?: { role: string; content: string }; finish_reason?: string }>;
-  error?: { message: string; code?: number | string };
+  error?: { message?: unknown; code?: number | string };
 }
 
 // Parses one SSE line of a Chat Completions stream. Returns the text delta, or
@@ -57,6 +64,21 @@ export function extractChatCompletionsDelta(line: string): string | null {
     return json.choices?.[0]?.delta?.content ?? null;
   } catch {
     return null;
+  }
+}
+
+function sentence(label: string): string {
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+// An upstream error message is untrusted: it may be missing, or not a string.
+function errorText(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value;
+  if (value == null) return 'unknown error';
+  try {
+    return JSON.stringify(value) ?? 'unknown error';
+  } catch {
+    return 'unknown error';
   }
 }
 
@@ -90,6 +112,7 @@ async function post(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...endpoint.headers },
       body: JSON.stringify(body),
+      ...(endpoint.refuseRedirects ? { redirect: 'manual' as const } : {}),
     });
   } catch (err) {
     throw new LlmError(
@@ -101,11 +124,23 @@ async function post(
     );
   }
 
+  if (
+    endpoint.refuseRedirects &&
+    (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400))
+  ) {
+    // The Location header is not repeated: it is the upstream's to disclose.
+    throw new LlmError(
+      502,
+      `${sentence(endpoint.label)} answered with a redirect, which is not followed.` +
+        (endpoint.redirectHint ? ` ${endpoint.redirectHint}` : ''),
+    );
+  }
+
   if (!res.ok) {
     const text = await res.text();
     throw new LlmError(
       res.status,
-      `${endpoint.label} ${res.status}: ${redact(text, endpoint.secrets).slice(0, 500)}`,
+      `${sentence(endpoint.label)} ${res.status}: ${redact(text, endpoint.secrets).slice(0, 500)}`,
     );
   }
   return res;
@@ -121,10 +156,13 @@ export async function completeChat(
   try {
     json = (await res.json()) as ChatCompletionsResponse;
   } catch {
-    throw new LlmError(502, `${endpoint.label} returned a response that is not JSON.`);
+    throw new LlmError(502, `${sentence(endpoint.label)} returned a response that is not JSON.`);
   }
   if (json.error) {
-    throw new LlmError(502, `${endpoint.label}: ${redact(json.error.message, endpoint.secrets)}`);
+    throw new LlmError(
+      502,
+      `${sentence(endpoint.label)}: ${redact(errorText(json.error.message), endpoint.secrets).slice(0, 500)}`,
+    );
   }
   const choice = json.choices?.[0];
   const text = choice?.message?.content?.trim();
@@ -147,7 +185,7 @@ export async function* streamChat(
 ): AsyncIterable<string> {
   const res = await post(endpoint, req, true);
   if (!res.body) {
-    throw new LlmError(502, `${endpoint.label} returned no response body.`);
+    throw new LlmError(502, `${sentence(endpoint.label)} returned no response body.`);
   }
 
   const reader = res.body.getReader();

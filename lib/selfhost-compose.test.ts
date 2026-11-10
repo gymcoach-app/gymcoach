@@ -41,3 +41,18 @@ describe('docker-compose.selfhost.yml', () => {
     expect(vars.filter((name) => !passed.has(name))).toEqual([]);
   });
 });
+
+describe('docker-compose.prod.yml', () => {
+  it('passes every openai-compatible variable the code reads to the app', () => {
+    const compose = readFileSync(path.join(root, 'docker-compose.prod.yml'), 'utf8');
+    const passed = appEnvironment(compose);
+    const vars = providerEnvVars().filter((name) => name.startsWith('OPENAI_COMPATIBLE_'));
+    expect(vars).toEqual([
+      'OPENAI_COMPATIBLE_API_KEY',
+      'OPENAI_COMPATIBLE_BASE_URL',
+      'OPENAI_COMPATIBLE_MAX_TOKENS',
+      'OPENAI_COMPATIBLE_MODEL',
+    ]);
+    expect(vars.filter((name) => !passed.has(name))).toEqual([]);
+  });
+});
