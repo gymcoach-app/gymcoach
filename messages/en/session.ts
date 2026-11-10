@@ -50,7 +50,7 @@ export const session = {
     nextSet: 'Automatic next set',
     reasons: {
       'hold-load': 'The previous set matched the target; keep the same load.',
-      'adjust-reps': 'Keep the load and adjust reps to preserve the target RIR.',
+      'adjust-reps': 'Keep the load and adjust reps to preserve the target {scale}.',
       'reduce-load': 'Reduce the load to preserve the programmed target.',
       'increase-load': 'The previous set was easier than planned; add one load step.',
       'bodyweight-adjust-reps': 'Load cannot be reduced below bodyweight; adjust reps instead.',
@@ -70,7 +70,7 @@ export const session = {
     chooseLoad: 'Choose a deliberately light calibration load for the first set.',
     ceiling: 'Do not exceed the history-based ceiling today: {weight}.',
     calibrate:
-      'Record an honest RIR after the first set. The next-set recommendation will adapt from the result.',
+      'Record an honest {scale} after the first set. The next-set recommendation will adapt from the result.',
   },
   readiness: {
     open: 'Readiness check-in (optional)',

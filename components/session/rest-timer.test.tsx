@@ -132,4 +132,36 @@ describe('RestTimer effort scale (issue #390)', () => {
     );
     expect(screen.getByText(/× 12 · RPE 8/i)).toBeInTheDocument();
   });
+
+  it.each([
+    ['RPE', 'Keep the load and adjust reps to preserve the target RPE.'],
+    ['RIR', 'Keep the load and adjust reps to preserve the target RIR.'],
+  ] as const)('names the %s target in the reason for the next set', (scale, reason) => {
+    render(
+      <EffortScaleProvider scale={scale}>
+        <RestTimer
+          endsAt={Date.now() + 120_000}
+          totalSec={120}
+          nextLabel="Back Squat"
+          unit="KG"
+          onEnd={vi.fn()}
+          onSkip={vi.fn()}
+          onPause={vi.fn()}
+          onResume={vi.fn()}
+          onAdjust={vi.fn()}
+          recommendation={{
+            mode: 'PRESERVE_RIR',
+            weight: 100,
+            reps: 11,
+            rir: 2,
+            reason: 'adjust-reps',
+            predictedRepsAtSameLoad: 11,
+            fatigueLoss: 1,
+            confidence: 'medium',
+          }}
+        />
+      </EffortScaleProvider>,
+    );
+    expect(screen.getByText(reason)).toBeInTheDocument();
+  });
 });

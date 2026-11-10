@@ -55,7 +55,7 @@ export const history = {
     button: 'Save as a workout',
     title: 'Save as a workout',
     description:
-      'Adds a workout to a program with the exercises and working sets you actually did: set count, rep range and average RIR.',
+      'Adds a workout to a program with the exercises and working sets you actually did: set count, rep range and average {scale}.',
     program: 'Program',
     programPlaceholder: 'Choose a program',
     noPrograms: 'Create a program first to save this session into it.',

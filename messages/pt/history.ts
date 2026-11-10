@@ -58,7 +58,7 @@ export const history = {
     button: 'Salvar como treino',
     title: 'Salvar como treino',
     description:
-      'Adiciona a um programa um treino com os exercícios e as séries válidas que você realmente fez: número de séries, faixa de repetições e RIR médio.',
+      'Adiciona a um programa um treino com os exercícios e as séries válidas que você realmente fez: número de séries, faixa de repetições e {scale} médio.',
     program: 'Programa',
     programPlaceholder: 'Escolha um programa',
     noPrograms: 'Crie um programa primeiro para salvar esta sessão nele.',

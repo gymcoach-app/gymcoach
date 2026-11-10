@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { EffortInput } from '@/components/shared/effort-input';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -102,6 +104,11 @@ export function ProgramExerciseFormDialog(props: Props) {
     resolver: zodResolver(programExerciseInputSchema),
     defaultValues: initial,
   });
+
+  // The effort target is typed on the user's scale (issue #390) and written
+  // to the form as the stored RIR.
+  const effortScale = useEffortScale();
+  const watchedRir = form.watch('targetRIR');
 
   useEffect(() => {
     if (props.open) form.reset(initial);
@@ -201,14 +208,19 @@ export function ProgramExerciseFormDialog(props: Props) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="targetRIR">RIR</Label>
-              <Input
+              <Label htmlFor="targetRIR">{effortScale}</Label>
+              <EffortInput
                 id="targetRIR"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={5}
-                {...form.register('targetRIR')}
+                rir={typeof watchedRir === 'number' ? watchedRir : null}
+                onRirChange={(rir) =>
+                  form.setValue(
+                    'targetRIR',
+                    // An empty field keeps its previous meaning: the schema
+                    // coerces it, as it did for the plain number input.
+                    rir ?? ('' as unknown as number),
+                    { shouldDirty: true, shouldValidate: form.formState.isSubmitted },
+                  )
+                }
               />
             </div>
           </div>

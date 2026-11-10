@@ -72,9 +72,9 @@ export const settings = {
     unit: '重量单位',
     unitDescription:
       '更改重量的显示和输入单位。数据始终以 kg 保存，因此切换单位不会改变历史训练记录。',
-    effortScale: '强度量表',
+    effortScale: '用力程度量表',
     effortScaleDescription:
-      '更改训练强度的显示和输入方式。每组始终保存剩余可完成次数（RPE = 10 - RIR），因此切换量表不会改变历史训练记录。',
+      '更改用力程度的显示和输入方式。每组始终保存剩余可完成次数（RPE = 10 - RIR），因此切换量表不会改变历史训练记录。',
     effortRir: 'RIR（剩余可完成次数）',
     effortRpe: 'RPE（自觉用力程度）',
     notSet: '未设置',

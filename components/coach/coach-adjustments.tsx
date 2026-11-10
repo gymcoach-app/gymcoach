@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import type { Adjustment } from '@/lib/coach-adjustments';
 import type { ProgramExerciseDefaults } from './coach-client';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
+import { EffortInput } from '@/components/shared/effort-input';
 
 interface Props {
   debriefId: string;
@@ -34,6 +36,9 @@ export function CoachAdjustments({
 }: Props) {
   const t = useTranslations('coach.adjustments');
   const exerciseName = useExerciseName();
+  // The effort target is shown and edited on the user's scale; the adjustment
+  // keeps the stored RIR (issue #390).
+  const effortScale = useEffortScale();
   const [rows, setRows] = useState<Row[]>(() =>
     initialAdjustments.map((a) => {
       const def = programDefaults[a.exerciseName];
@@ -163,12 +168,18 @@ export function CoachAdjustments({
                   onChange={(v) => patchRow(i, { suggestedSets: v })}
                   disabled={!row.selected || pending}
                 />
-                <NumberField
-                  label="RIR"
-                  value={row.data.suggestedRIR ?? null}
-                  onChange={(v) => patchRow(i, { suggestedRIR: v })}
-                  disabled={!row.selected || pending}
-                />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {effortScale}
+                  </span>
+                  <EffortInput
+                    aria-label={effortScale}
+                    rir={row.data.suggestedRIR ?? null}
+                    onRirChange={(rir) => patchRow(i, { suggestedRIR: rir })}
+                    disabled={!row.selected || pending}
+                    className="h-9 text-center text-sm"
+                  />
+                </div>
                 <NumberField
                   label={t('rest')}
                   value={row.data.suggestedRestSec ?? null}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ListPlus } from 'lucide-react';
 import { toast } from 'sonner';
+import type { EffortScale } from '@/lib/prisma-client';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -31,11 +32,19 @@ interface Props {
   // The program the session came from, preselected when it still exists.
   defaultProgramId: string | null;
   defaultName: string;
+  // The user's effort scale (issue #390), named in the dialog description.
+  effortScale: EffortScale;
 }
 
 // "Save as a workout" (issue #394): turns a finished session into a workout
 // of one of the trainee's programs, then opens that program.
-export function SaveAsWorkoutButton({ sessionId, programs, defaultProgramId, defaultName }: Props) {
+export function SaveAsWorkoutButton({
+  sessionId,
+  programs,
+  defaultProgramId,
+  defaultName,
+  effortScale,
+}: Props) {
   const t = useTranslations('history.saveAsWorkout');
   const common = useTranslations('common');
   const router = useRouter();
@@ -81,7 +90,7 @@ export function SaveAsWorkoutButton({ sessionId, programs, defaultProgramId, def
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('title')}</DialogTitle>
-            <DialogDescription>{t('description')}</DialogDescription>
+            <DialogDescription>{t('description', { scale: effortScale })}</DialogDescription>
           </DialogHeader>
           {programs.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noPrograms')}</p>

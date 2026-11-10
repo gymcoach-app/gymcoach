@@ -58,7 +58,7 @@ export const history = {
     button: 'Guardar como entrenamiento',
     title: 'Guardar como entrenamiento',
     description:
-      'Añade a un programa un entrenamiento con los ejercicios y las series efectivas que hiciste de verdad: número de series, rango de repeticiones y RIR medio.',
+      'Añade a un programa un entrenamiento con los ejercicios y las series efectivas que hiciste de verdad: número de series, rango de repeticiones y {scale} medio.',
     program: 'Programa',
     programPlaceholder: 'Elige un programa',
     noPrograms: 'Crea primero un programa para guardar esta sesión en él.',

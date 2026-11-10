@@ -58,7 +58,7 @@ export const history = {
     button: 'Enregistrer comme séance',
     title: 'Enregistrer comme séance',
     description:
-      'Ajoute une séance à un programme avec les exercices et les séries de travail réellement faits : nombre de séries, fourchette de répétitions et RIR moyen.',
+      'Ajoute une séance à un programme avec les exercices et les séries de travail réellement faits : nombre de séries, fourchette de répétitions et {scale} moyen.',
     program: 'Programme',
     programPlaceholder: 'Choisir un programme',
     noPrograms: 'Créez d’abord un programme pour y enregistrer cette séance.',

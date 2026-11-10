@@ -175,6 +175,9 @@ describe('SetInput quick entry', () => {
     );
 
     expect(screen.getByText(/100 KG × 11 · RIR 2/i)).toBeInTheDocument();
+    expect(
+      screen.getByText('Keep the load and adjust reps to preserve the target RIR.'),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /log the set/i }));
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ weight: 100, reps: 11, rir: 2 }),
@@ -577,17 +580,60 @@ describe('SetInput effort scale (issue #390)', () => {
     expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RIR 2: 2 reps left');
   });
 
+  it('names each chip for a screen reader with its value and plain-language level', () => {
+    // The level used to live only in the hover title, which is not announced.
+    renderSetInput('KG');
+    const chips = screen.getByTestId('effort-chips');
+    expect(
+      within(chips)
+        .getAllByRole('button')
+        .map((chip) => chip.getAttribute('aria-label')),
+    ).toEqual(['RIR 0: No reps left', 'RIR 1: 1 rep left', 'RIR 2: 2 reps left', 'RIR 3: 3 reps left']);
+    expect(within(chips).getByRole('button', { name: 'RIR 0: No reps left' })).toHaveTextContent(
+      '0',
+    );
+  });
+
   it('shows RPE chips, and RPE 8 is the pre-selected target RIR 2', () => {
     renderWithScale('RPE');
     expect(screen.getByText('RPE (perceived exertion)')).toBeInTheDocument();
     expect(screen.queryByText('RIR (reps in reserve)')).not.toBeInTheDocument();
     expect(chipLabels()).toEqual(['7', '8', '9', '10']);
     const chips = screen.getByTestId('effort-chips');
-    expect(within(chips).getByRole('button', { name: '8' })).toHaveAttribute(
+    expect(within(chips).getByRole('button', { name: 'RPE 8: 2 reps left' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
     expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 8: 2 reps left');
+  });
+
+  it('names the RPE target in the reason for the next set', () => {
+    render(
+      <EffortScaleProvider scale="RPE">
+        <SetInput
+          programExercise={pe}
+          existingSets={[]}
+          lastPerformance={undefined}
+          readiness={null}
+          deloadActive={false}
+          unit="KG"
+          recommendation={{
+            mode: 'PRESERVE_RIR',
+            weight: 100,
+            reps: 11,
+            rir: 2,
+            reason: 'adjust-reps',
+            predictedRepsAtSameLoad: 11,
+            fatigueLoss: 1,
+            confidence: 'medium',
+          }}
+          onSubmit={vi.fn()}
+        />
+      </EffortScaleProvider>,
+    );
+    expect(
+      screen.getByText('Keep the load and adjust reps to preserve the target RPE.'),
+    ).toBeInTheDocument();
   });
 
   it('stores the RIR behind the RPE chip the lifter picks', async () => {
@@ -595,12 +641,12 @@ describe('SetInput effort scale (issue #390)', () => {
     const { onSubmit } = renderWithScale('RPE');
     const chips = screen.getByTestId('effort-chips');
 
-    await user.click(within(chips).getByRole('button', { name: '9' }));
+    await user.click(within(chips).getByRole('button', { name: 'RPE 9: 1 rep left' }));
     expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 9: 1 rep left');
     await user.click(screen.getByRole('button', { name: /log the set/i }));
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ rir: 1 }));
 
-    await user.click(within(chips).getByRole('button', { name: '10' }));
+    await user.click(within(chips).getByRole('button', { name: 'RPE 10: No reps left' }));
     expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 10: No reps left');
     await user.click(screen.getByRole('button', { name: /log the set/i }));
     expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ rir: 0 }));

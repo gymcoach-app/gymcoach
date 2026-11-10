@@ -52,7 +52,7 @@ export const session = {
     nextSet: 'Automatyczna kolejna seria',
     reasons: {
       'hold-load': 'Poprzednia seria trafiła w cel; zostań przy tym samym ciężarze.',
-      'adjust-reps': 'Zostaw ciężar i dopasuj powtórzenia, aby utrzymać docelowy RIR.',
+      'adjust-reps': 'Zostaw ciężar i dopasuj powtórzenia, aby utrzymać docelowy {scale}.',
       'reduce-load': 'Zmniejsz ciężar, aby utrzymać zaplanowany cel.',
       'increase-load': 'Poprzednia seria była łatwiejsza niż w planie; dodaj jeden krok ciężaru.',
       'bodyweight-adjust-reps':
@@ -73,7 +73,7 @@ export const session = {
     chooseLoad: 'Na pierwszą serię wybierz celowo lekki ciężar próbny.',
     ceiling: 'Nie przekraczaj dziś limitu wynikającego z historii: {weight}.',
     calibrate:
-      'Po pierwszej serii zapisz szczery RIR. Zalecenie na kolejną serię dostosuje się do wyniku.',
+      'Po pierwszej serii zapisz szczery {scale}. Zalecenie na kolejną serię dostosuje się do wyniku.',
   },
   readiness: {
     open: 'Check-in gotowości (opcjonalnie)',

@@ -53,7 +53,7 @@ export const session = {
     nextSet: 'Automatische volgende set',
     reasons: {
       'hold-load': 'De vorige set haalde het doel; houd hetzelfde gewicht aan.',
-      'adjust-reps': 'Houd het gewicht gelijk en pas de herhalingen aan om de doel-RIR te halen.',
+      'adjust-reps': 'Houd het gewicht gelijk en pas de herhalingen aan om de doel-{scale} te halen.',
       'reduce-load': 'Verlaag het gewicht om het geplande doel te halen.',
       'increase-load': 'De vorige set was lichter dan gepland; doe er één gewichtsstap bij.',
       'bodyweight-adjust-reps':
@@ -74,7 +74,7 @@ export const session = {
     chooseLoad: 'Kies voor de eerste set bewust een licht gewicht om af te tasten.',
     ceiling: 'Ga vandaag niet boven het maximum op basis van je geschiedenis: {weight}.',
     calibrate:
-      'Vul na de eerste set een eerlijke RIR in. Het advies voor de volgende set past zich aan op het resultaat.',
+      'Vul na de eerste set een eerlijke {scale} in. Het advies voor de volgende set past zich aan op het resultaat.',
   },
   readiness: {
     open: 'Gereedheidscheck-in (optioneel)',

@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 // Effort scale (issue #390): a lifter switches to RPE in the settings, logs a
 // set at RPE 8, and sees RPE everywhere while the set stores RIR 2.
 
-async function seedSession(page: Page): Promise<string> {
+async function seedSession(page: Page): Promise<{ sessionId: string; programId: string }> {
   const exerciseRes = await page.request.post('/api/exercises', {
     data: {
       name: 'E2E Effort Scale Squat',
@@ -46,7 +46,7 @@ async function seedSession(page: Page): Promise<string> {
   });
   expect(sessionRes.ok()).toBeTruthy();
   const session = await sessionRes.json();
-  return session.id;
+  return { sessionId: session.id, programId: program.id };
 }
 
 test('RPE setting: enter RPE 8, see RPE, store RIR 2', async ({ page }) => {
@@ -60,7 +60,7 @@ test('RPE setting: enter RPE 8, see RPE, store RIR 2', async ({ page }) => {
   });
   expect(registerRes.ok()).toBeTruthy();
 
-  const sessionId = await seedSession(page);
+  const { sessionId, programId } = await seedSession(page);
 
   // A new account logs in RIR.
   await page.goto(`/session/${sessionId}`);
@@ -116,4 +116,21 @@ test('RPE setting: enter RPE 8, see RPE, store RIR 2', async ({ page }) => {
   const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: '8', exact: true }) });
   await expect(row).toHaveCount(1);
   await expect(row.getByRole('cell').nth(3)).toHaveText('8');
+
+  // The program editor follows the scale too (follow-up to #550): the target
+  // (RIR 1) reads RPE 9, and typing RPE 8 stores RIR 2, shown back as RPE 8.
+  await page.goto(`/programs/${programId}`);
+  await page.getByRole('button', { name: 'Exercise actions' }).click();
+  await page.getByRole('menuitem', { name: 'Edit' }).click();
+  const target = page.getByLabel('RPE', { exact: true });
+  await expect(target).toHaveValue('9');
+  await target.fill('8');
+  const updated = page.waitForResponse(
+    (res) => res.url().includes('/api/program-exercises/') && res.request().method() === 'PUT',
+  );
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const updateRes = await updated;
+  expect(updateRes.ok()).toBeTruthy();
+  expect((updateRes.request().postDataJSON() as { targetRIR: number }).targetRIR).toBe(2);
+  await expect(page.getByText(/RPE 8/).first()).toBeVisible();
 });

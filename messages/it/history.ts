@@ -57,7 +57,7 @@ export const history = {
     button: 'Salva come allenamento',
     title: 'Salva come allenamento',
     description:
-      'Aggiunge a un programma un allenamento con gli esercizi e le serie allenanti che hai fatto davvero: numero di serie, intervallo di ripetizioni e RIR medio.',
+      'Aggiunge a un programma un allenamento con gli esercizi e le serie allenanti che hai fatto davvero: numero di serie, intervallo di ripetizioni e {scale} medio.',
     program: 'Programma',
     programPlaceholder: 'Scegli un programma',
     noPrograms: 'Crea prima un programma per salvarci questa sessione.',

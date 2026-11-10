@@ -57,7 +57,7 @@ export const history = {
     button: 'Opslaan als training',
     title: 'Opslaan als training',
     description:
-      'Voegt een training toe aan een programma met de oefeningen en werksets die je echt hebt gedaan: aantal sets, herhalingsbereik en gemiddelde RIR.',
+      'Voegt een training toe aan een programma met de oefeningen en werksets die je echt hebt gedaan: aantal sets, herhalingsbereik en gemiddelde {scale}.',
     program: 'Programma',
     programPlaceholder: 'Kies een programma',
     noPrograms: 'Maak eerst een programma aan om deze sessie erin op te slaan.',
