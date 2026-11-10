@@ -944,3 +944,22 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   group B, and the follow-up lands the same day.
 - **Status:** graduated -> `10-external-contributions.md` ("Verdict etiquette", "Stop
   asking after about two rounds").
+
+### L54 - Guard a delete of user data on the server, not on a client cache that may not be loaded yet
+- **Trigger:** 2026-11-10, #553 (free session). The runner offered "Discard this empty
+  session" when its local list of logged sets was empty. That list stays empty until the
+  sets are read from the server into the local store (and for good if IndexedDB fails),
+  so a session that held sets could show an enabled Discard with no confirmation, and
+  `DELETE /api/sessions/[id]` deletes the session with its sets. The first correctness
+  review returned needs-changes with this as a major; it was fixed before the merge.
+- **Lesson:** a destructive action states its precondition to the server and the server
+  enforces it: `DELETE /api/sessions/[id]?discardEmpty=1` deletes only a session with no
+  sets (the condition is in the delete's `where`) and answers 409 otherwise. The client
+  check (hydrated, no sets on the server or locally, a confirmation) stays, but as UX,
+  not as the guard. A reviewer asks of any new delete path: "what does it delete if the
+  client state is empty because it has not loaded yet?" The server check is not yet
+  airtight against a set insert in flight at the same instant (read committed); a row
+  lock is parked in #484.
+- **Status:** graduated -> `CONTRIBUTING.md` ("Project conventions"). The same sentence
+  belongs in the `implement-issue` skill's checklist; `.claude/**` is a group B path, so
+  that edit is left to a maintainer.

@@ -143,6 +143,10 @@ on your own key - all self-hosted.
   time, even while resting; each exercise keeps its own rest timer running in
   the background, and the strip shows which ones are resting, in progress or
   done.
+- **Free session** - start an empty session without a program and pick
+  exercises from your catalog as you train; the list stays with that session,
+  no saved program changes, and it counts in your history and records like any
+  other.
 - **A weight picker that knows your gym** - the weight and reps fields open a
   drum-style picker limited to the loads your equipment can actually make, with
   a barbell preview of the pending load; nothing changes until you press Apply,
@@ -243,8 +247,9 @@ on your own key - all self-hosted.
 - **Explainable by design** - a "What your coach sees" card shows the exact
   structured context the AI receives.
 - **Your provider** - Anthropic SDK, any OpenRouter model, or any
-  OpenAI-compatible server such as a local Ollama, LM Studio or vLLM. With no
-  key set, the app is still a clean, fast tracker.
+  OpenAI-compatible server such as a local Ollama, LM Studio or vLLM (the
+  OpenAI-compatible provider is tested against a stubbed server so far, not a
+  live one). With no key set, the app is still a clean, fast tracker.
 
 ### Programs and exercises
 
@@ -296,7 +301,7 @@ on your own key - all self-hosted.
 A few beliefs shaped GymCoach:
 
 - Your training data is yours. It lives in a Postgres database you control, not on someone else's servers. No ads, no tracking, no account you cannot delete.
-- AI should be optional and yours to pay for. The coach runs on your own Anthropic or OpenRouter key, so there is no subscription and no rate-limited "free tier". With no key set, the app is a clean, fast tracker.
+- AI should be optional and yours to pay for. The coach runs on your own Anthropic or OpenRouter key, or on a model you host, so there is no subscription and no rate-limited "free tier". With no key set, the app is a clean, fast tracker.
 - Coaching should be grounded in your numbers, not generic advice. The AI only ever sees a structured summary of your own sessions, program and progress.
 - Evidence over hype. Load progression uses double-progression logic, and the coach is prompted to reason from your data (and cite the usual names: Schoenfeld, Helms, Israetel) rather than invent.
 - Self-hosting should be boring: one Docker Compose file, one database, standard Next.js.
@@ -542,6 +547,7 @@ than CI reaching in to a small VPS.
       and an FAQ
 - [x] Free exercise switching in a live session with a rest timer per exercise
 - [x] RPE as an alternative effort scale to RIR
+- [x] Free session without a program
 
 ## Contributing
 

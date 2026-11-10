@@ -73,6 +73,9 @@ Podman, whichever is available.
 
 - TypeScript strict, no `any` where it can be avoided.
 - Validate every API input with Zod.
+- An action that deletes user data checks its precondition on the server (for
+  example "only a session without sets"), not only in the client: client state
+  can be empty before it has loaded.
 - Prefer the existing Shadcn UI primitives in `components/ui`.
 - The codebase is English-only (UI, comments, prompts, docs).
 - Do not use em-dashes or en-dashes; use a regular hyphen.
