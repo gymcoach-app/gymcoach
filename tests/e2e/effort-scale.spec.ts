@@ -33,8 +33,8 @@ async function seedSession(page: Page): Promise<string> {
     data: {
       exerciseId: exercise.id,
       targetSets: 3,
-      targetRepsMin: 6,
-      targetRepsMax: 10,
+      targetRepsMin: 5,
+      targetRepsMax: 5,
       targetRIR: 1,
       restSec: 90,
     },
@@ -112,6 +112,8 @@ test('RPE setting: enter RPE 8, see RPE, store RIR 2', async ({ page }) => {
   await page.goto(`/history/${sessionId}`);
   await expect(page.getByRole('columnheader', { name: 'RPE' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'RIR' })).toHaveCount(0);
-  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: '1', exact: true }) });
-  await expect(row.getByRole('cell', { name: '8', exact: true })).toBeVisible();
+  // Columns: set number, load, reps (5), effort. Only the effort cell reads 8.
+  const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: '8', exact: true }) });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole('cell').nth(3)).toHaveText('8');
 });
