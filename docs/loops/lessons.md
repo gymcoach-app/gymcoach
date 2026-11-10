@@ -923,3 +923,24 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   app?". When the app is wrong, fix the app in a maintainer PR (with the contributor
   credited as the finder) and let the doc describe the fixed behavior.
 - **Status:** graduated -> `10-external-contributions.md` ("Verdict etiquette", docs PRs).
+
+### L53 - After about two needs-changes rounds on an external PR, stop asking and finish it ourselves
+- **Trigger:** 2026-11-06, #544 (@f1dot4, free exercise switching, part 1 of #542). The
+  correctness and tests lens returned needs-changes in three rounds (2026-10-31, 11-02,
+  11-03: 9, 11, then 2 major findings) while the security lenses were clean from round 2.
+  The contributor answered every round within a day or two. The fourth round was a needs-changes record too (1 major): the only
+  open point was a test-proof gap (the tests did not yet prove the rest guards), and the
+  operator asked to stop requesting changes and finish the work ourselves. The gap was
+  regraded minor, #544 merged on ready records, and the maintainer follow-up #548 added
+  the proving tests, a fix for a rest change lost when it landed in the same tick as
+  another exercise's expiry, and the missing translations.
+- **Lesson:** L34 bounds fixup rounds on a vetted fork; this is the same budget for any
+  external PR. Once the behavior is right and the security lenses are clean, a third or
+  fourth round that only asks for more proof costs the contributor more than it buys:
+  regrade a pure test-proof or polish gap as minor, merge on clean records, and close it
+  in a maintainer follow-up the same day. A finding that changes behavior or safety stays
+  blocking whatever the round count. Closing the gap in #548 found a real bug, so an
+  unproven guard is not proven behavior: the regrade never covers security, data-loss or
+  group B, and the follow-up lands the same day.
+- **Status:** graduated -> `10-external-contributions.md` ("Verdict etiquette", "Stop
+  asking after about two rounds").

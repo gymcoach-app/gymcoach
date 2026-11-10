@@ -327,6 +327,16 @@ Operator directive 2026-10-22, after #505 (lesson L51):
   PR after the contributor's PR is merged (a security fix that cannot wait is the
   exception) and credits the finding to the contributor's PR (#505 surfaced #507 and #508,
   lesson L52).
+- **Stop asking after about two rounds** (operator directive 2026-11-06, lesson L53).
+  When the behavior is right and the security lenses are clean, a gap that is only
+  missing test proof or polish is graded minor after about two needs-changes rounds; the
+  PR merges on clean records and the loop closes the gap in a maintainer follow-up
+  (#544, four rounds, then #548). A finding that changes behavior or safety stays
+  blocking. This regrade never covers a security, data-loss or behavior finding, never
+  lifts the group A conditions (clean security lenses, rollback tag) or the group B
+  human-merge rule, and never runs unvetted code locally. The maintainer follow-up is
+  mandatory and lands the same day: closing #544's test gap in #548 found a real bug, so
+  an unproven guard is not proven behavior.
 
 ## Maintainer fixups on a vetted fork PR
 

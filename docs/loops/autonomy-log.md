@@ -3520,3 +3520,89 @@ $0.53, #504 $0.52, #511 $0.32; eight subagents named no PR ($60.51); #498, #500,
 
 **Media.** No captured page (home, progress, generator, catalog) visibly changed in the
 English interface, so no screenshot or clip work.
+
+## 2026-11-10 - seven interface languages from two new contributors, a security hardening pass, free exercise switching, and RPE
+
+**Context.** Since the 2026-10-26 write-up (#512), in rough merge order, grouped by topic: **#513**, **#516**,
+**#518** (@sapatmohit, Spanish, Portuguese and Italian, part of #414) with wording
+polish in **#515**, **#519**, **#520**; **#517** (review lens routing in the merge gate,
+roadmap M4); **#522** (@sapatmohit, decimal comma in the plate list, closes #514) and
+**#526** (the same in the equipment editor); **#523** (@Retsumdk, graded-declaration
+self-check, part of #506); **#530** (dependency upgrades for published advisories) and
+**#531** (rate limit on the coach debrief, JSON body caps, rate-limiter bounds, security
+headers), from the 2026-10-27 audit; **#532**, **#535**, **#537** (@sapatmohit, Dutch,
+Polish and Turkish, closes #527) with polish in **#534**, **#536** and **#538**
+(locale-aware search); **#540** (ideation scan record); **#541** (@f1dot4, sets shown
+twice after a reload mid-workout); **#545** (@XiaoMingMingBai, Simplified Chinese,
+closes #525); **#533** (@Retsumdk, the self-check scans code, not text); **#546** (CI
+runners pinned to ubuntu-24.04 after `ubuntu-latest` moved to 26.04 and the Postgres
+digest guard refused the cached image); **#543** (@f1dot4, Podman support in
+`scripts/test-db.sh`); **#547** (@Retsumdk, bracket access); **#544** (@f1dot4, free
+exercise switching, part 1 of #542) and **#548** (its follow-up); **#549** (@Retsumdk, a
+keyword is not a bracket receiver); **#550** (RPE effort scale, closes #390).
+
+**External work.** 15 of the 29 PRs are external. @sapatmohit (unvetted) sent seven, six
+of them interface languages in three days; each language PR touches `messages/**` and
+`i18n/**` (group A) and merged on clean records with the security lenses and the
+translation-quality lens, after a rollback tag (`autonomy-baseline-2026-10-26` to
+`-2026-10-28c`), and the loop's wording polish followed each one rather than a further
+round on the contributor's branch (L51). @XiaoMingMingBai (unvetted) delivered
+Simplified Chinese as offered in #525, on the first review round, after the tag
+`autonomy-baseline-2026-10-31`. @f1dot4 sent three: #541 took two rounds (the first
+version deleted unsynced edits too), #543 one. #543 changes `scripts/test-db.sh`, a group
+B path that `verify.sh --full` runs: it was merged on 2026-11-03 only after the operator's
+explicit go-ahead in session (group B stays human-decided), and it heads the reading list
+in the digest. @Retsumdk
+(vetted) continued #506 in four small test-only PRs, three of them (#533, #547, #549) with a
+mutation table.
+
+**#544, merge then fix ourselves.** The correctness and tests lens returned needs-changes
+three times (2026-10-31, 11-02, 11-03), and the contributor answered each round within
+two days. The fourth round was again a needs-changes record (1 major): the only open point was
+that the tests did not yet prove the rest guards. The operator asked to stop requesting changes and finish it ourselves:
+the reviewer confirmed the product code by reading and regraded the gap to minor on the
+same head, #544 merged on ready records after the tag
+`autonomy-baseline-2026-11-06`, and #548 the same day added the proving tests, a fix for
+a rest change lost when it landed in the same tick as another exercise's expiry (ref and
+state now written together), and the resting badge label in nine languages. Now in
+`10-external-contributions.md` ("Stop asking after about two rounds", L53).
+
+**This cycle's loop (2026-11-10).** Ship first: #549 (vetted, test-only) merged on clean
+correctness/tests and security/threat-model records. Triage and ideation were skipped:
+the tracker was at its 20-issue cap, so there was nothing to file and an open issue to
+take instead. Implement: #390 became #550 (one additive `User.effortScale` column,
+storage stays RIR, backup format v9). Review: three lens records (correctness and tests,
+security and threat model, translation quality), all ready with minors and nits only.
+Merge through `merge.ts`. The reviewers' minors go to a follow-up PR, not part of this
+write-up.
+
+**What changed in the loop.**
+- **Review lenses are checked, not chosen (#517, roadmap M4).** The gate now computes the
+  required lens groups from the changed paths (read with git at the approved SHA) and the
+  author's tier, and refuses when the ready records do not cover them. Every merge since
+  #517 went through it.
+- **CI image drift (#546).** A runner image change broke the digest check on every PR for
+  one morning; pinning the runner kept the guard as it was. Moving to 26.04 is parked in
+  #484.
+
+**Green gate.** `bash scripts/verify.sh` has a ledger line before the merge of every
+maintainer PR except #540 (docs) and #546 (CI runner pin), which merged without a local
+run; external PRs ran only in CI. Ledger count: `verify` lines
+whose time is after the #512 merge (2026-10-26T08:02:02Z), excluding this write-up's own
+run: 20 lines, 15 green, 5 failed (exit 1: 3 on the default tier, 2 on `--full`).
+
+**One metric.** 29 PRs merged (14 loop-authored, 1 of them docs; 15 external), 0
+abandoned, 0 reverted. Token spend, from the ledger (subagents only, attributed by one PR
+number in the task prompt, API-list-price estimate, a lower bound): #544 $6.41, #531
+$3.75, #513 $3.37, #517 $3.07, #545 $2.80, #518 $2.15, #550 $2.01, #530 $1.13, #522
+$0.95, #541 $0.86, #523 $0.69, #533 $0.66, #515 $0.62, #538 $0.56, #532 $0.55, #537 $0.49,
+#526 $0.49, #535 $0.48, #547 $0.47, #519 $0.43, #520 $0.43, #534 $0.41, #536 $0.34, #548
+$0.33, #540 $0.27; seven subagents named two PRs ($8.82 together); eleven named no PR
+($34.49); #516, #543, #546 and #549 have no single-PR subagent line.
+
+**Lessons.** L53, graduated into `10-external-contributions.md` ("Verdict etiquette").
+
+**Media.** The live-session exercise strip changed (resting and progress markers, #544)
+and the profile gained the effort-scale setting (#550); neither is on a captured page
+(home, progress, generator, catalog), so no screenshot work. The recorded session clip
+predates free switching and RPE; re-record it within the next batches (staleness cap).

@@ -2,7 +2,7 @@
 
 What the agents maintaining GymCoach have done, measured from public GitHub data
 and local agent transcripts, with links to the files and PRs behind every
-number. Last updated 2026-10-26.
+number. Last updated 2026-11-10.
 
 [Back to the overview](README.md) ·
 [Baseline report](baseline/2026-10-13/report.md) ·
@@ -130,6 +130,7 @@ exposed.
 | The merge gate refuses a PR whose base is not the live tip of `main` (`base-stale`), and carries review records only across a pure base update proven with git ([`base-update.ts`](../../automation/publish/base-update.ts)) | [#481](https://github.com/gymcoach-app/gymcoach/pull/481), [#483](https://github.com/gymcoach-app/gymcoach/pull/483) | L39: a sibling's merge made a green CI stale |
 | Changelog entries are per-PR fragments in `changelog.d/`, checked in the green gate and folded by the write-up PR ([`assemble.ts`](../../automation/changelog/assemble.ts)) | [#491](https://github.com/gymcoach-app/gymcoach/pull/491), [#492](https://github.com/gymcoach-app/gymcoach/pull/492) | L47: 3 hand-resolved `CHANGELOG.md` conflicts and 5 re-attestation rounds in one wave |
 | The eval canary checks the built-ins and the runner's task state from inside the hidden tests, and the `test-globals` tamper rule is a fail-closed syntax-tree screen; a live self-check replays the known cheats ([`runner.ts`](../../evals/maintainer/runner.ts), [`test-globals.ts`](../../evals/maintainer/test-globals.ts), [`canary-live.test.ts`](../../evals/maintainer/canary-live.test.ts)) | [#501](https://github.com/gymcoach-app/gymcoach/pull/501), [#503](https://github.com/gymcoach-app/gymcoach/pull/503), [#504](https://github.com/gymcoach-app/gymcoach/pull/504) | [#468](https://github.com/gymcoach-app/gymcoach/issues/468): the two bypasses left by #455. L48 |
+| The merge gate derives the review lenses a PR needs from its changed paths (read with git at the approved SHA) and its author's trust tier, and refuses when the ready records do not cover them ([`lenses.ts`](../../automation/review/lenses.ts), [`changed-paths.ts`](../../automation/publish/changed-paths.ts)) | [#517](https://github.com/gymcoach-app/gymcoach/pull/517) | Roadmap M4: which lenses ran was the reviewer's choice, not checked |
 
 Lessons are in [`lessons.md`](lessons.md). Details and limits of each control are
 in [`automation/README.md`](../../automation/README.md). Two limits matter most.
