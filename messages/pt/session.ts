@@ -68,7 +68,7 @@ export const session = {
       'A última sessão foi recente, mas veio depois de uma pausa de {days} dias, então a calibração de retorno continua ativa.',
     muscleReintro:
       'O músculo principal está há mais de seis semanas sem séries válidas registradas. O volume e o esforço são reduzidos nesta sessão.',
-    targets: 'Séries hoje: {sets}. RIR alvo: {rir}.',
+    targets: 'Séries hoje: {sets}. {scale} alvo: {value}.',
     startWeight: 'Carga inicial conservadora: {weight}.',
     bodyweightStart: 'Comece com o peso corporal, sem carga adicional.',
     chooseLoad: 'Escolha uma carga de calibração bem leve para a primeira série.',
@@ -121,6 +121,9 @@ export const session = {
     load: 'Carga ({unit})',
     reps: 'Reps',
     repsInReserve: 'RIR (repetições em reserva)',
+    perceivedExertion: 'RPE (esforço percebido)',
+    effortLevel:
+      '{rir, plural, =0 {Nenhuma repetição em reserva} one {# repetição em reserva} other {# repetições em reserva}}',
     dropSet: 'Drop set',
     warmup: 'Aquecimento',
     note: 'Nota rápida (opcional)',
@@ -190,6 +193,7 @@ export const session = {
     weight: 'Peso da série {number} em {unit}',
     reps: 'Repetições da série {number}',
     rir: 'Repetições em reserva da série {number}',
+    rpe: 'Esforço percebido da série {number}',
     confirm: 'Confirmar a série {number}',
     applyRecommendation: 'Aplicar a recomendação à série {number}',
     undo: 'Desfazer a série {number}',
@@ -267,7 +271,7 @@ export const session = {
     notAvailable: 'Indisponível nesta academia',
     cardioPrescription: '{sets, plural, one {# série} other {# séries}} · Descanso {seconds} s',
     strengthPrescription:
-      '{sets} séries × {reps} reps · RIR {rir} · Descanso {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} séries × {reps} reps · {effort} · Descanso {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Última sessão ({date})',
     lastDone:
       '{days, plural, =0 {Feito pela última vez hoje} =1 {Feito pela última vez ontem} other {Feito pela última vez há # dias}}',

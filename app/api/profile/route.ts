@@ -14,6 +14,7 @@ const PROFILE_SELECT = {
   weeklyFrequency: true,
   coachNote: true,
   unit: true,
+  effortScale: true,
 } as const;
 
 export async function GET() {
@@ -52,6 +53,7 @@ export async function PATCH(req: Request) {
           ? { coachNote: data.coachNote ? data.coachNote : null }
           : {}),
         ...(data.unit !== undefined ? { unit: data.unit } : {}),
+        ...(data.effortScale !== undefined ? { effortScale: data.effortScale } : {}),
       },
       select: PROFILE_SELECT,
     });

@@ -70,7 +70,7 @@ export const session = {
       'Die letzte Einheit war kürzlich, aber sie folgte einer {days}-Tage-Lücke, daher bleibt die Rückkehr-Kalibrierung aktiv.',
     muscleReintro:
       'Der primäre Muskel hatte mehr als sechs Wochen keine aufgezeichneten Arbeitssätze. Volumen und Anstrengung sind für diese Einheit reduziert.',
-    targets: 'Sätze heute: {sets}. Ziel-RIR: {rir}.',
+    targets: 'Sätze heute: {sets}. Ziel-{scale}: {value}.',
     startWeight: 'Konservatives Startgewicht: {weight}.',
     bodyweightStart: 'Beginne mit Körpergewicht und keinem zusätzlichen Gewicht.',
     chooseLoad: 'Wähle ein bewusst leichtes Kalibrierungsgewicht für den ersten Satz.',
@@ -124,6 +124,9 @@ export const session = {
     load: 'Gewicht ({unit})',
     reps: 'Wiederholungen',
     repsInReserve: 'RIR (Wiederholungen in Reserve)',
+    perceivedExertion: 'RPE (empfundene Anstrengung)',
+    effortLevel:
+      '{rir, plural, =0 {Keine Wiederholung in Reserve} one {# Wiederholung in Reserve} other {# Wiederholungen in Reserve}}',
     dropSet: 'Drop-Satz',
     warmup: 'Aufwärmen',
     note: 'Schnelle Notiz (optional)',
@@ -193,6 +196,7 @@ export const session = {
     weight: 'Satz {number} Gewicht in {unit}',
     reps: 'Satz {number} Wiederholungen',
     rir: 'Satz {number} Wiederholungen in Reserve',
+    rpe: 'Satz {number} empfundene Anstrengung',
     confirm: 'Satz {number} bestätigen',
     applyRecommendation: 'Empfehlung auf Satz {number} anwenden',
     undo: 'Satz {number} rückgängig',
@@ -271,7 +275,7 @@ export const session = {
     notAvailable: 'In diesem Gym nicht verfügbar',
     cardioPrescription: '{sets, plural, one {# Satz} other {# Sätze}} · Pause {seconds}s',
     strengthPrescription:
-      '{sets} Sätze × {reps} Wdh. · RIR {rir} · Pause {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} Sätze × {reps} Wdh. · {effort} · Pause {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Letzte Einheit ({date})',
     lastDone:
       '{days, plural, =0 {Zuletzt heute gemacht} =1 {Zuletzt gestern gemacht} other {Zuletzt vor # Tagen gemacht}}',

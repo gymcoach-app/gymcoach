@@ -69,7 +69,7 @@ export const session = {
       'L’ultima sessione è recente, ma è arrivata dopo una pausa di {days} giorni, quindi la calibrazione di rientro resta attiva.',
     muscleReintro:
       'Il muscolo principale non ha serie allenanti registrate da più di sei settimane. Volume e sforzo sono ridotti in questa sessione.',
-    targets: 'Serie oggi: {sets}. RIR obiettivo: {rir}.',
+    targets: 'Serie oggi: {sets}. {scale} obiettivo: {value}.',
     startWeight: 'Carico iniziale prudente: {weight}.',
     bodyweightStart: 'Inizia a corpo libero, senza carico aggiunto.',
     chooseLoad: 'Scegli un carico di calibrazione volutamente leggero per la prima serie.',
@@ -124,6 +124,9 @@ export const session = {
     load: 'Carico ({unit})',
     reps: 'Rip.',
     repsInReserve: 'RIR (ripetizioni in riserva)',
+    perceivedExertion: 'RPE (sforzo percepito)',
+    effortLevel:
+      '{rir, plural, =0 {Nessuna ripetizione in riserva} one {# ripetizione in riserva} other {# ripetizioni in riserva}}',
     dropSet: 'Drop set',
     warmup: 'Riscaldamento',
     note: 'Nota veloce (facoltativa)',
@@ -194,6 +197,7 @@ export const session = {
     weight: 'Peso della serie {number} in {unit}',
     reps: 'Ripetizioni della serie {number}',
     rir: 'Ripetizioni in riserva della serie {number}',
+    rpe: 'Sforzo percepito della serie {number}',
     confirm: 'Conferma la serie {number}',
     applyRecommendation: 'Applica il suggerimento alla serie {number}',
     undo: 'Annulla la serie {number}',
@@ -272,7 +276,7 @@ export const session = {
     notAvailable: 'Non disponibile in questa palestra',
     cardioPrescription: '{sets, plural, one {# serie} other {# serie}} · Recupero {seconds} s',
     strengthPrescription:
-      '{sets} serie × {reps} rip. · RIR {rir} · Recupero {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} serie × {reps} rip. · {effort} · Recupero {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Ultima sessione ({date})',
     lastDone:
       '{days, plural, =0 {Fatto l’ultima volta oggi} =1 {Fatto l’ultima volta ieri} other {Fatto l’ultima volta # giorni fa}}',

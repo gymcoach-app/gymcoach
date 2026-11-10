@@ -74,6 +74,11 @@ export const settings = {
     unit: 'Jednostka ciężaru',
     unitDescription:
       'Zmienia sposób wyświetlania i wpisywania ciężarów. Dane są zawsze zapisywane w kg, więc zmiana nigdy nie wpływa na wcześniejsze sesje.',
+    effortScale: 'Skala wysiłku',
+    effortScaleDescription:
+      'Zmienia sposób wyświetlania i wpisywania wysiłku. Serie zawsze zapisują powtórzenia w zapasie (RPE = 10 - RIR), więc zmiana nigdy nie wpływa na wcześniejsze sesje.',
+    effortRir: 'RIR (powtórzenia w zapasie)',
+    effortRpe: 'RPE (odczuwany wysiłek)',
     notSet: 'Nie ustawiono',
     fixFields: 'Popraw zaznaczone pola.',
     saved: 'Profil zaktualizowany.',

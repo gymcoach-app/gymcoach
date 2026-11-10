@@ -6,6 +6,7 @@ import { lastDoneAtByExercise } from '@/lib/last-done';
 import { READINESS_RECENCY_HOURS, type ReadinessSignal } from '@/lib/progression';
 import { isDeloadActive } from '@/lib/deload';
 import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-history';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
 import { blockIndexByRow, occurrenceCounts } from '@/lib/exercise-blocks';
@@ -58,7 +59,7 @@ export default async function SessionRunPage(props: Props) {
   });
   const userPromise = db.user.findUnique({
     where: { id: auth.userId },
-    select: { unit: true, deloadUntil: true, bodyweight: true },
+    select: { unit: true, effortScale: true, deloadUntil: true, bodyweight: true },
   });
   const [lastPerformances, user, latestCheckin, returnRecommendations, catalog] = await Promise.all([
     getLastPerformances(auth.userId, exerciseIds, session.id, blocks),
@@ -111,18 +112,20 @@ export default async function SessionRunPage(props: Props) {
   const lastDoneAt = lastDoneAtByExercise(exerciseIds, lastPerformances);
 
   return (
-    <SessionRunner
-      session={session}
-      lastPerformances={lastPerfRecord}
-      lastDoneAt={lastDoneAt}
-      returnRecommendations={returnRecommendations}
-      readiness={readiness}
-      deloadActive={deloadActive}
-      unit={user?.unit ?? 'KG'}
-      initialProgramExerciseId={searchParams.programExerciseId}
-      catalog={catalog}
-      userId={auth.userId}
-    />
+    <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
+      <SessionRunner
+        session={session}
+        lastPerformances={lastPerfRecord}
+        lastDoneAt={lastDoneAt}
+        returnRecommendations={returnRecommendations}
+        readiness={readiness}
+        deloadActive={deloadActive}
+        unit={user?.unit ?? 'KG'}
+        initialProgramExerciseId={searchParams.programExerciseId}
+        catalog={catalog}
+        userId={auth.userId}
+      />
+    </EffortScaleProvider>
   );
 }
 

@@ -18,6 +18,8 @@ import {
 import { ProgramExerciseFormDialog } from '@/components/programs/program-exercise-form-dialog';
 import { exerciseCategoryMessageKeys, muscleGroupMessageKeys } from '@/i18n/enum-keys';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { formatEffort } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 
 type ProgramExerciseWithExercise = ProgramExercise & { exercise: Exercise };
 
@@ -40,6 +42,7 @@ export function ProgramExerciseRow({
   onUnpair = null,
 }: Props) {
   const t = useTranslations('programs.exercise');
+  const effortScale = useEffortScale();
   const exerciseT = useTranslations('exercises');
   const common = useTranslations('common');
   const exerciseName = useExerciseName();
@@ -100,7 +103,7 @@ export function ProgramExerciseRow({
               {t('prescription', {
                 sets: programExercise.targetSets,
                 reps: repsLabel,
-                rir: programExercise.targetRIR,
+                effort: formatEffort(effortScale, programExercise.targetRIR),
                 seconds: programExercise.restSec,
               })}
               {programExercise.tempo && t('tempoValue', { tempo: programExercise.tempo })}

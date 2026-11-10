@@ -64,7 +64,7 @@ export const session = {
     recentReturnAfterGap:
       '虽然最近一次训练距离现在不久，但此前曾中断 {days} 天，因此仍需进行恢复训练校准。',
     muscleReintro: '主要目标肌群已超过六周没有正式组记录。本次训练将适当降低训练量和用力程度。',
-    targets: '今日组数：{sets}。目标 RIR：{rir}。',
+    targets: '今日组数：{sets}。目标 {scale}：{value}。',
     startWeight: '建议保守起始负重：{weight}。',
     bodyweightStart: '从自重开始，不增加额外负重。',
     chooseLoad: '第一组请选择明显偏轻的负重，以评估当前状态。',
@@ -115,6 +115,9 @@ export const session = {
     load: '负重（{unit}）',
     reps: '次数',
     repsInReserve: 'RIR（剩余可完成次数）',
+    perceivedExertion: 'RPE（自觉用力程度）',
+    effortLevel:
+      '{rir, plural, =0 {已无剩余次数} other {还能做 # 次}}',
     dropSet: '递减组',
     warmup: '热身组',
     note: '简短备注（选填）',
@@ -184,6 +187,7 @@ export const session = {
     weight: '第 {number} 组负重（{unit}）',
     reps: '第 {number} 组重复次数',
     rir: '第 {number} 组 RIR',
+    rpe: '第 {number} 组 RPE',
     confirm: '确认第 {number} 组',
     applyRecommendation: '将建议应用到第 {number} 组',
     undo: '撤销第 {number} 组',
@@ -255,7 +259,7 @@ export const session = {
     notAvailable: '当前健身房没有此器械',
     cardioPrescription: '{sets, plural, other {# 组}} · 休息 {seconds} 秒',
     strengthPrescription:
-      '{sets} 组 × {reps} 次 · RIR {rir} · 休息 {seconds} 秒{tempo, select, none {} other { · 节奏 {tempo}}}',
+      '{sets} 组 × {reps} 次 · {effort} · 休息 {seconds} 秒{tempo, select, none {} other { · 节奏 {tempo}}}',
     lastSession: '上次训练（{date}）',
     lastDone: '{days, plural, =0 {今天完成过} =1 {昨天完成过} other {上次完成于 # 天前}}',
     lastDoneNever: '从未完成过',

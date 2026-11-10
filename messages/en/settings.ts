@@ -70,6 +70,11 @@ export const settings = {
     unit: 'Weight unit',
     unitDescription:
       'Changes how weights are shown and entered. Your data is always stored in kg, so switching never alters past sessions.',
+    effortScale: 'Effort scale',
+    effortScaleDescription:
+      'Changes how effort is shown and entered. Sets always store reps in reserve (RPE = 10 - RIR), so switching never alters past sessions.',
+    effortRir: 'RIR (reps in reserve)',
+    effortRpe: 'RPE (perceived exertion)',
     notSet: 'Not set',
     fixFields: 'Please fix the highlighted fields.',
     saved: 'Profile updated.',

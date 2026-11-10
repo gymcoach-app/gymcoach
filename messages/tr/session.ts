@@ -67,7 +67,7 @@ export const session = {
       'Son seans yakın zamanda yapıldı ama {days} günlük bir aradan sonra geldi, bu yüzden dönüş modu hâlâ açık.',
     muscleReintro:
       'Ana kas için altı haftadan uzun süredir kayıtlı çalışma seti yok. Bu seansta hacim ve efor düşürüldü.',
-    targets: 'Bugünkü setler: {sets}. Hedef RIR: {rir}.',
+    targets: 'Bugünkü setler: {sets}. Hedef {scale}: {value}.',
     startWeight: 'Temkinli başlangıç ağırlığı: {weight}.',
     bodyweightStart: 'Ek ağırlık olmadan, vücut ağırlığıyla başla.',
     chooseLoad: 'İlk set için bilerek hafif bir deneme ağırlığı seç.',
@@ -121,6 +121,9 @@ export const session = {
     load: 'Ağırlık ({unit})',
     reps: 'Tekrar',
     repsInReserve: 'RIR (yedekteki tekrar)',
+    perceivedExertion: 'RPE (algılanan efor)',
+    effortLevel:
+      '{rir, plural, =0 {Yedekte tekrar yok} other {Yedekte # tekrar}}',
     dropSet: 'Drop set',
     warmup: 'Isınma',
     note: 'Kısa not (isteğe bağlı)',
@@ -191,6 +194,7 @@ export const session = {
     weight: 'Set {number} ağırlığı ({unit})',
     reps: 'Set {number} tekrarı',
     rir: 'Set {number} RIR (yedekteki tekrar)',
+    rpe: 'Set {number} RPE (algılanan efor)',
     confirm: 'Onayla: set {number}',
     applyRecommendation: 'Öneriyi uygula: set {number}',
     undo: 'Geri al: set {number}',
@@ -267,7 +271,7 @@ export const session = {
     notAvailable: 'Bu salonda yok',
     cardioPrescription: '{sets, plural, one {# set} other {# set}} · Dinlenme {seconds} sn',
     strengthPrescription:
-      '{sets} set × {reps} tekrar · RIR {rir} · Dinlenme {seconds} sn{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} set × {reps} tekrar · {effort} · Dinlenme {seconds} sn{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Son seans ({date})',
     lastDone:
       '{days, plural, =0 {En son bugün yapıldı} =1 {En son dün yapıldı} one {En son # gün önce yapıldı} other {En son # gün önce yapıldı}}',

@@ -21,6 +21,8 @@ import { suggestNextWeight, weightIncrement, type ReadinessSignal } from '@/lib/
 import { formatDuration, MAX_DISTANCE_M, parseDurationToSec } from '@/lib/cardio';
 import { parseSetShorthand, rpeToRir } from '@/lib/set-shorthand';
 import type { SetParseResult } from '@/lib/schemas/set-parse';
+import { effortOptions, effortTone, effortValue, formatEffort, type EffortTone } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import { PlateCalculator } from '@/components/session/plate-calculator';
 import { WarmupCalculator } from '@/components/session/warmup-calculator';
 import type { PendingSet } from '@/lib/indexeddb';
@@ -73,6 +75,15 @@ interface FormState {
 
 const RIR_OPTIONS = [0, 1, 2, 3];
 
+// Colour band under each effort chip (issue #390), keyed on the stored RIR so
+// RIR 0 and RPE 10 share the same colour.
+const EFFORT_TONE_CLASSES: Record<EffortTone, string> = {
+  max: 'border-b-rose-500',
+  hard: 'border-b-orange-500',
+  moderate: 'border-b-amber-500',
+  easy: 'border-b-emerald-500',
+};
+
 // The validated parse the API returns (issue #210). Re-using the schema's type
 // keeps the client's narrowing in lockstep with the server contract.
 type ParsedSetFill = SetParseResult;
@@ -93,6 +104,7 @@ export function SetInput({
   const t = useTranslations('session.input');
   const autoT = useTranslations('session.autoregulation');
   const common = useTranslations('common');
+  const effortScale = useEffortScale();
   // Pre-fill: last set of this exercise in the current session,
   // otherwise the last performance, otherwise defaults.
   const initial = computeInitial(
@@ -317,7 +329,7 @@ export function SetInput({
               {unit === 'LB'
                 ? roundWeight(toDisplayWeight(recommendation.weight, unit), 1)
                 : recommendation.weight}{' '}
-              {unitLabel(unit)} × {recommendation.reps} · RIR {recommendation.rir}
+              {unitLabel(unit)} × {recommendation.reps} · {formatEffort(effortScale, recommendation.rir)}
             </p>
             <p className="text-xs text-muted-foreground">
               {autoT(`reasons.${recommendation.reason}`)}
@@ -558,24 +570,32 @@ export function SetInput({
               </div>
             </div>
 
-            {/* RIR */}
+            {/* Effort: RIR or RPE chips (issue #390). The form always holds
+                the RIR; the scale only changes the number on each chip. */}
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-                {t('repsInReserve')}
+                {effortScale === 'RPE' ? t('perceivedExertion') : t('repsInReserve')}
               </Label>
-              <div className="grid grid-cols-4 gap-2">
-                {RIR_OPTIONS.map((opt) => (
+              <div className="grid grid-cols-4 gap-2" data-testid="effort-chips">
+                {effortOptions(effortScale, RIR_OPTIONS).map((opt) => (
                   <Button
                     key={opt}
                     type="button"
                     variant={form.rir === opt ? 'default' : 'outline'}
+                    aria-pressed={form.rir === opt}
+                    title={t('effortLevel', { rir: opt })}
                     onClick={() => setForm((f) => ({ ...f, rir: opt }))}
-                    className="min-h-tap text-lg font-semibold"
+                    className={`min-h-tap border-b-4 text-lg font-semibold ${EFFORT_TONE_CLASSES[effortTone(opt)]}`}
                   >
-                    {opt}
+                    {effortValue(effortScale, opt)}
                   </Button>
                 ))}
               </div>
+              {form.rir != null && (
+                <p data-testid="effort-level-label" className="text-xs text-muted-foreground">
+                  {formatEffort(effortScale, form.rir)}: {t('effortLevel', { rir: form.rir })}
+                </p>
+              )}
             </div>
 
             {/* Toggles */}

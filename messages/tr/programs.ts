@@ -109,7 +109,7 @@ export const programs = {
     pairPrevious: 'Öncekiyle eşle',
     unpair: 'Süperseti ayır',
     superset: 'Süperset {label}',
-    prescription: '{sets} set × {reps} tekrar · RIR {rir} · dinlenme {seconds} sn',
+    prescription: '{sets} set × {reps} tekrar · {effort} · dinlenme {seconds} sn',
     tempoValue: ' · tempo {tempo}',
   },
   print: {
@@ -124,7 +124,7 @@ export const programs = {
     reps: 'Tekrar',
     rir: 'RIR',
     notes: 'Notlar',
-    planLine: '{sets} x {min}-{max} tekrar, RIR {rir}',
+    planLine: '{sets} x {min}-{max} tekrar, {effort}',
     rest: 'Dinlenme {seconds} sn',
     tempo: 'Tempo {tempo}',
     empty: 'Bu seansta egzersiz yok.',

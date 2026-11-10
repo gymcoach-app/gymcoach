@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { REST_ADJUST_STEP_MS, restRemainingMs } from '@/lib/rest-timer';
 import { playRestEndBeep } from '@/lib/sound';
 import { formatWeight } from '@/lib/units';
+import { formatEffort } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import type { WeightUnit } from '@/lib/prisma-client';
 import type { IntraSetRecommendation } from '@/lib/intra-set-autoregulation';
 
@@ -43,6 +45,7 @@ export function RestTimer({
   const t = useTranslations('session.rest');
   const autoT = useTranslations('session.autoregulation');
   const locale = useLocale();
+  const effortScale = useEffortScale();
   const [now, setNow] = useState(() => Date.now());
   const endedRef = useRef(false);
 
@@ -106,7 +109,7 @@ export function RestTimer({
                 group: false,
                 locale,
               })}{' '}
-              × {recommendation.reps} · RIR {recommendation.rir}
+              × {recommendation.reps} · {formatEffort(effortScale, recommendation.rir)}
             </p>
             <p className="text-xs text-muted-foreground">
               {autoT(`reasons.${recommendation.reason}`)}

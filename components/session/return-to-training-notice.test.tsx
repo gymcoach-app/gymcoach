@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { ReturnRecommendation } from '@/lib/return-to-training';
 import { ReturnToTrainingNotice } from './return-to-training-notice';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 
 const recommendation: ReturnRecommendation = {
   mode: 'exercise-reintro',
@@ -38,5 +39,16 @@ describe('ReturnToTrainingNotice', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Sets today: 2. Target RIR: 3.')).toBeInTheDocument();
     expect(screen.getByText('Conservative starting load: 60 kg.')).toBeInTheDocument();
+  });
+});
+
+describe('ReturnToTrainingNotice effort scale (issue #390)', () => {
+  it('states the effort target as RPE when the lifter uses RPE', () => {
+    render(
+      <EffortScaleProvider scale="RPE">
+        <ReturnToTrainingNotice recommendation={recommendation} unit="KG" usesBodyweight={false} />
+      </EffortScaleProvider>,
+    );
+    expect(screen.getByText('Sets today: 2. Target RPE: 7.')).toBeInTheDocument();
   });
 });

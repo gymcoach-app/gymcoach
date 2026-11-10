@@ -67,7 +67,7 @@ export const session = {
       'Ostatnia sesja była niedawno, ale po {days} dniach przerwy, więc tryb powrotu nadal obowiązuje.',
     muscleReintro:
       'Główny mięsień nie ma zapisanych serii roboczych od ponad sześciu tygodni. Objętość i wysiłek w tej sesji są obniżone.',
-    targets: 'Serie dziś: {sets}. Docelowy RIR: {rir}.',
+    targets: 'Serie dziś: {sets}. Docelowy {scale}: {value}.',
     startWeight: 'Ostrożny ciężar na start: {weight}.',
     bodyweightStart: 'Zacznij od masy ciała, bez dodatkowego ciężaru.',
     chooseLoad: 'Na pierwszą serię wybierz celowo lekki ciężar próbny.',
@@ -121,6 +121,9 @@ export const session = {
     load: 'Ciężar ({unit})',
     reps: 'Powtórzenia',
     repsInReserve: 'RIR (powtórzenia w zapasie)',
+    perceivedExertion: 'RPE (odczuwany wysiłek)',
+    effortLevel:
+      '{rir, plural, =0 {Brak powtórzeń w zapasie} one {# powtórzenie w zapasie} few {# powtórzenia w zapasie} many {# powtórzeń w zapasie} other {# powtórzenia w zapasie}}',
     dropSet: 'Drop set',
     warmup: 'Rozgrzewka',
     note: 'Krótka notatka (opcjonalnie)',
@@ -191,6 +194,7 @@ export const session = {
     weight: 'Ciężar serii {number} w {unit}',
     reps: 'Powtórzenia serii {number}',
     rir: 'Powtórzenia w zapasie serii {number}',
+    rpe: 'Odczuwany wysiłek serii {number}',
     confirm: 'Potwierdź serię {number}',
     applyRecommendation: 'Zastosuj zalecenie do serii {number}',
     undo: 'Cofnij serię {number}',
@@ -268,7 +272,7 @@ export const session = {
     cardioPrescription:
       '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} · Przerwa {seconds} s',
     strengthPrescription:
-      '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} × {reps} powt. · RIR {rir} · Przerwa {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} × {reps} powt. · {effort} · Przerwa {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Poprzednia sesja ({date})',
     lastDone:
       '{days, plural, =0 {Ostatnio dziś} =1 {Ostatnio wczoraj} one {Ostatnio # dzień temu} few {Ostatnio # dni temu} many {Ostatnio # dni temu} other {Ostatnio # dnia temu}}',

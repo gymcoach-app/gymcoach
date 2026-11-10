@@ -74,6 +74,11 @@ export const settings = {
     unit: 'Gewichtseenheid',
     unitDescription:
       'Bepaalt hoe gewichten worden getoond en ingevoerd. Je gegevens worden altijd in kg opgeslagen, dus wisselen verandert nooit je eerdere sessies.',
+    effortScale: 'Inspanningsschaal',
+    effortScaleDescription:
+      'Bepaalt hoe inspanning wordt getoond en ingevoerd. Sets slaan altijd de herhalingen in reserve op (RPE = 10 - RIR), dus wisselen verandert nooit je eerdere sessies.',
+    effortRir: 'RIR (herhalingen in reserve)',
+    effortRpe: 'RPE (ervaren inspanning)',
     notSet: 'Niet ingesteld',
     fixFields: 'Verbeter de gemarkeerde velden.',
     saved: 'Profiel bijgewerkt.',

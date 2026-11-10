@@ -73,6 +73,11 @@ export const settings = {
     unit: 'Ağırlık birimi',
     unitDescription:
       'Ağırlıkların nasıl gösterilip girildiğini değiştirir. Verilerin her zaman kg olarak saklanır, bu yüzden birim değiştirmek geçmiş seansları asla etkilemez.',
+    effortScale: 'Efor ölçeği',
+    effortScaleDescription:
+      'Eforun nasıl gösterilip girildiğini değiştirir. Setler her zaman yedekteki tekrarı saklar (RPE = 10 - RIR), bu yüzden ölçek değiştirmek geçmiş seansları asla etkilemez.',
+    effortRir: 'RIR (yedekteki tekrar)',
+    effortRpe: 'RPE (algılanan efor)',
     notSet: 'Belirlenmedi',
     fixFields: 'Lütfen işaretli alanları düzelt.',
     saved: 'Profil güncellendi.',

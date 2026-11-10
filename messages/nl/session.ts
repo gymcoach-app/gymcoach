@@ -68,7 +68,7 @@ export const session = {
       'Je laatste sessie was recent, maar kwam na een pauze van {days} dagen, dus de herstart blijft actief.',
     muscleReintro:
       'De primaire spier heeft al meer dan zes weken geen gelogde werksets. Volume en inspanning zijn voor deze sessie verlaagd.',
-    targets: 'Sets vandaag: {sets}. Doel-RIR: {rir}.',
+    targets: 'Sets vandaag: {sets}. Doel-{scale}: {value}.',
     startWeight: 'Voorzichtig startgewicht: {weight}.',
     bodyweightStart: 'Begin met je lichaamsgewicht, zonder extra gewicht.',
     chooseLoad: 'Kies voor de eerste set bewust een licht gewicht om af te tasten.',
@@ -123,6 +123,9 @@ export const session = {
     load: 'Gewicht ({unit})',
     reps: 'Herhalingen',
     repsInReserve: 'RIR (herhalingen in reserve)',
+    perceivedExertion: 'RPE (ervaren inspanning)',
+    effortLevel:
+      '{rir, plural, =0 {Geen herhalingen in reserve} one {# herhaling in reserve} other {# herhalingen in reserve}}',
     dropSet: 'Dropset',
     warmup: 'Opwarmset',
     note: 'Korte notitie (optioneel)',
@@ -193,6 +196,7 @@ export const session = {
     weight: 'Gewicht van set {number} in {unit}',
     reps: 'Herhalingen van set {number}',
     rir: 'Herhalingen in reserve van set {number}',
+    rpe: 'Ervaren inspanning van set {number}',
     confirm: 'Set {number} bevestigen',
     applyRecommendation: 'Advies toepassen op set {number}',
     undo: 'Set {number} ongedaan maken',
@@ -271,7 +275,7 @@ export const session = {
     notAvailable: 'Niet beschikbaar in deze sportschool',
     cardioPrescription: '{sets, plural, one {# set} other {# sets}} · Rust {seconds}s',
     strengthPrescription:
-      '{sets} sets × {reps} herh. · RIR {rir} · Rust {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
+      '{sets} sets × {reps} herh. · {effort} · Rust {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Vorige sessie ({date})',
     lastDone:
       '{days, plural, =0 {Vandaag voor het laatst gedaan} =1 {Gisteren voor het laatst gedaan} other {# dagen geleden voor het laatst gedaan}}',

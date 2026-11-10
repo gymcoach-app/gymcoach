@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
+import { EffortScale, Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
 import { profileUpdateSchema, COACH_NOTE_MAX_LEN } from './profile';
 
 // Validation coverage for the self-service profile update schema (issue #199).
@@ -176,5 +176,17 @@ describe('profileUpdateSchema', () => {
 
   it('exposes COACH_NOTE_MAX_LEN as the shared 500-char limit', () => {
     expect(COACH_NOTE_MAX_LEN).toBe(500);
+  });
+});
+
+describe('profileUpdateSchema effortScale (issue #390)', () => {
+  it('accepts both effort scales', () => {
+    expect(profileUpdateSchema.parse({ effortScale: EffortScale.RPE }).effortScale).toBe('RPE');
+    expect(profileUpdateSchema.parse({ effortScale: EffortScale.RIR }).effortScale).toBe('RIR');
+  });
+
+  it('rejects an unknown scale and null (the column is not nullable)', () => {
+    for (const bad of ['rpe', 'BORG', 8, null])
+      expect(profileUpdateSchema.safeParse({ effortScale: bad }).success).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import {
   sumCardioWorkingSets,
 } from '@/lib/cardio';
 import { formatWeight } from '@/lib/units';
+import { formatEffortValue } from '@/lib/effort';
 import { formatWorkoutText } from '@/lib/workout-text';
 import { blockKey, distinctExerciseCount } from '@/lib/exercise-blocks';
 import { CopyWorkoutButton } from '@/components/history/copy-workout-button';
@@ -83,7 +84,7 @@ export default async function HistorySessionPage(props: Params) {
     }),
     db.user.findUnique({
       where: { id: auth.userId },
-      select: { bodyweight: true, unit: true },
+      select: { bodyweight: true, unit: true, effortScale: true },
     }),
   ]);
 
@@ -92,6 +93,8 @@ export default async function HistorySessionPage(props: Params) {
   }
   const bodyweight = user?.bodyweight ?? null;
   const unit = user?.unit ?? 'KG';
+  // Effort is stored as RIR; the column follows the user's scale (issue #390).
+  const effortScale = user?.effortScale ?? 'RIR';
 
   // Group sets by exercise (keeping the order of the first set per exercise).
   // A later block of a deliberately repeated exercise (issue #429, 5/3/1 BBB)
@@ -426,7 +429,7 @@ export default async function HistorySessionPage(props: Params) {
                               <th className="py-1.5 font-medium">#</th>
                               <th className="py-1.5 font-medium">{detail('load')}</th>
                               <th className="py-1.5 font-medium">{detail('reps')}</th>
-                              <th className="py-1.5 font-medium">RIR</th>
+                              <th className="py-1.5 font-medium">{effortScale}</th>
                               <th className="py-1.5 font-medium">{detail('type')}</th>
                             </tr>
                           </thead>
@@ -474,7 +477,7 @@ export default async function HistorySessionPage(props: Params) {
                                     )}
                                   </td>
                                   <td className="py-1.5">{s.reps}</td>
-                                  <td className="py-1.5">{s.rir ?? '-'}</td>
+                                  <td className="py-1.5">{formatEffortValue(effortScale, s.rir)}</td>
                                   <td className="py-1.5 text-xs">
                                     {s.isWarmup
                                       ? detail('warmup')

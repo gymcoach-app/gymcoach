@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditableSetsTable } from './editable-sets-table';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 import type { PendingSet } from '@/lib/indexeddb';
 import type { IntraSetRecommendation } from '@/lib/intra-set-autoregulation';
 
@@ -833,6 +834,77 @@ describe('EditableSetsTable', () => {
       expect(
         screen.getAllByRole('combobox', { name: /set 2 reps in reserve/i })[0],
       ).toHaveTextContent('2'),
+    );
+  });
+});
+
+describe('EditableSetsTable effort scale (issue #390)', () => {
+  const lastPerformance = {
+    sessionStartedAt: '2026-06-01T12:00:00.000Z',
+    sets: [
+      { weight: 100, reps: 8, rir: 2 },
+      { weight: 100, reps: 8, rir: 1 },
+      { weight: 100, reps: 7, rir: 0 },
+    ],
+    maxWeight: 100,
+    repsAtMaxWeight: 8,
+    cardio: null,
+  };
+
+  function renderTable(scale: 'RIR' | 'RPE', onSubmit = vi.fn().mockResolvedValue(undefined)) {
+    render(
+      <EffortScaleProvider scale={scale}>
+        <EditableSetsTable
+          programExercise={programExercise}
+          sets={[]}
+          lastPerformance={lastPerformance}
+          readiness={null}
+          deloadActive={false}
+          unit="KG"
+          onSubmit={onSubmit}
+          onDeleteSet={vi.fn()}
+          onUpdateSet={vi.fn()}
+        />
+      </EffortScaleProvider>,
+    );
+    return { onSubmit };
+  }
+
+  it('keeps the RIR header, label and values by default', () => {
+    renderTable('RIR');
+    expect(screen.getByTestId('effort-header')).toHaveTextContent('RIR');
+    expect(screen.getByRole('combobox', { name: 'Set 1 reps in reserve' })).toHaveTextContent('2');
+  });
+
+  it('shows RPE in the header, the active row and the previous-session rows', () => {
+    renderTable('RPE');
+    expect(screen.getByTestId('effort-header')).toHaveTextContent('RPE');
+    expect(screen.queryByRole('combobox', { name: 'Set 1 reps in reserve' })).toBeNull();
+    // The active row is pre-filled from the last session's first set: RIR 2.
+    expect(screen.getByRole('combobox', { name: 'Set 1 perceived exertion' })).toHaveTextContent(
+      '8',
+    );
+  });
+
+  it('offers RPE 5 to 10 and submits the RIR behind the picked value', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderTable('RPE');
+
+    await user.click(screen.getByRole('combobox', { name: 'Set 1 perceived exertion' }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      '-',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+      '10',
+    ]);
+    await user.click(screen.getByRole('option', { name: '9' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm set 1' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ reps: 8, rir: 1 })),
     );
   });
 });

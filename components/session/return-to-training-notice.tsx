@@ -5,6 +5,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { WeightUnit } from '@/lib/prisma-client';
 import type { ReturnRecommendation } from '@/lib/return-to-training';
 import { formatWeight } from '@/lib/units';
+import { effortValue } from '@/lib/effort';
+import { useEffortScale } from '@/components/shared/effort-scale-provider';
 
 interface Props {
   recommendation: ReturnRecommendation | null | undefined;
@@ -15,6 +17,7 @@ interface Props {
 export function ReturnToTrainingNotice({ recommendation, unit, usesBodyweight }: Props) {
   const t = useTranslations('session.returnToTraining');
   const locale = useLocale();
+  const effortScale = useEffortScale();
   if (!recommendation || recommendation.mode === 'normal') return null;
 
   const preservedPriorGap =
@@ -44,7 +47,8 @@ export function ReturnToTrainingNotice({ recommendation, unit, usesBodyweight }:
           <p className="font-medium">
             {t('targets', {
               sets: recommendation.targetSets,
-              rir: recommendation.targetRIR,
+              scale: effortScale,
+              value: effortValue(effortScale, recommendation.targetRIR),
             })}
           </p>
           {recommendation.suggestedWeight != null ? (

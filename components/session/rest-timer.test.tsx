@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { RestTimer } from '@/components/session/rest-timer';
+import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 
 vi.mock('@/lib/sound', () => ({ playRestEndBeep: vi.fn() }));
 
@@ -99,5 +100,36 @@ describe('RestTimer controls (issue #393)', () => {
     });
 
     expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('RestTimer effort scale (issue #390)', () => {
+  it('shows the next-set effort as RPE when the lifter uses RPE', () => {
+    render(
+      <EffortScaleProvider scale="RPE">
+        <RestTimer
+          endsAt={Date.now() + 120_000}
+          totalSec={120}
+          nextLabel="Back Squat"
+          unit="KG"
+          onEnd={vi.fn()}
+          onSkip={vi.fn()}
+          onPause={vi.fn()}
+          onResume={vi.fn()}
+          onAdjust={vi.fn()}
+          recommendation={{
+            mode: 'PRESERVE_REPS',
+            weight: 97.5,
+            reps: 12,
+            rir: 2,
+            reason: 'reduce-load',
+            predictedRepsAtSameLoad: 11,
+            fatigueLoss: 1,
+            confidence: 'medium',
+          }}
+        />
+      </EffortScaleProvider>,
+    );
+    expect(screen.getByText(/× 12 · RPE 8/i)).toBeInTheDocument();
   });
 });

@@ -29,6 +29,10 @@ model User {
   // Preferred weight unit for display and input. Data is always stored in kg;
   // this only affects the presentation layer. Default keeps existing users on kg.
   unit              WeightUnit         @default(KG)
+  // Preferred effort scale for display and input (issue #390). Effort is always
+  // stored as RIR on the set; this only affects the presentation layer. Default
+  // keeps existing users on RIR.
+  effortScale       EffortScale        @default(RIR)
   // End of the user's planned deload week (issue #112). While this timestamp
   // is in the future, load suggestions apply the planned-deload step-down.
   // Null or in the past = no planned deload (backward-safe additive column).
@@ -106,6 +110,13 @@ enum Sex {
 enum WeightUnit {
   KG
   LB
+}
+
+// How effort is shown and entered (issue #390). Storage is always Set.rir;
+// RPE is a presentation of it (RPE = 10 - RIR).
+enum EffortScale {
+  RIR
+  RPE
 }
 
 enum TrainingGoal {

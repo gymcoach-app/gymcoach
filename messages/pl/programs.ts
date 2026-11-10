@@ -111,7 +111,7 @@ export const programs = {
     unpair: 'Rozłącz superserię',
     superset: 'Superseria {label}',
     prescription:
-      '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} × {reps} powt. · RIR {rir} · przerwa {seconds} s',
+      '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} × {reps} powt. · {effort} · przerwa {seconds} s',
     tempoValue: ' · tempo {tempo}',
   },
   print: {
@@ -126,7 +126,7 @@ export const programs = {
     reps: 'Powt.',
     rir: 'RIR',
     notes: 'Notatki',
-    planLine: '{sets} x {min}-{max} powt., RIR {rir}',
+    planLine: '{sets} x {min}-{max} powt., {effort}',
     rest: 'Przerwa {seconds} s',
     tempo: 'Tempo {tempo}',
     empty: 'Brak ćwiczeń w tej sesji.',
