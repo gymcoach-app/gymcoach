@@ -13,6 +13,7 @@ export const dashboard = {
   emptyProgramDescription: 'Bu programda henüz seans yok: {name}.',
   configureProgram: 'Programı ayarla',
   startSession: 'Seans başlat',
+  startEmpty: 'Boş seans başlat',
   activeProgram: 'Aktif program: {name}',
   chooseSession: 'Bir seans seç',
   programSessions: 'Programdaki seanslar',

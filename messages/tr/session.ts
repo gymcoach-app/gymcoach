@@ -11,6 +11,17 @@ export const session = {
   noSessionDescription: 'Başlamadan önce egzersizleri olan en az bir seans ekle.',
   configureProgram: 'Programı ayarla',
   startThis: 'Bu seansı başlat',
+  startEmpty: 'Boş seans başlat',
+  startEmptyDescription: 'Program gerekmez. Antrenman sırasında kataloğundan egzersiz ekle.',
+  freestyleSession: 'Serbest seans',
+  freestyleEmptyTitle: 'İlk egzersizini ekle',
+  freestyleEmptyDescription:
+    'Kayda başlamak için bir egzersiz seç. Diğerlerini egzersiz menüsünden ekleyebilirsin.',
+  freestyleDiscard: 'Bu boş seansı sil',
+  freestyleDiscardError: 'Seans silinemedi.',
+  freestyleDiscardConfirm: 'Bu seans silinsin mi? İçinde kayıtlı bir şey yok.',
+  freestyleLoggedSets:
+    '{count, plural, other {Bu seansta # set zaten kaydedildi}}. Özette görmek için seansı bitir.',
   starting: 'Başlatılıyor...',
   startError: 'Seans başlatılamadı.',
   trainingGym: 'Bu seansın spor salonu',
@@ -262,6 +273,14 @@ export const session = {
     replaceError: 'Egzersiz değiştirilemedi.',
     added: 'Egzersiz eklendi.',
     addError: 'Egzersiz eklenemedi.',
+    freestyleScope:
+      'Bu yalnızca şu anki seansı değiştirir. Kayıtlı programların olduğu gibi kalır.',
+    freestyleReplaceConfirm: 'Bu egzersiz şu anki seansta değiştirilsin mi?',
+    freestyleReplaceLoggedWarning:
+      'Kaydedilen setler geçmişte eski egzersizin altında kalır, ancak bu ekranda artık gösterilmez. Değiştirilsin mi?',
+    freestyleRemoveConfirm: 'Bu egzersiz şu anki seanstan kaldırılsın mı?',
+    freestyleRemoveLoggedWarning:
+      'Kaydedilen setler geçmişte kalır, ancak bu ekranda artık gösterilmez. Egzersiz kaldırılsın mı?',
     duplicate: 'Bu egzersiz zaten bu antrenmanda.',
     removed: 'Egzersiz kaldırıldı.',
     removeError: 'Egzersiz kaldırılamadı.',

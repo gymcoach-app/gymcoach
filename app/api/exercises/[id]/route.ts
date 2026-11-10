@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@/prisma/generated/client';
 import { db } from '@/lib/db';
 import { exerciseFavoriteSchema, exerciseInputSchema } from '@/lib/schemas/exercise';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
@@ -78,7 +79,25 @@ export async function DELETE(_req: Request, props: Params) {
       );
     }
 
-    await db.exercise.delete({ where: { id: params.id, userId } });
+    // A freestyle session (issue #388) may still list the exercise without a
+    // logged set. That row carries no history, so it goes with the exercise
+    // instead of blocking the delete on its foreign key.
+    try {
+      await db.$transaction([
+        db.sessionExercise.deleteMany({
+          where: { exerciseId: params.id, session: { userId } },
+        }),
+        db.exercise.delete({ where: { id: params.id, userId } }),
+      ]);
+    } catch (err) {
+      // A row that came to reference the exercise after the usage check above
+      // (a set, a program row or a freestyle list row written concurrently)
+      // fails the foreign key: the same refusal as the check, not a 500.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+        throw new ApiError(409, 'Exercise used in a program or in history. Remove it first.');
+      }
+      throw err;
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return handleApiError(err);

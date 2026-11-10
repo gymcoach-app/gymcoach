@@ -11,6 +11,18 @@ export const session = {
   noSessionDescription: 'Ajoutez au moins une séance avec des exercices avant de démarrer.',
   configureProgram: 'Configurer le programme',
   startThis: 'Démarrer cette séance',
+  startEmpty: 'Démarrer une séance vide',
+  startEmptyDescription:
+    'Pas besoin de programme. Ajoutez des exercices de votre catalogue pendant l’entraînement.',
+  freestyleSession: 'Séance libre',
+  freestyleEmptyTitle: 'Ajoutez votre premier exercice',
+  freestyleEmptyDescription:
+    'Choisissez un exercice pour commencer à enregistrer. Vous pourrez en ajouter d’autres depuis le menu de l’exercice.',
+  freestyleDiscard: 'Abandonner cette séance vide',
+  freestyleDiscardError: 'Impossible d’abandonner la séance.',
+  freestyleDiscardConfirm: 'Abandonner cette séance ? Rien n’y est enregistré.',
+  freestyleLoggedSets:
+    '{count, plural, one {# série est déjà enregistrée} other {# séries sont déjà enregistrées}} dans cette séance. Terminez-la pour les voir dans le récapitulatif.',
   starting: 'Démarrage...',
   startError: 'Impossible de démarrer la séance.',
   trainingGym: 'Salle pour cette séance',
@@ -269,6 +281,14 @@ export const session = {
     replaceError: 'Impossible de remplacer l’exercice.',
     added: 'Exercice ajouté.',
     addError: 'Impossible d’ajouter l’exercice.',
+    freestyleScope:
+      'Cela ne modifie que la séance en cours. Vos programmes enregistrés ne changent pas.',
+    freestyleReplaceConfirm: 'Remplacer cet exercice dans la séance en cours ?',
+    freestyleReplaceLoggedWarning:
+      'Les séries déjà enregistrées restent dans votre historique sous l’exercice d’origine, mais ne sont plus affichées sur cet écran. Le remplacer ?',
+    freestyleRemoveConfirm: 'Retirer cet exercice de la séance en cours ?',
+    freestyleRemoveLoggedWarning:
+      'Les séries déjà enregistrées restent dans l’historique, mais ne sont plus affichées sur cet écran. Retirer l’exercice ?',
     duplicate: 'Cet exercice est déjà dans cette séance.',
     removed: 'Exercice supprimé.',
     removeError: 'Impossible de supprimer l’exercice.',

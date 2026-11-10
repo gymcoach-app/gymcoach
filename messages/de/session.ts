@@ -11,6 +11,18 @@ export const session = {
   noSessionDescription: 'Füge mindestens eine Einheit mit Übungen hinzu, bevor du startest.',
   configureProgram: 'Programm konfigurieren',
   startThis: 'Diese Einheit starten',
+  startEmpty: 'Leere Einheit starten',
+  startEmptyDescription:
+    'Kein Programm nötig. Füge beim Training Übungen aus deinem Katalog hinzu.',
+  freestyleSession: 'Freie Einheit',
+  freestyleEmptyTitle: 'Füge deine erste Übung hinzu',
+  freestyleEmptyDescription:
+    'Wähle eine Übung, um mit dem Eintragen zu beginnen. Weitere fügst du über das Übungsmenü hinzu.',
+  freestyleDiscard: 'Diese leere Einheit verwerfen',
+  freestyleDiscardError: 'Die Einheit konnte nicht verworfen werden.',
+  freestyleDiscardConfirm: 'Diese Einheit verwerfen? Es ist nichts darin eingetragen.',
+  freestyleLoggedSets:
+    '{count, plural, one {# Satz ist} other {# Sätze sind}} in dieser Einheit bereits eingetragen. Beende sie, um sie in der Zusammenfassung zu sehen.',
   starting: 'Startet...',
   startError: 'Einheit konnte nicht gestartet werden.',
   trainingGym: 'Gym für diese Einheit',
@@ -266,6 +278,14 @@ export const session = {
     replaceError: 'Übung konnte nicht ersetzt werden.',
     added: 'Übung hinzugefügt.',
     addError: 'Übung konnte nicht hinzugefügt werden.',
+    freestyleScope:
+      'Das ändert nur die aktuelle Einheit. Deine gespeicherten Programme bleiben unverändert.',
+    freestyleReplaceConfirm: 'Diese Übung in der aktuellen Einheit ersetzen?',
+    freestyleReplaceLoggedWarning:
+      'Bereits eingetragene Sätze bleiben im Verlauf unter der ursprünglichen Übung, werden hier aber nicht mehr angezeigt. Ersetzen?',
+    freestyleRemoveConfirm: 'Diese Übung aus der aktuellen Einheit entfernen?',
+    freestyleRemoveLoggedWarning:
+      'Bereits eingetragene Sätze bleiben im Verlauf, werden hier aber nicht mehr angezeigt. Übung entfernen?',
     duplicate: 'Diese Übung ist bereits in diesem Workout.',
     removed: 'Übung entfernt.',
     removeError: 'Übung konnte nicht entfernt werden.',

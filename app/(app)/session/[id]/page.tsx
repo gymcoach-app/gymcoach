@@ -10,6 +10,7 @@ import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
 import { blockIndexByRow, occurrenceCounts } from '@/lib/exercise-blocks';
+import { toRunnerExercises } from '@/lib/freestyle';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -33,6 +34,8 @@ export default async function SessionRunPage(props: Props) {
           },
         },
       },
+      // Freestyle sessions (issue #388) keep their own exercise list.
+      exercises: { orderBy: { order: 'asc' }, include: { exercise: true } },
       sets: { orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }] },
       gym: { include: liveSessionGymInclude },
     },
@@ -44,14 +47,27 @@ export default async function SessionRunPage(props: Props) {
     // to the session history page.
     redirect('/');
   }
-  if (!session.workout) notFound();
+  // A session without a workout is a freestyle session (issue #388): the
+  // runner gets the session's own list in the shape of a workout. The same
+  // path serves an open session whose workout was deleted, which starts from
+  // an empty list instead of a 404.
+  const freestyle = session.workout == null;
+  const workout = session.workout ?? {
+    id: '',
+    programId: '',
+    name: '',
+    dayOfWeek: null,
+    order: 0,
+    program: null,
+    exercises: toRunnerExercises(session.exercises),
+  };
 
-  const exerciseIds = session.workout.exercises.map((pe) => pe.exerciseId);
+  const exerciseIds = workout.exercises.map((pe) => pe.exerciseId);
   // One extra lookup per block of a deliberately repeated exercise (issue
   // #429), so each block's "last session" and suggestion read its own sets.
-  const rowBlocks = blockIndexByRow(session.workout.exercises);
-  const counts = occurrenceCounts(session.workout.exercises);
-  const blocks = session.workout.exercises.flatMap((pe) => {
+  const rowBlocks = blockIndexByRow(workout.exercises);
+  const counts = occurrenceCounts(workout.exercises);
+  const blocks = workout.exercises.flatMap((pe) => {
     const block = rowBlocks.get(pe.id);
     return block == null
       ? []
@@ -71,7 +87,7 @@ export default async function SessionRunPage(props: Props) {
     userPromise.then((resolvedUser) =>
       getReturnToTrainingRecommendations({
         userId: auth.userId,
-        programExercises: session.workout!.exercises,
+        programExercises: workout.exercises,
         excludeSessionId: session.id,
         now: session.startedAt,
         bodyweight: resolvedUser?.bodyweight ?? null,
@@ -114,7 +130,8 @@ export default async function SessionRunPage(props: Props) {
   return (
     <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
       <SessionRunner
-        session={session}
+        session={{ ...session, workout }}
+        freestyle={freestyle}
         lastPerformances={lastPerfRecord}
         lastDoneAt={lastDoneAt}
         returnRecommendations={returnRecommendations}

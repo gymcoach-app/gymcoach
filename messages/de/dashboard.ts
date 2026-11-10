@@ -13,6 +13,7 @@ export const dashboard = {
   emptyProgramDescription: '{name} hat keine konfigurierte Einheit.',
   configureProgram: 'Programm konfigurieren',
   startSession: 'Einheit starten',
+  startEmpty: 'Leere Einheit starten',
   activeProgram: 'Aktives Programm: {name}',
   chooseSession: 'Einheit wählen',
   programSessions: 'Programmeinheiten',
