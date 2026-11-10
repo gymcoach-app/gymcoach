@@ -131,12 +131,17 @@ on your own key - all self-hosted.
 
 ### Log and train
 
-- **Fast set logging** - sets, reps, RIR, warm-ups and drop sets, with shorthand
-  quick entry (`100x8@9`) and natural-language entry parsed by the AI.
+- **Fast set logging** - sets, reps, RIR (or RPE, a per-user setting), warm-ups
+  and drop sets, with shorthand quick entry (`100x8@9`) and natural-language
+  entry parsed by the AI.
 - **In-logger tools** - a rest timer, a plate-loading calculator that draws the
   per-side load on a barbell, and a warm-up ramp calculator, right where you log.
 - **Rest timer controls** - pause, -15/+15 s, and an optional screen flash when
   the rest ends.
+- **Switch exercises freely** - move to any exercise in the session at any
+  time, even while resting; each exercise keeps its own rest timer running in
+  the background, and the strip shows which ones are resting, in progress or
+  done.
 - **A weight picker that knows your gym** - the weight and reps fields open a
   drum-style picker limited to the loads your equipment can actually make, with
   a barbell preview of the pending load; nothing changes until you press Apply,
@@ -178,7 +183,7 @@ on your own key - all self-hosted.
   machine's selectable weights can be corrected from the live session itself,
   without touching the item's name, type or exercise links.
 - **Quality-of-life** - kilograms or pounds per user, an interface in English,
-  French, Russian, German, Spanish, Portuguese, Italian, Dutch, Polish or Turkish (extensible message catalogs), multi-user with strict
+  French, Russian, German, Spanish, Portuguese, Italian, Dutch, Polish, Turkish or Simplified Chinese (extensible message catalogs), multi-user with strict
   per-user data isolation, and an installable PWA with offline logging. On a
   shared device, logging out or logging in clears the cached pages and API
   responses of the previous user, and a successful logout also deletes their
@@ -509,7 +514,7 @@ than CI reaching in to a small VPS.
 - [x] Free-text (AI-parsed) set logging (opt-in "Parse with AI" fills the set
       form from plain language; you confirm before it logs)
 - [x] Progress photos (local-only upload with side-by-side compare)
-- [x] Interface localization (English, French, Russian, German, Spanish, Portuguese, Italian, Dutch, Polish and Turkish, extensible message
+- [x] Interface localization (English, French, Russian, German, Spanish, Portuguese, Italian, Dutch, Polish, Turkish and Simplified Chinese, extensible message
       catalogs)
 - [x] Muscle heat map (body silhouettes tinted by weekly volume vs MEV/MRV)
 - [x] Physical gym equipment inventory, with the equipment used recorded on
@@ -532,6 +537,8 @@ than CI reaching in to a small VPS.
       session
 - [x] Self-hosting guide (reverse proxies, HTTPS on a LAN, backups, upgrades)
       and an FAQ
+- [x] Free exercise switching in a live session with a rest timer per exercise
+- [x] RPE as an alternative effort scale to RIR
 
 ## Contributing
 
@@ -574,12 +581,23 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   (#432). Then a weights-only save for a gym equipment item that leaves its
   name, type and exercise links alone (#470), and a per-block split of a
   repeated lift's sets in the in-session coach context (#488), and tests that
-  pin the eval harness's test-globals screen (#504).
+  pin the eval harness's test-globals screen (#504). Then a series that makes
+  the eval harness's graded-declaration self-check read code rather than text
+  (#523, #533, #547, #549).
 - [@f1dot4](https://github.com/f1dot4) - first contribution: updating the
   current bodyweight from an MCP client, through a user-properties tool built
   to take more properties later (#477). Then the German interface (#497),
   German exercise names (#499) and exercise ids in the coach and MCP week
-  summaries (#510).
+  summaries (#510). Then a fix for sets shown twice after a reload mid-workout
+  (#541), Podman support for the test database (#543), and free exercise
+  switching with a rest timer per exercise (#544).
+- [@sapatmohit](https://github.com/sapatmohit) - six interface languages in
+  three days: Spanish (#513), Portuguese (#516), Italian (#518), Dutch (#532),
+  Polish (#535) and Turkish (#537), each with its exercise names, plus the
+  decimal comma in the plate list (#522).
+- [@XiaoMingMingBai](https://github.com/XiaoMingMingBai) - the Simplified
+  Chinese interface (#545), with Chinese exercise and program names and
+  mobile layout fixes.
 - [@anhaoXie](https://github.com/anhaoXie) - wrote the self-hosting guide and
   the FAQ (#505): reverse proxies, HTTPS on a home network, backups, restores
   and upgrades. Reviewing it also surfaced two app fixes (#507, #508).

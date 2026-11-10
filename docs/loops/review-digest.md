@@ -999,3 +999,42 @@ lessons L48 to L52, `ship-pr` step 4, "Verdict etiquette" in
 (follow-ups with coverage tests), #504 (tests only), #507 (compose pass-through with a
 test), #505, #509, #511 (docs; the guide's snippets were run against compose in #509),
 the docs here.
+
+## 2026-11-10 - security hardening, seven languages, free exercise switching, RPE
+
+Merged: **#513**, **#515**, **#516**, **#518**, **#519**, **#520**, **#532**, **#534**,
+**#535**, **#536**, **#537**, **#538**, **#545** (interface languages and polish),
+**#517** (lens routing), **#522**, **#526** (decimal comma), **#530**, **#531**
+(security), **#540** (docs), **#541** (offline hydration), **#543** (Podman), **#546**
+(CI runner pin), **#544**, **#548** (free switching), **#523**, **#533**, **#547**,
+**#549** (eval self-check), **#550** (RPE). In this PR: changelog fold, lesson L53,
+"Verdict etiquette" in `10-external-contributions.md`, evidence, README.
+
+**Read first:**
+
+1. **#543 - unvetted code in a script the gate runs.** `gh pr diff 543`.
+   `scripts/test-db.sh` (group B) now detects Docker or Podman and runs whichever it finds
+   on every `verify.sh --full`; it sits next to the hard-coded test-URL guard that keeps
+   migrations off a dev or production database.
+2. **#531, #530 - who gets refused, and what got upgraded.** `gh pr diff 531`, then
+   `gh pr diff 530`. Body caps and the coach-debrief limit change what every route
+   accepts; `TRUSTED_PROXY_HOPS=0` lets one client block every login, by design. #530
+   moves Next.js, the MCP SDK and Prisma and rewrites `package-lock.json`.
+3. **#541 - offline sets on reload.** `gh pr diff 541`. `lib/sync-hydration.ts` now
+   deletes synced local rows before writing the server copies, in one transaction; a
+   mistake there loses a set or an unsynced edit.
+4. **#550 - a schema column and the effort numbers.** `gh pr diff 550`. Additive
+   migration; RPE is converted at the edges (`lib/effort.ts`), storage stays RIR, backup
+   format v9. A wrong conversion shifts every logged effort by the scale.
+5. **#544, #548 - the session runner's state model.** `gh pr diff 544`, then
+   `gh pr diff 548`. One global mode became a per-exercise state map with one background
+   timer; superset transitions and auto-advance depend on it.
+6. **#517 - the merge gate decides which lenses are required.** `gh pr diff 517`. A wrong
+   path-to-lens rule lets an external group A PR merge without a security record.
+7. **#545 and the language PRs - unvetted text in group A.** `gh pr diff 545`. Strings
+   reach the UI and generated names; check none carries markup or a link. Rollback tags
+   `autonomy-baseline-2026-10-26` to `-2026-10-31`.
+
+**Trust the gate (lower risk):** #515, #519, #520, #534, #536 (wording polish), #538
+(search folding with tests), #522, #526 (parser with tests), #523, #533, #547, #549
+(test-only, mutation-checked), #546 (runner pin), #540 and the docs here.
