@@ -436,6 +436,7 @@ Set one provider in `.env`:
 | --------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `anthropic` (default) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`                    | Defaults to `claude-opus-4-7`. `claude-sonnet-4-6` and `claude-haiku-4-5` trade some coaching quality for lower cost.                                    |
 | `openrouter`          | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`                  | Any model on OpenRouter, for example `anthropic/claude-sonnet-4.5`. Reasoning models need `OPENROUTER_MAX_TOKENS`, a floor on each call's output budget. |
+| `openai-compatible`   | `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`   | Any OpenAI Chat Completions server: Ollama, LM Studio, vLLM, llama.cpp server, or another gateway. See [a local model](#run-the-coach-on-a-local-model). |
 | `codex-lb`            | `CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`, `CODEX_LB_MODEL` | Any OpenAI Responses-compatible endpoint; include `/v1` in the base URL.                                                                                 |
 | `demo`                | none                                                      | Canned replies. Useful to click through the AI screens without a key.                                                                                    |
 
@@ -444,11 +445,51 @@ number in a repository: [Anthropic pricing](https://www.anthropic.com/pricing)
 and [OpenRouter models](https://openrouter.ai/models) (each model page lists its
 input and output price).
 
+### Run the coach on a local model
+
+`LLM_PROVIDER=openai-compatible` talks to any server that speaks the OpenAI Chat
+Completions API, so the training data in the prompt goes only to the host you
+name. With [Ollama](https://ollama.com) on the same machine as the container:
+
+```bash
+# .env
+LLM_PROVIDER=openai-compatible
+OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:11434/v1
+OPENAI_COMPATIBLE_MODEL=llama3.1
+```
+
+- `OPENAI_COMPATIBLE_BASE_URL` includes the `/v1` path. It must be an `http` or
+  `https` URL with no `user:password@` part and no query string; anything else
+  is refused with a message on the coach screens, before any request is sent.
+  LM Studio listens on `http://host.docker.internal:1234/v1` by default, vLLM
+  and the llama.cpp server on port `8000` and `8080`.
+- `OPENAI_COMPATIBLE_MODEL` is the exact model name on that server (for Ollama,
+  a name from `ollama list`). There is no default.
+- `OPENAI_COMPATIBLE_API_KEY` is optional. Most local servers need none, and
+  without it no `Authorization` header is sent. Set it for a gateway that
+  wants a Bearer token.
+- `OPENAI_COMPATIBLE_MAX_TOKENS` is an optional floor on each call's output
+  budget, for reasoning models whose thinking counts against it.
+
+Ollama only accepts connections from the machine itself by default. For the
+container to reach it, start it with `OLLAMA_HOST=0.0.0.0` (and keep port 11434
+closed to the outside), or run Ollama as another Compose service and use its
+service name in the base URL.
+
+What to expect from a small model: the chat works with almost anything. The
+weekly debrief's suggested program changes, program generation and the
+free-text set parser ask the model for strict JSON, and every reply is
+validated before it is applied. A model that returns malformed or out-of-range
+JSON never corrupts a program: the suggestion is dropped, generation answers
+with an error, or the set field stays empty. For those three features use a
+capable model (a recent 30B-class model or larger, or a hosted one); models of
+a few billion parameters often fail them.
+
 Two things surprise self-hosters:
 
 - **`localhost` inside the container is the container.** A model server on the
-  host is reachable at `http://host.docker.internal:8317/v1`, not at
-  `http://127.0.0.1:8317/v1`. On Linux that name only resolves when the app
+  host is reachable at `http://host.docker.internal:<port>/v1`, not at
+  `http://127.0.0.1:<port>/v1`. On Linux that name only resolves when the app
   service declares it; the current `docker-compose.yml` already does
   (`extra_hosts: ['host.docker.internal:host-gateway']`), so only a copy
   downloaded before October 2026 needs that line added.

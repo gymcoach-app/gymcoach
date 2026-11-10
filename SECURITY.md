@@ -12,9 +12,11 @@ on a fix as quickly as we reasonably can.
 GymCoach is self-hosted. Operators are responsible for:
 
 - Setting a strong, unique `JWT_SECRET` (at least 32 characters).
-- Keeping their LLM provider API key (`ANTHROPIC_API_KEY` or
-  `OPENROUTER_API_KEY`) secret. Note that the AI coach sends the user's
-  training data to the configured provider.
+- Keeping their LLM provider API key (`ANTHROPIC_API_KEY`,
+  `OPENROUTER_API_KEY` or `OPENAI_COMPATIBLE_API_KEY`) secret. Note that the AI
+  coach sends the user's training data to the configured provider, which with
+  `LLM_PROVIDER=openai-compatible` is whatever host
+  `OPENAI_COMPATIBLE_BASE_URL` names.
 - Running the app behind HTTPS (a reverse proxy such as Nginx, Caddy or
   Traefik) in production.
 - Keeping dependencies up to date (`npm audit`).

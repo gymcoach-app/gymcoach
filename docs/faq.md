@@ -141,14 +141,19 @@ program generation and the free-text set parser.
 
 ### Can I use a local model?
 
-Only if your server exposes the OpenAI Responses API, which `LLM_PROVIDER=codex-lb`
-speaks (`CODEX_LB_BASE_URL`, include `/v1`). A server that only offers the older
-Chat Completions API will not work. If the server runs on the same machine as the
-container, point the base URL at `http://host.docker.internal:8317/v1`: inside the
-container, `localhost` is the container itself. The current prebuilt compose file
-already maps `host.docker.internal` and forwards the `CODEX_LB_*` variables; a
-copy downloaded before October 2026 may need both added, see
-[choose a model](self-hosting.md#choose-a-model-for-the-ai-coach). The `demo`
+Yes. `LLM_PROVIDER=openai-compatible` talks to any server that speaks the OpenAI
+Chat Completions API (Ollama, LM Studio, vLLM, llama.cpp server): set
+`OPENAI_COMPATIBLE_BASE_URL` (include `/v1`) and `OPENAI_COMPATIBLE_MODEL`; a key
+is optional. If the server runs on the same machine as the container, point the
+base URL at `http://host.docker.internal:11434/v1` (Ollama's port): inside the
+container, `localhost` is the container itself. A server that exposes the OpenAI
+Responses API instead works with `LLM_PROVIDER=codex-lb` (`CODEX_LB_BASE_URL`).
+The chat works with almost any model; suggested program changes, program
+generation and the free-text set parser need a capable one, because they ask for
+strict JSON that is validated before it is applied. The current prebuilt compose
+file already maps `host.docker.internal` and forwards these variables; an older
+copy may need both added, see
+[a local model](self-hosting.md#run-the-coach-on-a-local-model). The `demo`
 provider gives canned answers with no key and is the quickest way to try the AI
 screens.
 

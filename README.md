@@ -4,8 +4,8 @@
 
 **The self-hosted workout tracker with an AI coach that actually knows your training.**
 
-Log every set, see what is working, and get weekly coaching from Claude or any
-OpenRouter model - on your own server, with your own key. Free, open source, no
+Log every set, see what is working, and get weekly coaching from Claude, any
+OpenRouter model or a local model - on your own server, with your own key. Free, open source, no
 subscription.
 
 [![GitHub stars](https://img.shields.io/github/stars/gymcoach-app/gymcoach?style=for-the-badge&logo=github&color=24292f)](https://github.com/gymcoach-app/gymcoach/stargazers)
@@ -77,7 +77,8 @@ docker compose up -d
 
 Open <http://localhost:3000> and create your account. To turn the coach on, add
 `ANTHROPIC_API_KEY=...` (or `LLM_PROVIDER=openrouter` with `OPENROUTER_API_KEY`
-and `OPENROUTER_MODEL`) to `.env` and run `docker compose up -d` again. Every
+and `OPENROUTER_MODEL`, or a
+[local model](docs/self-hosting.md#run-the-coach-on-a-local-model)) to `.env` and run `docker compose up -d` again. Every
 option is documented at the top of
 [`docker-compose.selfhost.yml`](docker-compose.selfhost.yml); reaching the app
 over plain HTTP from another machine needs `SESSION_COOKIE_SECURE=false` (Safari
@@ -241,8 +242,9 @@ on your own key - all self-hosted.
   before saving.
 - **Explainable by design** - a "What your coach sees" card shows the exact
   structured context the AI receives.
-- **Your provider** - Anthropic SDK or any OpenRouter model. With no key set,
-  the app is still a clean, fast tracker.
+- **Your provider** - Anthropic SDK, any OpenRouter model, or any
+  OpenAI-compatible server such as a local Ollama, LM Studio or vLLM. With no
+  key set, the app is still a clean, fast tracker.
 
 ### Programs and exercises
 
@@ -286,7 +288,7 @@ on your own key - all self-hosted.
 
 - Frontend: Next.js 15 (App Router), TypeScript strict, Tailwind CSS, Shadcn UI
 - Backend: Next.js API routes, Prisma ORM, PostgreSQL 16
-- AI: pluggable LLM provider (Anthropic SDK or OpenRouter)
+- AI: pluggable LLM provider (Anthropic SDK, OpenRouter, or any OpenAI-compatible server)
 - Infra: Docker and Docker Compose
 
 ## Principles
@@ -311,7 +313,7 @@ The app:
 
 The AI layer:
 
-- A single provider interface (`lib/llm`) sits in front of the Anthropic SDK, any OpenRouter model, or an OpenAI Responses-compatible `codex-lb` endpoint. You pick one with the `LLM_PROVIDER` env var; the rest of the app does not care which.
+- A single provider interface (`lib/llm`) sits in front of the Anthropic SDK, any OpenRouter model, any OpenAI Chat Completions-compatible server (`openai-compatible`: Ollama, LM Studio, vLLM), or an OpenAI Responses-compatible `codex-lb` endpoint. You pick one with the `LLM_PROVIDER` env var; the rest of the app does not care which.
 - For every AI call the server builds a compact, structured payload (your profile + recent sessions + active program + per-exercise progression) instead of dumping raw rows, then:
   - Weekly debrief and program adjustments: one completion that returns markdown plus an optional structured block of suggested changes, validated with Zod before anything touches your program.
   - Chat coach: the same context plus your conversation, streamed back token by token.
@@ -333,7 +335,7 @@ The AI layer:
   </tr>
 </table>
 
-> These clips use the built-in `demo` provider (canned responses, no key). Point `LLM_PROVIDER` at Anthropic, OpenRouter, or `codex-lb` for the real thing.
+> These clips use the built-in `demo` provider (canned responses, no key). Point `LLM_PROVIDER` at Anthropic, OpenRouter, a local model or `codex-lb` for the real thing.
 
 ## Requirements
 
@@ -503,6 +505,7 @@ than CI reaching in to a small VPS.
 
 - [x] Single user MVP (logging, progress, weekly AI debrief, program adjustments)
 - [x] Pluggable LLM provider (Anthropic SDK or OpenRouter, switchable via env)
+- [x] Local models through any OpenAI-compatible server (Ollama, LM Studio, vLLM)
 - [x] Multi user support (registration, profiles, data isolation)
 - [x] AI program generation from a natural language goal
 - [x] Conversational AI coach (streaming chat with your training context)
