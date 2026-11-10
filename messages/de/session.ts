@@ -20,6 +20,9 @@ export const session = {
     'Wähle eine Übung, um mit dem Eintragen zu beginnen. Weitere fügst du über das Übungsmenü hinzu.',
   freestyleDiscard: 'Diese leere Einheit verwerfen',
   freestyleDiscardError: 'Die Einheit konnte nicht verworfen werden.',
+  freestyleDiscardConfirm: 'Diese Einheit verwerfen? Es ist nichts darin eingetragen.',
+  freestyleLoggedSets:
+    '{count, plural, one {# Satz ist} other {# Sätze sind}} in dieser Einheit bereits eingetragen. Beende sie, um sie in der Zusammenfassung zu sehen.',
   starting: 'Startet...',
   startError: 'Einheit konnte nicht gestartet werden.',
   trainingGym: 'Gym für diese Einheit',

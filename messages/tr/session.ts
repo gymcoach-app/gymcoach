@@ -19,6 +19,9 @@ export const session = {
     'Kayda başlamak için bir egzersiz seç. Diğerlerini egzersiz menüsünden ekleyebilirsin.',
   freestyleDiscard: 'Bu boş seansı sil',
   freestyleDiscardError: 'Seans silinemedi.',
+  freestyleDiscardConfirm: 'Bu seans silinsin mi? İçinde kayıtlı bir şey yok.',
+  freestyleLoggedSets:
+    '{count, plural, other {Bu seansta # set zaten kaydedildi}}. Özette görmek için seansı bitir.',
   starting: 'Başlatılıyor...',
   startError: 'Seans başlatılamadı.',
   trainingGym: 'Bu seansın spor salonu',
@@ -274,7 +277,7 @@ export const session = {
       'Bu yalnızca şu anki seansı değiştirir. Kayıtlı programların olduğu gibi kalır.',
     freestyleReplaceConfirm: 'Bu egzersiz şu anki seansta değiştirilsin mi?',
     freestyleReplaceLoggedWarning:
-      'Kaydedilen setler geçmişte ilk egzersizin altında kalır, ancak bu ekranda artık gösterilmez. Değiştirilsin mi?',
+      'Kaydedilen setler geçmişte eski egzersizin altında kalır, ancak bu ekranda artık gösterilmez. Değiştirilsin mi?',
     freestyleRemoveConfirm: 'Bu egzersiz şu anki seanstan kaldırılsın mı?',
     freestyleRemoveLoggedWarning:
       'Kaydedilen setler geçmişte kalır, ancak bu ekranda artık gösterilmez. Egzersiz kaldırılsın mı?',

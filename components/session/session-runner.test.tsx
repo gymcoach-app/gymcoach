@@ -811,11 +811,15 @@ describe('SessionRunner freestyle session', () => {
     },
   ] as RunnerProps['catalog'];
 
-  function freestyleRunner(rows: Array<ProgramExercise & { exercise: Exercise }>, freestyle = true) {
+  function freestyleRunner(
+    rows: Array<ProgramExercise & { exercise: Exercise }>,
+    freestyle = true,
+    serverSets: unknown[] = [],
+  ) {
     const session = {
       id: 's1',
       workout: { id: '', name: '', program: null, exercises: rows },
-      sets: [],
+      sets: serverSets,
       gym: null,
     } as unknown as RunnerProps['session'];
     return (
@@ -838,7 +842,7 @@ describe('SessionRunner freestyle session', () => {
     vi.stubGlobal('fetch', fetchMock);
     await renderRunner(freestyleRunner([]));
 
-    expect(screen.getByRole('heading', { name: 'Freestyle session' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Free session' })).toBeInTheDocument();
     expect(screen.getByText('Add your first exercise')).toBeInTheDocument();
     expect(screen.queryByText('No exercises in this session.')).not.toBeInTheDocument();
 
@@ -847,18 +851,61 @@ describe('SessionRunner freestyle session', () => {
     expect(fetchMock.mock.calls[0]![0]).toBe('/api/sessions/s1/exercises');
   });
 
-  it('offers to discard an empty session with nothing logged', async () => {
+  it('discards an empty session only after a confirmation, through the guarded route', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response);
     vi.stubGlobal('fetch', fetchMock);
     await renderRunner(freestyleRunner([]));
 
     expect(screen.queryByRole('button', { name: 'Finish' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Discard this empty session' }));
+    // First tap only asks.
+    expect(screen.getByText('Discard this session? Nothing is logged in it.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Cancel goes back without a request.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Discard this session? Nothing is logged in it.')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard this empty session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard this empty session' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-    expect(fetchMock.mock.calls[0]).toEqual(['/api/sessions/s1', { method: 'DELETE' }]);
+    // The server refuses this form when the session holds sets.
+    expect(fetchMock.mock.calls[0]).toEqual(['/api/sessions/s1?discardEmpty=1', { method: 'DELETE' }]);
   });
 
-  it('offers to finish, not to discard, once a set is logged and the list is empty again', async () => {
+  it('does not offer to discard before the local sets are hydrated', () => {
+    // Plain render, no awaited effects: the live query is still at its empty
+    // default, which says nothing about what the session holds.
+    render(freestyleRunner([]));
+    expect(screen.getByText('Add your first exercise')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Discard this empty session' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('never offers to discard when the server holds sets the local store does not show', async () => {
+    // IndexedDB unavailable or behind: the live query is empty, the page
+    // props are not. Offering a discard here would delete those sets.
+    harness.liveSets = [];
+    await renderRunner(
+      freestyleRunner([], true, [
+        { id: 'set-1', sessionId: 's1', exerciseId: 'bench', setNumber: 1, ...loggedSet },
+        { id: 'set-2', sessionId: 's1', exerciseId: 'bench', setNumber: 2, ...loggedSet },
+      ]),
+    );
+
+    expect(
+      screen.queryByRole('button', { name: 'Discard this empty session' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Finish' })).toBeInTheDocument();
+    // The sets are named, so an emptied list does not read as lost data.
+    expect(screen.getByTestId('freestyle-logged-sets')).toHaveTextContent(
+      '2 sets are already logged in this session.',
+    );
+  });
+
+  it('offers to finish, not to discard, once a set is logged locally and the list is empty again', async () => {
     harness.liveSets = [
       { localId: 'l1', sessionId: 's1', exerciseId: 'bench', setNumber: 1, ...loggedSet },
     ];
@@ -868,12 +915,26 @@ describe('SessionRunner freestyle session', () => {
     expect(
       screen.queryByRole('button', { name: 'Discard this empty session' }),
     ).not.toBeInTheDocument();
+    expect(screen.getByTestId('freestyle-logged-sets')).toHaveTextContent(
+      '1 set is already logged in this session.',
+    );
+  });
+
+  it('refreshes instead of leaving when the server refuses the discard', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 409 } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    await renderRunner(freestyleRunner([]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard this empty session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard this empty session' }));
+    await waitFor(() => expect(harness.refresh).toHaveBeenCalledOnce());
+    expect(screen.queryByText('Discard this session? Nothing is logged in it.')).not.toBeInTheDocument();
   });
 
   it('runs the list like a workout and points the menu at the session', async () => {
     await renderRunner(freestyleRunner([row('bench', 1)]));
 
-    expect(screen.getByText('Freestyle session')).toBeInTheDocument();
+    expect(screen.getByText('Free session')).toBeInTheDocument();
     expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-bench');
     expect((menu() as MenuProps & { freestyleSessionId?: string }).freestyleSessionId).toBe('s1');
   });
@@ -888,6 +949,6 @@ describe('SessionRunner freestyle session', () => {
     expect(
       (menu() as MenuProps & { freestyleSessionId?: string }).freestyleSessionId,
     ).toBeUndefined();
-    expect(screen.queryByText('Freestyle session')).not.toBeInTheDocument();
+    expect(screen.queryByText('Free session')).not.toBeInTheDocument();
   });
 });

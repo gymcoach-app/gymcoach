@@ -1,5 +1,10 @@
--- Freestyle sessions (issue #388). Additive: a new table holding the exercise
--- list of a session started without a workout. No existing row is touched.
+-- Freestyle sessions (issue #388). Additive: a marker column on Session and a
+-- new table holding the exercise list of a session started without a
+-- workout. No existing row is rewritten.
+-- AlterTable: marks a session started without a workout. Existing sessions
+-- keep the default (false).
+ALTER TABLE "Session" ADD COLUMN "freestyle" BOOLEAN NOT NULL DEFAULT false;
+
 -- CreateTable
 CREATE TABLE "SessionExercise" (
     "id" TEXT NOT NULL,
@@ -17,6 +22,9 @@ CREATE TABLE "SessionExercise" (
 
 -- CreateIndex
 CREATE INDEX "SessionExercise_sessionId_order_idx" ON "SessionExercise"("sessionId", "order");
+
+-- CreateIndex
+CREATE INDEX "SessionExercise_exerciseId_idx" ON "SessionExercise"("exerciseId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "SessionExercise_sessionId_exerciseId_key" ON "SessionExercise"("sessionId", "exerciseId");

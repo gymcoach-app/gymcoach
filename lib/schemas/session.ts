@@ -29,6 +29,13 @@ export const sessionExerciseInputSchema = z
     path: ['targetRepsMax'],
   });
 
+// Query of DELETE /api/sessions/[id]. `discardEmpty=1` is the "discard this
+// empty session" action of the live runner (issue #388): the server then
+// refuses a session that holds sets, whatever the client believed.
+export const sessionDeleteQuerySchema = z.object({
+  discardEmpty: z.literal('1').optional(),
+});
+
 export type SessionExerciseInput = z.infer<typeof sessionExerciseInputSchema>;
 export type SessionStart = z.infer<typeof sessionStartSchema>;
 export type SessionUpdate = z.infer<typeof sessionUpdateSchema>;

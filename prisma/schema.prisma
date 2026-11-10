@@ -302,9 +302,13 @@ model Session {
   gymId      String?
   gym        Gym?      @relation(fields: [gymId], references: [id], onDelete: SetNull)
   sets       Set[]
-  // Freestyle sessions (issue #388): a session started without a workout
-  // keeps its own exercise list here, so adding or removing an exercise never
-  // touches a saved program. Always empty for a session run from a workout.
+  // Freestyle sessions (issue #388): true for a session started without a
+  // workout. A NULL workoutId alone does not say that: an imported session
+  // and a session whose workout or program was deleted have none either.
+  freestyle  Boolean   @default(false)
+  // A freestyle session keeps its own exercise list here, so adding or
+  // removing an exercise never touches a saved program. Always empty for a
+  // session run from a workout.
   exercises  SessionExercise[]
 
   @@index([userId, startedAt])
@@ -328,6 +332,7 @@ model SessionExercise {
 
   @@unique([sessionId, exerciseId])
   @@index([sessionId, order])
+  @@index([exerciseId])
 }
 
 model Gym {

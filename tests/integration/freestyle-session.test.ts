@@ -15,7 +15,11 @@ vi.mock('@/lib/auth', () => ({ getCurrentUserId: vi.fn() }));
 const mockUserId = vi.mocked(getCurrentUserId);
 
 import { POST as startSession } from '@/app/api/sessions/route';
-import { GET as getSession, PUT as putSession } from '@/app/api/sessions/[id]/route';
+import {
+  GET as getSession,
+  PUT as putSession,
+  DELETE as deleteSession,
+} from '@/app/api/sessions/[id]/route';
 import { POST as addSet } from '@/app/api/sessions/[id]/sets/route';
 import { POST as addSessionExercise } from '@/app/api/sessions/[id]/exercises/route';
 import {
@@ -82,7 +86,12 @@ describe('POST /api/sessions without a workout (issue #388)', () => {
     const first = await startFreestyle(user.id);
     expect(first.res.status).toBe(201);
     const stored = await db.session.findUniqueOrThrow({ where: { id: first.session.id } });
-    expect(stored).toMatchObject({ userId: user.id, workoutId: null, programId: null });
+    expect(stored).toMatchObject({
+      userId: user.id,
+      workoutId: null,
+      programId: null,
+      freestyle: true,
+    });
     expect(stored.finishedAt).toBeNull();
 
     // A second start (double tap, reload) returns the same open session.
@@ -136,6 +145,40 @@ describe('POST /api/sessions without a workout (issue #388)', () => {
     expect((await again.json()).id).toBe(planned.id);
   });
 
+  it('does not resume an open session orphaned by a deleted program', async () => {
+    const { user, bench } = await seedUser('free-orphan@test.dev');
+    const program = await db.program.create({
+      data: { userId: user.id, name: 'P', phase: 'Base', isActive: true },
+    });
+    const workout = await db.workout.create({
+      data: { programId: program.id, name: 'Push', order: 1 },
+    });
+    await db.programExercise.create({
+      data: { workoutId: workout.id, exerciseId: bench.id, order: 1, ...targets },
+    });
+    actAs(user.id);
+    const planned = await (await startSession(jsonReq('POST', { workoutId: workout.id }))).json();
+    expect(planned.freestyle).toBe(false);
+    // Deleting the program leaves the open session with no workout and no
+    // program: the same columns as a freestyle session, but it is not one.
+    await db.program.delete({ where: { id: program.id } });
+    expect(await db.session.findUniqueOrThrow({ where: { id: planned.id } })).toMatchObject({
+      workoutId: null,
+      programId: null,
+      freestyle: false,
+      finishedAt: null,
+    });
+
+    const free = await startFreestyle(user.id);
+    expect(free.res.status).toBe(201);
+    expect(free.session.id).not.toBe(planned.id);
+
+    // And the freestyle session itself is resumed next time, not the orphan.
+    const again = await startFreestyle(user.id);
+    expect(again.res.status).toBe(200);
+    expect(again.session.id).toBe(free.session.id);
+  });
+
   it("still refuses another user's workout", async () => {
     const owner = await seedUser('free-owner@test.dev');
     const stranger = await seedUser('free-stranger@test.dev');
@@ -149,6 +192,87 @@ describe('POST /api/sessions without a workout (issue #388)', () => {
     const res = await startSession(jsonReq('POST', { workoutId: workout.id }));
     expect(res.status).toBe(404);
     expect(await db.session.count()).toBe(0);
+  });
+});
+
+describe('DELETE /api/sessions/[id]?discardEmpty=1 (issue #388)', () => {
+  const discard = (id: string) =>
+    deleteSession(
+      new Request(`http://test.local/api/sessions/${id}?discardEmpty=1`, { method: 'DELETE' }),
+      idParams(id),
+    );
+
+  it('deletes a session that holds no set, list rows included', async () => {
+    const { user, bench } = await seedUser('discard-empty@test.dev');
+    const { session } = await startFreestyle(user.id);
+    await addSessionExercise(jsonReq('POST', { exerciseId: bench.id, ...targets }), idParams(session.id));
+
+    const res = await discard(session.id);
+    expect(res.status).toBe(200);
+    expect(await db.session.count({ where: { id: session.id } })).toBe(0);
+    expect(await db.sessionExercise.count()).toBe(0);
+  });
+
+  it('refuses with 409 a session that holds sets, and keeps everything', async () => {
+    const { user, bench } = await seedUser('discard-sets@test.dev');
+    const { session } = await startFreestyle(user.id);
+    const row = await (
+      await addSessionExercise(jsonReq('POST', { exerciseId: bench.id, ...targets }), idParams(session.id))
+    ).json();
+    await addSet(
+      jsonReq('POST', { exerciseId: bench.id, setNumber: 1, weight: 60, reps: 10, rir: 2 }),
+      idParams(session.id),
+    );
+    // The list is emptied after logging: the screen that offers the discard.
+    await deleteSessionExercise(new Request('http://test.local'), rowParams(session.id, row.id));
+
+    const res = await discard(session.id);
+    expect(res.status).toBe(409);
+    expect(await db.session.count({ where: { id: session.id } })).toBe(1);
+    expect(await db.set.count({ where: { sessionId: session.id } })).toBe(1);
+  });
+
+  it("answers 404 on another user's session and on an unknown one", async () => {
+    const owner = await seedUser('discard-owner@test.dev');
+    const stranger = await seedUser('discard-stranger@test.dev');
+    const { session } = await startFreestyle(owner.user.id);
+
+    actAs(stranger.user.id);
+    expect((await discard(session.id)).status).toBe(404);
+    expect((await discard('no-such-session')).status).toBe(404);
+    expect(await db.session.count({ where: { id: session.id } })).toBe(1);
+  });
+
+  it('rejects an unknown discardEmpty value without deleting', async () => {
+    const { user } = await seedUser('discard-query@test.dev');
+    const { session } = await startFreestyle(user.id);
+    for (const value of ['0', 'true', '']) {
+      const res = await deleteSession(
+        new Request(`http://test.local/api/sessions/${session.id}?discardEmpty=${value}`, {
+          method: 'DELETE',
+        }),
+        idParams(session.id),
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(await db.session.count({ where: { id: session.id } })).toBe(1);
+  });
+
+  it('leaves the plain delete unchanged: it removes a session with its sets', async () => {
+    const { user, bench } = await seedUser('discard-plain@test.dev');
+    const { session } = await startFreestyle(user.id);
+    await addSet(
+      jsonReq('POST', { exerciseId: bench.id, setNumber: 1, weight: 60, reps: 10, rir: 2 }),
+      idParams(session.id),
+    );
+
+    const res = await deleteSession(
+      new Request(`http://test.local/api/sessions/${session.id}`, { method: 'DELETE' }),
+      idParams(session.id),
+    );
+    expect(res.status).toBe(200);
+    expect(await db.session.count({ where: { id: session.id } })).toBe(0);
+    expect(await db.set.count()).toBe(0);
   });
 });
 
@@ -429,7 +553,11 @@ describe('readers of a freestyle session (issue #388)', () => {
     const dump = await (await getBackup()).json();
     expect(dump.version).toBe(10);
     expect(dump.sessions).toHaveLength(1);
-    expect(dump.sessions[0]).toMatchObject({ programName: null, workoutName: null });
+    expect(dump.sessions[0]).toMatchObject({
+      programName: null,
+      workoutName: null,
+      freestyle: true,
+    });
     expect(dump.sessions[0].exercises).toEqual([
       { exerciseName: 'Bench', order: 1, ...targets },
       { exerciseName: 'Curl', order: 2, ...targets, targetSets: 3 },
@@ -447,7 +575,12 @@ describe('readers of a freestyle session (issue #388)', () => {
         sets: { include: { exercise: true } },
       },
     });
-    expect(restored).toMatchObject({ workoutId: null, programId: null, finishedAt: null });
+    expect(restored).toMatchObject({
+      workoutId: null,
+      programId: null,
+      freestyle: true,
+      finishedAt: null,
+    });
     expect(restored.exercises.map((row) => [row.exercise.name, row.targetSets])).toEqual([
       ['Bench', 4],
       ['Curl', 3],
@@ -468,7 +601,16 @@ describe('readers of a freestyle session (issue #388)', () => {
     const v9 = {
       ...dump,
       version: 9,
-      sessions: dump.sessions.map(({ exercises: _exercises, ...rest }: { exercises: unknown }) => rest),
+      sessions: dump.sessions.map(
+        ({
+          exercises: _exercises,
+          freestyle: _freestyle,
+          ...rest
+        }: {
+          exercises: unknown;
+          freestyle: unknown;
+        }) => rest,
+      ),
     };
 
     const res = await postBackup(jsonReq('POST', { payload: v9, confirmReplace: true }));
@@ -478,6 +620,7 @@ describe('readers of a freestyle session (issue #388)', () => {
       include: { exercises: true, sets: true },
     });
     expect(restored.exercises).toEqual([]);
+    expect(restored.freestyle).toBe(false);
     expect(restored.sets).toHaveLength(1);
   });
 

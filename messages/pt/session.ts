@@ -20,6 +20,9 @@ export const session = {
     'Escolha um exercício para começar a registrar. Você pode adicionar outros pelo menu do exercício.',
   freestyleDiscard: 'Descartar esta sessão vazia',
   freestyleDiscardError: 'Não foi possível descartar a sessão.',
+  freestyleDiscardConfirm: 'Descartar esta sessão? Nada foi registrado nela.',
+  freestyleLoggedSets:
+    '{count, plural, one {# série já foi registrada} other {# séries já foram registradas}} nesta sessão. Conclua para vê-las no resumo.',
   starting: 'Começando...',
   startError: 'Não foi possível começar a sessão.',
   trainingGym: 'Academia desta sessão',

@@ -30,7 +30,7 @@ test('freestyle: start empty, add an exercise, log a set, finish, see it in hist
 
   // No active program: the start page still offers the empty session.
   await page.goto('/session/new');
-  await expect(page.getByText('Freestyle session')).toBeVisible();
+  await expect(page.getByText('Free session')).toBeVisible();
   await page.getByRole('button', { name: 'Start empty session' }).click();
   // The start page is /session/new, so wait for a session id, not just /session/*.
   await page.waitForURL((url) => /^\/session\/(?!new$)[^/]+$/.test(url.pathname));

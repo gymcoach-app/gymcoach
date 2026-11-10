@@ -10,12 +10,15 @@ export const session = {
   startThis: 'Start this session',
   startEmpty: 'Start empty session',
   startEmptyDescription: 'No program needed. Add exercises from your catalog as you train.',
-  freestyleSession: 'Freestyle session',
+  freestyleSession: 'Free session',
   freestyleEmptyTitle: 'Add your first exercise',
   freestyleEmptyDescription:
     'Pick an exercise to start logging. You can add more from the exercise menu.',
   freestyleDiscard: 'Discard this empty session',
   freestyleDiscardError: 'Could not discard the session.',
+  freestyleDiscardConfirm: 'Discard this session? Nothing is logged in it.',
+  freestyleLoggedSets:
+    '{count, plural, one {# set is} other {# sets are}} already logged in this session. Finish to see them in the summary.',
   starting: 'Starting...',
   startError: 'Could not start the session.',
   trainingGym: 'Gym for this session',

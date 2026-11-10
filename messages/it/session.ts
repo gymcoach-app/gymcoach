@@ -17,9 +17,12 @@ export const session = {
   freestyleSession: 'Sessione libera',
   freestyleEmptyTitle: 'Aggiungi il primo esercizio',
   freestyleEmptyDescription:
-    "Scegli un esercizio per iniziare a registrare. Puoi aggiungerne altri dal menu dell'esercizio.",
+    'Scegli un esercizio per iniziare a registrare. Puoi aggiungerne altri dal menu dell’esercizio.',
   freestyleDiscard: 'Scarta questa sessione vuota',
   freestyleDiscardError: 'Impossibile scartare la sessione.',
+  freestyleDiscardConfirm: 'Scartare questa sessione? Non contiene nulla di registrato.',
+  freestyleLoggedSets:
+    '{count, plural, one {# serie è già registrata} other {# serie sono già registrate}} in questa sessione. Terminala per vederle nel riepilogo.',
   starting: 'Avvio...',
   startError: 'Impossibile iniziare la sessione.',
   trainingGym: 'Palestra per questa sessione',
@@ -280,10 +283,10 @@ export const session = {
       'Questo modifica solo la sessione in corso. I tuoi programmi salvati restano invariati.',
     freestyleReplaceConfirm: 'Sostituire questo esercizio nella sessione in corso?',
     freestyleReplaceLoggedWarning:
-      "Le serie già registrate restano nello storico sotto l'esercizio originale, ma non vengono più mostrate in questa schermata. Sostituirlo?",
+      'Le serie già registrate restano nello storico sotto l’esercizio originale, ma non vengono più mostrate in questa schermata. Sostituirlo?',
     freestyleRemoveConfirm: 'Rimuovere questo esercizio dalla sessione in corso?',
     freestyleRemoveLoggedWarning:
-      "Le serie già registrate restano nello storico, ma non vengono più mostrate in questa schermata. Rimuovere l'esercizio?",
+      'Le serie già registrate restano nello storico, ma non vengono più mostrate in questa schermata. Rimuovere l’esercizio?',
     duplicate: 'Questo esercizio è già in questo allenamento.',
     removed: 'Esercizio rimosso.',
     removeError: 'Impossibile rimuovere l’esercizio.',

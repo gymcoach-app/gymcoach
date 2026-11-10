@@ -52,8 +52,8 @@ import {
 //   usesBodyweight, equipmentType, isFavorite.
 // - Program / Workout / ProgramExercise: all user content incl supersetGroup.
 // - Session / Set: all user content incl durationSec, distanceM, avgHr, block.
-// - SessionExercise (v10, issue #388): the exercise list of a freestyle
-//   session, re-linked to the exercise by name.
+// - Session.freestyle and SessionExercise (v10, issue #388): the marker and
+//   the exercise list of a freestyle session, re-linked to the exercise by name.
 // - Saved Gym profiles plus physical GymEquipment, equipment-to-exercise links,
 //   and uploaded/external equipment images.
 // - CoachSession, ExerciseGoal, BodyweightEntry, ReadinessCheckin,
@@ -272,8 +272,10 @@ export async function GET() {
         finishedAt: s.finishedAt?.toISOString() ?? null,
         notes: s.notes,
         gymName: gyms.find((gym) => gym.id === s.gymId)?.name ?? null,
-        // New in v10 (issue #388): the list of a freestyle session; empty for
-        // a session run from a workout, absent from older backups.
+        // New in v10 (issue #388): the freestyle marker and the list of a
+        // freestyle session (empty for a session run from a workout); both
+        // absent from older backups.
+        freestyle: s.freestyle,
         exercises: s.exercises.flatMap((row) => {
           const exerciseName = exercises.find((e) => e.id === row.exerciseId)?.name;
           return exerciseName
@@ -472,8 +474,10 @@ const importSchema = z.object({
         finishedAt: dateString.nullable().optional(),
         notes: z.string().max(5000).nullable().optional(),
         gymName: z.string().max(80).nullable().optional(),
-        // v10 (issue #388): exercise list of a freestyle session; absent in
-        // older backups. Bounds match the live route's schema.
+        // v10 (issue #388): freestyle marker and exercise list of a freestyle
+        // session; absent in older backups (read as false / no list). Bounds
+        // match the live route's schema.
+        freestyle: z.boolean().optional(),
         exercises: z
           .array(
             z.object({
@@ -904,6 +908,8 @@ export async function POST(req: Request) {
               userId,
               programId: program?.id ?? null,
               workoutId: workout?.id ?? null,
+              // Only a session that stays without a workout keeps the marker.
+              freestyle: !workout && s.freestyle === true,
               startedAt: new Date(s.startedAt),
               finishedAt: s.finishedAt ? new Date(s.finishedAt) : null,
               notes: s.notes ?? null,

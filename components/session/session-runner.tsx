@@ -254,6 +254,8 @@ export function SessionRunner({
   // Bumped each time a rest runs out with the flash preference on (issue #393).
   const [restFlashCount, setRestFlashCount] = useState(0);
   const [closing, setClosing] = useState(false);
+  // Two-step discard of an empty freestyle session (issue #388).
+  const [discardConfirm, setDiscardConfirm] = useState(false);
   const [exerciseMenuOpen, setExerciseMenuOpen] = useState(false);
   // Readiness auto-regulation can be turned off in settings (issue #61). The
   // preference lives in localStorage, so it is read after mount; until then we
@@ -868,9 +870,14 @@ export function SessionRunner({
   async function handleDiscardSession() {
     setClosing(true);
     try {
-      const res = await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
+      // `discardEmpty` makes the server refuse a session that holds sets, so
+      // a screen that missed some (stale page, unavailable IndexedDB) cannot
+      // delete them. A refusal refreshes the page to show what is there.
+      const res = await fetch(`/api/sessions/${session.id}?discardEmpty=1`, { method: 'DELETE' });
       if (!res.ok) {
         toast.error(t('freestyleDiscardError'));
+        setDiscardConfirm(false);
+        if (res.status === 409) router.refresh();
         return;
       }
       router.replace('/');
@@ -1006,6 +1013,11 @@ export function SessionRunner({
 
   if (!currentPE || !currentTarget) {
     if (freestyle) {
+      // Sets known to the server or to the local queue. Either source alone
+      // can be behind (the live query starts empty and stays empty when
+      // IndexedDB is unavailable; the page props predate a set just logged),
+      // so the larger count decides between "finish" and "discard".
+      const loggedSetCount = Math.max(session.sets.length, liveSets.length);
       // A freestyle session starts with no exercise, and its last one can be
       // removed: the lifter picks an exercise here, finishes what was logged,
       // or drops a session that holds nothing.
@@ -1031,20 +1043,48 @@ export function SessionRunner({
               catalog={catalog}
               onAdded={() => router.refresh()}
             />
-            {liveSets.length > 0 ? (
-              <Button
-                variant="default"
-                onClick={() => setGlobalMode('summary')}
-                className="min-h-tap self-start"
-              >
-                <Flag className="size-4" />
-                <span className="ml-2">{t('finish')}</span>
-              </Button>
+            {loggedSetCount > 0 ? (
+              <>
+                {/* Sets whose exercise left the list (or whose workout was
+                    deleted) are still in the session: say so, they are not lost. */}
+                <p className="text-sm text-muted-foreground" data-testid="freestyle-logged-sets">
+                  {t('freestyleLoggedSets', { count: loggedSetCount })}
+                </p>
+                <Button
+                  variant="default"
+                  onClick={() => setGlobalMode('summary')}
+                  className="min-h-tap self-start"
+                >
+                  <Flag className="size-4" />
+                  <span className="ml-2">{t('finish')}</span>
+                </Button>
+              </>
+            ) : !hydrated ? null : discardConfirm ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-muted-foreground">{t('freestyleDiscardConfirm')}</p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={closing}
+                    onClick={() => setDiscardConfirm(false)}
+                    className="min-h-tap"
+                  >
+                    {t('exerciseMenu.cancel')}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={closing}
+                    onClick={() => void handleDiscardSession()}
+                    className="min-h-tap"
+                  >
+                    {t('freestyleDiscard')}
+                  </Button>
+                </div>
+              </div>
             ) : (
               <Button
                 variant="outline"
-                disabled={closing}
-                onClick={() => void handleDiscardSession()}
+                onClick={() => setDiscardConfirm(true)}
                 className="min-h-tap self-start"
               >
                 {t('freestyleDiscard')}

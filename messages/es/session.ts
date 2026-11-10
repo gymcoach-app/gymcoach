@@ -20,6 +20,9 @@ export const session = {
     'Elige un ejercicio para empezar a registrar. Puedes añadir más desde el menú del ejercicio.',
   freestyleDiscard: 'Descartar esta sesión vacía',
   freestyleDiscardError: 'No se pudo descartar la sesión.',
+  freestyleDiscardConfirm: '¿Descartar esta sesión? No hay nada registrado en ella.',
+  freestyleLoggedSets:
+    '{count, plural, one {Ya hay # serie registrada} other {Ya hay # series registradas}} en esta sesión. Termínala para verlas en el resumen.',
   starting: 'Empezando...',
   startError: 'No se pudo empezar la sesión.',
   trainingGym: 'Gimnasio para esta sesión',
@@ -273,9 +276,9 @@ export const session = {
     added: 'Ejercicio añadido.',
     addError: 'No se pudo añadir el ejercicio.',
     freestyleScope: 'Esto solo cambia la sesión actual. Tus programas guardados no cambian.',
-    freestyleReplaceConfirm: '¿Reemplazar este ejercicio en la sesión actual?',
+    freestyleReplaceConfirm: '¿Sustituir este ejercicio en la sesión actual?',
     freestyleReplaceLoggedWarning:
-      'Las series ya registradas siguen en tu historial con el ejercicio original, pero dejan de mostrarse en esta pantalla. ¿Reemplazarlo?',
+      'Las series ya registradas siguen en tu historial con el ejercicio original, pero dejan de mostrarse en esta pantalla. ¿Sustituirlo?',
     freestyleRemoveConfirm: '¿Quitar este ejercicio de la sesión actual?',
     freestyleRemoveLoggedWarning:
       'Las series ya registradas siguen en el historial, pero dejan de mostrarse en esta pantalla. ¿Quitar el ejercicio?',

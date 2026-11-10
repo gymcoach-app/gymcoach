@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { sessionUpdateSchema } from '@/lib/schemas/session';
+import { sessionDeleteQuerySchema, sessionUpdateSchema } from '@/lib/schemas/session';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 
 interface Params {
@@ -61,10 +61,35 @@ export async function PUT(req: Request, props: Params) {
   }
 }
 
-export async function DELETE(_req: Request, props: Params) {
+// DELETE /api/sessions/[id]: deletes the session with its sets (the history
+// "delete this session" action). With `?discardEmpty=1` it is the runner's
+// "discard this empty session" instead (issue #388): only a session without
+// any set is deleted, in one statement, so a set logged in between (another
+// tab, the offline queue) is never lost to a stale screen.
+export async function DELETE(req: Request, props: Params) {
   const params = await props.params;
   try {
     const userId = await requireApiUserId();
+    const query = sessionDeleteQuerySchema.safeParse(
+      Object.fromEntries(new URL(req.url).searchParams),
+    );
+    if (!query.success) throw new ApiError(400, 'Invalid query.');
+
+    if (query.data.discardEmpty) {
+      const removed = await db.session.deleteMany({
+        where: { id: params.id, userId, sets: { none: {} } },
+      });
+      if (removed.count === 0) {
+        const exists = await db.session.findFirst({
+          where: { id: params.id, userId },
+          select: { id: true },
+        });
+        if (!exists) throw new ApiError(404, 'Session not found.');
+        throw new ApiError(409, 'This session has logged sets. Finish it or delete it from the history.');
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     await db.session.delete({ where: { id: params.id, userId } });
     return NextResponse.json({ ok: true });
   } catch (err) {

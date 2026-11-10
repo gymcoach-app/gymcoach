@@ -20,6 +20,9 @@ export const session = {
     'Kies een oefening om te beginnen met loggen. Meer oefeningen voeg je toe via het oefeningenmenu.',
   freestyleDiscard: 'Deze lege sessie verwijderen',
   freestyleDiscardError: 'De sessie kon niet worden verwijderd.',
+  freestyleDiscardConfirm: 'Deze sessie verwijderen? Er is niets in gelogd.',
+  freestyleLoggedSets:
+    '{count, plural, one {Er is al # set} other {Er zijn al # sets}} gelogd in deze sessie. Rond af om ze in het overzicht te zien.',
   starting: 'Starten...',
   startError: 'Kon de sessie niet starten.',
   trainingGym: 'Sportschool voor deze sessie',

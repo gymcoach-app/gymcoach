@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { sessionExerciseInputSchema, sessionStartSchema, sessionUpdateSchema } from './session';
+import {
+  sessionDeleteQuerySchema,
+  sessionExerciseInputSchema,
+  sessionStartSchema,
+  sessionUpdateSchema,
+} from './session';
 
 describe('sessionStartSchema', () => {
   it('takes a non-empty workoutId', () => {
@@ -60,5 +65,18 @@ describe('sessionUpdateSchema', () => {
 
   it('rejects notes longer than 2000 characters', () => {
     expect(sessionUpdateSchema.safeParse({ notes: 'x'.repeat(2001) }).success).toBe(false);
+  });
+});
+
+describe('sessionDeleteQuerySchema (issue #388)', () => {
+  it('accepts no flag (plain delete) and the literal discardEmpty=1', () => {
+    expect(sessionDeleteQuerySchema.parse({})).toEqual({});
+    expect(sessionDeleteQuerySchema.parse({ discardEmpty: '1' })).toEqual({ discardEmpty: '1' });
+  });
+
+  it('refuses any other value, so a typo never falls back to the plain delete', () => {
+    for (const value of ['0', 'true', '', 'yes']) {
+      expect(sessionDeleteQuerySchema.safeParse({ discardEmpty: value }).success).toBe(false);
+    }
   });
 });

@@ -14,12 +14,15 @@ export const session = {
   startEmpty: 'Rozpocznij pustą sesję',
   startEmptyDescription:
     'Program nie jest potrzebny. Dodawaj ćwiczenia z katalogu w trakcie treningu.',
-  freestyleSession: 'Sesja dowolna',
+  freestyleSession: 'Sesja swobodna',
   freestyleEmptyTitle: 'Dodaj pierwsze ćwiczenie',
   freestyleEmptyDescription:
     'Wybierz ćwiczenie, aby zacząć zapisywać. Kolejne dodasz z menu ćwiczenia.',
   freestyleDiscard: 'Odrzuć tę pustą sesję',
   freestyleDiscardError: 'Nie udało się odrzucić sesji.',
+  freestyleDiscardConfirm: 'Odrzucić tę sesję? Nic w niej nie zapisano.',
+  freestyleLoggedSets:
+    '{count, plural, one {W tej sesji zapisano już # serię} few {W tej sesji zapisano już # serie} many {W tej sesji zapisano już # serii} other {W tej sesji zapisano już # serii}}. Zakończ ją, aby zobaczyć je w podsumowaniu.',
   starting: 'Rozpoczynanie...',
   startError: 'Nie udało się rozpocząć sesji.',
   trainingGym: 'Siłownia na tę sesję',

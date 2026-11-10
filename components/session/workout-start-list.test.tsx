@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }));
 const workouts = [{ id: 'w1', name: 'Push day', day: 'Monday', exerciseCount: 5 }];
 
 function freestyleCard() {
-  return screen.getByText('Freestyle session').closest('li') as HTMLElement;
+  return screen.getByText('Free session').closest('li') as HTMLElement;
 }
 
 beforeEach(() => {
@@ -32,7 +32,7 @@ describe('WorkoutStartList freestyle entry', () => {
     const items = screen.getAllByRole('listitem');
     expect(items).toHaveLength(2);
     expect(within(items[0]!).getByText('Push day')).toBeInTheDocument();
-    expect(within(items[1]!).getByText('Freestyle session')).toBeInTheDocument();
+    expect(within(items[1]!).getByText('Free session')).toBeInTheDocument();
     expect(
       within(items[1]!).getByRole('button', { name: 'Start empty session' }),
     ).toBeEnabled();

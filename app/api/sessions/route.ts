@@ -54,13 +54,13 @@ export async function POST(req: Request) {
       if (!gym) throw new ApiError(400, 'Invalid gym.');
     }
 
-    // A freestyle start matches only a session without a workout and without
-    // a program. A session whose workout was removed from a program that still
-    // exists keeps its programId, so it is not picked up here.
+    // A freestyle start resumes only a session that was started as one. An
+    // open session that lost its workout or its whole program also has no
+    // workoutId and no programId, so the explicit marker decides.
     const inProgress = await db.session.findFirst({
       where: workout
         ? { userId, workoutId: workout.id, finishedAt: null }
-        : { userId, workoutId: null, programId: null, finishedAt: null },
+        : { userId, freestyle: true, finishedAt: null },
       orderBy: { startedAt: 'desc' },
     });
     if (inProgress) {
@@ -74,6 +74,7 @@ export async function POST(req: Request) {
         userId,
         workoutId: workout?.id ?? null,
         programId: workout?.programId ?? null,
+        freestyle: !workout,
         gymId: selectedGymId,
       },
     });
