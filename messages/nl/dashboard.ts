@@ -13,6 +13,7 @@ export const dashboard = {
   emptyProgramDescription: '{name} heeft nog geen sessie ingesteld.',
   configureProgram: 'Programma instellen',
   startSession: 'Start een sessie',
+  startEmpty: 'Lege sessie starten',
   activeProgram: 'Actief programma: {name}',
   chooseSession: 'Kies een sessie',
   programSessions: 'Sessies van het programma',

@@ -52,6 +52,8 @@ import {
 //   usesBodyweight, equipmentType, isFavorite.
 // - Program / Workout / ProgramExercise: all user content incl supersetGroup.
 // - Session / Set: all user content incl durationSec, distanceM, avgHr, block.
+// - SessionExercise (v10, issue #388): the exercise list of a freestyle
+//   session, re-linked to the exercise by name.
 // - Saved Gym profiles plus physical GymEquipment, equipment-to-exercise links,
 //   and uploaded/external equipment images.
 // - CoachSession, ExerciseGoal, BodyweightEntry, ReadinessCheckin,
@@ -64,7 +66,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 9;
+const VERSION = 10;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -142,6 +144,7 @@ export async function GET() {
             orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }],
             include: { gymEquipment: { select: { name: true } } },
           },
+          exercises: { orderBy: { order: 'asc' } },
         },
       }),
       db.coachSession.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } }),
@@ -269,6 +272,24 @@ export async function GET() {
         finishedAt: s.finishedAt?.toISOString() ?? null,
         notes: s.notes,
         gymName: gyms.find((gym) => gym.id === s.gymId)?.name ?? null,
+        // New in v10 (issue #388): the list of a freestyle session; empty for
+        // a session run from a workout, absent from older backups.
+        exercises: s.exercises.flatMap((row) => {
+          const exerciseName = exercises.find((e) => e.id === row.exerciseId)?.name;
+          return exerciseName
+            ? [
+                {
+                  exerciseName,
+                  order: row.order,
+                  targetSets: row.targetSets,
+                  targetRepsMin: row.targetRepsMin,
+                  targetRepsMax: row.targetRepsMax,
+                  targetRIR: row.targetRIR,
+                  restSec: row.restSec,
+                },
+              ]
+            : [];
+        }),
         sets: s.sets.map((set) => ({
           exerciseName: exercises.find((e) => e.id === set.exerciseId)?.name ?? null,
           gymEquipmentName: set.gymEquipment?.name ?? null,
@@ -451,6 +472,22 @@ const importSchema = z.object({
         finishedAt: dateString.nullable().optional(),
         notes: z.string().max(5000).nullable().optional(),
         gymName: z.string().max(80).nullable().optional(),
+        // v10 (issue #388): exercise list of a freestyle session; absent in
+        // older backups. Bounds match the live route's schema.
+        exercises: z
+          .array(
+            z.object({
+              exerciseName: z.string().max(120),
+              order: z.number().int().min(0).max(1000),
+              targetSets: z.number().int().min(1).max(20),
+              targetRepsMin: z.number().int().min(1).max(50),
+              targetRepsMax: z.number().int().min(1).max(50),
+              targetRIR: z.number().int().min(0).max(5),
+              restSec: z.number().int().min(15).max(600),
+            }),
+          )
+          .max(100)
+          .optional(),
         sets: z
           .array(
             z.object({
@@ -908,6 +945,32 @@ export async function POST(req: Request) {
             ];
           });
           if (setRows.length > 0) await tx.set.createMany({ data: setRows });
+
+          // Freestyle list (v10). Only a session without a workout reads it,
+          // so it is dropped when the session was re-linked to one; a row
+          // whose exercise is unknown, or named twice, is skipped (the table
+          // holds an exercise once per session).
+          if (!workout && s.exercises && s.exercises.length > 0) {
+            const seen = new Set<string>();
+            const listRows = s.exercises.flatMap((row) => {
+              const exId = exerciseIdByName.get(row.exerciseName);
+              if (!exId || seen.has(exId)) return [];
+              seen.add(exId);
+              return [
+                {
+                  sessionId: session.id,
+                  exerciseId: exId,
+                  order: row.order,
+                  targetSets: row.targetSets,
+                  targetRepsMin: row.targetRepsMin,
+                  targetRepsMax: Math.max(row.targetRepsMin, row.targetRepsMax),
+                  targetRIR: row.targetRIR,
+                  restSec: row.restSec,
+                },
+              ];
+            });
+            if (listRows.length > 0) await tx.sessionExercise.createMany({ data: listRows });
+          }
         }
 
         for (const c of payload.coachSessions ?? []) {

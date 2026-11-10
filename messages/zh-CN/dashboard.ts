@@ -13,6 +13,7 @@ export const dashboard = {
   emptyProgramDescription: '{name} 尚未配置训练内容。',
   configureProgram: '配置训练计划',
   startSession: '开始训练',
+  startEmpty: '开始空白训练',
   activeProgram: '当前训练计划：{name}',
   chooseSession: '选择训练',
   programSessions: '计划中的训练',

@@ -13,6 +13,7 @@ export const dashboard = {
   emptyProgramDescription: '{name} non ha nessuna sessione configurata.',
   configureProgram: 'Configura il programma',
   startSession: 'Inizia una sessione',
+  startEmpty: 'Inizia una sessione vuota',
   activeProgram: 'Programma attivo: {name}',
   chooseSession: 'Scegli una sessione',
   programSessions: 'Sessioni del programma',

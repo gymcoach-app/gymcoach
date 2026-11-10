@@ -11,6 +11,15 @@ export const session = {
   noSessionDescription: 'Voeg minstens één sessie met oefeningen toe voordat je begint.',
   configureProgram: 'Programma instellen',
   startThis: 'Deze sessie starten',
+  startEmpty: 'Lege sessie starten',
+  startEmptyDescription:
+    'Geen programma nodig. Voeg tijdens het trainen oefeningen uit je catalogus toe.',
+  freestyleSession: 'Vrije sessie',
+  freestyleEmptyTitle: 'Voeg je eerste oefening toe',
+  freestyleEmptyDescription:
+    'Kies een oefening om te beginnen met loggen. Meer oefeningen voeg je toe via het oefeningenmenu.',
+  freestyleDiscard: 'Deze lege sessie verwijderen',
+  freestyleDiscardError: 'De sessie kon niet worden verwijderd.',
   starting: 'Starten...',
   startError: 'Kon de sessie niet starten.',
   trainingGym: 'Sportschool voor deze sessie',
@@ -266,6 +275,14 @@ export const session = {
     replaceError: 'Kon de oefening niet vervangen.',
     added: 'Oefening toegevoegd.',
     addError: 'Kon de oefening niet toevoegen.',
+    freestyleScope:
+      "Dit verandert alleen de huidige sessie. Je opgeslagen programma's blijven zoals ze zijn.",
+    freestyleReplaceConfirm: 'Deze oefening in de huidige sessie vervangen?',
+    freestyleReplaceLoggedWarning:
+      'Sets die al gelogd zijn blijven in je geschiedenis onder de oorspronkelijke oefening, maar worden niet meer op dit scherm getoond. Vervangen?',
+    freestyleRemoveConfirm: 'Deze oefening uit de huidige sessie verwijderen?',
+    freestyleRemoveLoggedWarning:
+      'Sets die al gelogd zijn blijven in de geschiedenis, maar worden niet meer op dit scherm getoond. Oefening verwijderen?',
     duplicate: 'Die oefening staat al in deze training.',
     removed: 'Oefening verwijderd.',
     removeError: 'Kon de oefening niet verwijderen.',

@@ -8,6 +8,14 @@ export const session = {
   noSessionDescription: 'Add at least one session with exercises before starting.',
   configureProgram: 'Configure program',
   startThis: 'Start this session',
+  startEmpty: 'Start empty session',
+  startEmptyDescription: 'No program needed. Add exercises from your catalog as you train.',
+  freestyleSession: 'Freestyle session',
+  freestyleEmptyTitle: 'Add your first exercise',
+  freestyleEmptyDescription:
+    'Pick an exercise to start logging. You can add more from the exercise menu.',
+  freestyleDiscard: 'Discard this empty session',
+  freestyleDiscardError: 'Could not discard the session.',
   starting: 'Starting...',
   startError: 'Could not start the session.',
   trainingGym: 'Gym for this session',
@@ -257,6 +265,13 @@ export const session = {
     replaceError: 'Could not replace the exercise.',
     added: 'Exercise added.',
     addError: 'Could not add the exercise.',
+    freestyleScope: 'This only changes the current session. Your saved programs stay as they are.',
+    freestyleReplaceConfirm: 'Replace this exercise in the current session?',
+    freestyleReplaceLoggedWarning:
+      'Sets already logged stay in your history under the original exercise, but they are no longer shown on this screen. Replace it?',
+    freestyleRemoveConfirm: 'Remove this exercise from the current session?',
+    freestyleRemoveLoggedWarning:
+      'Sets already logged remain in history, but they are no longer shown on this screen. Remove the exercise?',
     duplicate: 'That exercise is already in this workout.',
     removed: 'Exercise removed.',
     removeError: 'Could not remove the exercise.',

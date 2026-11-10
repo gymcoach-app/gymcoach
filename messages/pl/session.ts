@@ -11,6 +11,15 @@ export const session = {
   noSessionDescription: 'Przed rozpoczęciem dodaj co najmniej jedną sesję z ćwiczeniami.',
   configureProgram: 'Skonfiguruj program',
   startThis: 'Rozpocznij tę sesję',
+  startEmpty: 'Rozpocznij pustą sesję',
+  startEmptyDescription:
+    'Program nie jest potrzebny. Dodawaj ćwiczenia z katalogu w trakcie treningu.',
+  freestyleSession: 'Sesja dowolna',
+  freestyleEmptyTitle: 'Dodaj pierwsze ćwiczenie',
+  freestyleEmptyDescription:
+    'Wybierz ćwiczenie, aby zacząć zapisywać. Kolejne dodasz z menu ćwiczenia.',
+  freestyleDiscard: 'Odrzuć tę pustą sesję',
+  freestyleDiscardError: 'Nie udało się odrzucić sesji.',
   starting: 'Rozpoczynanie...',
   startError: 'Nie udało się rozpocząć sesji.',
   trainingGym: 'Siłownia na tę sesję',
@@ -262,6 +271,13 @@ export const session = {
     replaceError: 'Nie udało się zamienić ćwiczenia.',
     added: 'Ćwiczenie dodane.',
     addError: 'Nie udało się dodać ćwiczenia.',
+    freestyleScope: 'To zmienia tylko bieżącą sesję. Zapisane programy pozostają bez zmian.',
+    freestyleReplaceConfirm: 'Zamienić to ćwiczenie w bieżącej sesji?',
+    freestyleReplaceLoggedWarning:
+      'Zapisane już serie zostają w historii pod pierwotnym ćwiczeniem, ale nie będą widoczne na tym ekranie. Zamienić?',
+    freestyleRemoveConfirm: 'Usunąć to ćwiczenie z bieżącej sesji?',
+    freestyleRemoveLoggedWarning:
+      'Zapisane już serie zostają w historii, ale nie będą widoczne na tym ekranie. Usunąć ćwiczenie?',
     duplicate: 'To ćwiczenie jest już w tym treningu.',
     removed: 'Ćwiczenie usunięte.',
     removeError: 'Nie udało się usunąć ćwiczenia.',

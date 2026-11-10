@@ -28,6 +28,8 @@ export async function GET(_req: Request, props: Params) {
           },
         },
         program: true,
+        // The list of a freestyle session (issue #388); empty otherwise.
+        exercises: { orderBy: { order: 'asc' }, include: { exercise: true } },
         sets: { orderBy: [{ exerciseId: 'asc' }, { setNumber: 'asc' }] },
       },
     });

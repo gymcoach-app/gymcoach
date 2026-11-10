@@ -13,6 +13,7 @@ export const dashboard = {
   emptyProgramDescription: 'В программе «{name}» не настроены тренировки.',
   configureProgram: 'Настроить программу',
   startSession: 'Начать тренировку',
+  startEmpty: 'Начать пустую тренировку',
   activeProgram: 'Активная программа: {name}',
   chooseSession: 'Выбрать тренировку',
   programSessions: 'Тренировки программы',

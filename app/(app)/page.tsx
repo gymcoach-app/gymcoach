@@ -105,9 +105,14 @@ export default async function DashboardPage() {
               <CardDescription>{t('noActiveProgramDescription')}</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button asChild>
-                <Link href="/programs">{t('viewPrograms')}</Link>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link href="/programs">{t('viewPrograms')}</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/session/new">{t('startEmpty')}</Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : activeProgram.workouts.length === 0 ? (
@@ -121,9 +126,14 @@ export default async function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button asChild>
-                <Link href={`/programs/${activeProgram.id}`}>{t('configureProgram')}</Link>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link href={`/programs/${activeProgram.id}`}>{t('configureProgram')}</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/session/new">{t('startEmpty')}</Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : (

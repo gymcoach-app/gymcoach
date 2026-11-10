@@ -11,6 +11,15 @@ export const session = {
   noSessionDescription: 'Añade al menos una sesión con ejercicios antes de empezar.',
   configureProgram: 'Configurar programa',
   startThis: 'Empezar esta sesión',
+  startEmpty: 'Empezar una sesión vacía',
+  startEmptyDescription:
+    'No hace falta un programa. Añade ejercicios de tu catálogo mientras entrenas.',
+  freestyleSession: 'Sesión libre',
+  freestyleEmptyTitle: 'Añade tu primer ejercicio',
+  freestyleEmptyDescription:
+    'Elige un ejercicio para empezar a registrar. Puedes añadir más desde el menú del ejercicio.',
+  freestyleDiscard: 'Descartar esta sesión vacía',
+  freestyleDiscardError: 'No se pudo descartar la sesión.',
   starting: 'Empezando...',
   startError: 'No se pudo empezar la sesión.',
   trainingGym: 'Gimnasio para esta sesión',
@@ -263,6 +272,13 @@ export const session = {
     replaceError: 'No se pudo sustituir el ejercicio.',
     added: 'Ejercicio añadido.',
     addError: 'No se pudo añadir el ejercicio.',
+    freestyleScope: 'Esto solo cambia la sesión actual. Tus programas guardados no cambian.',
+    freestyleReplaceConfirm: '¿Reemplazar este ejercicio en la sesión actual?',
+    freestyleReplaceLoggedWarning:
+      'Las series ya registradas siguen en tu historial con el ejercicio original, pero dejan de mostrarse en esta pantalla. ¿Reemplazarlo?',
+    freestyleRemoveConfirm: '¿Quitar este ejercicio de la sesión actual?',
+    freestyleRemoveLoggedWarning:
+      'Las series ya registradas siguen en el historial, pero dejan de mostrarse en esta pantalla. ¿Quitar el ejercicio?',
     duplicate: 'Ese ejercicio ya está en este entrenamiento.',
     removed: 'Ejercicio quitado.',
     removeError: 'No se pudo quitar el ejercicio.',

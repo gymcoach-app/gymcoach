@@ -22,18 +22,22 @@ export async function GET() {
   }
 }
 
-// POST /api/sessions: starts a new session on one of the user's workouts.
-// Fails if an unfinished session already exists on the same workout
-// (avoids zombie sessions created by a double-click).
+// POST /api/sessions: starts a new session on one of the user's workouts, or a
+// freestyle session when no workout is given (issue #388).
+// Returns the unfinished session that already exists on the same workout
+// instead of creating a second one (avoids zombie sessions created by a
+// double-click); a freestyle start resumes the unfinished freestyle session.
 export async function POST(req: Request) {
   try {
     const userId = await requireApiUserId();
     const { workoutId, gymId } = await parseJsonBody(req, sessionStartSchema);
 
-    const workout = await db.workout.findFirst({
-      where: { id: workoutId, program: { userId } },
-    });
-    if (!workout) {
+    const workout = workoutId
+      ? await db.workout.findFirst({
+          where: { id: workoutId, program: { userId } },
+        })
+      : null;
+    if (workoutId && !workout) {
       throw new ApiError(404, 'Session not found.');
     }
 
@@ -50,8 +54,14 @@ export async function POST(req: Request) {
       if (!gym) throw new ApiError(400, 'Invalid gym.');
     }
 
+    // A freestyle start matches only a session without a workout and without
+    // a program. A session whose workout was removed from a program that still
+    // exists keeps its programId, so it is not picked up here.
     const inProgress = await db.session.findFirst({
-      where: { userId, workoutId, finishedAt: null },
+      where: workout
+        ? { userId, workoutId: workout.id, finishedAt: null }
+        : { userId, workoutId: null, programId: null, finishedAt: null },
+      orderBy: { startedAt: 'desc' },
     });
     if (inProgress) {
       // We return the existing session instead of creating a new one:
@@ -62,8 +72,8 @@ export async function POST(req: Request) {
     const created = await db.session.create({
       data: {
         userId,
-        workoutId,
-        programId: workout.programId,
+        workoutId: workout?.id ?? null,
+        programId: workout?.programId ?? null,
         gymId: selectedGymId,
       },
     });

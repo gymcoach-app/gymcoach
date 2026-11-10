@@ -56,6 +56,7 @@ import {
   SessionExerciseMenu,
   type SessionCatalogExercise,
 } from '@/components/session/session-exercise-menu';
+import { FreestyleExercisePicker } from '@/components/session/freestyle-exercise-picker';
 import { SetsList } from '@/components/session/sets-list';
 import { EditableSetsTable } from '@/components/session/editable-sets-table';
 import type { LiveEquipmentOption } from '@/components/session/live-equipment-weight-editor';
@@ -129,6 +130,10 @@ type SessionRunnerProps = {
   deloadActive: boolean;
   unit: WeightUnit;
   initialProgramExerciseId?: string;
+  // True for a session started without a workout (issue #388). `session.workout`
+  // then carries the session's own exercise list in the shape of a workout
+  // (lib/freestyle), and the exercise menu edits that list, not a program.
+  freestyle?: boolean;
   catalog: SessionCatalogExercise[];
   // The signed-in account, which owns `session` (the page loaded it scoped to
   // this user). The offline queue is tagged and synced per account (#490).
@@ -160,6 +165,7 @@ export function SessionRunner({
   deloadActive,
   unit,
   initialProgramExerciseId,
+  freestyle = false,
   catalog,
   userId,
 }: SessionRunnerProps) {
@@ -857,6 +863,25 @@ export function SessionRunner({
     }
   }
 
+  // Drops an empty freestyle session (issue #388) so it does not linger as the
+  // "active session" on the home page. Offered only while nothing is logged.
+  async function handleDiscardSession() {
+    setClosing(true);
+    try {
+      const res = await fetch(`/api/sessions/${session.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        toast.error(t('freestyleDiscardError'));
+        return;
+      }
+      router.replace('/');
+      router.refresh();
+    } catch {
+      toast.error(t('freestyleDiscardError'));
+    } finally {
+      setClosing(false);
+    }
+  }
+
   function selectExercise(index: number) {
     const next = programExercises[index];
     if (!next) return;
@@ -980,6 +1005,55 @@ export function SessionRunner({
   }
 
   if (!currentPE || !currentTarget) {
+    if (freestyle) {
+      // A freestyle session starts with no exercise, and its last one can be
+      // removed: the lifter picks an exercise here, finishes what was logged,
+      // or drops a session that holds nothing.
+      return (
+        <main className="flex flex-1 flex-col px-4 py-6">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-lg font-semibold">{t('freestyleSession')}</h1>
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+                className="text-muted-foreground"
+                aria-label={t('quit')}
+              >
+                <Link href="/">
+                  <X className="size-4" />
+                </Link>
+              </Button>
+            </div>
+            <FreestyleExercisePicker
+              sessionId={session.id}
+              catalog={catalog}
+              onAdded={() => router.refresh()}
+            />
+            {liveSets.length > 0 ? (
+              <Button
+                variant="default"
+                onClick={() => setGlobalMode('summary')}
+                className="min-h-tap self-start"
+              >
+                <Flag className="size-4" />
+                <span className="ml-2">{t('finish')}</span>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={closing}
+                onClick={() => void handleDiscardSession()}
+                className="min-h-tap self-start"
+              >
+                {t('freestyleDiscard')}
+              </Button>
+            )}
+          </div>
+        </main>
+      );
+    }
     return (
       <main className="flex flex-1 items-center justify-center px-4 py-6">
         <p className="text-muted-foreground">{t('noExercises')}</p>
@@ -1021,7 +1095,9 @@ export function SessionRunner({
       <div className="sticky top-[97px] z-10 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-xs text-muted-foreground">{trainingName(workout.name)}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {freestyle ? t('freestyleSession') : trainingName(workout.name)}
+            </p>
             <p className="text-sm font-medium">
               {t('exerciseProgress', {
                 current: currentIdx + 1,
@@ -1095,6 +1171,7 @@ export function SessionRunner({
           programExercises={programExercises}
           catalog={catalog}
           loggedSetCount={currentSets.length}
+          freestyleSessionId={freestyle ? session.id : undefined}
           onChanged={(options) => {
             setExerciseMenuOpen(false);
             if (options?.selectProgramExerciseId) {

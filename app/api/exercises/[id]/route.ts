@@ -78,7 +78,15 @@ export async function DELETE(_req: Request, props: Params) {
       );
     }
 
-    await db.exercise.delete({ where: { id: params.id, userId } });
+    // A freestyle session (issue #388) may still list the exercise without a
+    // logged set. That row carries no history, so it goes with the exercise
+    // instead of blocking the delete on its foreign key.
+    await db.$transaction([
+      db.sessionExercise.deleteMany({
+        where: { exerciseId: params.id, session: { userId } },
+      }),
+      db.exercise.delete({ where: { id: params.id, userId } }),
+    ]);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return handleApiError(err);

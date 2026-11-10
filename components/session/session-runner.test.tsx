@@ -795,3 +795,99 @@ describe('SessionRunner repeated exercise blocks (issue #429)', () => {
     );
   });
 });
+
+// Freestyle session (issue #388): no workout; the page hands the runner the
+// session's own list in the shape of a workout and sets `freestyle`.
+describe('SessionRunner freestyle session', () => {
+  const catalog = [
+    {
+      id: 'bench',
+      name: 'Bench Press',
+      muscleGroup: 'CHEST',
+      category: 'COMPOUND',
+      usesBodyweight: false,
+      defaultRestSec: 120,
+      isFavorite: false,
+    },
+  ] as RunnerProps['catalog'];
+
+  function freestyleRunner(rows: Array<ProgramExercise & { exercise: Exercise }>, freestyle = true) {
+    const session = {
+      id: 's1',
+      workout: { id: '', name: '', program: null, exercises: rows },
+      sets: [],
+      gym: null,
+    } as unknown as RunnerProps['session'];
+    return (
+      <SessionRunner
+        session={session}
+        freestyle={freestyle}
+        lastPerformances={{}}
+        returnRecommendations={{}}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+        catalog={catalog}
+        userId="u1"
+      />
+    );
+  }
+
+  it('starts on the exercise picker and refreshes once the first exercise is added', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201 } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    await renderRunner(freestyleRunner([]));
+
+    expect(screen.getByRole('heading', { name: 'Freestyle session' })).toBeInTheDocument();
+    expect(screen.getByText('Add your first exercise')).toBeInTheDocument();
+    expect(screen.queryByText('No exercises in this session.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bench Press' }));
+    await waitFor(() => expect(harness.refresh).toHaveBeenCalledOnce());
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/sessions/s1/exercises');
+  });
+
+  it('offers to discard an empty session with nothing logged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    await renderRunner(freestyleRunner([]));
+
+    expect(screen.queryByRole('button', { name: 'Finish' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard this empty session' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(fetchMock.mock.calls[0]).toEqual(['/api/sessions/s1', { method: 'DELETE' }]);
+  });
+
+  it('offers to finish, not to discard, once a set is logged and the list is empty again', async () => {
+    harness.liveSets = [
+      { localId: 'l1', sessionId: 's1', exerciseId: 'bench', setNumber: 1, ...loggedSet },
+    ];
+    await renderRunner(freestyleRunner([]));
+
+    expect(screen.getByRole('button', { name: 'Finish' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Discard this empty session' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('runs the list like a workout and points the menu at the session', async () => {
+    await renderRunner(freestyleRunner([row('bench', 1)]));
+
+    expect(screen.getByText('Freestyle session')).toBeInTheDocument();
+    expect(screen.getByTestId('sets-table')).toHaveTextContent('pe-bench');
+    expect((menu() as MenuProps & { freestyleSessionId?: string }).freestyleSessionId).toBe('s1');
+  });
+
+  it('keeps the plain empty state and the workout menu for a session with a workout', async () => {
+    const empty = await renderRunner(freestyleRunner([], false));
+    expect(screen.getByText('No exercises in this session.')).toBeInTheDocument();
+    expect(screen.queryByText('Add your first exercise')).not.toBeInTheDocument();
+    empty.unmount();
+
+    await renderRunner(runner([row('bench', 1)]));
+    expect(
+      (menu() as MenuProps & { freestyleSessionId?: string }).freestyleSessionId,
+    ).toBeUndefined();
+    expect(screen.queryByText('Freestyle session')).not.toBeInTheDocument();
+  });
+});
