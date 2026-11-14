@@ -84,9 +84,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.
 RUN mkdir -p /app/uploads && chown nextjs:nodejs /app/uploads
 ENV UPLOADS_DIR=/app/uploads
 
+# Entrypoint applies Prisma migrations before starting the server
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server.js"]

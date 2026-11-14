@@ -65,12 +65,6 @@ services:
       UPLOADS_DIR: /app/uploads
     volumes:
       - uploads:/app/uploads
-    # Applies the Prisma migrations, then starts the Next.js standalone server.
-    # `migrate deploy` is idempotent: with no new migration it is a no-op.
-    # The Prisma bundle is invoked directly (the .bin shim loses its .wasm
-    # files when COPY dereferences the symlink).
-    command: >
-      sh -c "node node_modules/prisma/build/index.js migrate deploy && node server.js"
     ports:
       # Loopback only: the reverse proxy in front terminates HTTPS.
       # Host port 3010 (3000 is taken on the shared host this file came from).

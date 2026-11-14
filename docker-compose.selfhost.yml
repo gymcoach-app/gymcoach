@@ -97,10 +97,6 @@ services:
       - 'host.docker.internal:host-gateway'
     volumes:
       - uploads:/app/uploads
-    # The Prisma CLI is invoked through its bundle: the .bin shim loses its
-    # .wasm files when the image COPY dereferences the symlink.
-    command: >
-      sh -c "node node_modules/prisma/build/index.js migrate deploy && node server.js"
     ports:
       - '${GYMCOACH_PORT:-3000}:3000'
 
