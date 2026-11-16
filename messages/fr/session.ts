@@ -297,6 +297,7 @@ export const session = {
     actions: 'Actions de l’exercice',
     notAvailable: 'Indisponible dans cette salle',
     cardioPrescription: '{sets, plural, one {# série} other {# séries}} · Repos {seconds} s',
+    cardioTarget: 'Objectif : {target}',
     strengthPrescription:
       '{sets} séries × {reps} reps · {effort} · Repos {seconds} s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Dernière séance ({date})',

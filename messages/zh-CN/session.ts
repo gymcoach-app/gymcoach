@@ -271,6 +271,7 @@ export const session = {
   exerciseCard: {
     actions: '动作操作',
     notAvailable: '当前健身房没有此器械',
+    cardioTarget: '目标：{target}',
     cardioPrescription: '{sets, plural, other {# 组}} · 休息 {seconds} 秒',
     strengthPrescription:
       '{sets} 组 × {reps} 次 · {effort} · 休息 {seconds} 秒{tempo, select, none {} other { · 节奏 {tempo}}}',

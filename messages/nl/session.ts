@@ -294,6 +294,7 @@ export const session = {
     actions: 'Oefeningacties',
     notAvailable: 'Niet beschikbaar in deze sportschool',
     cardioPrescription: '{sets, plural, one {# set} other {# sets}} · Rust {seconds}s',
+    cardioTarget: 'Doel: {target}',
     strengthPrescription:
       '{sets} sets × {reps} herh. · {effort} · Rust {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Vorige sessie ({date})',

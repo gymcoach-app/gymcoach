@@ -20,6 +20,7 @@ import { exerciseCategoryMessageKeys, muscleGroupMessageKeys } from '@/i18n/enum
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { formatEffort } from '@/lib/effort';
 import { useEffortScale } from '@/components/shared/effort-scale-provider';
+import { formatCardioTarget, isCardioExercise } from '@/lib/cardio-target';
 
 type ProgramExerciseWithExercise = ProgramExercise & { exercise: Exercise };
 
@@ -79,6 +80,11 @@ export function ProgramExerciseRow({
       ? `${programExercise.targetRepsMin}`
       : `${programExercise.targetRepsMin}-${programExercise.targetRepsMax}`;
 
+  // A cardio exercise reads as its duration and distance target (issue #558),
+  // or as a neutral label when it has none: never as sets, reps and RIR.
+  const isCardio = isCardioExercise(programExercise.exercise);
+  const cardioTarget = isCardio ? formatCardioTarget(programExercise) : null;
+
   return (
     <>
       <div className="rounded-md border border-border bg-card/50 p-3">
@@ -99,20 +105,28 @@ export function ProgramExerciseRow({
                   `categories.${exerciseCategoryMessageKeys[programExercise.exercise.category]}`,
                 )}
               </Badge>
-              <Badge variant="outline">
-                {programExercise.autoregulationMode === 'PRESERVE_REPS'
-                  ? t('preserveRepsShort')
-                  : t('preserveRirShort')}
-              </Badge>
+              {!isCardio && (
+                <Badge variant="outline">
+                  {programExercise.autoregulationMode === 'PRESERVE_REPS'
+                    ? t('preserveRepsShort')
+                    : t('preserveRirShort')}
+                </Badge>
+              )}
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t('prescription', {
-                sets: programExercise.targetSets,
-                reps: repsLabel,
-                effort: formatEffort(effortScale, programExercise.targetRIR),
-                seconds: programExercise.restSec,
-              })}
-              {programExercise.tempo && t('tempoValue', { tempo: programExercise.tempo })}
+            <p className="mt-2 text-xs text-muted-foreground" data-prescription>
+              {isCardio ? (
+                (cardioTarget ?? t('cardioNoTarget'))
+              ) : (
+                <>
+                  {t('prescription', {
+                    sets: programExercise.targetSets,
+                    reps: repsLabel,
+                    effort: formatEffort(effortScale, programExercise.targetRIR),
+                    seconds: programExercise.restSec,
+                  })}
+                  {programExercise.tempo && t('tempoValue', { tempo: programExercise.tempo })}
+                </>
+              )}
             </p>
             {programExercise.notes && (
               <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">

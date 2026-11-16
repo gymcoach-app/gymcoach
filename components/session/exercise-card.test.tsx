@@ -35,6 +35,8 @@ const pe: ProgramExercise & { exercise: Exercise } = {
   autoregulationMode: 'PRESERVE_RIR',
   fatigueRate: null,
   loadAdjustmentPct: null,
+  targetDurationSec: null,
+  targetDistanceM: null,
   exercise: exo,
 };
 
@@ -368,5 +370,38 @@ describe('ExerciseCard cardio last-performance', () => {
     // a misleading load line; the cardio branch gates on the cardio totals.
     renderCardioCard(null);
     expect(screen.queryByText(/Last session/)).not.toBeInTheDocument();
+  });
+});
+
+// Issue #558 (slice 1): a cardio exercise coming from a workout with a cardio
+// target shows that target instead of the set count.
+describe('ExerciseCard cardio target', () => {
+  function renderTarget(target: { targetDurationSec: number | null; targetDistanceM: number | null }) {
+    return render(
+      <ExerciseCard
+        programExercise={{ ...cardioPe, targetSets: 1, ...target }}
+        lastPerformance={undefined}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+      />,
+    );
+  }
+
+  it('shows the duration and distance target of the workout row', () => {
+    renderTarget({ targetDurationSec: 1200, targetDistanceM: 5000 });
+    expect(screen.getByText('Target: 20 min · 5 km')).toBeInTheDocument();
+    expect(screen.queryByText(/1 set/)).not.toBeInTheDocument();
+  });
+
+  it('shows a duration-only target', () => {
+    renderTarget({ targetDurationSec: 1200, targetDistanceM: null });
+    expect(screen.getByText('Target: 20 min')).toBeInTheDocument();
+  });
+
+  it('keeps the existing cardio line when the row has no target', () => {
+    renderTarget({ targetDurationSec: null, targetDistanceM: null });
+    expect(screen.getByText('1 set · Rest 120s')).toBeInTheDocument();
+    expect(screen.queryByText(/^Target:/)).not.toBeInTheDocument();
   });
 });

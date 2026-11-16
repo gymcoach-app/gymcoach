@@ -34,6 +34,8 @@ const pe: ProgramExercise & { exercise: Exercise } = {
   autoregulationMode: 'PRESERVE_RIR',
   fatigueRate: null,
   loadAdjustmentPct: null,
+  targetDurationSec: null,
+  targetDistanceM: null,
   exercise: exo,
 };
 

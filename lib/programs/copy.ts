@@ -50,6 +50,8 @@ export type SourceRowSettings = Pick<
   | 'autoregulationMode'
   | 'fatigueRate'
   | 'loadAdjustmentPct'
+  | 'targetDurationSec'
+  | 'targetDistanceM'
 >;
 
 export interface WorkoutRowFromSession {
@@ -65,6 +67,10 @@ export interface WorkoutRowFromSession {
   autoregulationMode?: SetAutoregulationMode;
   fatigueRate: number | null;
   loadAdjustmentPct: number | null;
+  // Cardio target of the session's own programmed row (issue #558), kept so
+  // a saved cardio exercise stays prescribed by duration and distance.
+  targetDurationSec: number | null;
+  targetDistanceM: number | null;
 }
 
 const DEFAULT_RIR = 2;
@@ -125,6 +131,8 @@ export function workoutRowsFromSession(
       autoregulationMode: source?.autoregulationMode,
       fatigueRate: source?.fatigueRate ?? null,
       loadAdjustmentPct: source?.loadAdjustmentPct ?? null,
+      targetDurationSec: source?.targetDurationSec ?? null,
+      targetDistanceM: source?.targetDistanceM ?? null,
     });
   }
   return rows;

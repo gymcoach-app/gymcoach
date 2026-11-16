@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { programExerciseInputSchema } from '@/lib/schemas/program-exercise';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
+import { isCardioExercise } from '@/lib/cardio-target';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -20,7 +21,7 @@ export async function PUT(req: Request, props: Params) {
     // the status code, not the security boundary.
     const owned = await db.programExercise.findFirst({
       where: { id: params.id, workout: { program: { userId } } },
-      select: { id: true, workoutId: true, exerciseId: true },
+      select: { id: true, workoutId: true, exerciseId: true, targetDurationSec: true },
     });
     if (!owned) throw new ApiError(404, 'Program exercise not found.');
 
@@ -32,6 +33,25 @@ export async function PUT(req: Request, props: Params) {
     if (!exercise) {
       throw new ApiError(400, 'Invalid exercise.');
     }
+
+    // Cardio target (issue #558): only a CARDIO exercise is prescribed by
+    // duration and distance. On any other exercise a target in the body is
+    // refused, and a target the row carried is cleared (the row's exercise
+    // was replaced by a strength one). On a cardio exercise an absent field
+    // is left unchanged, null clears it, and a distance needs a duration:
+    // the one sent, or the one already stored.
+    const cardio = isCardioExercise(exercise);
+    if (!cardio && (data.targetDurationSec != null || data.targetDistanceM != null)) {
+      throw new ApiError(400, 'Only a cardio exercise takes a duration or distance target.');
+    }
+    const nextDurationSec =
+      data.targetDurationSec !== undefined ? data.targetDurationSec : owned.targetDurationSec;
+    if (cardio && data.targetDistanceM != null && nextDurationSec == null) {
+      throw new ApiError(400, 'A distance target needs a duration target.');
+    }
+    // Clearing the duration clears the distance with it, so a stored row
+    // never holds a distance without a duration.
+    const clearDistance = cardio && data.targetDurationSec === null;
 
     // Replacing a row's exercise with one the workout already holds would
     // create the same duplicate POST refuses (issues #379, #426): the live
@@ -65,6 +85,8 @@ export async function PUT(req: Request, props: Params) {
         // Superset pairing (issue #146): absent = leave unchanged (Prisma
         // skips undefined), null = unpair, number = (re)pair.
         supersetGroup: data.supersetGroup,
+        targetDurationSec: cardio ? data.targetDurationSec : null,
+        targetDistanceM: cardio ? (clearDistance ? null : data.targetDistanceM) : null,
       },
       include: { exercise: true },
     });

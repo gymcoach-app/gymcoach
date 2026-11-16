@@ -96,6 +96,11 @@ shared recovery budget. Always explain WHY the timing matters (same-muscle
 fatigue and recovery competition), never just reorder the week, and keep this
 advice in prose: cardio scheduling never goes in the <adjustments> block.
 
+In activeProgram.workouts[].exercises[], a cardio exercise the program prescribes
+by time carries targetDurationMin (minutes) and, when a distance is planned,
+targetDistanceKm (kilometers): read those as its plan and ignore its targetSets,
+targetRepsMin, targetRepsMax and targetRIR, which are placeholders.
+
 Be concise (max 600 words), actionable, factual. Cite studies when relevant
 (Schoenfeld, Helms, Israetel). Do not make up data that is not in the payload.
 

@@ -86,4 +86,58 @@ describe('programExerciseInputSchema', () => {
       false,
     );
   });
+
+  // Cardio target (issue #558, slice 1).
+  it('accepts a cardio target, null, or absent (distinct states)', () => {
+    const withTarget = programExerciseInputSchema.parse({
+      ...valid,
+      targetDurationSec: 1200,
+      targetDistanceM: 5000,
+    });
+    expect(withTarget.targetDurationSec).toBe(1200);
+    expect(withTarget.targetDistanceM).toBe(5000);
+
+    const durationOnly = programExerciseInputSchema.parse({ ...valid, targetDurationSec: 1200 });
+    expect(durationOnly.targetDistanceM).toBeUndefined();
+
+    const cleared = programExerciseInputSchema.parse({
+      ...valid,
+      targetDurationSec: null,
+      targetDistanceM: null,
+    });
+    expect(cleared.targetDurationSec).toBeNull();
+    expect(cleared.targetDistanceM).toBeNull();
+
+    // Absent stays absent (undefined), so an update can leave it unchanged.
+    const absent = programExerciseInputSchema.parse(valid);
+    expect(absent.targetDurationSec).toBeUndefined();
+    expect(absent.targetDistanceM).toBeUndefined();
+  });
+
+  it('bounds the cardio target like a logged cardio set', () => {
+    const ok = (extra: Record<string, unknown>) =>
+      programExerciseInputSchema.safeParse({ ...valid, ...extra }).success;
+    expect(ok({ targetDurationSec: 1 })).toBe(true);
+    expect(ok({ targetDurationSec: 86400 })).toBe(true);
+    expect(ok({ targetDurationSec: 0 })).toBe(false);
+    expect(ok({ targetDurationSec: 86401 })).toBe(false);
+    expect(ok({ targetDurationSec: 90.5 })).toBe(false);
+    expect(ok({ targetDurationSec: '1200' })).toBe(false);
+    expect(ok({ targetDurationSec: 1200, targetDistanceM: 1000000 })).toBe(true);
+    expect(ok({ targetDurationSec: 1200, targetDistanceM: 1000001 })).toBe(false);
+    expect(ok({ targetDurationSec: 1200, targetDistanceM: 0 })).toBe(false);
+    expect(ok({ targetDurationSec: 1200, targetDistanceM: -5 })).toBe(false);
+  });
+
+  it('refuses a distance sent while the duration is cleared', () => {
+    const res = programExerciseInputSchema.safeParse({
+      ...valid,
+      targetDurationSec: null,
+      targetDistanceM: 5000,
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues.some((i) => i.path.includes('targetDistanceM'))).toBe(true);
+    }
+  });
 });

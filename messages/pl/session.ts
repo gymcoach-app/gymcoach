@@ -288,6 +288,7 @@ export const session = {
   exerciseCard: {
     actions: 'Opcje ćwiczenia',
     notAvailable: 'Niedostępne na tej siłowni',
+    cardioTarget: 'Cel: {target}',
     cardioPrescription:
       '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} · Przerwa {seconds} s',
     strengthPrescription:

@@ -17,6 +17,8 @@ export interface PrintSheetLabels {
   planLine: (row: { sets: number; min: number; max: number; rir: number }) => string;
   rest: (seconds: number) => string;
   tempo: (tempo: string) => string;
+  /** Plan of a cardio exercise without a duration target (issue #558). */
+  cardio: string;
   empty: string;
 }
 
@@ -90,16 +92,22 @@ export function PrintSheet({ programName, workout, labels, exerciseName, breakAf
                   </p>
                 </td>
                 <td className="border border-black px-1.5 py-1 leading-tight">
-                  <p>
-                    {labels.planLine({
-                      sets: row.targetSets,
-                      min: row.targetRepsMin,
-                      max: row.targetRepsMax,
-                      rir: row.targetRIR,
-                    })}
-                  </p>
-                  <p>{labels.rest(row.restSec)}</p>
-                  {row.tempo && <p>{labels.tempo(row.tempo)}</p>}
+                  {row.cardio ? (
+                    <p>{row.cardioTarget ?? labels.cardio}</p>
+                  ) : (
+                    <>
+                      <p>
+                        {labels.planLine({
+                          sets: row.targetSets,
+                          min: row.targetRepsMin,
+                          max: row.targetRepsMax,
+                          rir: row.targetRIR,
+                        })}
+                      </p>
+                      <p>{labels.rest(row.restSec)}</p>
+                      {row.tempo && <p>{labels.tempo(row.tempo)}</p>}
+                    </>
+                  )}
                 </td>
                 {setColumns.map((set) => {
                   const cells = cellsBySet(row, set);

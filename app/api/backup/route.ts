@@ -50,7 +50,8 @@ import {
 //   reference but are NEVER imported (they identify the importing account).
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
 //   usesBodyweight, equipmentType, isFavorite.
-// - Program / Workout / ProgramExercise: all user content incl supersetGroup.
+// - Program / Workout / ProgramExercise: all user content incl supersetGroup
+//   and the cardio target (v11, issue #558: targetDurationSec, targetDistanceM).
 // - Session / Set: all user content incl durationSec, distanceM, avgHr, block.
 // - Session.freestyle and SessionExercise (v10, issue #388): the marker and
 //   the exercise list of a freestyle session, re-linked to the exercise by name.
@@ -66,7 +67,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 10;
+const VERSION = 11;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -261,6 +262,10 @@ export async function GET() {
             tempo: pe.tempo,
             notes: pe.notes,
             supersetGroup: pe.supersetGroup,
+            // New in v11 (issue #558): the cardio target of a CARDIO
+            // exercise; null on every other row and absent from older backups.
+            targetDurationSec: pe.targetDurationSec,
+            targetDistanceM: pe.targetDistanceM,
           })),
         })),
       })),
@@ -454,6 +459,21 @@ const importSchema = z.object({
                       .int()
                       .min(MIN_SUPERSET_GROUP)
                       .max(MAX_SUPERSET_GROUP)
+                      .nullable()
+                      .optional(),
+                    // v11 (issue #558); absent in older backups. Bounds match
+                    // the live route's schema and a logged cardio set.
+                    targetDurationSec: z
+                      .number()
+                      .int()
+                      .min(1)
+                      .max(MAX_DURATION_SEC)
+                      .nullable()
+                      .optional(),
+                    targetDistanceM: z
+                      .number()
+                      .positive()
+                      .max(MAX_DISTANCE_M)
                       .nullable()
                       .optional(),
                   }),
@@ -747,6 +767,9 @@ export async function POST(req: Request) {
 
         // 3. Recreate the exercises; we keep a name -> id index to link them.
         const exerciseIdByName = new Map<string, string>();
+        // Names of the CARDIO exercises: only they may carry a cardio target
+        // (issue #558), the same rule the live routes enforce.
+        const cardioExerciseNames = new Set<string>();
         for (const e of payload.exercises) {
           const created = await tx.exercise.create({
             data: {
@@ -762,6 +785,7 @@ export async function POST(req: Request) {
             },
           });
           exerciseIdByName.set(e.name, created.id);
+          if (e.category === 'CARDIO') cardioExerciseNames.add(e.name);
         }
 
         // 4. Saved gyms are recreated after exercises so per-exercise
@@ -868,6 +892,8 @@ export async function POST(req: Request) {
             for (const pe of w.exercises) {
               const exId = exerciseIdByName.get(pe.exerciseName);
               if (!exId) continue;
+              const cardioTarget =
+                cardioExerciseNames.has(pe.exerciseName) && pe.targetDurationSec != null;
               await tx.programExercise.create({
                 data: {
                   workoutId: workout.id,
@@ -884,6 +910,11 @@ export async function POST(req: Request) {
                   tempo: pe.tempo ?? null,
                   notes: pe.notes ?? null,
                   supersetGroup: pe.supersetGroup ?? null,
+                  // Cardio target (v11): kept only on a CARDIO exercise, and
+                  // a distance only next to a duration, so an edited file
+                  // cannot store what the live routes refuse.
+                  targetDurationSec: cardioTarget ? (pe.targetDurationSec ?? null) : null,
+                  targetDistanceM: cardioTarget ? (pe.targetDistanceM ?? null) : null,
                 },
               });
             }

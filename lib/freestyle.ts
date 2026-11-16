@@ -49,6 +49,9 @@ export function toRunnerExercises(rows: FreestyleRow[]): RunnerExercise[] {
         autoregulationMode: 'PRESERVE_RIR' as const,
         fatigueRate: autoregulation.fatigueRate,
         loadAdjustmentPct: autoregulation.loadAdjustmentPct,
+        // A freestyle row stores no cardio target (issue #558 covers workouts).
+        targetDurationSec: null,
+        targetDistanceM: null,
       };
     });
 }

@@ -94,6 +94,38 @@ describe('buildPrintSheet', () => {
   it('is empty for a workout with no exercises', () => {
     expect(buildPrintSheet([])).toEqual({ rows: [], maxSets: 0, cellCount: 0 });
   });
+
+  // Cardio target (issue #558, slice 1).
+  it('marks a cardio row and carries its target text', () => {
+    const sheet = buildPrintSheet([
+      pe({ id: 'bench', order: 1, exercise: { name: 'Bench', category: 'COMPOUND' } }),
+      pe({
+        id: 'run',
+        order: 2,
+        exercise: { name: 'Running', category: 'CARDIO' },
+        targetSets: 1,
+        targetDurationSec: 1200,
+        targetDistanceM: 5000,
+      }),
+      pe({ id: 'bike', order: 3, exercise: { name: 'Bike', category: 'CARDIO' }, targetSets: 1 }),
+    ]);
+
+    expect(sheet.rows.map((row) => row.cardio)).toEqual([false, true, true]);
+    expect(sheet.rows.map((row) => row.cardioTarget)).toEqual([null, '20 min · 5 km', null]);
+  });
+
+  it('never reads a target on a strength row, and treats a missing category as strength', () => {
+    const sheet = buildPrintSheet([
+      pe({
+        id: 'bench',
+        exercise: { name: 'Bench', category: 'COMPOUND' },
+        targetDurationSec: 1200,
+      }),
+      pe({ id: 'legacy', order: 2, targetDurationSec: 1200 }),
+    ]);
+    expect(sheet.rows.map((row) => row.cardio)).toEqual([false, false]);
+    expect(sheet.rows.map((row) => row.cardioTarget)).toEqual([null, null]);
+  });
 });
 
 describe('cellsBySet', () => {

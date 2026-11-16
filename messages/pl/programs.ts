@@ -117,6 +117,11 @@ export const programs = {
     prescription:
       '{sets, plural, one {# seria} few {# serie} many {# serii} other {# serii}} × {reps} powt. · {effort} · przerwa {seconds} s',
     tempoValue: ' · tempo {tempo}',
+    cardioDuration: 'Czas (min)',
+    cardioDistance: 'Dystans (km, opcjonalnie)',
+    cardioDurationError: 'Podaj czas w minutach, maksymalnie 1440.',
+    cardioDistanceError: 'Podaj dystans do 1000 km lub zostaw pole puste.',
+    cardioNoTarget: 'Cardio - brak ustawionego celu',
   },
   print: {
     action: 'Drukuj kartę',
@@ -133,6 +138,7 @@ export const programs = {
     planLine: '{sets} x {min}-{max} powt., {effort}',
     rest: 'Przerwa {seconds} s',
     tempo: 'Tempo {tempo}',
+    cardio: 'Cardio',
     empty: 'Brak ćwiczeń w tej sesji.',
     noWorkouts: 'Ten program nie ma jeszcze sesji do wydruku.',
   },

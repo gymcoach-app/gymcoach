@@ -24,6 +24,8 @@ const programExercise: ProgramExercise = {
   autoregulationMode: 'PRESERVE_REPS',
   fatigueRate: 0.04,
   loadAdjustmentPct: 2.5,
+  targetDurationSec: null,
+  targetDistanceM: null,
 };
 
 describe('programExerciseCopyData (issue #394)', () => {
@@ -154,6 +156,8 @@ describe('workoutRowsFromSession (issue #394)', () => {
         autoregulationMode: 'PRESERVE_REPS',
         fatigueRate: 0.04,
         loadAdjustmentPct: 2.5,
+        targetDurationSec: null,
+        targetDistanceM: null,
       },
       {
         exerciseId: 'bench',
@@ -163,6 +167,8 @@ describe('workoutRowsFromSession (issue #394)', () => {
         autoregulationMode: 'PRESERVE_RIR',
         fatigueRate: null,
         loadAdjustmentPct: null,
+        targetDurationSec: null,
+        targetDistanceM: null,
       },
     ]);
     // The first programmed row of the exercise wins.

@@ -21,6 +21,7 @@ import type { SerializedLastPerformance } from './session-runner';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import type { GymLoadConstraints } from '@/lib/gym-loads';
 import { ExerciseMediaDialog } from '@/components/exercises/exercise-media-dialog';
+import { formatCardioTarget } from '@/lib/cardio-target';
 
 // Last-session reference line for a cardio exercise (issue #176): duration and
 // distance via the shared cardio formatter, with average heart rate appended
@@ -83,6 +84,9 @@ export function ExerciseCard({
   // reps targets, load suggestion and last-performance load make no sense for
   // them, so those blocks are hidden.
   const isCardio = exo.category === 'CARDIO';
+  // Cardio target of the workout row (issue #558): shown instead of the set
+  // count when the program prescribes a duration (and distance).
+  const cardioTarget = isCardio ? formatCardioTarget(programExercise) : null;
 
   const repsLabel =
     programExercise.targetRepsMin === programExercise.targetRepsMax
@@ -213,10 +217,12 @@ export function ExerciseCard({
         <p className="text-sm font-medium">
           {isCardio ? (
             <>
-              {t('cardioPrescription', {
-                sets: programExercise.targetSets,
-                seconds: programExercise.restSec,
-              })}
+              {cardioTarget
+                ? t('cardioTarget', { target: cardioTarget })
+                : t('cardioPrescription', {
+                    sets: programExercise.targetSets,
+                    seconds: programExercise.restSec,
+                  })}
             </>
           ) : (
             <>

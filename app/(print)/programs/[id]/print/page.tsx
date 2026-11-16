@@ -38,7 +38,7 @@ export default async function ProgramPrintPage(props: Props) {
           include: {
             exercises: {
               orderBy: { order: 'asc' },
-              include: { exercise: { select: { name: true } } },
+              include: { exercise: { select: { name: true, category: true } } },
             },
           },
         },
@@ -73,6 +73,7 @@ export default async function ProgramPrintPage(props: Props) {
     planLine: ({ sets, min, max, rir }) => t('planLine', { sets, min, max, effort: formatEffort(user.effortScale, rir) }),
     rest: (seconds) => t('rest', { seconds }),
     tempo: (tempo) => t('tempo', { tempo }),
+    cardio: t('cardio'),
     empty: t('empty'),
   };
   const programName = getTrainingDisplayName(program.name, locale);

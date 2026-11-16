@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { suggestNextWeight, weightIncrement, type ReadinessSignal } from '@/lib/progression';
 import { formatDuration, MAX_DISTANCE_M, parseDurationToSec } from '@/lib/cardio';
+import { cardioTargetLoggerInputs } from '@/lib/cardio-target';
 import { parseSetShorthand, rpeToRir } from '@/lib/set-shorthand';
 import type { SetParseResult } from '@/lib/schemas/set-parse';
 import { effortOptions, effortTone, effortValue, formatEffort, type EffortTone } from '@/lib/effort';
@@ -662,19 +663,26 @@ function computeInitial(
   loadConstraints: GymLoadConstraints | null = null,
 ): FormState {
   // Cardio exercises (issue #133): prefill the duration/distance from the
-  // last cardio set of this session, otherwise leave the inputs empty. The
-  // weight/reps machinery below is strength-only.
+  // last cardio set of this session, otherwise from the workout row's cardio
+  // target (issue #558) the way strength inputs start from their targets,
+  // otherwise leave the inputs empty. The weight/reps machinery below is
+  // strength-only.
   if (pe.exercise.category === 'CARDIO') {
     const lastCardio = existingSets.filter((s) => s.durationSec != null).at(-1);
+    const fromTarget = cardioTargetLoggerInputs(pe);
     return {
       weight: 0,
       reps: 1,
       rir: null,
-      durationInput: lastCardio?.durationSec != null ? formatDuration(lastCardio.durationSec) : '',
-      distanceInput:
-        lastCardio?.distanceM != null && lastCardio.distanceM > 0
+      durationInput:
+        lastCardio?.durationSec != null
+          ? formatDuration(lastCardio.durationSec)
+          : fromTarget.durationInput,
+      distanceInput: lastCardio
+        ? lastCardio.distanceM != null && lastCardio.distanceM > 0
           ? String(+(lastCardio.distanceM / 1000).toFixed(2))
-          : '',
+          : ''
+        : fromTarget.distanceInput,
       isWarmup: false,
       isDropSet: false,
       notes: '',
