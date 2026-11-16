@@ -980,10 +980,14 @@ describe('tamperViolations', () => {
         // of['aroundEach'] names an around hook, for (const h of [...]) does not.
         // The token in front of the word is taken from `out`, where a comment
         // before it is already blanked, so a comment ending in a period (house
-        // style here) cannot read as a member dot, and a dot that follows
-        // another dot is a spread, not a member read (review of #556). As on
+        // style here) cannot read as a member dot. A dot that follows another
+        // dot is not read as a member dot: it is the last dot of a spread, or of
+        // `1..new`, which stays hidden as before (review of #556). Nor is the dot
+        // that ends an integer literal (`1.` then `return [...]` on the next
+        // line): `1.new` is not valid code, so nothing real is hidden. As on
         // main, a keyword or a block close in front still reads as a binding, so
-        // `return of['aroundEach']` stays hidden.
+        // `return of['aroundEach']` stays hidden, and so does a binding that
+        // ends in a letter outside ASCII.
         const open = skipSpace(i - 1, -1);
         const close = skipSpace(j + 1, 1);
         const receiver = skipSpace(open - 1, -1);
@@ -991,9 +995,15 @@ describe('tamperViolations', () => {
         const name = wordBefore(open);
         let beforeWord = receiver - name.length;
         while (beforeWord >= 0 && /\s/.test(out[beforeWord]!)) beforeWord -= 1;
-        const endsBinding = out[beforeWord] === '}' || /[\w$)\]]/.test(out[beforeWord] ?? '');
+        const endsBinding =
+          out[beforeWord] === '}' || /[\w$)\]\u0080-\uffff]/.test(out[beforeWord] ?? '');
+        let beforeNumber = beforeWord - 1;
+        while (beforeNumber >= 0 && /[\w$]/.test(out[beforeNumber]!)) beforeNumber -= 1;
+        const integerDot =
+          /^\d[\d_]*$/.test(out.slice(beforeNumber + 1, beforeWord).join('')) &&
+          !/[.\u0080-\uffff]/.test(out[beforeNumber] ?? '');
         const memberWord =
-          (out[beforeWord] === '.' && out[beforeWord - 1] !== '.') ||
+          (out[beforeWord] === '.' && out[beforeWord - 1] !== '.' && !integerDot) ||
           (name === 'of' && !endsBinding);
         const read =
           src[open] === '[' &&
@@ -1143,6 +1153,14 @@ describe('tamperViolations', () => {
       // A word that merely ends with a keyword is an ordinary identifier, so
       // the exclusion has to match whole words and not a suffix (note 2).
       "const x = returns['aroundEach'];",
+      // Only an integer literal owns the dot behind it: a name that ends in a
+      // digit, a decimal, a hex literal and an exponent are all receivers of a
+      // member read (follow-up to #556).
+      "const x1 = {};\nx1.new['aroundEach'](fn);",
+      "1.5.new['aroundEach'](fn);",
+      "0x1.new['aroundEach'](fn);",
+      "1e3.new['aroundEach'](fn);",
+      "const caf\u00e91 = {};\ncaf\u00e91.new['aroundEach'](fn);",
     ])
       expect(declares(decl), decl).toBe(true);
     for (const plain of [
@@ -1181,6 +1199,12 @@ describe('tamperViolations', () => {
       "const keys = () => {\n  // The hooks we test.\n  return ['aroundEach'];\n};",
       "for (const h /* x */ of ['aroundEach']) run(h);",
       "const xs = [...await ['aroundEach']];",
+      // A binding that ends in a letter outside ASCII still makes `of` a
+      // for-of head, and the dot that ends an integer literal is not a member
+      // dot, with or without a numeric separator (follow-up to #556).
+      "for (const caf\u00e9 of ['aroundEach']) run(caf\u00e9);",
+      "const f = () => {\n  const a = 1.\n  return ['aroundEach'];\n};",
+      "const f = () => {\n  const a = 1_000.\n  return ['aroundEach'];\n};",
       "// it['skip'] and describe['only'] are mentioned here, not called.",
       'it("documents it[\\"skip\\"]", () => {});',
     ])
