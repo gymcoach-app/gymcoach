@@ -912,13 +912,6 @@ describe('tamperViolations', () => {
       while (at >= 0 && at < src.length && /\s/.test(src[at]!)) at += step;
       return at;
     };
-    // Where the identifier ending at `at` begins, so the token in front of it
-    // can say whether a reserved word is a property name or a keyword.
-    const wordStart = (at: number): number => {
-      let k = at;
-      while (k >= 0 && /[\w$]/.test(src[k]!)) k -= 1;
-      return k + 1;
-    };
     // A slash after a postfix `++` or `--` is a division: the operator is read
     // as regex-prefix punctuation by REGEX_AFTER, which would blank the code to
     // the next slash or the end of the line (review of #533).
@@ -985,14 +978,23 @@ describe('tamperViolations', () => {
         // (hooks.of['aroundAll'], x.new['aroundEach']). `of` also reads as a
         // plain name unless a binding in front makes it a for-of head:
         // of['aroundEach'] names an around hook, for (const h of [...]) does not.
+        // The token in front of the word is taken from `out`, where a comment
+        // before it is already blanked, so a comment ending in a period (house
+        // style here) cannot read as a member dot, and a dot that follows
+        // another dot is a spread, not a member read (review of #556). As on
+        // main, a keyword or a block close in front still reads as a binding, so
+        // `return of['aroundEach']` stays hidden.
         const open = skipSpace(i - 1, -1);
         const close = skipSpace(j + 1, 1);
         const receiver = skipSpace(open - 1, -1);
         const after = skipSpace(close + 1, 1);
         const name = wordBefore(open);
-        const beforeWord = skipSpace(wordStart(receiver) - 1, -1);
-        const endsBinding = src[beforeWord] === '}' || /[\w$)\]]/.test(src[beforeWord] ?? '');
-        const memberWord = src[beforeWord] === '.' || (name === 'of' && !endsBinding);
+        let beforeWord = receiver - name.length;
+        while (beforeWord >= 0 && /\s/.test(out[beforeWord]!)) beforeWord -= 1;
+        const endsBinding = out[beforeWord] === '}' || /[\w$)\]]/.test(out[beforeWord] ?? '');
+        const memberWord =
+          (out[beforeWord] === '.' && out[beforeWord - 1] !== '.') ||
+          (name === 'of' && !endsBinding);
         const read =
           src[open] === '[' &&
           src[close] === ']' &&
@@ -1126,6 +1128,10 @@ describe('tamperViolations', () => {
       'type Hooks = { aroundEach: Hook };',
       'const h = obj.aroundEach;',
       "const h = hooks['aroundEach'];",
+      // A comment between the dot and the word does not hide a member read, and
+      // an optional chain still reaches the word (review of #556).
+      "const x = {};\nx. /* c */ new['aroundEach'](fn);",
+      "const x = {};\nx?.new['aroundEach'](fn);",
       // A reserved word is a legal property name, so a dot reaching it is a
       // member read whatever else the word means, and `of` indexes as a plain
       // name wherever no binding in front makes it a for-of head (review of
@@ -1169,6 +1175,12 @@ describe('tamperViolations', () => {
       "for (const { h } of ['aroundEach']) run(h);",
       "for (const [h] of ['aroundEach']) run(h);",
       "switch (h) { case ['aroundEach']: break; }",
+      // A comment ending in a period does not move the word out of keyword
+      // position, a comment does not hide the binding of a for-of head, and a
+      // spread is not a member dot (review of #556).
+      "const keys = () => {\n  // The hooks we test.\n  return ['aroundEach'];\n};",
+      "for (const h /* x */ of ['aroundEach']) run(h);",
+      "const xs = [...await ['aroundEach']];",
       "// it['skip'] and describe['only'] are mentioned here, not called.",
       'it("documents it[\\"skip\\"]", () => {});',
     ])
