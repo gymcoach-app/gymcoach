@@ -33,6 +33,7 @@ import { GET as getChat, DELETE as deleteChat } from '@/app/api/coach/chat/[id]/
 import { POST as activateProgram } from '@/app/api/programs/[id]/activate/route';
 import { POST as addWorkout } from '@/app/api/programs/[id]/workouts/route';
 import { POST as addProgramExercise } from '@/app/api/workouts/[id]/program-exercises/route';
+import { PUT as putWorkoutOrder } from '@/app/api/workouts/[id]/order/route';
 import { POST as addSet } from '@/app/api/sessions/[id]/sets/route';
 import { POST as activateGym } from '@/app/api/gyms/[id]/activate/route';
 import { POST as startSession } from '@/app/api/sessions/route';
@@ -289,6 +290,23 @@ describe('route ownership: /api/workouts/[id]', () => {
         .status,
     ).toBe(404);
     expect((await db.workout.findUnique({ where: { id: workout.id } }))?.name).toBe('Push A');
+  });
+});
+
+// Reordering (issue #557). The permutation rules live in
+// workout-order-route.test.ts; this is the cross-user case.
+describe('route ownership: /api/workouts/[id]/order', () => {
+  it('returns 404 to a stranger, even with the right ids, and leaves the order intact', async () => {
+    const { b, workout, programExercise } = await seed();
+    actAs(b.id);
+    const res = await putWorkoutOrder(
+      jsonReq('PUT', { programExerciseIds: [programExercise.id] }),
+      idParams(workout.id),
+    );
+    expect(res.status).toBe(404);
+    expect((await db.programExercise.findUnique({ where: { id: programExercise.id } }))?.order).toBe(
+      0,
+    );
   });
 });
 

@@ -19,7 +19,14 @@ import {
 import { ProgramExerciseRow } from '@/components/programs/program-exercise-row';
 import { WorkoutFormDialog } from '@/components/programs/workout-form-dialog';
 import { ProgramExerciseFormDialog } from '@/components/programs/program-exercise-form-dialog';
-import { buildSupersetView, smallestFreeGroup } from '@/lib/supersets';
+import {
+  applyExerciseOrder,
+  buildSupersetView,
+  moveExerciseBlock,
+  smallestFreeGroup,
+  supersetBlocks,
+  type MoveDirection,
+} from '@/lib/supersets';
 import { workoutExerciseChoices } from '@/lib/programs/exercise-choices';
 import { copyName } from '@/lib/programs/copy';
 import { useTrainingName } from '@/components/shared/use-training-name';
@@ -53,6 +60,16 @@ export function WorkoutCard({ workout, catalog }: Props) {
   const [addExoOpen, setAddExoOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const duplicatingRef = useRef(false);
+  // Reordering (issue #557): the order shown while a move is being saved and
+  // until the refreshed rows arrive. It is tied to the `workout.exercises`
+  // array it was computed from, so the next server render (a new array)
+  // replaces it without an effect.
+  const [orderOverride, setOrderOverride] = useState<{
+    source: ProgramExerciseWithExercise[];
+    ids: string[];
+  } | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const savingOrderRef = useRef(false);
 
   async function handleDelete() {
     if (!confirm(t('deleteConfirm', { name: trainingName(workout.name) }))) return;
@@ -102,7 +119,18 @@ export function WorkoutCard({ workout, catalog }: Props) {
 
   // Superset pairing (issue #146, slice 1): rows render in presentation order
   // (group members together) with A1/A2 labels derived on read.
-  const supersetView = buildSupersetView(workout.exercises);
+  const exercises =
+    orderOverride && orderOverride.source === workout.exercises
+      ? applyExerciseOrder(workout.exercises, orderOverride.ids)
+      : workout.exercises;
+  const supersetView = buildSupersetView(exercises);
+  // Reordering works on blocks (a superset moves as one, issue #557): a row
+  // can move up unless its block is the first, down unless it is the last.
+  const blocks = supersetBlocks(exercises);
+  const blockIndexById = new Map<string, number>();
+  blocks.forEach((block, blockIndex) => {
+    for (const member of block) blockIndexById.set(member.id, blockIndex);
+  });
   const workoutExerciseIds = workout.exercises.map((pe) => pe.exerciseId);
   const addChoices = workoutExerciseChoices(catalog, workoutExerciseIds);
 
@@ -158,6 +186,36 @@ export function WorkoutCard({ workout, catalog }: Props) {
     if (!(await updateSupersetGroup(pe, null))) return;
     toast.success(t('supersetRemoved'));
     router.refresh();
+  }
+
+  // Moves a row (with its whole superset, if any) one block up or down. The
+  // new order shows at once; if the save fails the previous order comes back
+  // with an error toast. One save at a time: the next move is computed from
+  // the order the previous one produced.
+  async function handleMove(pe: ProgramExerciseWithExercise, direction: MoveDirection) {
+    if (savingOrderRef.current) return;
+    const ids = moveExerciseBlock(exercises, pe.id, direction);
+    if (!ids) return;
+    const previousOverride = orderOverride;
+    savingOrderRef.current = true;
+    setSavingOrder(true);
+    setOrderOverride({ source: workout.exercises, ids });
+    try {
+      const res = await fetch(`/api/workouts/${workout.id}/order`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ programExerciseIds: ids }),
+      }).catch(() => null);
+      if (!res?.ok) {
+        setOrderOverride(previousOverride);
+        toast.error(t('reorderError'));
+        return;
+      }
+      router.refresh();
+    } finally {
+      savingOrderRef.current = false;
+      setSavingOrder(false);
+    }
   }
 
   return (
@@ -224,6 +282,7 @@ export function WorkoutCard({ workout, catalog }: Props) {
                 pe.supersetGroup != null &&
                 previous != null &&
                 previous.supersetGroup === pe.supersetGroup;
+              const blockIndex = blockIndexById.get(pe.id) ?? 0;
               return (
                 <li key={pe.id}>
                   <ProgramExerciseRow
@@ -236,6 +295,12 @@ export function WorkoutCard({ workout, catalog }: Props) {
                         : null
                     }
                     onUnpair={pe.supersetGroup != null ? () => handleUnpair(pe) : null}
+                    onMoveUp={!savingOrder && blockIndex > 0 ? () => handleMove(pe, 'up') : null}
+                    onMoveDown={
+                      !savingOrder && blockIndex < blocks.length - 1
+                        ? () => handleMove(pe, 'down')
+                        : null
+                    }
                   />
                 </li>
               );
