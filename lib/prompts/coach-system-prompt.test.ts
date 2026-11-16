@@ -114,6 +114,26 @@ describe('coach system prompt positioning', () => {
       /cardio scheduling never goes in the <adjustments> block/i,
     );
   });
+
+  // Issue #562: the heart rate of an attached watch recording is an INPUT-side
+  // signal about the whole session, never a per-set effort or a health signal.
+  it('tells the coach how to read the heart rate attached to a strength session', () => {
+    expect(COACH_SYSTEM_PROMPT).toMatch(/may carry avgHr and maxHr/);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/overall cardiovascular load and density/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/not as the effort of a set/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/RIR stays the effort signal/);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/user's own other sessions/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(
+      /never derive heart rate zones or a\s+percentage of a maximum heart rate/i,
+    );
+    expect(COACH_SYSTEM_PROMPT).toMatch(/simply\s+not recorded/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/never a health signal/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/never give medical advice/i);
+    // Placed after the conditioning paragraphs and before the closing rules.
+    const at = COACH_SYSTEM_PROMPT.indexOf('may carry avgHr and maxHr');
+    expect(at).toBeGreaterThan(COACH_SYSTEM_PROMPT.indexOf('conditioning.days'));
+    expect(at).toBeLessThan(COACH_SYSTEM_PROMPT.indexOf('Be concise (max 600 words)'));
+  });
 });
 
 describe('program generation prompt positioning', () => {

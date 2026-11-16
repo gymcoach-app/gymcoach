@@ -91,16 +91,14 @@ services:
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-}
       NODE_ENV: production
+      # Set to true in .env to start without applying the migrations.
+      SKIP_DB_MIGRATE: ${SKIP_DB_MIGRATE:-}
       UPLOADS_DIR: /app/uploads
     # Lets the app reach a model server on the host (Ollama, codex-lb) on Linux too.
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
       - uploads:/app/uploads
-    # The Prisma CLI is invoked through its bundle: the .bin shim loses its
-    # .wasm files when the image COPY dereferences the symlink.
-    command: >
-      sh -c "node node_modules/prisma/build/index.js migrate deploy && node server.js"
     ports:
       - '${GYMCOACH_PORT:-3000}:3000'
 
