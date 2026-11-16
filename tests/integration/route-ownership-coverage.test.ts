@@ -43,6 +43,8 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   'app/api/sessions/[id]/exercises/route.ts': 'tests/integration/freestyle-session.test.ts',
   'app/api/sessions/[id]/exercises/[rowId]/route.ts':
     'tests/integration/freestyle-session.test.ts',
+  // Attach a watch file (issue #562): stranger and unknown ids are 404 there.
+  'app/api/sessions/[id]/watch-file/route.ts': 'tests/integration/session-watch-file.test.ts',
 };
 
 // Routes that take a resource id in the request body AND are not already
