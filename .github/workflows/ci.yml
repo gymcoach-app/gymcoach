@@ -96,13 +96,15 @@ jobs:
           user: gymcoach
           password: gymcoach
           db: gymcoach
-      - name: Start the app (migrate deploy + server, same command as prod compose)
+      # No command: the image's own ENTRYPOINT and CMD run, as in the compose
+      # files. The entrypoint applies the migrations, then starts the server;
+      # the probe below registers a user, which fails on an unmigrated database.
+      - name: Start the app (image defaults - the entrypoint migrates, then the server starts)
         run: |
           docker run -d --name smoke-app --network smoke -p 3000:3000 \
             -e DATABASE_URL=postgresql://gymcoach:gymcoach@smoke-db:5432/gymcoach \
             -e JWT_SECRET=docker-smoke-ci-secret-at-least-32-characters \
-            gymcoach:smoke \
-            sh -c "node node_modules/prisma/build/index.js migrate deploy && node server.js"
+            gymcoach:smoke
       - name: Probe the image (login page, register, login)
         run: |
           set -u
