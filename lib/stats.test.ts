@@ -813,8 +813,9 @@ describe('dailyConditioning (issue #153)', () => {
   it('adds the weighted average and the peak heart rate of each day', () => {
     const days = dailyConditioning(
       [
-        run({ durationSec: 3600, distanceM: 10000, avgHr: 140, maxHr: 158 }),
+        // The highest peak comes first, so "the last set wins" would fail here.
         run({ durationSec: 600, distanceM: 2000, avgHr: 175, maxHr: 186 }),
+        run({ durationSec: 3600, distanceM: 10000, avgHr: 140, maxHr: 158 }),
         run({ sessionStartedAt: new Date('2026-06-10T18:00:00Z'), avgHr: 151 }), // no peak
         run({ sessionStartedAt: new Date('2026-06-11T06:00:00Z'), maxHr: 170 }), // no average
       ],
