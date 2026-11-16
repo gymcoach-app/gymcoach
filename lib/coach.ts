@@ -237,6 +237,11 @@ interface WeekSummary {
     notes: string | null;
     totalVolume: number;
     workingSetCount: number;
+    // Heart rate of an attached watch recording (issue #562), in bpm. Both
+    // keys are omitted when the session has none, so the payload of a lifter
+    // without heart rate is unchanged.
+    avgHr?: number;
+    maxHr?: number;
     exercises: Array<{
       exerciseId: string;
       exerciseName: string;
@@ -586,6 +591,8 @@ async function weekSummary(
         totalVolume: sessionTotalVolume,
         workingSetCount: s.sets.filter((set) => !set.isWarmup && !isCardioSet(set)).length,
         exercises,
+        ...(s.avgHr != null ? { avgHr: s.avgHr } : {}),
+        ...(s.maxHr != null ? { maxHr: s.maxHr } : {}),
       };
     }),
   };
