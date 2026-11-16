@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { workoutInputSchema } from './workout';
+import { workoutInputSchema, workoutOrderInputSchema } from './workout';
+
+describe('workoutOrderInputSchema (issue #557)', () => {
+  it('accepts a list of ids, an empty one included', () => {
+    expect(workoutOrderInputSchema.parse({ programExerciseIds: ['a', 'b'] })).toEqual({
+      programExerciseIds: ['a', 'b'],
+    });
+    expect(workoutOrderInputSchema.safeParse({ programExerciseIds: [] }).success).toBe(true);
+  });
+
+  it('rejects a missing list, non-string ids, empty ids and oversized input', () => {
+    expect(workoutOrderInputSchema.safeParse({}).success).toBe(false);
+    expect(workoutOrderInputSchema.safeParse({ programExerciseIds: 'a' }).success).toBe(false);
+    expect(workoutOrderInputSchema.safeParse({ programExerciseIds: [1] }).success).toBe(false);
+    expect(workoutOrderInputSchema.safeParse({ programExerciseIds: [''] }).success).toBe(false);
+    expect(
+      workoutOrderInputSchema.safeParse({ programExerciseIds: ['x'.repeat(65)] }).success,
+    ).toBe(false);
+    expect(
+      workoutOrderInputSchema.safeParse({
+        programExerciseIds: Array.from({ length: 201 }, (_, i) => `id-${i}`),
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe('workoutInputSchema', () => {
   it('accepts a name with a valid day of week', () => {
