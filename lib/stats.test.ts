@@ -726,6 +726,34 @@ describe('weeklyConditioning (issue #135)', () => {
     );
     expect(points.every((p) => p.minutes === 0)).toBe(true);
   });
+
+  // Issue #561: the week's average heart rate, weighted by duration.
+  it('weights the average heart rate by duration, over the sets that carry one', () => {
+    const points = weeklyConditioning(
+      [
+        run({ durationSec: 3600, avgHr: 140 }),
+        run({ durationSec: 600, avgHr: 175, sessionId: 's2' }),
+        run({ durationSec: 1800, sessionId: 's3' }), // no heart rate: not in the average
+        run({ durationSec: 1800, avgHr: 100, isWarmup: true, sessionId: 's4' }), // warmup: ignored
+        run({ avgHr: 120, sessionStartedAt: new Date('2026-06-01T07:00:00Z'), sessionId: 's0' }),
+      ],
+      { windowWeeks: 2, now: NOW },
+    );
+    // (140 * 3600 + 175 * 600) / 4200 = 145, not the plain mean of 157.5.
+    expect(points[1]!.avgHr).toBe(145);
+    expect(points[1]!.minutes).toBe(100);
+    expect(points[0]!.avgHr).toBe(120);
+  });
+
+  it('omits the heart rate key when no set of the week carries one', () => {
+    const points = weeklyConditioning([run(), run({ avgHr: null, sessionId: 's2' })], {
+      windowWeeks: 2,
+      now: NOW,
+    });
+    expect('avgHr' in points[1]!).toBe(false);
+    // A zero-filled week has none either.
+    expect('avgHr' in points[0]!).toBe(false);
+  });
 });
 
 describe('dailyConditioning (issue #153)', () => {
@@ -779,5 +807,43 @@ describe('dailyConditioning (issue #153)', () => {
       { now: NOW },
     );
     expect(days).toEqual([{ date: '2026-06-08', minutes: 20, km: 0 }]);
+  });
+
+  // Issue #561: heart rate is the intensity half of the interference signal.
+  it('adds the weighted average and the peak heart rate of each day', () => {
+    const days = dailyConditioning(
+      [
+        // The highest peak comes first, so "the last set wins" would fail here.
+        run({ durationSec: 600, distanceM: 2000, avgHr: 175, maxHr: 186 }),
+        run({ durationSec: 3600, distanceM: 10000, avgHr: 140, maxHr: 158 }),
+        run({ sessionStartedAt: new Date('2026-06-10T18:00:00Z'), avgHr: 151 }), // no peak
+        run({ sessionStartedAt: new Date('2026-06-11T06:00:00Z'), maxHr: 170 }), // no average
+      ],
+      { now: NOW },
+    );
+    expect(days).toEqual([
+      { date: '2026-06-09', minutes: 70, km: 12, avgHr: 145, maxHr: 186 },
+      { date: '2026-06-10', minutes: 30, km: 5, avgHr: 151 },
+      { date: '2026-06-11', minutes: 30, km: 5, maxHr: 170 },
+    ]);
+    expect('maxHr' in days[1]!).toBe(false);
+    expect('avgHr' in days[2]!).toBe(false);
+  });
+
+  it('keeps a day without heart rate byte-identical, and ignores warmup heart rate', () => {
+    const days = dailyConditioning(
+      [run(), run({ isWarmup: true, avgHr: 180, maxHr: 195 }), run({ avgHr: null, maxHr: null })],
+      { now: NOW },
+    );
+    expect(JSON.stringify(days)).toBe('[{"date":"2026-06-09","minutes":60,"km":10}]');
+  });
+
+  it('covers only the sets that recorded a heart rate when coverage is partial', () => {
+    const days = dailyConditioning(
+      [run({ durationSec: 1200, avgHr: 160 }), run({ durationSec: 6000 })],
+      { now: NOW },
+    );
+    // The long set without a heart rate does not pull the average down.
+    expect(days).toEqual([{ date: '2026-06-09', minutes: 120, km: 10, avgHr: 160 }]);
   });
 });
