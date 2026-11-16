@@ -460,8 +460,10 @@ To build from source instead, `docker-compose.prod.yml` builds the image locally
 cp .env.example .env
 # Fill in real values (JWT_SECRET, the AI provider key, NEXTAUTH_URL, ...)
 docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec app npx prisma migrate deploy
 ```
+
+The image applies the Prisma migrations itself each time it starts, so there is
+no separate migration step.
 
 ### Pulling the prebuilt image
 

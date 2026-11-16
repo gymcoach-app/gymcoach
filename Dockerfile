@@ -84,14 +84,16 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.
 RUN mkdir -p /app/uploads && chown nextjs:nodejs /app/uploads
 ENV UPLOADS_DIR=/app/uploads
 
-# Entrypoint applies Prisma migrations before starting the server
-COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Entrypoint applies Prisma migrations before starting the server. It is
+# installed under its own name: the Node base image already ships a
+# /usr/local/bin/docker-entrypoint.sh, which stays untouched.
+COPY scripts/docker-entrypoint.sh /usr/local/bin/gymcoach-entrypoint.sh
+RUN chmod +x /usr/local/bin/gymcoach-entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["gymcoach-entrypoint.sh"]
 CMD ["node", "server.js"]

@@ -6,7 +6,9 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TMPDIR="$(mktemp -d)"
+# Without a private directory the mock below would land on the real PATH.
+TMPDIR="$(mktemp -d)" || exit 1
+[ -n "$TMPDIR" ] && [ -d "$TMPDIR" ] || exit 1
 export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -77,6 +79,13 @@ DATABASE_URL="" "$HERE/docker-entrypoint.sh" sh -c "exit 42"
 code=$?
 set -e
 expect "exit code propagation" "$code" "42"
+
+# 6. The command replaces the entrypoint (exec): it runs under the entrypoint's
+# own process id, so in the image the server is PID 1 and receives SIGTERM.
+DATABASE_URL="" "$HERE/docker-entrypoint.sh" sh -c 'echo $$' > "$TMPDIR/exec.pid" &
+entry_pid=$!
+wait "$entry_pid" || true
+expect "exec handoff: same process id" "$(cat "$TMPDIR/exec.pid")" "$entry_pid"
 
 if [ "$failures" -gt 0 ]; then
   echo "docker-entrypoint self-test: $failures failure(s)"
