@@ -91,6 +91,8 @@ services:
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-}
       NODE_ENV: production
+      # Set to true in .env to start without applying the migrations.
+      SKIP_DB_MIGRATE: ${SKIP_DB_MIGRATE:-}
       UPLOADS_DIR: /app/uploads
     # Lets the app reach a model server on the host (Ollama, codex-lb) on Linux too.
     extra_hosts:

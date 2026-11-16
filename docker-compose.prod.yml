@@ -60,6 +60,8 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-}
       NODE_ENV: production
+      # Set to true in .env to start without applying the migrations.
+      SKIP_DB_MIGRATE: ${SKIP_DB_MIGRATE:-}
       # Progress-photo files (issue #269): kept on the named volume below so
       # they survive container rebuilds. Back it up alongside the database.
       UPLOADS_DIR: /app/uploads

@@ -84,7 +84,7 @@ expect "exit code propagation" "$code" "42"
 # own process id, so in the image the server is PID 1 and receives SIGTERM.
 DATABASE_URL="" "$HERE/docker-entrypoint.sh" sh -c 'echo $$' > "$TMPDIR/exec.pid" &
 entry_pid=$!
-wait "$entry_pid"
+wait "$entry_pid" || true
 expect "exec handoff: same process id" "$(cat "$TMPDIR/exec.pid")" "$entry_pid"
 
 if [ "$failures" -gt 0 ]; then

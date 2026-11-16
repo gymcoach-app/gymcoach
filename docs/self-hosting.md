@@ -387,9 +387,10 @@ entrypoint, so it also holds for a plain `docker run`, your own compose file or
 an image updater such as Watchtower, as long as `DATABASE_URL` is set. Outside
 the provided compose file nothing waits for Postgres: if the database is not
 reachable yet the container exits, and a restart policy brings it back once it
-is. Set `SKIP_DB_MIGRATE=true` to start without migrating, for example when
-several replicas start together and one job applies the migrations. Take a backup first: a failed
-upgrade is the one time you want the dump from five minutes ago.
+is. Set `SKIP_DB_MIGRATE=true` (exactly that value; the provided compose files
+read it from `.env`) to start without migrating, for example when several
+replicas start together and one job applies the migrations. Take a backup
+first: a failed upgrade is the one time you want the dump from five minutes ago.
 
 ```bash
 cd ~/gymcoach
