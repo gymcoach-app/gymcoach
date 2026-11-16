@@ -315,7 +315,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/backup - export completeness (issue #168)', () => {
-  it('exports version 11 with the effort scale and all earlier backup fields', async () => {
+  it('exports version 12 with the effort scale and all earlier backup fields', async () => {
     const user = await seedFullUser('a@test.dev');
     actAs(user.id);
 
@@ -323,7 +323,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(11);
+    expect(dump.version).toBe(12);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -714,6 +714,94 @@ describe('POST /api/backup - malformed and oversized input (issue #168)', () => 
     expect(after?.effortScale).toBe('RPE');
     // The rest of the profile was still restored from the file.
     expect(after?.displayName).toBe('Restored From V8');
+  });
+
+  // Issue #562 (v11): the heart rate of an attached watch recording rides on
+  // the session, both ways.
+  it('round-trips the session heart rate into another account (issue #562)', async () => {
+    const user = await seedFullUser('hr-source@test.dev');
+    const hrTrack = [
+      { t: 0, hr: 96 },
+      { t: 60, hr: 131 },
+      { t: 120, hr: 165 },
+    ];
+    const first = await db.session.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { startedAt: 'asc' },
+    });
+    await db.session.update({
+      where: { id: first.id },
+      data: { avgHr: 118, maxHr: 165, hrTrack },
+    });
+    actAs(user.id);
+    const dump = await (await getBackup()).json();
+    const exported = dump.sessions.find(
+      (s: { startedAt: string }) => s.startedAt === first.startedAt.toISOString(),
+    );
+    expect(exported).toMatchObject({ avgHr: 118, maxHr: 165, hrTrack });
+
+    const target = await db.user.create({ data: { email: 'hr-target@test.dev', passwordHash: 'x' } });
+    actAs(target.id);
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+
+    const restored = await db.session.findFirstOrThrow({
+      where: { userId: target.id, startedAt: first.startedAt },
+    });
+    expect(restored.avgHr).toBe(118);
+    expect(restored.maxHr).toBe(165);
+    expect(restored.hrTrack).toEqual(hrTrack);
+    // A session without an attachment stays without one.
+    const others = await db.session.findMany({
+      where: { userId: target.id, NOT: { id: restored.id } },
+    });
+    for (const s of others) {
+      expect(s.avgHr).toBeNull();
+      expect(s.maxHr).toBeNull();
+      expect(s.hrTrack).toBeNull();
+    }
+    expect(comparable(await (await getBackup()).json())).toEqual(comparable(dump));
+  });
+
+  it('still imports a version 10 backup without the session heart rate (issue #562)', async () => {
+    const user = await seedFullUser('hr-v10@test.dev');
+    actAs(user.id);
+    const dump = await (await getBackup()).json();
+    dump.version = 10;
+    for (const s of dump.sessions) {
+      delete s.avgHr;
+      delete s.maxHr;
+      delete s.hrTrack;
+    }
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+    const sessions = await db.session.findMany({ where: { userId: user.id } });
+    expect(sessions.length).toBe(dump.sessions.length);
+    for (const s of sessions) {
+      expect(s.avgHr).toBeNull();
+      expect(s.hrTrack).toBeNull();
+    }
+  });
+
+  it('rejects an out-of-bounds session heart rate without touching existing data (issue #562)', async () => {
+    const user = await seedFullUser('hr-victim@test.dev');
+    actAs(user.id);
+    const before = await countsFor(user.id);
+    const dump = await (await getBackup()).json();
+
+    for (const bad of [
+      { avgHr: 300 },
+      { maxHr: 12 },
+      { hrTrack: [{ t: 0, hr: 999 }] },
+      { hrTrack: [{ t: -5, hr: 120 }] },
+      { hrTrack: Array.from({ length: 501 }, (_, t) => ({ t, hr: 120 })) },
+    ]) {
+      const payload = structuredClone(dump);
+      Object.assign(payload.sessions[0], bad);
+      const res = await postBackup(jsonReq({ payload, confirmReplace: true }));
+      expect(res.status).toBe(400);
+    }
+    expect(await countsFor(user.id)).toEqual(before);
   });
 
   it('rejects an unknown effort scale without touching existing data (issue #390)', async () => {

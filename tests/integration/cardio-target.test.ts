@@ -465,7 +465,7 @@ describe('backup - cardio target (issue #558)', () => {
   it('still imports an older backup without the two fields', async () => {
     const source = await seedBackupUser('cardio-backup-old@test.dev');
     const dump = await exportOf(source.user.id);
-    dump.version = 10;
+    dump.version = 11;
     for (const row of rowsOf(dump)) {
       delete row.targetDurationSec;
       delete row.targetDistanceM;

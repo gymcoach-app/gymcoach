@@ -25,6 +25,11 @@ import {
 } from '@/lib/cardio';
 import { MAX_SUPERSET_GROUP, MIN_SUPERSET_GROUP } from '@/lib/supersets';
 import { sorenessSchema } from '@/lib/schemas/readiness';
+import {
+  sessionAvgHrSchema,
+  sessionHrTrackSchema,
+  sessionMaxHrSchema,
+} from '@/lib/schemas/watch-file';
 import { gymWeightListSchema } from '@/lib/schemas/gym';
 import {
   GYM_EQUIPMENT_IMAGE_MIME_TYPES,
@@ -51,10 +56,12 @@ import {
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
 //   usesBodyweight, equipmentType, isFavorite.
 // - Program / Workout / ProgramExercise: all user content incl supersetGroup
-//   and the cardio target (v11, issue #558: targetDurationSec, targetDistanceM).
+//   and the cardio target (v12, issue #558: targetDurationSec, targetDistanceM).
 // - Session / Set: all user content incl durationSec, distanceM, avgHr, block.
 // - Session.freestyle and SessionExercise (v10, issue #388): the marker and
 //   the exercise list of a freestyle session, re-linked to the exercise by name.
+// - Session.avgHr / maxHr / hrTrack (v11, issue #562): the heart rate of an
+//   attached watch recording.
 // - Saved Gym profiles plus physical GymEquipment, equipment-to-exercise links,
 //   and uploaded/external equipment images.
 // - CoachSession, ExerciseGoal, BodyweightEntry, ReadinessCheckin,
@@ -67,7 +74,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 11;
+const VERSION = 12;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -262,7 +269,7 @@ export async function GET() {
             tempo: pe.tempo,
             notes: pe.notes,
             supersetGroup: pe.supersetGroup,
-            // New in v11 (issue #558): the cardio target of a CARDIO
+            // New in v12 (issue #558): the cardio target of a CARDIO
             // exercise; null on every other row and absent from older backups.
             targetDurationSec: pe.targetDurationSec,
             targetDistanceM: pe.targetDistanceM,
@@ -281,6 +288,11 @@ export async function GET() {
         // freestyle session (empty for a session run from a workout); both
         // absent from older backups.
         freestyle: s.freestyle,
+        // New in v11 (issue #562): heart rate of an attached watch recording
+        // (null without one); absent from older backups.
+        avgHr: s.avgHr,
+        maxHr: s.maxHr,
+        hrTrack: s.hrTrack,
         exercises: s.exercises.flatMap((row) => {
           const exerciseName = exercises.find((e) => e.id === row.exerciseId)?.name;
           return exerciseName
@@ -461,7 +473,7 @@ const importSchema = z.object({
                       .max(MAX_SUPERSET_GROUP)
                       .nullable()
                       .optional(),
-                    // v11 (issue #558); absent in older backups. Bounds match
+                    // v12 (issue #558); absent in older backups. Bounds match
                     // the live route's schema and a logged cardio set.
                     targetDurationSec: z
                       .number()
@@ -498,6 +510,11 @@ const importSchema = z.object({
         // session; absent in older backups (read as false / no list). Bounds
         // match the live route's schema.
         freestyle: z.boolean().optional(),
+        // v11 (issue #562): heart rate of an attached watch recording; absent
+        // in older backups (read as none). Same bounds as the live route.
+        avgHr: sessionAvgHrSchema.nullable().optional(),
+        maxHr: sessionMaxHrSchema.nullable().optional(),
+        hrTrack: sessionHrTrackSchema.nullable().optional(),
         exercises: z
           .array(
             z.object({
@@ -910,7 +927,7 @@ export async function POST(req: Request) {
                   tempo: pe.tempo ?? null,
                   notes: pe.notes ?? null,
                   supersetGroup: pe.supersetGroup ?? null,
-                  // Cardio target (v11): kept only on a CARDIO exercise, and
+                  // Cardio target (v12): kept only on a CARDIO exercise, and
                   // a distance only next to a duration, so an edited file
                   // cannot store what the live routes refuse.
                   targetDurationSec: cardioTarget ? (pe.targetDurationSec ?? null) : null,
@@ -945,6 +962,9 @@ export async function POST(req: Request) {
               finishedAt: s.finishedAt ? new Date(s.finishedAt) : null,
               notes: s.notes ?? null,
               gymId: s.gymName ? (gymIdByName.get(s.gymName) ?? null) : null,
+              avgHr: s.avgHr ?? null,
+              maxHr: s.maxHr ?? null,
+              ...(s.hrTrack ? { hrTrack: s.hrTrack as Prisma.InputJsonValue } : {}),
             },
           });
           const setRows = s.sets.flatMap((set) => {

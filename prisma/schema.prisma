@@ -318,6 +318,18 @@ model Session {
   // removing an exercise never touches a saved program. Always empty for a
   // session run from a workout.
   exercises  SessionExercise[]
+  // Heart rate of an attached watch recording (issue #562, additive): the
+  // average over the whole session, in bpm. 40..250 when present (enforced by
+  // every writer), NULL on a session without an attached file.
+  avgHr      Int?
+  // Peak heart rate of the attached recording in bpm (issue #562, additive).
+  // 40..250 when present (enforced by every writer), NULL otherwise.
+  maxHr      Int?
+  // Downsampled heart rate curve of the attached recording (issue #562,
+  // additive): a JSON array of up to a few hundred points [{ t, hr }] where
+  // t = seconds from the start of the recording and hr = bpm. NULL on a
+  // session without an attached file.
+  hrTrack    Json?
 
   @@index([userId, startedAt])
 }

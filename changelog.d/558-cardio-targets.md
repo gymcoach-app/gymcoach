@@ -9,5 +9,5 @@ the workout card, the print sheet and the live session read "20 min" or
 instead of "1 set x 1 rep". In a session the duration and distance inputs start
 from the target. Stored in two new nullable columns
 (`ProgramExercise.targetDurationSec`, `targetDistanceM`), carried by the backup
-(format version 11, older files still import) and named to the coach as
+(format version 12, older files still import) and named to the coach as
 `targetDurationMin` / `targetDistanceKm` (#558).

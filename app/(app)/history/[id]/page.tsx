@@ -24,6 +24,10 @@ import { blockKey, distinctExerciseCount } from '@/lib/exercise-blocks';
 import { CopyWorkoutButton } from '@/components/history/copy-workout-button';
 import { SaveAsWorkoutButton } from '@/components/history/save-as-workout-button';
 import { DeleteSessionButton } from '@/components/history/delete-session-button';
+import {
+  AttachWatchFileButton,
+  RemoveWatchFileButton,
+} from '@/components/history/attach-watch-file-button';
 import { ActivityTrackChart } from '@/components/history/activity-track-chart';
 import { TrackDecoupling } from '@/components/history/track-decoupling';
 import { getExerciseDisplayName } from '@/i18n/exercise-names';
@@ -51,6 +55,7 @@ function buildBackHref(params: { month?: string; day?: string; programId?: strin
 export default async function HistorySessionPage(props: Params) {
   const t = await getTranslations('history');
   const detail = await getTranslations('history.detail');
+  const watchT = await getTranslations('history.watchFile');
   const copyT = await getTranslations('history.copy');
   const exerciseT = await getTranslations('exercises');
   const locale = await getLocale();
@@ -141,6 +146,11 @@ export default async function HistorySessionPage(props: Params) {
     session.finishedAt && session.startedAt
       ? Math.round((session.finishedAt.getTime() - session.startedAt.getTime()) / 60000)
       : null;
+  // Heart rate of an attached watch recording (issue #562).
+  const hrTrack = Array.isArray(session.hrTrack)
+    ? (session.hrTrack as { t: number; hr: number }[])
+    : [];
+  const hasHeartRate = session.avgHr != null || session.maxHr != null || hrTrack.length > 0;
   const sessionTitle = session.workout?.name
     ? getTrainingDisplayName(session.workout.name, locale)
     : t('freeSession');
@@ -221,6 +231,7 @@ export default async function HistorySessionPage(props: Params) {
                 effortScale={effortScale}
               />
             )}
+            <AttachWatchFileButton sessionId={session.id} timeZone={timeZone} />
             {hasCardio && (
               <Button asChild variant="outline" size="sm">
                 <a href={`/api/cardio/tcx?sessionId=${session.id}`} download>
@@ -276,6 +287,34 @@ export default async function HistorySessionPage(props: Params) {
             />
           </CardContent>
         </Card>
+
+        {hasHeartRate && (
+          <Card data-testid="session-heart-rate">
+            <CardContent className="py-4 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {watchT('heading')}
+                </p>
+                <RemoveWatchFileButton sessionId={session.id} />
+              </div>
+              <dl className="mt-1 grid grid-cols-2 gap-3">
+                <div>
+                  <dt className="text-xs text-muted-foreground">{watchT('avgHr')}</dt>
+                  <dd className="font-medium">
+                    {session.avgHr != null ? watchT('bpm', { value: session.avgHr }) : '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">{watchT('maxHr')}</dt>
+                  <dd className="font-medium">
+                    {session.maxHr != null ? watchT('bpm', { value: session.maxHr }) : '-'}
+                  </dd>
+                </div>
+              </dl>
+              <ActivityTrackChart track={hrTrack} />
+            </CardContent>
+          </Card>
+        )}
 
         {session.notes && (
           <Card>
