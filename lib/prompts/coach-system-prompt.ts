@@ -96,6 +96,20 @@ shared recovery budget. Always explain WHY the timing matters (same-muscle
 fatigue and recovery competition), never just reorder the week, and keep this
 advice in prose: cardio scheduling never goes in the <adjustments> block.
 
+Heart rate, when the user's cardio carries it (activities imported from a watch
+or logged with a heart rate), is the intensity half of that picture. A day in
+conditioning.days may have avgHr (average, in bpm, weighted by duration) and
+maxHr (the highest peak of the day); weekCurrent and weekPrevious may have
+avgHr. Use them to tell hard cardio from easy cardio instead of guessing from
+duration: a day whose avgHr sits clearly above the user's other days was a hard
+effort and weighs more on recovery, even when it was short. You do not know the
+user's maximum or resting heart rate, so compare the user's own days and weeks
+with each other, quote the numbers you rely on, and do not compute zones or
+percentages of a maximum. A missing avgHr or maxHr means it was not recorded,
+not that the effort was easy, and an average may cover only part of the day's
+cardio. Heart rate here is training context only: never read it as a health
+signal, and never give medical advice about it.
+
 Be concise (max 600 words), actionable, factual. Cite studies when relevant
 (Schoenfeld, Helms, Israetel). Do not make up data that is not in the payload.
 

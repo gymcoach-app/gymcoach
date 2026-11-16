@@ -436,6 +436,37 @@ export interface ConditioningWeekPoint {
   minutes: number; // total cardio duration, rounded to whole minutes
   distanceKm: number; // total distance, km with 2 decimals (0 when none)
   sessions: number; // distinct sessions containing >= 1 cardio set
+  // Average heart rate of the week in bpm (issue #561), weighted by duration
+  // over the cardio sets that carry one. Omitted when none does.
+  avgHr?: number;
+}
+
+// Heart rate of a bucket of cardio sets (issue #561). The average is weighted
+// by duration, so a 60 minute run counts six times a 10 minute one, and only
+// covers the sets that recorded a heart rate: a set without one says nothing
+// about its intensity, it does not pull the average down.
+interface HeartRateBucket {
+  hrSeconds: number; // total duration of the sets that carry avgHr
+  hrBeatSeconds: number; // sum of avgHr * durationSec over those sets
+  peakHr: number | null; // highest maxHr seen
+}
+
+function addHeartRate(
+  bucket: HeartRateBucket,
+  set: { durationSec?: number | null; avgHr?: number | null; maxHr?: number | null },
+): void {
+  const seconds = set.durationSec ?? 0;
+  if (set.avgHr != null && seconds > 0) {
+    bucket.hrSeconds += seconds;
+    bucket.hrBeatSeconds += set.avgHr * seconds;
+  }
+  if (set.maxHr != null && (bucket.peakHr == null || set.maxHr > bucket.peakHr)) {
+    bucket.peakHr = set.maxHr;
+  }
+}
+
+function averageHeartRate(bucket: HeartRateBucket): number | null {
+  return bucket.hrSeconds > 0 ? Math.round(bucket.hrBeatSeconds / bucket.hrSeconds) : null;
 }
 
 // Pure weekly aggregation of cardio sets (issue #135, display-only). Returns
@@ -447,6 +478,7 @@ export function weeklyConditioning(
   sets: {
     durationSec?: number | null;
     distanceM?: number | null;
+    avgHr?: number | null;
     isWarmup: boolean;
     sessionId: string;
     sessionStartedAt: Date;
@@ -456,7 +488,7 @@ export function weeklyConditioning(
   const windowWeeks = options.windowWeeks ?? 8;
   const now = options.now ?? new Date();
 
-  interface Bucket {
+  interface Bucket extends HeartRateBucket {
     seconds: number;
     meters: number;
     sessionIds: globalThis.Set<string>;
@@ -467,12 +499,20 @@ export function weeklyConditioning(
     const key = isoWeekKey(s.sessionStartedAt);
     let bucket = byWeek.get(key);
     if (!bucket) {
-      bucket = { seconds: 0, meters: 0, sessionIds: new globalThis.Set<string>() };
+      bucket = {
+        seconds: 0,
+        meters: 0,
+        sessionIds: new globalThis.Set<string>(),
+        hrSeconds: 0,
+        hrBeatSeconds: 0,
+        peakHr: null,
+      };
       byWeek.set(key, bucket);
     }
     bucket.seconds += s.durationSec ?? 0;
     bucket.meters += s.distanceM ?? 0;
     bucket.sessionIds.add(s.sessionId);
+    addHeartRate(bucket, s);
   }
 
   // Zero-filled window: the current ISO week and the (windowWeeks - 1) before.
@@ -483,12 +523,14 @@ export function weeklyConditioning(
     weekStart.setUTCDate(weekStart.getUTCDate() - i * 7);
     const weekKey = isoWeekKey(weekStart);
     const bucket = byWeek.get(weekKey);
+    const avgHr = bucket ? averageHeartRate(bucket) : null;
     points.push({
       weekKey,
       weekStart,
       minutes: bucket ? Math.round(bucket.seconds / 60) : 0,
       distanceKm: bucket ? +(bucket.meters / 1000).toFixed(2) : 0,
       sessions: bucket ? bucket.sessionIds.size : 0,
+      ...(avgHr != null ? { avgHr } : {}),
     });
   }
   return points;
@@ -498,6 +540,11 @@ export interface ConditioningDayPoint {
   date: string; // YYYY-MM-DD, UTC calendar day
   minutes: number; // total cardio duration that day, rounded to whole minutes
   km: number; // total distance that day, km with 2 decimals (0 when none)
+  // Heart rate of the day in bpm (issue #561): the average weighted by
+  // duration over the cardio sets that carry one, and the highest peak. Each
+  // is omitted when no set of the day recorded it.
+  avgHr?: number;
+  maxHr?: number;
 }
 
 // Pure DAILY aggregation of cardio sets over the current ISO week (issue
@@ -511,6 +558,8 @@ export function dailyConditioning(
   sets: {
     durationSec?: number | null;
     distanceM?: number | null;
+    avgHr?: number | null;
+    maxHr?: number | null;
     isWarmup: boolean;
     sessionStartedAt: Date;
   }[],
@@ -521,27 +570,33 @@ export function dailyConditioning(
   const weekEnd = new Date(weekStart);
   weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
 
-  const byDay = new Map<string, { seconds: number; meters: number }>();
+  const byDay = new Map<string, HeartRateBucket & { seconds: number; meters: number }>();
   for (const s of sets) {
     if (s.isWarmup || !isCardioSet(s)) continue;
     if (s.sessionStartedAt < weekStart || s.sessionStartedAt >= weekEnd) continue;
     const day = s.sessionStartedAt.toISOString().slice(0, 10);
     let bucket = byDay.get(day);
     if (!bucket) {
-      bucket = { seconds: 0, meters: 0 };
+      bucket = { seconds: 0, meters: 0, hrSeconds: 0, hrBeatSeconds: 0, peakHr: null };
       byDay.set(day, bucket);
     }
     bucket.seconds += s.durationSec ?? 0;
     bucket.meters += s.distanceM ?? 0;
+    addHeartRate(bucket, s);
   }
 
   return [...byDay.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, bucket]) => ({
-      date,
-      minutes: Math.round(bucket.seconds / 60),
-      km: +(bucket.meters / 1000).toFixed(2),
-    }));
+    .map(([date, bucket]) => {
+      const avgHr = averageHeartRate(bucket);
+      return {
+        date,
+        minutes: Math.round(bucket.seconds / 60),
+        km: +(bucket.meters / 1000).toFixed(2),
+        ...(avgHr != null ? { avgHr } : {}),
+        ...(bucket.peakHr != null ? { maxHr: bucket.peakHr } : {}),
+      };
+    });
 }
 
 // ============================================================

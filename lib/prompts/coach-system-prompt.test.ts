@@ -90,6 +90,17 @@ describe('coach system prompt positioning', () => {
     );
   });
 
+  // Issue #561: heart rate is raw bpm with no known maximum, so the coach
+  // compares the user's own days and never reads it as a health signal.
+  it('tells the coach how to read the heart rate of cardio days and weeks', () => {
+    expect(COACH_SYSTEM_PROMPT).toMatch(/avgHr/);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/maxHr/);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/weighted by duration/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/do not compute zones/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/means it was not recorded,\s+not that the effort was easy/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/never give medical advice about it/i);
+  });
+
   // Issue #153: per-day conditioning is an INPUT-side interference signal;
   // cardio scheduling advice stays in prose, never in <adjustments>.
   it('tells the coach to manage cardio/strength interference from the daily breakdown', () => {
