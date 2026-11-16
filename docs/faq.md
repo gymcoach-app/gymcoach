@@ -160,6 +160,21 @@ copy may need both added, see
 provider gives canned answers with no key and is the quickest way to try the AI
 screens.
 
+### What does the AI provider receive?
+
+Each coach call sends a compact summary built on the server, not your database:
+your profile (the fields you filled in, such as goal, bodyweight and weekly
+frequency), your recent sessions and sets, your active program, your records
+and goals, your readiness check-ins, your weekly cardio totals and the
+equipment of your active gym. The chat also sends the conversation. When your
+cardio or a session carries heart rate (an imported activity, cardio logged
+with a heart rate, or a watch file attached to a session), the average and the
+peak in bpm are part of that summary; the heart rate curve itself is not sent.
+The same summary is what the MCP context tool returns to an agent you
+connected. Nothing is sent with `LLM_PROVIDER=demo`, and a local model (see
+above) keeps everything on your machine. The "What your coach sees" card on the
+Coach page shows a short version of this summary.
+
 ### What does the coach cost to run?
 
 Your provider bills per token; there are no numbers in the repository because

@@ -30,6 +30,7 @@ import {
 } from '@/components/history/attach-watch-file-button';
 import { ActivityTrackChart } from '@/components/history/activity-track-chart';
 import { TrackDecoupling } from '@/components/history/track-decoupling';
+import { sessionHrTrackSchema } from '@/lib/schemas/watch-file';
 import { getExerciseDisplayName } from '@/i18n/exercise-names';
 import { getTrainingDisplayName } from '@/i18n/training-names';
 import { resolveCalendarTimeZone } from '@/lib/history-calendar';
@@ -147,9 +148,10 @@ export default async function HistorySessionPage(props: Params) {
       ? Math.round((session.finishedAt.getTime() - session.startedAt.getTime()) / 60000)
       : null;
   // Heart rate of an attached watch recording (issue #562).
-  const hrTrack = Array.isArray(session.hrTrack)
-    ? (session.hrTrack as { t: number; hr: number }[])
-    : [];
+  // The stored JSON is checked again on the way out: only a well-formed curve
+  // reaches the chart, whatever wrote the row.
+  const parsedHrTrack = sessionHrTrackSchema.safeParse(session.hrTrack);
+  const hrTrack = parsedHrTrack.success ? parsedHrTrack.data : [];
   const hasHeartRate = session.avgHr != null || session.maxHr != null || hrTrack.length > 0;
   const sessionTitle = session.workout?.name
     ? getTrainingDisplayName(session.workout.name, locale)
