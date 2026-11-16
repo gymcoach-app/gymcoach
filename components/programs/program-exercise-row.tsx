@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Link2, MoreHorizontal, Pencil, Trash2, Unlink } from 'lucide-react';
+import { ArrowDown, ArrowUp, Link2, MoreHorizontal, Pencil, Trash2, Unlink } from 'lucide-react';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,10 @@ interface Props {
   supersetLabel?: string | null;
   onPairWithPrevious?: (() => void) | null;
   onUnpair?: (() => void) | null;
+  // Reordering (issue #557). Both items are always shown; null disables one
+  // (top or bottom edge of the workout, or a save in flight).
+  onMoveUp?: (() => void) | null;
+  onMoveDown?: (() => void) | null;
 }
 
 export function ProgramExerciseRow({
@@ -40,6 +44,8 @@ export function ProgramExerciseRow({
   supersetLabel = null,
   onPairWithPrevious = null,
   onUnpair = null,
+  onMoveUp = null,
+  onMoveDown = null,
 }: Props) {
   const t = useTranslations('programs.exercise');
   const effortScale = useEffortScale();
@@ -129,6 +135,14 @@ export function ProgramExerciseRow({
               <DropdownMenuItem onSelect={() => setEditOpen(true)}>
                 <Pencil className="mr-2 size-4" />
                 {common('actions.edit')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onMoveUp?.()} disabled={!onMoveUp}>
+                <ArrowUp className="mr-2 size-4" />
+                {t('moveUp')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onMoveDown?.()} disabled={!onMoveDown}>
+                <ArrowDown className="mr-2 size-4" />
+                {t('moveDown')}
               </DropdownMenuItem>
               {onPairWithPrevious && (
                 <DropdownMenuItem onSelect={() => onPairWithPrevious()}>

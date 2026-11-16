@@ -85,10 +85,7 @@ function groupSpan<T extends SupersetItem>(
   let start = currentIdx;
   while (start > 0 && view.groupById.get(view.ordered[start - 1]!.id) === group) start -= 1;
   let end = currentIdx;
-  while (
-    end + 1 < view.ordered.length &&
-    view.groupById.get(view.ordered[end + 1]!.id) === group
-  ) {
+  while (end + 1 < view.ordered.length && view.groupById.get(view.ordered[end + 1]!.id) === group) {
     end += 1;
   }
   return { start, end };
@@ -200,4 +197,71 @@ export function smallestFreeGroup(items: SupersetItem[]): number | null {
     if (!used.has(g)) return g;
   }
   return null;
+}
+
+// ============================================================
+// Reordering (issue #557, step 1) - "Move up" / "Move down"
+// ============================================================
+// The builder reorders BLOCKS of the presentation order, never single rows:
+// a real superset group (>= 2 members) is one block, a standalone exercise
+// (a singleton group included) is a block of one. A move swaps the block
+// holding the exercise with its neighbouring block, so
+// - moving any member of a superset moves the whole superset,
+// - a standalone exercise jumps over a whole neighbouring superset,
+// - members of a superset stay adjacent and keep their relative order.
+// The result is the complete list of ids in the new presentation order; the
+// caller stores it as order 1..n, which also makes the stored order match
+// what the user sees (members of a group may be apart in the stored order
+// before the first move, since the view pulls them together on read).
+
+export type MoveDirection = 'up' | 'down';
+
+// The presentation order cut into blocks (see above), top to bottom.
+export function supersetBlocks<T extends SupersetItem>(items: T[]): T[][] {
+  const view = buildSupersetView(items);
+  const blocks: T[][] = [];
+  let previousGroup: number | undefined;
+  for (const it of view.ordered) {
+    const group = view.groupById.get(it.id);
+    const last = blocks[blocks.length - 1];
+    if (last && group != null && group === previousGroup) {
+      last.push(it);
+    } else {
+      blocks.push([it]);
+    }
+    previousGroup = group;
+  }
+  return blocks;
+}
+
+// Ids of the workout in presentation order after moving the block that holds
+// `id` one block up or down. Null when there is nothing to do: unknown id, or
+// the block is already at that edge (the menu item is disabled then).
+export function moveExerciseBlock<T extends SupersetItem>(
+  items: T[],
+  id: string,
+  direction: MoveDirection,
+): string[] | null {
+  const blocks = supersetBlocks(items);
+  const from = blocks.findIndex((block) => block.some((it) => it.id === id));
+  if (from === -1) return null;
+  const to = direction === 'up' ? from - 1 : from + 1;
+  if (to < 0 || to >= blocks.length) return null;
+  const moved = [...blocks];
+  [moved[from], moved[to]] = [moved[to]!, moved[from]!];
+  return moved.flat().map((it) => it.id);
+}
+
+// The items with `order` rewritten to 1..n following `orderedIds` (the
+// optimistic copy of what the order endpoint stores). Ids missing from the
+// list keep their place after the listed ones, in their old order, so a
+// stale list can never drop a row from the screen.
+export function applyExerciseOrder<T extends SupersetItem>(items: T[], orderedIds: string[]): T[] {
+  const position = new Map(orderedIds.map((id, index) => [id, index]));
+  const sorted = [...items].sort((a, b) => a.order - b.order);
+  const listed = sorted
+    .filter((it) => position.has(it.id))
+    .sort((a, b) => position.get(a.id)! - position.get(b.id)!);
+  const unlisted = sorted.filter((it) => !position.has(it.id));
+  return [...listed, ...unlisted].map((it, index) => ({ ...it, order: index + 1 }));
 }
