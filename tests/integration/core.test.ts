@@ -243,7 +243,7 @@ describe('buildCoachPayload conditioning (issue #145)', () => {
     userId: string,
     exerciseId: string,
     startedAt: Date,
-    sets: Array<{ durationSec: number; distanceM?: number }>,
+    sets: Array<{ durationSec: number; distanceM?: number; avgHr?: number; maxHr?: number }>,
   ) {
     const session = await db.session.create({
       data: { userId, startedAt, finishedAt: startedAt },
@@ -258,6 +258,8 @@ describe('buildCoachPayload conditioning (issue #145)', () => {
           reps: 1,
           durationSec: s.durationSec,
           distanceM: s.distanceM ?? null,
+          avgHr: s.avgHr ?? null,
+          maxHr: s.maxHr ?? null,
         },
       });
     }
@@ -313,6 +315,40 @@ describe('buildCoachPayload conditioning (issue #145)', () => {
       { date: monday.toISOString().slice(0, 10), minutes: 30, km: 5 },
       { date: tuesday.toISOString().slice(0, 10), minutes: 10, km: 0 },
     ]);
+  });
+
+  it('carries the heart rate of cardio sets, per day and per week (issue #561)', async () => {
+    const { user, run } = await makeCardioUser('conditioning-hr@test.dev');
+    const weekStart = isoWeekStart(new Date());
+    const monday = new Date(weekStart.getTime() + 60 * 60 * 1000);
+    const tuesday = new Date(weekStart.getTime() + 24 * 60 * 60 * 1000 + 60 * 60 * 1000);
+    const lastWeek = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000);
+
+    // Monday: a long easy run and a short hard one. Tuesday: no heart rate.
+    await cardioSession(user.id, run.id, monday, [
+      { durationSec: 3600, distanceM: 10000, avgHr: 140, maxHr: 158 },
+    ]);
+    await cardioSession(user.id, run.id, monday, [{ durationSec: 600, avgHr: 175, maxHr: 186 }]);
+    await cardioSession(user.id, run.id, tuesday, [{ durationSec: 1800, distanceM: 5000 }]);
+    await cardioSession(user.id, run.id, lastWeek, [{ durationSec: 1800, avgHr: 150 }]);
+
+    const payload = await buildCoachPayload(user.id);
+    expect(payload.conditioning.days).toEqual([
+      { date: monday.toISOString().slice(0, 10), minutes: 70, km: 10, avgHr: 145, maxHr: 186 },
+      { date: tuesday.toISOString().slice(0, 10), minutes: 30, km: 5 },
+    ]);
+    expect(payload.conditioning.weekCurrent).toEqual({
+      minutes: 100,
+      km: 15,
+      sessions: 3,
+      avgHr: 145,
+    });
+    expect(payload.conditioning.weekPrevious).toEqual({
+      minutes: 30,
+      km: 0,
+      sessions: 1,
+      avgHr: 150,
+    });
   });
 
   it('yields zeros (not nulls or crashes) for a zero-cardio user', async () => {

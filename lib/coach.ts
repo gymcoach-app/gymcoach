@@ -124,6 +124,10 @@ interface ConditioningWeek {
   km: number;
   // Distinct sessions containing at least one cardio set.
   sessions: number;
+  // Average heart rate of the week's cardio in bpm (issue #561), weighted by
+  // duration over the sets that carry one (imported activities, or cardio
+  // logged with a heart rate). Omitted when none does.
+  avgHr?: number;
 }
 
 interface ConditioningSummary {
@@ -137,7 +141,9 @@ interface ConditioningSummary {
   // to a heavy lower-body day. Days without cardio are omitted (compact; a
   // zero-cardio week is an empty array), sorted ascending by date. Input
   // signal only; the output contract (the <adjustments> block) is unchanged.
-  days: Array<{ date: string; minutes: number; km: number }>;
+  // avgHr and maxHr (issue #561) are the intensity half of that signal, in
+  // bpm, each omitted when no cardio set of the day recorded it.
+  days: Array<{ date: string; minutes: number; km: number; avgHr?: number; maxHr?: number }>;
   // The weekly guideline the progress page tracks (150 min/week).
   weeklyTargetMin: number;
 }
@@ -341,6 +347,8 @@ export async function buildCoachPayload(userId: string): Promise<CoachPayload> {
         isWarmup: true,
         durationSec: true,
         distanceM: true,
+        avgHr: true,
+        maxHr: true,
         sessionId: true,
         exerciseId: true,
         exercise: {
@@ -363,6 +371,7 @@ export async function buildCoachPayload(userId: string): Promise<CoachPayload> {
     recentSets.map((s) => ({
       durationSec: s.durationSec,
       distanceM: s.distanceM,
+      avgHr: s.avgHr,
       isWarmup: s.isWarmup,
       sessionId: s.sessionId,
       sessionStartedAt: s.session.startedAt,
@@ -376,6 +385,8 @@ export async function buildCoachPayload(userId: string): Promise<CoachPayload> {
     recentSets.map((s) => ({
       durationSec: s.durationSec,
       distanceM: s.distanceM,
+      avgHr: s.avgHr,
+      maxHr: s.maxHr,
       isWarmup: s.isWarmup,
       sessionStartedAt: s.session.startedAt,
     })),
@@ -386,6 +397,7 @@ export async function buildCoachPayload(userId: string): Promise<CoachPayload> {
       minutes: conditioningCurrent?.minutes ?? 0,
       km: conditioningCurrent?.distanceKm ?? 0,
       sessions: conditioningCurrent?.sessions ?? 0,
+      ...(conditioningCurrent?.avgHr != null ? { avgHr: conditioningCurrent.avgHr } : {}),
     },
     weekPrevious:
       conditioningPrev && conditioningPrev.sessions > 0
@@ -393,6 +405,7 @@ export async function buildCoachPayload(userId: string): Promise<CoachPayload> {
             minutes: conditioningPrev.minutes,
             km: conditioningPrev.distanceKm,
             sessions: conditioningPrev.sessions,
+            ...(conditioningPrev.avgHr != null ? { avgHr: conditioningPrev.avgHr } : {}),
           }
         : null,
     days: conditioningDays,
