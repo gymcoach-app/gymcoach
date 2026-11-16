@@ -982,16 +982,16 @@ describe('tamperViolations', () => {
         // before it is already blanked, so a comment ending in a period (house
         // style here) cannot read as a member dot. A dot that follows another
         // dot is not read as a member dot: it is the last dot of a spread, or of
-        // `1..new`, which stays hidden as before (review of #556). Nor is the dot
-        // that ends an integer literal (`1.` then `return [...]` on the next
-        // line), and only where the digits provably start a number: at the
-        // start of the file, after white space or after an operator. Anything
-        // else in front (the brace that closes an escaped letter, a dot, a
-        // letter outside ASCII) keeps the dot a member dot, so the check fails
-        // closed. As on main, a keyword, a block close or an ASCII name in front
-        // of `of` reads as a binding, so `return of['aroundEach']` stays hidden.
-        // A name ending outside ASCII does not: its for-of head is reported,
-        // because the same shape after a line break is a real read of `of`.
+        // `1..new`, which stays hidden as before (review of #556). As on main,
+        // a keyword, a block close or an ASCII name in front of `of` reads as a
+        // binding, so `return of['aroundEach']` stays hidden.
+        // Two shapes are reported although they declare nothing, on purpose
+        // (review of #560): a for-of head whose binding ends outside ASCII, and
+        // a keyword on the line after a statement that ends in the dot of an
+        // integer literal (`1.` then `return [...]`). Telling them apart from a
+        // real read (the same name on its own line before `of[...]`, a name
+        // ending in a digit before `.new[...]`) hid a declaration twice, so the
+        // check stays fail-closed.
         const open = skipSpace(i - 1, -1);
         const close = skipSpace(j + 1, 1);
         const receiver = skipSpace(open - 1, -1);
@@ -1000,13 +1000,8 @@ describe('tamperViolations', () => {
         let beforeWord = receiver - name.length;
         while (beforeWord >= 0 && /\s/.test(out[beforeWord]!)) beforeWord -= 1;
         const endsBinding = out[beforeWord] === '}' || /[\w$)\]]/.test(out[beforeWord] ?? '');
-        let beforeNumber = beforeWord - 1;
-        while (beforeNumber >= 0 && /[\w$]/.test(out[beforeNumber]!)) beforeNumber -= 1;
-        const integerDot =
-          /^\d[\d_]*$/.test(out.slice(beforeNumber + 1, beforeWord).join('')) &&
-          /^[\s=(,[;:+\-*/%<>!&|?~^]?$/.test(out[beforeNumber] ?? '');
         const memberWord =
-          (out[beforeWord] === '.' && out[beforeWord - 1] !== '.' && !integerDot) ||
+          (out[beforeWord] === '.' && out[beforeWord - 1] !== '.') ||
           (name === 'of' && !endsBinding);
         const read =
           src[open] === '[' &&
@@ -1156,20 +1151,26 @@ describe('tamperViolations', () => {
       // A word that merely ends with a keyword is an ordinary identifier, so
       // the exclusion has to match whole words and not a suffix (note 2).
       "const x = returns['aroundEach'];",
-      // Only an integer literal owns the dot behind it: a name that ends in a
-      // digit, a decimal, a hex literal and an exponent are all receivers of a
-      // member read (follow-up to #556).
+      // A dot behind a digit is a member dot: a name that ends in a digit,
+      // however it is spelled or whatever was blanked in front of it, a
+      // decimal, a hex literal and an exponent are all receivers of a member
+      // read (follow-up to #556).
       "const x1 = {};\nx1.new['aroundEach'](fn);",
       "1.5.new['aroundEach'](fn);",
       "0x1.new['aroundEach'](fn);",
       "1e3.new['aroundEach'](fn);",
       "const caf\u00e91 = {};\ncaf\u00e91.new['aroundEach'](fn);",
       "const a1 = {};\n\\u{61}1.new['aroundEach'](fn);",
+      "const r = a.in / 2 /g1.new['aroundEach'](fn);",
       // Fail-closed by design: a name ending outside ASCII is not read as the
       // binding of a for-of head, since the same shape after a line break is a
-      // real read of `of` (review of #560).
+      // real read of `of`; and the dot that ends an integer literal reads as a
+      // member dot, so a keyword on the next line is reported (review of #560).
       "for (const caf\u00e9 of ['aroundEach']) run(caf\u00e9);",
       "let caf\u00e9 = 1;\ncaf\u00e9\nof['aroundEach'](fn);",
+      "1.\ntypeof ['aroundEach'];",
+      "const f = () => {\n  const a = 1.\n  return ['aroundEach'];\n};",
+      "const f = () => {\n  const a = 1_000.\n  return ['aroundEach'];\n};",
     ])
       expect(declares(decl), decl).toBe(true);
     for (const plain of [
@@ -1208,12 +1209,6 @@ describe('tamperViolations', () => {
       "const keys = () => {\n  // The hooks we test.\n  return ['aroundEach'];\n};",
       "for (const h /* x */ of ['aroundEach']) run(h);",
       "const xs = [...await ['aroundEach']];",
-      // The dot that ends an integer literal is not a member dot, with or
-      // without a numeric separator, and at the very start of the file
-      // (follow-up to #556).
-      "1.\ntypeof ['aroundEach'];",
-      "const f = () => {\n  const a = 1.\n  return ['aroundEach'];\n};",
-      "const f = () => {\n  const a = 1_000.\n  return ['aroundEach'];\n};",
       "// it['skip'] and describe['only'] are mentioned here, not called.",
       'it("documents it[\\"skip\\"]", () => {});',
     ])
