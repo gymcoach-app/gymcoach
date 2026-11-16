@@ -162,18 +162,29 @@ screens.
 
 ### What does the AI provider receive?
 
-Each coach call sends a compact summary built on the server, not your database:
-your profile (the fields you filled in, such as goal, bodyweight and weekly
-frequency), your recent sessions and sets, your active program, your records
-and goals, your readiness check-ins, your weekly cardio totals and the
-equipment of your active gym. The chat also sends the conversation. When your
-cardio or a session carries heart rate (an imported activity, cardio logged
-with a heart rate, or a watch file attached to a session), the average and the
-peak in bpm are part of that summary; the heart rate curve itself is not sent.
-The same summary is what the MCP context tool returns to an agent you
-connected. Nothing is sent with `LLM_PROVIDER=demo`, and a local model (see
-above) keeps everything on your machine. The "What your coach sees" card on the
-Coach page shows a short version of this summary.
+Every AI call sends a summary built on the server for that call, never your
+database.
+
+- **Weekly debrief and chat coach.** Your profile (the fields you filled in,
+  such as display name, goal, bodyweight and weekly frequency), your recent
+  sessions and sets, your active program, your records and goals, your latest
+  readiness check-in and your weekly cardio totals. Text you wrote is part of
+  it: your note to the coach, session and set notes, the readiness note. The
+  chat also sends the conversation, and the workout in progress when you open
+  it during a session.
+- **Heart rate.** When your cardio or a session carries heart rate (an imported
+  activity, cardio logged with a heart rate, or a watch file attached to a
+  session), the average and the peak in bpm are part of that summary. The heart
+  rate curve itself is not sent.
+- **Program generation** sends your profile fields, your exercise list and the
+  goal you typed. **The set parser** sends the text you typed, the exercise
+  name and your unit.
+- **MCP.** The context tool gives the agent you connected the same summary,
+  plus the equipment of your active gym and your unit.
+
+Nothing is sent with `LLM_PROVIDER=demo`, and a local model (see above) keeps
+everything on your machine. The "What your coach sees" card on the Coach page
+shows a short version of the coach summary.
 
 ### What does the coach cost to run?
 
