@@ -82,6 +82,15 @@ const DEFAULT_VALUES: ProgramExerciseInput = {
   notes: '',
 };
 
+// Value of an optional number field ("Auto" when empty). react-hook-form also
+// runs setValueAs on the default value, so a null default must stay null:
+// Number(null) is 0, which the schema refuses, and the form then failed to
+// save without showing an error on a row whose two overrides were never set
+// (every new row, and every cardio row, whose override fields are hidden).
+function optionalNumber(value: unknown): number | null {
+  return value === '' || value == null ? null : Number(value);
+}
+
 export function ProgramExerciseFormDialog(props: Props) {
   const t = useTranslations('programs.exercise');
   const exerciseT = useTranslations('exercises');
@@ -433,7 +442,7 @@ export function ProgramExerciseFormDialog(props: Props) {
                     step="0.05"
                     placeholder={t('automatic')}
                     {...form.register('fatigueRate', {
-                      setValueAs: (value) => (value === '' ? null : Number(value)),
+                      setValueAs: optionalNumber,
                     })}
                   />
                 </div>
@@ -448,7 +457,7 @@ export function ProgramExerciseFormDialog(props: Props) {
                     step="0.1"
                     placeholder={t('automatic')}
                     {...form.register('loadAdjustmentPct', {
-                      setValueAs: (value) => (value === '' ? null : Number(value)),
+                      setValueAs: optionalNumber,
                     })}
                   />
                 </div>

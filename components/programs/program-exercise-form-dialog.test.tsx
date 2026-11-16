@@ -262,6 +262,96 @@ describe('ProgramExerciseFormDialog cardio target', () => {
     expect(body).not.toHaveProperty('targetDistanceM');
   });
 
+  // Radix renders a native select next to its trigger inside a form; changing
+  // it is how a test picks an exercise without a pointer.
+  function choose(exerciseId: string) {
+    const select = document.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: exerciseId } });
+  }
+
+  function renderCreate(catalog: CreateProps['catalog']) {
+    const fetchMock = vi.fn(async () => Response.json({}));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <EffortScaleProvider scale="RIR">
+        <ProgramExerciseFormDialog
+          open
+          onOpenChange={vi.fn()}
+          mode="create"
+          workoutId="w1"
+          catalog={catalog}
+        />
+      </EffortScaleProvider>,
+    );
+    return fetchMock;
+  }
+
+  async function addedBody(fetchMock: ReturnType<typeof vi.fn>): Promise<Record<string, unknown>> {
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/workouts/w1/program-exercises');
+    return JSON.parse(String(init.body)) as Record<string, unknown>;
+  }
+
+  it('adds a cardio exercise with its target and one set of placeholders', async () => {
+    const fetchMock = renderCreate([running]);
+    choose('run');
+    fireEvent.change(await screen.findByLabelText('Duration (min)'), { target: { value: '20' } });
+    expect(await addedBody(fetchMock)).toMatchObject({
+      exerciseId: 'run',
+      targetDurationSec: 1200,
+      targetDistanceM: null,
+      // One continuous effort is one set (lib/freestyle); rest is the exercise's.
+      targetSets: 1,
+      targetRepsMin: 1,
+      targetRepsMax: 1,
+      restSec: 120,
+      // The hidden autoregulation overrides stay "Auto".
+      fatigueRate: null,
+      loadAdjustmentPct: null,
+    });
+  });
+
+  it('requires the duration when adding a cardio exercise', async () => {
+    const fetchMock = renderCreate([running]);
+    choose('run');
+    await screen.findByLabelText('Duration (min)');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(await screen.findByText('Enter a duration in minutes, up to 1440.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('adds a strength exercise with untouched "Auto" overrides', async () => {
+    // The two optional overrides default to null; they used to reach the
+    // schema as 0, so the form refused to save without showing why.
+    const fetchMock = renderCreate([programExercise.exercise]);
+    choose('ex1');
+    const body = await addedBody(fetchMock);
+    expect(body).toMatchObject({
+      exerciseId: 'ex1',
+      targetSets: 4,
+      fatigueRate: null,
+      loadAdjustmentPct: null,
+    });
+    expect(body).not.toHaveProperty('targetDurationSec');
+  });
+
+  it('puts the strength defaults back when a cardio choice is changed to a strength one', async () => {
+    const fetchMock = renderCreate([running, programExercise.exercise]);
+    choose('run');
+    await screen.findByLabelText('Duration (min)');
+    choose('ex1');
+    expect(((await screen.findByLabelText('Sets')) as HTMLInputElement).value).toBe('4');
+    expect(await addedBody(fetchMock)).toMatchObject({
+      exerciseId: 'ex1',
+      targetSets: 4,
+      targetRepsMin: 8,
+      targetRepsMax: 10,
+      targetRIR: 2,
+    });
+  });
+
   it('starts empty in create mode until an exercise is chosen', () => {
     const props: CreateProps = {
       open: true,
