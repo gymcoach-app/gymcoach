@@ -97,6 +97,12 @@ describe('coach system prompt positioning', () => {
     expect(COACH_SYSTEM_PROMPT).toMatch(/maxHr/);
     expect(COACH_SYSTEM_PROMPT).toMatch(/weighted by duration/i);
     expect(COACH_SYSTEM_PROMPT).toMatch(/do not compute zones/i);
+    // The weekly cardio average is named with its section, so it cannot be
+    // taken for the heart rate of a session in the top-level weeks (#563).
+    expect(COACH_SYSTEM_PROMPT).toMatch(
+      /conditioning\.weekCurrent and\s+conditioning\.weekPrevious may have avgHr/,
+    );
+    expect(COACH_SYSTEM_PROMPT).toMatch(/These are not the conditioning values above/);
     expect(COACH_SYSTEM_PROMPT).toMatch(/means it was not recorded,\s+not that the effort was easy/i);
     expect(COACH_SYSTEM_PROMPT).toMatch(/never give medical advice about it/i);
   });
