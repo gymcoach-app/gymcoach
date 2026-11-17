@@ -287,6 +287,7 @@ export const session = {
   exerciseCard: {
     actions: 'Действия с упражнением',
     notAvailable: 'Нет в этом зале',
+    cardioTarget: 'Цель: {target}',
     cardioPrescription:
       '{sets, plural, one {# подход} few {# подхода} many {# подходов} other {# подхода}} · отдых {seconds} с',
     strengthPrescription:

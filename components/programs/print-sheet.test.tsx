@@ -15,6 +15,7 @@ const labels: PrintSheetLabels = {
   planLine: ({ sets, min, max, rir }) => `${sets} x ${min}-${max} reps, RIR ${rir}`,
   rest: (seconds) => `Rest ${seconds}s`,
   tempo: (tempo) => `Tempo ${tempo}`,
+  cardio: 'Cardio',
   empty: 'No exercises in this session.',
 };
 
@@ -107,5 +108,66 @@ describe('PrintSheet', () => {
       />,
     );
     expect(screen.getByText('No exercises in this session.')).toBeInTheDocument();
+  });
+});
+
+describe('PrintSheet cardio rows (issue #558)', () => {
+  it('prints the duration and distance target instead of sets, reps and rest', () => {
+    render(
+      <PrintSheet
+        programName="Block"
+        workout={{
+          id: 'w4',
+          name: 'Conditioning',
+          exercises: [
+            pe('a', 'Bench Press', 1, 3, { exercise: { name: 'Bench Press', category: 'COMPOUND' } }),
+            pe('b', 'Running', 2, 1, {
+              exercise: { name: 'Running', category: 'CARDIO' },
+              targetRepsMin: 1,
+              targetRepsMax: 1,
+              restSec: 120,
+              tempo: '3-1-1',
+              targetDurationSec: 1200,
+              targetDistanceM: 5000,
+            }),
+          ],
+        }}
+        labels={labels}
+        exerciseName={(name) => name}
+      />,
+    );
+
+    expect(screen.getByText('20 min · 5 km')).toBeInTheDocument();
+    // The strength row keeps its plan; the cardio row has none of it.
+    expect(screen.getByText('3 x 8-12 reps, RIR 2')).toBeInTheDocument();
+    expect(screen.getByText('Rest 90s')).toBeInTheDocument();
+    expect(screen.queryByText('1 x 1-1 reps, RIR 2')).not.toBeInTheDocument();
+    expect(screen.queryByText('Rest 120s')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tempo 3-1-1')).not.toBeInTheDocument();
+  });
+
+  it('prints a neutral label for a cardio exercise without a target', () => {
+    render(
+      <PrintSheet
+        programName="Block"
+        workout={{
+          id: 'w5',
+          name: 'Conditioning',
+          exercises: [
+            pe('b', 'Running', 1, 1, {
+              exercise: { name: 'Running', category: 'CARDIO' },
+              targetRepsMin: 1,
+              targetRepsMax: 1,
+            }),
+          ],
+        }}
+        labels={labels}
+        exerciseName={(name) => name}
+      />,
+    );
+
+    expect(screen.getByText('Cardio')).toBeInTheDocument();
+    expect(screen.queryByText(/reps, RIR/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Rest /)).not.toBeInTheDocument();
   });
 });

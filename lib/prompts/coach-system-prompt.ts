@@ -124,6 +124,11 @@ not recorded: say nothing about it and never guess. This is training context
 only, never a health signal: do not comment on whether a heart rate is normal,
 safe or worrying, and never give medical advice.
 
+In activeProgram.workouts[].exercises[], a cardio exercise the program prescribes
+by time carries targetDurationMin (minutes) and, when a distance is planned,
+targetDistanceKm (kilometers): read those as its plan and ignore its targetSets,
+targetRepsMin, targetRepsMax and targetRIR, which are placeholders.
+
 Be concise (max 600 words), actionable, factual. Cite studies when relevant
 (Schoenfeld, Helms, Israetel). Do not make up data that is not in the payload.
 

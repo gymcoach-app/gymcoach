@@ -45,6 +45,8 @@ function makePe(
     autoregulationMode: 'PRESERVE_RIR',
     fatigueRate: null,
     loadAdjustmentPct: null,
+    targetDurationSec: null,
+    targetDistanceM: null,
     ...overrides,
     exercise,
   };

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { programExerciseInputSchema } from '@/lib/schemas/program-exercise';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { defaultIntraSetConfig } from '@/lib/intra-set-autoregulation';
+import { isCardioExercise } from '@/lib/cardio-target';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -31,6 +32,16 @@ export async function POST(req: Request, props: Params) {
     });
     if (!exercise) {
       throw new ApiError(400, 'Invalid exercise.');
+    }
+
+    // Cardio target (issue #558): only a CARDIO exercise is prescribed by
+    // duration and distance, and a distance needs a duration next to it.
+    const hasTargetInput = data.targetDurationSec != null || data.targetDistanceM != null;
+    if (hasTargetInput && !isCardioExercise(exercise)) {
+      throw new ApiError(400, 'Only a cardio exercise takes a duration or distance target.');
+    }
+    if (data.targetDistanceM != null && data.targetDurationSec == null) {
+      throw new ApiError(400, 'A distance target needs a duration target.');
     }
 
     // Refuse an exercise the workout already contains (issue #379). The
@@ -73,6 +84,8 @@ export async function POST(req: Request, props: Params) {
         notes: data.notes ?? null,
         // Superset pairing (issue #146): optional at creation, null = standalone.
         supersetGroup: data.supersetGroup ?? null,
+        targetDurationSec: data.targetDurationSec ?? null,
+        targetDistanceM: data.targetDistanceM ?? null,
       },
       include: { exercise: true },
     });

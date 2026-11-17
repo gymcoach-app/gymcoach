@@ -279,6 +279,14 @@ model ProgramExercise {
   // derived from exercise category and muscle group.
   fatigueRate        Float?
   loadAdjustmentPct  Float?
+  // Cardio target (issue #558, slice 1, additive): the prescription of a
+  // CARDIO exercise is a duration in seconds (>= 1 when set) and an optional
+  // distance in meters, mirroring Set.durationSec / Set.distanceM. NULL on
+  // strength exercises and on cardio rows created before these columns
+  // existed. The strength columns above stay required and keep their defaults
+  // on a cardio row, so every existing reader keeps working.
+  targetDurationSec  Int?
+  targetDistanceM    Float?
 }
 
 enum SetAutoregulationMode {

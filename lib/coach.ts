@@ -25,6 +25,7 @@ import { COACH_SYSTEM_PROMPT } from '@/lib/prompts/coach-system-prompt';
 import { exerciseRecords, type ExerciseRecord } from '@/lib/records';
 import { getLlmProvider } from '@/lib/llm';
 import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
+import { coachCardioTarget } from '@/lib/cardio-target';
 
 // ============================================================
 // Structured payload sent to the coach
@@ -279,6 +280,11 @@ interface ProgramSummary {
       targetRepsMin: number;
       targetRepsMax: number;
       targetRIR: number;
+      // Cardio target (issue #558): present only on a cardio exercise the
+      // program prescribes by duration (and optionally distance). The strength
+      // targets above are then placeholders, not the plan.
+      targetDurationMin?: number;
+      targetDistanceKm?: number;
     }>;
   }>;
 }
@@ -620,7 +626,7 @@ async function fetchActiveProgram(userId: string): Promise<ProgramSummary | null
         include: {
           exercises: {
             orderBy: { order: 'asc' },
-            include: { exercise: { select: { name: true } } },
+            include: { exercise: { select: { name: true, category: true } } },
           },
         },
       },
@@ -639,6 +645,7 @@ async function fetchActiveProgram(userId: string): Promise<ProgramSummary | null
         targetRepsMin: pe.targetRepsMin,
         targetRepsMax: pe.targetRepsMax,
         targetRIR: pe.targetRIR,
+        ...coachCardioTarget(pe.exercise, pe),
       })),
     })),
   };

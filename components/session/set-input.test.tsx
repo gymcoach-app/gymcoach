@@ -35,6 +35,8 @@ const pe: ProgramExercise & { exercise: Exercise } = {
   autoregulationMode: 'PRESERVE_RIR',
   fatigueRate: null,
   loadAdjustmentPct: null,
+  targetDurationSec: null,
+  targetDistanceM: null,
   exercise: exo,
 };
 
@@ -650,5 +652,75 @@ describe('SetInput effort scale (issue #390)', () => {
     expect(screen.getByTestId('effort-level-label')).toHaveTextContent('RPE 10: No reps left');
     await user.click(screen.getByRole('button', { name: /log the set/i }));
     expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ rir: 0 }));
+  });
+});
+
+// Issue #558 (slice 1): the cardio inputs start from the workout row's cardio
+// target, the way strength inputs start from their targets.
+describe('SetInput cardio target prefill', () => {
+  type Existing = Parameters<typeof SetInput>[0]['existingSets'];
+
+  function renderWithTarget(
+    target: { targetDurationSec: number | null; targetDistanceM: number | null },
+    existingSets: Existing = [],
+  ) {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SetInput
+        programExercise={{ ...cardioPE, ...target }}
+        existingSets={existingSets}
+        lastPerformance={undefined}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+        onSubmit={onSubmit}
+      />,
+    );
+    return { onSubmit };
+  }
+
+  it('starts from the duration and distance target and logs them as they are', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderWithTarget({ targetDurationSec: 1200, targetDistanceM: 5000 });
+
+    expect(screen.getByLabelText(/duration/i)).toHaveValue('20:00');
+    expect(screen.getByLabelText(/distance/i)).toHaveValue(5);
+
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ weight: 0, reps: 1, durationSec: 1200, distanceM: 5000 }),
+    );
+  });
+
+  it('leaves the distance empty for a duration-only target', () => {
+    renderWithTarget({ targetDurationSec: 1200, targetDistanceM: null });
+    expect(screen.getByLabelText(/duration/i)).toHaveValue('20:00');
+    expect(screen.getByLabelText(/distance/i)).toHaveValue(null);
+  });
+
+  it('stays empty, with the log button disabled, without a target', () => {
+    renderWithTarget({ targetDurationSec: null, targetDistanceM: null });
+    expect(screen.getByLabelText(/duration/i)).toHaveValue('');
+    expect(screen.getByLabelText(/distance/i)).toHaveValue(null);
+    expect(screen.getByRole('button', { name: /log the set/i })).toBeDisabled();
+  });
+
+  it('prefers the last cardio set of the session over the target', () => {
+    const logged = [
+      {
+        setNumber: 1,
+        weight: 0,
+        reps: 1,
+        rir: null,
+        durationSec: 900,
+        distanceM: null,
+        isWarmup: false,
+        isDropSet: false,
+      },
+    ] as unknown as Existing;
+    renderWithTarget({ targetDurationSec: 1200, targetDistanceM: 5000 }, logged);
+    expect(screen.getByLabelText(/duration/i)).toHaveValue('15:00');
+    // The logged set had no distance: the target's is not put back.
+    expect(screen.getByLabelText(/distance/i)).toHaveValue(null);
   });
 });

@@ -122,6 +122,8 @@ export async function saveSessionAsWorkout(
                 autoregulationMode: true,
                 fatigueRate: true,
                 loadAdjustmentPct: true,
+                targetDurationSec: true,
+                targetDistanceM: true,
               },
             },
           },

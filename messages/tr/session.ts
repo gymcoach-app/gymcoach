@@ -288,6 +288,7 @@ export const session = {
   exerciseCard: {
     actions: 'Egzersiz işlemleri',
     notAvailable: 'Bu salonda yok',
+    cardioTarget: 'Hedef: {target}',
     cardioPrescription: '{sets, plural, one {# set} other {# set}} · Dinlenme {seconds} sn',
     strengthPrescription:
       '{sets} set × {reps} tekrar · {effort} · Dinlenme {seconds} sn{tempo, select, none {} other { · Tempo {tempo}}}',

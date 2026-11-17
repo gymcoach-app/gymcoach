@@ -283,6 +283,7 @@ export const session = {
     actions: 'Exercise actions',
     notAvailable: 'Not available in this gym',
     cardioPrescription: '{sets, plural, one {# set} other {# sets}} · Rest {seconds}s',
+    cardioTarget: 'Target: {target}',
     strengthPrescription:
       '{sets} sets × {reps} reps · {effort} · Rest {seconds}s{tempo, select, none {} other { · Tempo {tempo}}}',
     lastSession: 'Last session ({date})',

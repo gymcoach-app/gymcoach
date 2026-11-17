@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useForm } from 'react-hook-form';
@@ -41,6 +41,14 @@ import {
 } from '@/lib/schemas/program-exercise';
 import { muscleGroupMessageKeys } from '@/i18n/enum-keys';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { addedExerciseTargets } from '@/lib/freestyle';
+import {
+  distanceMToKmInput,
+  durationSecToMinutesInput,
+  isCardioExercise,
+  kmInputToDistanceM,
+  minutesInputToDurationSec,
+} from '@/lib/cardio-target';
 
 interface CreateProps {
   open: boolean;
@@ -74,6 +82,15 @@ const DEFAULT_VALUES: ProgramExerciseInput = {
   notes: '',
 };
 
+// Value of an optional number field ("Auto" when empty). react-hook-form also
+// runs setValueAs on the default value, so a null default must stay null:
+// Number(null) is 0, which the schema refuses, and the form then failed to
+// save without showing an error on a row whose two overrides were never set
+// (every new row, and every cardio row, whose override fields are hidden).
+function optionalNumber(value: unknown): number | null {
+  return value === '' || value == null ? null : Number(value);
+}
+
 export function ProgramExerciseFormDialog(props: Props) {
   const t = useTranslations('programs.exercise');
   const exerciseT = useTranslations('exercises');
@@ -101,6 +118,17 @@ export function ProgramExerciseFormDialog(props: Props) {
     return DEFAULT_VALUES;
   }, [props]);
 
+  // Cardio target (issue #558): typed as minutes and kilometers, like the set
+  // logger types its distance, and kept as raw strings while typing. They are
+  // converted to the stored seconds and meters on submit.
+  const initialDurationMin =
+    props.mode === 'edit' ? durationSecToMinutesInput(props.programExercise.targetDurationSec) : '';
+  const initialDistanceKm =
+    props.mode === 'edit' ? distanceMToKmInput(props.programExercise.targetDistanceM) : '';
+  const [durationMin, setDurationMin] = useState(initialDurationMin);
+  const [distanceKm, setDistanceKm] = useState(initialDistanceKm);
+  const [cardioSubmitted, setCardioSubmitted] = useState(false);
+
   const form = useForm<ProgramExerciseInput>({
     resolver: zodResolver(programExerciseInputSchema),
     defaultValues: initial,
@@ -122,21 +150,73 @@ export function ProgramExerciseFormDialog(props: Props) {
   }
 
   useEffect(() => {
-    if (props.open) form.reset(initial);
+    if (props.open) {
+      form.reset(initial);
+      setDurationMin(initialDurationMin);
+      setDistanceKm(initialDistanceKm);
+      setCardioSubmitted(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.open, initial]);
+
+  function findExercise(exerciseId: string): Exercise | undefined {
+    const fromCatalog = props.catalog.find((e) => e.id === exerciseId);
+    if (fromCatalog) return fromCatalog;
+    return props.mode === 'edit' && props.programExercise.exerciseId === exerciseId
+      ? props.programExercise.exercise
+      : undefined;
+  }
+
+  // A cardio exercise is prescribed by duration and distance (issue #558):
+  // the strength fields are hidden for it and the two cardio fields shown.
+  const watchedExerciseId = form.watch('exerciseId');
+  const selectedExercise = findExercise(watchedExerciseId);
+  const isCardio = selectedExercise ? isCardioExercise(selectedExercise) : false;
+  const durationSec = minutesInputToDurationSec(durationMin);
+  const distanceM = kmInputToDistanceM(distanceKm);
+  const durationInvalid = cardioSubmitted && durationSec === null;
+  const distanceInvalid = cardioSubmitted && distanceM === undefined;
 
   // When an exercise is selected from the catalog, we pre-fill restSec
   // with its defaultRestSec (only in create mode).
   function handleExerciseChange(exerciseId: string) {
+    const previous = findExercise(form.getValues('exerciseId'));
     form.setValue('exerciseId', exerciseId, { shouldValidate: true });
-    if (props.mode === 'create') {
-      const exo = props.catalog.find((e) => e.id === exerciseId);
-      if (exo) form.setValue('restSec', exo.defaultRestSec);
+    const exo = findExercise(exerciseId);
+    if (!exo) return;
+    if (props.mode === 'create') form.setValue('restSec', exo.defaultRestSec);
+    // Switching between a cardio and a strength exercise: the strength fields
+    // hidden for cardio must still hold values the schema accepts, and the
+    // ones shown again must not be the cardio placeholders. Cardio takes the
+    // repo rule (one continuous effort is one set, lib/freestyle), strength
+    // the defaults of a new row.
+    const wasCardio = previous ? isCardioExercise(previous) : false;
+    const nowCardio = isCardioExercise(exo);
+    if (nowCardio && !wasCardio) {
+      const targets = addedExerciseTargets(exo);
+      form.setValue('targetSets', targets.targetSets);
+      form.setValue('targetRepsMin', targets.targetRepsMin);
+      form.setValue('targetRepsMax', targets.targetRepsMax);
+      form.setValue('targetRIR', targets.targetRIR);
+      form.setValue('tempo', '');
+    } else if (!nowCardio && wasCardio) {
+      form.setValue('targetSets', DEFAULT_VALUES.targetSets);
+      form.setValue('targetRepsMin', DEFAULT_VALUES.targetRepsMin);
+      form.setValue('targetRepsMax', DEFAULT_VALUES.targetRepsMax);
+      form.setValue('targetRIR', DEFAULT_VALUES.targetRIR);
     }
   }
 
   async function onSubmit(values: ProgramExerciseInput) {
+    // The cardio target is validated here, not by the form schema: its two
+    // fields are typed in minutes and kilometers and only exist for a cardio
+    // exercise. Duration is required, distance optional.
+    let cardioTarget: { targetDurationSec?: number; targetDistanceM?: number | null } = {};
+    if (isCardio) {
+      setCardioSubmitted(true);
+      if (durationSec === null || distanceM === undefined) return;
+      cardioTarget = { targetDurationSec: durationSec, targetDistanceM: distanceM };
+    }
     const url =
       props.mode === 'edit'
         ? `/api/program-exercises/${props.programExercise.id}`
@@ -148,6 +228,7 @@ export function ProgramExerciseFormDialog(props: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...values,
+        ...cardioTarget,
         tempo: values.tempo || null,
         notes: values.notes || null,
       }),
@@ -206,138 +287,183 @@ export function ProgramExerciseFormDialog(props: Props) {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="targetSets">{t('sets')}</Label>
-              <Input
-                id="targetSets"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={20}
-                {...form.register('targetSets')}
-              />
+          {isCardio ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="targetDurationMin">{t('cardioDuration')}</Label>
+                <Input
+                  id="targetDurationMin"
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  max="1440"
+                  step="1"
+                  value={durationMin}
+                  onChange={(e) => setDurationMin(e.target.value)}
+                  aria-invalid={durationInvalid ? true : undefined}
+                />
+                {durationInvalid && (
+                  <p className="text-sm text-destructive">{t('cardioDurationError')}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="targetDistanceKm">{t('cardioDistance')}</Label>
+                <Input
+                  id="targetDistanceKm"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="1000"
+                  step="0.01"
+                  value={distanceKm}
+                  onChange={(e) => setDistanceKm(e.target.value)}
+                  aria-invalid={distanceInvalid ? true : undefined}
+                />
+                {distanceInvalid && (
+                  <p className="text-sm text-destructive">{t('cardioDistanceError')}</p>
+                )}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="targetRIR">{effortScale}</Label>
-              <EffortInput
-                id="targetRIR"
-                rir={typeof watchedRir === 'number' && Number.isFinite(watchedRir) ? watchedRir : null}
-                aria-invalid={form.formState.errors.targetRIR ? true : undefined}
-                onRirChange={(rir) => setTargetRir(rir)}
-                onInvalidEntry={() => setTargetRir(null)}
-              />
-              {form.formState.errors.targetRIR && (
-                <p className="text-sm text-destructive">
-                  {t('effortRange', effortRange(effortScale))}
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="targetSets">{t('sets')}</Label>
+                  <Input
+                    id="targetSets"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={20}
+                    {...form.register('targetSets')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="targetRIR">{effortScale}</Label>
+                  <EffortInput
+                    id="targetRIR"
+                    rir={
+                      typeof watchedRir === 'number' && Number.isFinite(watchedRir)
+                        ? watchedRir
+                        : null
+                    }
+                    aria-invalid={form.formState.errors.targetRIR ? true : undefined}
+                    onRirChange={(rir) => setTargetRir(rir)}
+                    onInvalidEntry={() => setTargetRir(null)}
+                  />
+                  {form.formState.errors.targetRIR && (
+                    <p className="text-sm text-destructive">
+                      {t('effortRange', effortRange(effortScale))}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="targetRepsMin">{t('repsMin')}</Label>
+                  <Input
+                    id="targetRepsMin"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={50}
+                    {...form.register('targetRepsMin')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="targetRepsMax">{t('repsMax')}</Label>
+                  <Input
+                    id="targetRepsMax"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={50}
+                    {...form.register('targetRepsMax')}
+                  />
+                  {form.formState.errors.targetRepsMax && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.targetRepsMax.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="restSec">{t('rest')}</Label>
+                  <Input
+                    id="restSec"
+                    type="number"
+                    inputMode="numeric"
+                    min={15}
+                    max={600}
+                    {...form.register('restSec')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tempo">{t('tempo')}</Label>
+                  <Input id="tempo" placeholder="3-1-1-0" {...form.register('tempo')} />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="autoregulationMode">{t('autoregulationMode')}</Label>
+                <Select
+                  value={form.watch('autoregulationMode') ?? 'PRESERVE_RIR'}
+                  onValueChange={(value) =>
+                    form.setValue('autoregulationMode', value as SetAutoregulationMode)
+                  }
+                >
+                  <SelectTrigger id="autoregulationMode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PRESERVE_RIR">{t('preserveRir')}</SelectItem>
+                    <SelectItem value="PRESERVE_REPS">{t('preserveReps')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {form.watch('autoregulationMode') === 'PRESERVE_REPS'
+                    ? t('preserveRepsHelp')
+                    : t('preserveRirHelp')}
                 </p>
-              )}
-            </div>
-          </div>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="targetRepsMin">{t('repsMin')}</Label>
-              <Input
-                id="targetRepsMin"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={50}
-                {...form.register('targetRepsMin')}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="targetRepsMax">{t('repsMax')}</Label>
-              <Input
-                id="targetRepsMax"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={50}
-                {...form.register('targetRepsMax')}
-              />
-              {form.formState.errors.targetRepsMax && (
-                <p className="text-sm text-destructive">
-                  {form.formState.errors.targetRepsMax.message}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="restSec">{t('rest')}</Label>
-              <Input
-                id="restSec"
-                type="number"
-                inputMode="numeric"
-                min={15}
-                max={600}
-                {...form.register('restSec')}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tempo">{t('tempo')}</Label>
-              <Input id="tempo" placeholder="3-1-1-0" {...form.register('tempo')} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="autoregulationMode">{t('autoregulationMode')}</Label>
-            <Select
-              value={form.watch('autoregulationMode') ?? 'PRESERVE_RIR'}
-              onValueChange={(value) =>
-                form.setValue('autoregulationMode', value as SetAutoregulationMode)
-              }
-            >
-              <SelectTrigger id="autoregulationMode">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PRESERVE_RIR">{t('preserveRir')}</SelectItem>
-                <SelectItem value="PRESERVE_REPS">{t('preserveReps')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {form.watch('autoregulationMode') === 'PRESERVE_REPS'
-                ? t('preserveRepsHelp')
-                : t('preserveRirHelp')}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="fatigueRate">{t('fatigueRate')}</Label>
-              <Input
-                id="fatigueRate"
-                type="number"
-                inputMode="decimal"
-                min="0.25"
-                max="2"
-                step="0.05"
-                placeholder={t('automatic')}
-                {...form.register('fatigueRate', {
-                  setValueAs: (value) => (value === '' ? null : Number(value)),
-                })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="loadAdjustmentPct">{t('loadAdjustment')}</Label>
-              <Input
-                id="loadAdjustmentPct"
-                type="number"
-                inputMode="decimal"
-                min="1"
-                max="5"
-                step="0.1"
-                placeholder={t('automatic')}
-                {...form.register('loadAdjustmentPct', {
-                  setValueAs: (value) => (value === '' ? null : Number(value)),
-                })}
-              />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="fatigueRate">{t('fatigueRate')}</Label>
+                  <Input
+                    id="fatigueRate"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.25"
+                    max="2"
+                    step="0.05"
+                    placeholder={t('automatic')}
+                    {...form.register('fatigueRate', {
+                      setValueAs: optionalNumber,
+                    })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="loadAdjustmentPct">{t('loadAdjustment')}</Label>
+                  <Input
+                    id="loadAdjustmentPct"
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    max="5"
+                    step="0.1"
+                    placeholder={t('automatic')}
+                    {...form.register('loadAdjustmentPct', {
+                      setValueAs: optionalNumber,
+                    })}
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="notes">{t('notes')}</Label>

@@ -7,6 +7,7 @@ import {
   MIN_LOAD_ADJUSTMENT_PCT,
 } from '@/lib/intra-set-autoregulation';
 import { MAX_SUPERSET_GROUP, MIN_SUPERSET_GROUP } from '@/lib/supersets';
+import { MAX_DISTANCE_M, MAX_DURATION_SEC } from '@/lib/cardio';
 
 export const programExerciseInputSchema = z
   .object({
@@ -38,10 +39,24 @@ export const programExerciseInputSchema = z
       .max(MAX_SUPERSET_GROUP)
       .nullable()
       .optional(),
+    // Cardio target (issue #558, slice 1): duration in seconds and optional
+    // distance in meters, same bounds as a logged cardio set. Only a CARDIO
+    // exercise may carry them - the routes refuse them on any other category,
+    // since the category is not known here. null clears the value; ABSENT
+    // leaves it unchanged on update (so a caller that only knows the strength
+    // fields, like the superset pairing, never wipes a target).
+    targetDurationSec: z.number().int().min(1).max(MAX_DURATION_SEC).nullable().optional(),
+    targetDistanceM: z.number().positive().max(MAX_DISTANCE_M).nullable().optional(),
   })
   .refine((v) => v.targetRepsMax >= v.targetRepsMin, {
     message: 'Reps max must be >= reps min',
     path: ['targetRepsMax'],
+  })
+  // A distance is only a target next to a duration: clearing the duration
+  // while sending a distance is contradictory.
+  .refine((v) => !(v.targetDistanceM != null && v.targetDurationSec === null), {
+    message: 'A distance target needs a duration target',
+    path: ['targetDistanceM'],
   });
 
 export type ProgramExerciseInput = z.infer<typeof programExerciseInputSchema>;

@@ -231,6 +231,8 @@ describe.each(['en', 'zh-CN'] as const)('static application UI in %s', (locale) 
       autoregulationMode: 'PRESERVE_RIR',
       fatigueRate: null,
       loadAdjustmentPct: null,
+      targetDurationSec: null,
+      targetDistanceM: null,
       exercise,
     };
     const onSubmit = vi.fn();
