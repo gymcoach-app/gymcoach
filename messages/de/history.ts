@@ -53,6 +53,8 @@ export const history = {
     heartRateChart: 'Herzfrequenz im Zeitverlauf',
     heartRate: 'HF',
     chartMinutes: '{value} Min',
+    setHr: 'HF Schnitt/Spitze',
+    setHrLabel: 'Durchschnitt {avg} bpm, Spitze {max} bpm',
   },
   saveAsWorkout: {
     button: 'Als Workout speichern',

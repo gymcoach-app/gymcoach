@@ -50,6 +50,8 @@ export const history = {
     heartRateChart: 'Heart rate over time',
     heartRate: 'HR',
     chartMinutes: '{value} min',
+    setHr: 'HR avg/peak',
+    setHrLabel: 'Average {avg} bpm, peak {max} bpm',
   },
   saveAsWorkout: {
     button: 'Save as a workout',

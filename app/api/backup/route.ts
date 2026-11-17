@@ -62,6 +62,8 @@ import {
 //   the exercise list of a freestyle session, re-linked to the exercise by name.
 // - Session.avgHr / maxHr / hrTrack (v11, issue #562): the heart rate of an
 //   attached watch recording.
+// - Set.watchAvgHr / watchMaxHr (v13, issue #576): the heart rate of a set
+//   read from that recording.
 // - Saved Gym profiles plus physical GymEquipment, equipment-to-exercise links,
 //   and uploaded/external equipment images.
 // - CoachSession, ExerciseGoal, BodyweightEntry, ReadinessCheckin,
@@ -74,7 +76,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 12;
+const VERSION = 13;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -322,6 +324,9 @@ export async function GET() {
           distanceM: set.distanceM,
           avgHr: set.avgHr,
           maxHr: set.maxHr,
+          // New in v13 (issue #576); absent from older backups.
+          watchAvgHr: set.watchAvgHr,
+          watchMaxHr: set.watchMaxHr,
           notes: set.notes,
           isWarmup: set.isWarmup,
           isDropSet: set.isDropSet,
@@ -545,6 +550,10 @@ const importSchema = z.object({
               distanceM: z.number().min(0).max(MAX_DISTANCE_M).nullable().optional(),
               avgHr: z.number().int().min(AVG_HR_MIN).max(AVG_HR_MAX).nullable().optional(),
               maxHr: z.number().int().min(MAX_HR_MIN).max(MAX_HR_MAX).nullable().optional(),
+              // v13 (issue #576): heart rate of the set read from the attached
+              // watch recording; absent in older backups, read as NULL.
+              watchAvgHr: z.number().int().min(AVG_HR_MIN).max(AVG_HR_MAX).nullable().optional(),
+              watchMaxHr: z.number().int().min(MAX_HR_MIN).max(MAX_HR_MAX).nullable().optional(),
               notes: z.string().max(2000).nullable().optional(),
               isWarmup: z.boolean(),
               isDropSet: z.boolean(),
@@ -993,6 +1002,8 @@ export async function POST(req: Request) {
                 distanceM: set.distanceM ?? null,
                 avgHr: set.avgHr ?? null,
                 maxHr: set.maxHr ?? null,
+                watchAvgHr: set.watchAvgHr ?? null,
+                watchMaxHr: set.watchMaxHr ?? null,
                 notes: set.notes ?? null,
                 isWarmup: set.isWarmup,
                 isDropSet: set.isDropSet,

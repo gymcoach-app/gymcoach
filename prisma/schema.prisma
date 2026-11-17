@@ -451,6 +451,16 @@ model Set {
   // present (enforced by every writer), NULL on strength sets and on cardio
   // logged without it.
   maxHr                          Int?
+  // Heart rate of the set read from the watch file attached to its session
+  // (issue #576, additive): average and peak, in bpm, of the samples between
+  // the previous set's completedAt (or the session start) and this set's
+  // completedAt (lib/set-heart-rate.ts). 40..250 when present. Written only
+  // by POST /api/sessions/[id]/watch-file and cleared by its DELETE, never by
+  // the user: avgHr / maxHr above stay what was logged or imported on a
+  // cardio set, and stay the only heart rate the conditioning stats read.
+  // NULL without an attached file and on a set outside the recording.
+  watchAvgHr                     Int?
+  watchMaxHr                     Int?
   // Downsampled pace/HR track of an imported cardio activity (issue #254,
   // additive): a JSON array of up to a few hundred points
   // [{ t, d?, hr? }] where t = seconds from the start, d = cumulative meters,

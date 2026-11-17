@@ -262,6 +262,11 @@ interface WeekSummary {
         isWarmup: boolean;
         isDropSet: boolean;
         notes: string | null;
+        // Heart rate of the set read from the attached watch recording
+        // (issue #576), in bpm. Both keys are omitted when the set has none,
+        // so the payload of a session without it is unchanged.
+        avgHr?: number;
+        maxHr?: number;
       }>;
       bestE1RM: number;
       volume: number;
@@ -579,6 +584,10 @@ async function weekSummary(
           isWarmup: set.isWarmup,
           isDropSet: set.isDropSet,
           notes: set.notes,
+          // The watch columns, never Set.avgHr / maxHr (a cardio set's own
+          // heart rate, which belongs to the conditioning block).
+          ...(set.watchAvgHr != null ? { avgHr: set.watchAvgHr } : {}),
+          ...(set.watchMaxHr != null ? { maxHr: set.watchMaxHr } : {}),
         });
       }
       const exercises = [...setsByExo.values()].map((e) => {

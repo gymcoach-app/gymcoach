@@ -63,10 +63,20 @@ export interface GpxActivity {
   track: TrackPoint[] | null;
 }
 
+// Optional extras of a parse. `samples: true` also returns every sanitized
+// sample at full resolution (before the downsample to MAX_TRACK_POINTS), for
+// a caller that needs the real peak or a per-set split (issue #576). Bounded
+// by the raw sample cap of the parser.
+export interface GpxParseOptions {
+  samples?: boolean;
+}
+
 export interface GpxParseResult {
   ok: boolean;
   fatalError: string | null;
   activity: GpxActivity | null;
+  // Only when asked for with `samples: true` and the parse succeeded.
+  samples?: TrackPoint[];
 }
 
 const fatal = (msg: string): GpxParseResult => ({
@@ -292,7 +302,7 @@ function sportForType(type: string | null): GpxSport {
 // The parser
 // ------------------------------------------------------------
 
-export function parseGpx(input: string): GpxParseResult {
+export function parseGpx(input: string, options: GpxParseOptions = {}): GpxParseResult {
   if (input.length > GPX_MAX_BYTES) {
     return fatal('File too large: the limit is 5 MB.');
   }
@@ -467,12 +477,16 @@ export function parseGpx(input: string): GpxParseResult {
   // start. Sanitized/bounded by cleanTrackPoint (not the summary schema) and
   // attached to the validated summary, matching the FIT importer.
   const start = firstTime.getTime();
-  const track = downsampleTrack(
-    rawPoints
-      .map((p) => cleanTrackPoint((p.time.getTime() - start) / 1000, p.cumMeters, p.hr))
-      .filter((p): p is TrackPoint => p !== null),
-  );
-  return { ok: true, fatalError: null, activity: { ...checked.data, track } };
+  const points = rawPoints
+    .map((p) => cleanTrackPoint((p.time.getTime() - start) / 1000, p.cumMeters, p.hr))
+    .filter((p): p is TrackPoint => p !== null);
+  const track = downsampleTrack(points);
+  return {
+    ok: true,
+    fatalError: null,
+    activity: { ...checked.data, track },
+    ...(options.samples ? { samples: points } : {}),
+  };
 }
 
 // Default exercise name per GPX sport, matching the TCX importer's mapping so a

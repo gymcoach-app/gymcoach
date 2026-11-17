@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MAX_TRACK_POINTS } from './track';
-import { NO_HEART_RATE_MESSAGE, readWatchFile } from './watch-file';
+import { NO_HEART_RATE_MESSAGE, readWatchFile, readWatchFileDetailed } from './watch-file';
 
 // ============================================================
 // Fixtures (same builders as fit.test.ts, tcx.test.ts and gpx.test.ts)
@@ -221,6 +221,102 @@ describe('readWatchFile - GPX (issue #562)', () => {
     }
     expect(data.avgHr).toBeGreaterThanOrEqual(40);
     expect(data.avgHr).toBeLessThanOrEqual(250);
-    expect(data.maxHr).toBe(Math.max(...track.map((p) => p.hr)));
+    // The peak is read from every sample of the file (issue #576): the valid
+    // values run 100..179, and 179 only occurs on samples the stored curve
+    // (one point out of four here) does not keep.
+    expect(data.maxHr).toBe(179);
+    expect(Math.max(...track.map((p) => p.hr))).toBeLessThan(179);
+  });
+});
+
+// Issue #576: a peak the file does not state is read from the full-resolution
+// samples, not from the downsampled curve that is stored.
+describe('readWatchFile - peak and average from the full-resolution samples (issue #576)', () => {
+  const start = Date.parse('2026-06-10T07:30:00.000Z');
+  // 1500 one-second samples at a flat 110 bpm, with one spike to 188 at a
+  // second the stored curve (one point out of three) skips.
+  const SPIKE_AT = 700;
+  const flatWithSpike = (point: (time: string, hr: number) => string) => {
+    let points = '';
+    for (let i = 0; i < 1500; i++) {
+      points += point(new Date(start + i * 1000).toISOString(), i === SPIKE_AT ? 188 : 110);
+    }
+    return points;
+  };
+
+  it('finds a TCX peak that falls between two stored points', () => {
+    const data = read('tcx', tcx(`<Track>${flatWithSpike(tcxPoint)}</Track>`));
+    const track = data.hrTrack!;
+    expect(track.length).toBe(MAX_TRACK_POINTS);
+    // The stored curve does not hold the spike...
+    expect(track.some((p) => p.t === SPIKE_AT)).toBe(false);
+    expect(Math.max(...track.map((p) => p.hr))).toBe(110);
+    // ...the session peak does.
+    expect(data.maxHr).toBe(188);
+    // (1499 * 110 + 188) / 1500 = 110.05 -> 110.
+    expect(data.avgHr).toBe(110);
+  });
+
+  it('finds a GPX peak that falls between two stored points', () => {
+    const data = read('gpx', gpx(flatWithSpike(gpxPoint)));
+    expect(Math.max(...data.hrTrack!.map((p) => p.hr))).toBe(110);
+    expect(data.maxHr).toBe(188);
+  });
+
+  it('still lets the peak stated by the file win over the samples', () => {
+    const data = read(
+      'tcx',
+      tcx(
+        `<MaximumHeartRateBpm><Value>171</Value></MaximumHeartRateBpm>` +
+          `<Track>${flatWithSpike(tcxPoint)}</Track>`,
+      ),
+    );
+    expect(data.maxHr).toBe(171);
+  });
+
+  it('returns every heart rate sample next to the reading, heart rate only', () => {
+    const result = readWatchFileDetailed({
+      format: 'tcx',
+      content: tcx(`<Track>${flatWithSpike(tcxPoint)}</Track>`),
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.hrSamples.length).toBe(1500);
+    expect(result.hrSamples[SPIKE_AT]).toEqual({ t: SPIKE_AT, hr: 188 });
+    // The stored reading is the same as the one readWatchFile gives.
+    expect(result.data).toEqual(read('tcx', tcx(`<Track>${flatWithSpike(tcxPoint)}</Track>`)));
+  });
+
+  it('drops out-of-bounds samples and those without heart rate', () => {
+    const result = readWatchFileDetailed({
+      format: 'tcx',
+      content: tcx(
+        `<Track>` +
+          tcxPoint('2026-06-10T07:30:00.000Z', 100, 0) +
+          tcxPoint('2026-06-10T07:30:01.000Z', 300, 3) +
+          tcxPoint('2026-06-10T07:30:02.000Z', undefined, 6) +
+          tcxPoint('2026-06-10T07:30:03.000Z', 120, 9) +
+          `</Track>`,
+      ),
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.hrSamples).toEqual([
+      { t: 0, hr: 100 },
+      { t: 3, hr: 120 },
+    ]);
+  });
+
+  it('gives no samples for a summary-only file', () => {
+    const result = readWatchFileDetailed({ format: 'fit', content: FIT_RUNNING });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.hrSamples).toEqual([]);
+    expect(result.data.maxHr).toBe(175);
+  });
+
+  it('reports the same errors as readWatchFile', () => {
+    expect(readWatchFileDetailed({ format: 'fit', content: FIT_CYCLING })).toEqual({
+      ok: false,
+      code: 'no_heart_rate',
+      error: NO_HEART_RATE_MESSAGE,
+    });
   });
 });

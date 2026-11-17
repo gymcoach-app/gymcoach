@@ -78,10 +78,20 @@ export interface FitActivity {
   track: TrackPoint[] | null;
 }
 
+// Optional extras of a parse. `samples: true` also returns every sanitized
+// sample at full resolution (before the downsample to MAX_TRACK_POINTS), for
+// a caller that needs the real peak or a per-set split (issue #576). Bounded
+// by the raw sample cap of the parser.
+export interface FitParseOptions {
+  samples?: boolean;
+}
+
 export interface FitParseResult {
   ok: boolean;
   fatalError: string | null;
   activity: FitActivity | null;
+  // Only when asked for with `samples: true` and the parse succeeded.
+  samples?: TrackPoint[];
 }
 
 const fatal = (msg: string): FitParseResult => ({
@@ -175,10 +185,11 @@ function mapSport(sport: number | undefined): FitSport {
   return 'Other';
 }
 
-// Turn the collected per-sample records into a sanitized, downsampled track
-// (each point relative to the activity start). Records with no timestamp or an
-// out-of-window time are dropped; distance is unscaled (raw / 100 = meters).
-function buildTrack(rawRecords: RawRecord[], startTimeFitSec: number): TrackPoint[] | null {
+// Turn the collected per-sample records into sanitized points at full
+// resolution (each point relative to the activity start). Records with no
+// timestamp or an out-of-window time are dropped; distance is unscaled
+// (raw / 100 = meters). The stored track is these points, downsampled.
+function cleanRecords(rawRecords: RawRecord[], startTimeFitSec: number): TrackPoint[] {
   const points: TrackPoint[] = [];
   for (const r of rawRecords) {
     if (r.timestamp === undefined) continue;
@@ -189,12 +200,12 @@ function buildTrack(rawRecords: RawRecord[], startTimeFitSec: number): TrackPoin
     );
     if (point) points.push(point);
   }
-  return downsampleTrack(points);
+  return points;
 }
 
 // Decode a FIT binary into ONE normalized cardio activity, or a fatal error.
 // `input` is the raw file bytes (the route base64-decodes the JSON payload).
-export function parseFit(input: Uint8Array): FitParseResult {
+export function parseFit(input: Uint8Array, options: FitParseOptions = {}): FitParseResult {
   if (input.length > FIT_MAX_BYTES) {
     return fatal('File too large: the limit is 5 MB.');
   }
@@ -341,10 +352,16 @@ export function parseFit(input: Uint8Array): FitParseResult {
   if (!checked.success) {
     return fatal('FIT session values are out of the supported range.');
   }
-  // The track is sanitized/bounded by buildTrack (not the summary schema), then
-  // attached to the validated summary.
-  const track = buildTrack(rawRecords, session.startTime);
-  return { ok: true, fatalError: null, activity: { ...checked.data, track } };
+  // The track is sanitized/bounded by cleanRecords (not the summary schema),
+  // then attached to the validated summary.
+  const points = cleanRecords(rawRecords, session.startTime);
+  const track = downsampleTrack(points);
+  return {
+    ok: true,
+    fatalError: null,
+    activity: { ...checked.data, track },
+    ...(options.samples ? { samples: points } : {}),
+  };
 }
 
 // Extract the record fields we care about from one data message at `pos`.

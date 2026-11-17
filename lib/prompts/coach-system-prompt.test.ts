@@ -123,6 +123,17 @@ describe('coach system prompt positioning', () => {
 
   // Issue #562: the heart rate of an attached watch recording is an INPUT-side
   // signal about the whole session, never a per-set effort or a health signal.
+  // Issue #576: a set may carry the heart rate of its own window, which
+  // includes the rest before it, so it is still not a per-set effort signal.
+  it('tells the coach how to read the heart rate of a set', () => {
+    expect(COACH_SYSTEM_PROMPT).toMatch(
+      /A set of such a session may carry\s+its own avgHr and maxHr/,
+    );
+    expect(COACH_SYSTEM_PROMPT).toMatch(/covers the rest before the set/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/never to judge how hard a\s+single set was/i);
+    expect(COACH_SYSTEM_PROMPT).toMatch(/say nothing about a set without them/i);
+  });
+
   it('tells the coach how to read the heart rate attached to a strength session', () => {
     expect(COACH_SYSTEM_PROMPT).toMatch(/may carry avgHr and maxHr/);
     expect(COACH_SYSTEM_PROMPT).toMatch(/overall cardiovascular load and density/i);

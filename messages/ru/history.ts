@@ -54,6 +54,8 @@ export const history = {
     heartRateChart: 'Пульс во времени',
     heartRate: 'Пульс',
     chartMinutes: '{value} мин',
+    setHr: 'Пульс ср./пик',
+    setHrLabel: 'Средний {avg} уд/мин, пиковый {max} уд/мин',
   },
   saveAsWorkout: {
     button: 'Сохранить как тренировку',

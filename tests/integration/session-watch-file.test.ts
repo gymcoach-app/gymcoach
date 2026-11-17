@@ -404,3 +404,340 @@ describe('buildCoachPayload session heart rate (issue #562)', () => {
     expect('maxHr' in entry).toBe(false);
   });
 });
+
+// ============================================================
+// Heart rate per set (issue #576)
+// ============================================================
+// On confirm the heart rate of the file is split over the session's sets by
+// their log time and stored in Set.watchAvgHr / watchMaxHr. The heart rate a
+// user logged on a cardio set (Set.avgHr / maxHr) is never touched, and
+// DELETE clears only what the file wrote.
+
+const tcxPoint = (time: string, hr: number) =>
+  `<Trackpoint><Time>${time}</Time><HeartRateBpm><Value>${hr}</Value></HeartRateBpm></Trackpoint>`;
+const tcxFile = (lapInner: string) =>
+  `<?xml version="1.0"?><TrainingCenterDatabase><Activities>` +
+  `<Activity Sport="Other"><Id>2026-06-10T07:30:00.000Z</Id>` +
+  `<Lap StartTime="2026-06-10T07:30:00.000Z"><TotalTimeSeconds>2400</TotalTimeSeconds>` +
+  `${lapInner}</Lap></Activity></Activities></TrainingCenterDatabase>`;
+
+// Six samples over the session, no summary values.
+const SETS_TCX = tcxFile(
+  `<Track>` +
+    tcxPoint('2026-06-10T07:30:00.000Z', 95) +
+    tcxPoint('2026-06-10T07:33:00.000Z', 110) +
+    tcxPoint('2026-06-10T07:35:00.000Z', 130) +
+    tcxPoint('2026-06-10T07:40:00.000Z', 165) +
+    tcxPoint('2026-06-10T07:44:00.000Z', 150) +
+    tcxPoint('2026-06-10T07:50:00.000Z', 120) +
+    `</Track>`,
+);
+
+const clock = (hhmm: string) => new Date(`2026-06-10T${hhmm}:00.000Z`);
+
+// A session (07:28 to 08:15) with two squat sets, one rowing interval the
+// user logged WITH a heart rate, a third squat set and a last one logged
+// after the recording ended.
+async function seedTimedSession(email: string) {
+  const user = await db.user.create({ data: { email, passwordHash: 'x' } });
+  const squat = await db.exercise.create({
+    data: { userId: user.id, name: 'Squat', muscleGroup: 'QUADS', category: 'COMPOUND' },
+  });
+  const rower = await db.exercise.create({
+    data: { userId: user.id, name: 'Rower', muscleGroup: 'OTHER', category: 'CARDIO' },
+  });
+  const session = await db.session.create({
+    data: { userId: user.id, startedAt: SESSION_START, finishedAt: SESSION_END },
+  });
+  const lift = { sessionId: session.id, exerciseId: squat.id, weight: 100, reps: 5 };
+  await db.set.createMany({
+    data: [
+      { ...lift, setNumber: 1, completedAt: clock('07:35') },
+      { ...lift, setNumber: 2, completedAt: clock('07:42') },
+      {
+        sessionId: session.id,
+        exerciseId: rower.id,
+        setNumber: 1,
+        weight: 0,
+        reps: 0,
+        durationSec: 300,
+        distanceM: 1200,
+        avgHr: 140,
+        maxHr: 155,
+        completedAt: clock('07:48'),
+      },
+      { ...lift, setNumber: 3, completedAt: clock('08:10') },
+      { ...lift, setNumber: 4, completedAt: clock('08:12') },
+    ],
+  });
+  return { user, session, squat, rower };
+}
+
+// The heart rate columns of every set of a session, in log order.
+async function setHeartRates(sessionId: string) {
+  const sets = await db.set.findMany({
+    where: { sessionId },
+    orderBy: { completedAt: 'asc' },
+    select: { avgHr: true, maxHr: true, watchAvgHr: true, watchMaxHr: true },
+  });
+  return sets.map((s) => [s.avgHr, s.maxHr, s.watchAvgHr, s.watchMaxHr]);
+}
+
+// Every set column the feature must leave alone.
+async function setsWithoutWatchColumns(sessionId: string) {
+  const sets = await db.set.findMany({ where: { sessionId }, orderBy: { completedAt: 'asc' } });
+  return sets.map((row) => {
+    const copy: Record<string, unknown> = { ...row };
+    delete copy.watchAvgHr;
+    delete copy.watchMaxHr;
+    return copy;
+  });
+}
+
+const SPLIT = [
+  // [07:28, 07:35]: 95, 110, 130 -> 111.67 -> 112.
+  [null, null, 112, 130],
+  // (07:35, 07:42]: 165.
+  [null, null, 165, 165],
+  // (07:42, 07:48]: 150. The logged 140 / 155 stay.
+  [140, 155, 150, 150],
+  // (07:48, 08:10]: 120.
+  [null, null, 120, 120],
+  // (08:10, 08:12]: nothing recorded.
+  [null, null, null, null],
+];
+
+// The same sets without a file: only what the user logged.
+const WITHOUT_FILE = SPLIT.map(([avg, max]) => [avg, max, null, null]);
+
+describe('heart rate per set on confirm (issue #576)', () => {
+  it('writes nothing on the sets in preview', async () => {
+    const { user, session } = await seedTimedSession('set-hr-preview@test.dev');
+    actAs(user.id);
+    const before = await db.set.findMany({ where: { sessionId: session.id } });
+
+    const res = await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'preview' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty('setsWithHeartRate');
+    expect(await db.set.findMany({ where: { sessionId: session.id } })).toEqual(before);
+  });
+
+  it('gives each set its window and leaves the logged cardio heart rate', async () => {
+    const { user, session } = await seedTimedSession('set-hr-confirm@test.dev');
+    actAs(user.id);
+    const before = await setsWithoutWatchColumns(session.id);
+
+    const res = await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ mode: 'confirm', maxHr: 165, setsWithHeartRate: 4 });
+
+    expect(await setHeartRates(session.id)).toEqual(SPLIT);
+    // Nothing else on any set moved: weight, reps, cardio values, log time.
+    expect(await setsWithoutWatchColumns(session.id)).toEqual(before);
+    expect(await db.set.count({ where: { session: { userId: user.id } } })).toBe(5);
+  });
+
+  it('clears what a previous file wrote when the new one does not cover a set', async () => {
+    const { user, session } = await seedTimedSession('set-hr-replace@test.dev');
+    actAs(user.id);
+    await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+
+    // Three samples, 07:31 to 07:33: only the first set's window holds any.
+    const res = await attach(session.id, { format: 'gpx', file: HR_GPX, mode: 'confirm' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ replaces: true, setsWithHeartRate: 1 });
+    expect(await setHeartRates(session.id)).toEqual([
+      [null, null, 130, 150],
+      [null, null, null, null],
+      [140, 155, null, null],
+      [null, null, null, null],
+      [null, null, null, null],
+    ]);
+  });
+
+  it('clears the per-set values when the new file has no samples', async () => {
+    const { user, session } = await seedTimedSession('set-hr-summary-only@test.dev');
+    actAs(user.id);
+    await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+
+    const res = await attach(session.id, { format: 'fit', file: RUN_FIT, mode: 'confirm' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ setsWithHeartRate: 0 });
+    expect(await setHeartRates(session.id)).toEqual(WITHOUT_FILE);
+  });
+
+  it('takes the session peak from every sample, not from the stored curve', async () => {
+    const { user, session } = await seedTimedSession('set-hr-peak@test.dev');
+    actAs(user.id);
+    // 1500 one-second samples at 110 bpm with one spike to 188 at 07:41:40,
+    // a second the stored curve (one point out of three) does not keep.
+    const start = Date.parse('2026-06-10T07:30:00.000Z');
+    let points = '';
+    for (let i = 0; i < 1500; i++) {
+      points += tcxPoint(new Date(start + i * 1000).toISOString(), i === 700 ? 188 : 110);
+    }
+
+    const res = await attach(session.id, {
+      format: 'tcx',
+      file: tcxFile(`<Track>${points}</Track>`),
+      mode: 'confirm',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ maxHr: 188 });
+
+    const stored = await heartRateOf(session.id);
+    expect(stored.maxHr).toBe(188);
+    const track = stored.hrTrack as Array<{ t: number; hr: number }>;
+    expect(Math.max(...track.map((p) => p.hr))).toBe(110);
+    // The set whose window holds the spike (07:35 to 07:42) has it as well.
+    const rates = await setHeartRates(session.id);
+    expect(rates[0]).toEqual([null, null, 110, 110]);
+    expect(rates[1]![3]).toBe(188);
+  });
+
+  it("writes nothing on a stranger's sets", async () => {
+    const { session } = await seedTimedSession('set-hr-owner@test.dev');
+    const stranger = await db.user.create({
+      data: { email: 'set-hr-stranger@test.dev', passwordHash: 'x' },
+    });
+    actAs(stranger.id);
+    const before = await db.set.findMany({ where: { sessionId: session.id } });
+
+    const res = await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+    expect(res.status).toBe(404);
+    expect(await db.set.findMany({ where: { sessionId: session.id } })).toEqual(before);
+  });
+
+  it("leaves the user's other sessions alone", async () => {
+    const { user, session, squat } = await seedTimedSession('set-hr-other-session@test.dev');
+    // Another session of the same user at the same time of day, already
+    // carrying per-set values from its own file.
+    const other = await db.session.create({
+      data: { userId: user.id, startedAt: SESSION_START, finishedAt: SESSION_END },
+    });
+    await db.set.create({
+      data: {
+        sessionId: other.id,
+        exerciseId: squat.id,
+        setNumber: 1,
+        weight: 60,
+        reps: 8,
+        completedAt: clock('07:36'),
+        watchAvgHr: 101,
+        watchMaxHr: 122,
+      },
+    });
+    actAs(user.id);
+
+    await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+    expect(await setHeartRates(other.id)).toEqual([[null, null, 101, 122]]);
+    await remove(session.id);
+    expect(await setHeartRates(other.id)).toEqual([[null, null, 101, 122]]);
+  });
+});
+
+describe('DELETE clears only what the file wrote (issue #576)', () => {
+  it('clears the per-set values and keeps the heart rate logged on a cardio set', async () => {
+    const { user, session } = await seedTimedSession('set-hr-remove@test.dev');
+    actAs(user.id);
+    const before = await db.set.findMany({
+      where: { sessionId: session.id },
+      orderBy: { completedAt: 'asc' },
+    });
+    await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+    expect(await setHeartRates(session.id)).toEqual(SPLIT);
+
+    const res = await remove(session.id);
+    expect(res.status).toBe(200);
+    expect(await setHeartRates(session.id)).toEqual(WITHOUT_FILE);
+    // Every set is back to exactly what it was before the file was attached.
+    expect(
+      await db.set.findMany({ where: { sessionId: session.id }, orderBy: { completedAt: 'asc' } }),
+    ).toEqual(before);
+  });
+
+  it("keeps the owner's per-set values when a stranger asks", async () => {
+    const { user, session } = await seedTimedSession('set-hr-remove-owner@test.dev');
+    actAs(user.id);
+    await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+
+    const stranger = await db.user.create({
+      data: { email: 'set-hr-remove-stranger@test.dev', passwordHash: 'x' },
+    });
+    actAs(stranger.id);
+    expect((await remove(session.id)).status).toBe(404);
+    expect(await setHeartRates(session.id)).toEqual(SPLIT);
+  });
+});
+
+describe('buildCoachPayload heart rate per set (issue #576)', () => {
+  const SET_KEYS = ['setNumber', 'weight', 'reps', 'rir', 'isWarmup', 'isDropSet', 'notes'];
+
+  // A session of the current week: two squat sets and one rowing interval
+  // with a logged heart rate.
+  async function thisWeek(email: string) {
+    const user = await db.user.create({ data: { email, passwordHash: 'x' } });
+    const squat = await db.exercise.create({
+      data: { userId: user.id, name: 'Squat', muscleGroup: 'QUADS', category: 'COMPOUND' },
+    });
+    const rower = await db.exercise.create({
+      data: { userId: user.id, name: 'Rower', muscleGroup: 'OTHER', category: 'CARDIO' },
+    });
+    const session = await db.session.create({ data: { userId: user.id } });
+    const lift = { sessionId: session.id, exerciseId: squat.id, weight: 100, reps: 5 };
+    const first = await db.set.create({ data: { ...lift, setNumber: 1 } });
+    const second = await db.set.create({ data: { ...lift, setNumber: 2 } });
+    const row = await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: rower.id,
+        setNumber: 1,
+        weight: 0,
+        reps: 0,
+        durationSec: 600,
+        distanceM: 2000,
+        avgHr: 140,
+        maxHr: 155,
+      },
+    });
+    return { user, session, first, second, row };
+  }
+
+  it('carries avgHr and maxHr on a set that has them, and only on that set', async () => {
+    const { user, session, first } = await thisWeek('coach-set-hr@test.dev');
+    await db.set.update({ where: { id: first.id }, data: { watchAvgHr: 131, watchMaxHr: 150 } });
+
+    const payload = await buildCoachPayload(user.id);
+    const entry = payload.weekCurrent.sessions.find((s) => s.sessionId === session.id)!;
+    const sets = entry.exercises[0]!.sets;
+    expect(sets[0]).toMatchObject({ setNumber: 1, avgHr: 131, maxHr: 150 });
+    expect(Object.keys(sets[0]!)).toEqual([...SET_KEYS, 'avgHr', 'maxHr']);
+    expect(Object.keys(sets[1]!)).toEqual(SET_KEYS);
+  });
+
+  it('keeps the payload identical for a session without per-set heart rate', async () => {
+    const { user, session } = await thisWeek('coach-set-nohr@test.dev');
+
+    const payload = await buildCoachPayload(user.id);
+    const entry = payload.weekCurrent.sessions.find((s) => s.sessionId === session.id)!;
+    // The logged heart rate of the rowing interval is not a per-set value of
+    // the strength summary: cardio sets are not listed there at all.
+    expect(entry.exercises.map((e) => e.exerciseName)).toEqual(['Squat']);
+    for (const set of entry.exercises[0]!.sets) expect(Object.keys(set)).toEqual(SET_KEYS);
+  });
+
+  it('does not change the conditioning numbers', async () => {
+    const { user, first, second, row } = await thisWeek('coach-set-conditioning@test.dev');
+    const before = await buildCoachPayload(user.id);
+    expect(before.conditioning).toBeTruthy();
+
+    // What a confirm would write, on the strength sets and on the cardio set.
+    for (const id of [first.id, second.id, row.id]) {
+      await db.set.update({ where: { id }, data: { watchAvgHr: 171, watchMaxHr: 190 } });
+    }
+    const after = await buildCoachPayload(user.id);
+    expect(after.conditioning).toEqual(before.conditioning);
+    expect(JSON.stringify(after.conditioning)).not.toContain('171');
+    expect(JSON.stringify(after.conditioning)).not.toContain('190');
+  });
+});

@@ -54,6 +54,8 @@ export const history = {
     heartRateChart: 'Tętno w czasie',
     heartRate: 'Tętno',
     chartMinutes: '{value} min',
+    setHr: 'Tętno śr./szczyt',
+    setHrLabel: 'Średnie {avg} ud./min, szczytowe {max} ud./min',
   },
   saveAsWorkout: {
     button: 'Zapisz jako trening',

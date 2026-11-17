@@ -53,6 +53,8 @@ export const history = {
     heartRateChart: 'Frecuencia cardiaca a lo largo del tiempo',
     heartRate: 'FC',
     chartMinutes: '{value} min',
+    setHr: 'FC media/pico',
+    setHrLabel: 'Media {avg} ppm, pico {max} ppm',
   },
   saveAsWorkout: {
     button: 'Guardar como entrenamiento',
