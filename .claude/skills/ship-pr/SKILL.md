@@ -110,13 +110,16 @@ changes on.
    its tests) or any temporary change runs in the reviewer's own scratch copy, never in
    the author's or another session's tree. Say both in every review subagent's prompt
    (lessons L38, L50).
-   **Two review questions the prompt names when they apply.** If the change touches state
+   **Review questions the prompt names when they apply.** If the change touches state
    shared across checkouts (a container or compose project, a port, a lock file, a cache, the
    test database), ask for its proof from a second checkout, not only the authoring one
    (lesson L43). If it touches review, merge or guard machinery (`automation/publish/**`,
    `automation/review/**`, a hook), ask first whether one record, lens, edit or account can
    undo another's refusal, and whether the control can refuse the operator it serves; post
-   that review through the machinery itself when it exists (lesson L44).
+   that review through the machinery itself when it exists (lesson L44). If a doc states
+   what data is sent to a provider, stored or shared, add a docs-accuracy lens that checks
+   each claim against the code that builds the payload, call by call, and names the calls
+   the doc leaves out (lesson L57).
    **A hardening race has a budget.** When the same security or validity control draws
    a new blocking or major bypass in three consecutive reviews, state the remaining round
    budget (at most two more) before the next fixup. When it is spent, stop hardening:
@@ -129,7 +132,9 @@ changes on.
    bypass of the class round 1 already found (another spelling, another route to the same
    object), do not add the new names: redesign the screen to fail on anything it cannot
    prove safe, accept and test the false positives, and keep the round budget above for the
-   redesign (lesson L48).
+   redesign (lesson L48). The reverse holds too: removing a fail-closed false positive is a
+   loosening. When a review of such an attempt finds valid code it now hides, stop, keep the
+   rule, and pin the false positive with a test that names it as deliberate (lesson L56).
    **A stopped adversarial reviewer.** When the model's safety classifier stops a reviewer
    (or author) while it writes working exploit code, retry once with a read-only reviewer
    that describes each attack route in prose (route, file and line, the property it

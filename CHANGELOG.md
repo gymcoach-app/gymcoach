@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Attach a watch file to a session.** The page of a session in History has
+  an "Attach a watch file" action: pick the FIT, TCX or GPX recording of that
+  workout and its average heart rate, peak heart rate and heart rate curve are
+  stored on the session itself, instead of importing the file as a separate
+  cardio session. A preview shows what was read before anything is saved and
+  warns when the recording starts more than 6 hours from the session; a second
+  file replaces the first, "Remove" clears it, and a file without heart rate is
+  refused. The coach receives the two values with the session and reads them
+  as the overall cardiovascular load of the session, never as the effort of a
+  set or a health signal. The JSON backup (now version 11) carries the three
+  new fields both ways (#562).
+- The coach sees the heart rate of your cardio: imported activities and cardio
+  logged with a heart rate add an average and a peak (bpm) to each day of the
+  week, and an average to each week, so the weekly debrief can tell a hard run
+  from an easy one instead of guessing from its duration (#561).
+- Programs: a cardio exercise in a workout is prescribed by a duration and an
+  optional distance instead of sets, reps, RIR and rest. The editor asks for
+  "Duration (min)" and "Distance (km, optional)" and hides the strength fields;
+  the workout card, the print sheet and the live session read "20 min" or
+  "20 min · 5 km", and a cardio exercise without a target shows a neutral label
+  instead of "1 set x 1 rep". In a session the duration and distance inputs start
+  from the target. Stored in two new nullable columns
+  (`ProgramExercise.targetDurationSec`, `targetDistanceM`), carried by the backup
+  (format version 12, older files still import) and named to the coach as
+  `targetDurationMin` / `targetDistanceKm` (#558).
+- Program editor: "Move up" and "Move down" in an exercise's three-dot menu
+  change the order of a workout's exercises. The order is saved and the next
+  session follows it. A superset moves as one block, so A1/A2 stay together,
+  and a standalone exercise jumps over a whole superset. Saved through the new
+  `PUT /api/workouts/[id]/order`, which only accepts the complete list of the
+  workout's exercises (#557).
 - The AI coach can run on a local model: `LLM_PROVIDER=openai-compatible`
   is meant for any OpenAI Chat Completions server (Ollama, LM Studio, vLLM,
   llama.cpp server, or another gateway) at `OPENAI_COMPATIBLE_BASE_URL`, with
@@ -211,6 +242,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Program editor: a cardio exercise added before cardio targets existed can be
+  edited again without typing a duration (it keeps its neutral cardio label),
+  and "Pair with previous" and "Unpair" wait while a new exercise order is
+  being saved (#569, follow-up to #565 and #568).
+- Program editor: adding or editing an exercise whose "Fatigue per set" and
+  "Load change per rep" are left on Auto saves again. The empty overrides
+  reached validation as 0 and the dialog refused to save without showing an
+  error (#558).
+- The Docker image applies the Prisma migrations itself on start, through an
+  entrypoint script, before it starts the server, so an image run without the
+  compose files' `command` (plain `docker run`, a custom compose file, an
+  image updater) no longer serves on an old schema. The compose files drop
+  their `migrate deploy && node server.js` command, Node runs as PID 1 and
+  receives `SIGTERM` directly, and `SKIP_DB_MIGRATE=true` turns the step off
+  for setups that migrate separately. Community contribution by @f1dot4
+  (#559).
 - An open session whose workout was deleted no longer opens on a 404: it opens
   on an empty exercise list, like a free session (#553).
 - During a session, a rest that was skipped, paused or adjusted in the same
@@ -229,8 +276,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fails, around hooks) reads code rather than text: comments and string
   contents no longer count, a declaration through an options variable, an
   alias or bracket access (`it['skip']`) does, and a keyword before a bracket
-  (`return ['aroundEach']`) is not read as a receiver. Community contributions
-  by @Retsumdk (#523, #533, #547, #549, part of #506).
+  (`return ['aroundEach']`) is not read as a receiver, while a reserved word
+  reached by a dot (`x.new['aroundEach']`) or `of` used as a name still is.
+  Community contributions by @Retsumdk (#523, #533, #547, #549, #556, part of
+  #506); two harmless over-reports of that rule are pinned by tests as
+  deliberate (#560).
 - Exercise search ignores case and accents in every language, and matches the
   dotted and dotless i in Turkish: "incline" finds "Incline ..." names and
   "ip atlama" finds "İp atlama" on a Turkish phone. Fallback exercise initials
@@ -353,6 +403,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The self-hosting FAQ says what the AI provider receives, heart rate included
+  (average and peak only, never the curve), and the coach prompt names the
+  weekly cardio heart rate with its section so it is not confused with the heart
+  rate of a session (#567, follow-up to #563 and #566).
+- The image's migration entrypoint is installed as `gymcoach-entrypoint.sh`, so
+  the Node base image's own `docker-entrypoint.sh` stays in place, and
+  `SKIP_DB_MIGRATE` is documented in `.env.example` and the self-hosting guide
+  and passed through by both compose files; the CI Docker smoke test starts
+  the image on its default entrypoint and command (#564, follow-up to #559).
 - With the RPE effort scale, the effort target is also shown and typed as RPE in
   the program exercise editor, the AI program draft and the coach's suggested
   adjustments (stored as RIR as before), and the in-session hints and the "Save

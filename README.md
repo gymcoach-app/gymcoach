@@ -235,11 +235,17 @@ on your own key - all self-hosted.
   a whole batch at once, and every imported run or ride shows a
   **heart-rate-over-time chart** plus its **aerobic decoupling** (how much your
   pace per heartbeat drifted over the effort) on the session detail.
+- **Heart rate on a lifting session** - attach the FIT, TCX or GPX recording
+  of a workout you already logged: its average heart rate, peak and curve are
+  stored on that session and shown on its page, with a preview before anything
+  is saved, instead of a separate cardio session.
 
 ### AI coach (bring your own model)
 
 - **Weekly debrief and adjustments** - evidence-based, aware of your goals,
-  fatigue signals and conditioning volume.
+  fatigue signals and conditioning volume, and of the heart rate of your cardio
+  and of sessions with an attached watch file (average and peak only, never the
+  curve), so a hard run reads differently from an easy one.
 - **Conversational coach** - streaming chat grounded in your training data,
   including mid-session with the live workout attached in one tap.
 - **Program generation** - a full program from a one-sentence goal, editable
@@ -261,6 +267,12 @@ on your own key - all self-hosted.
   set belongs to in its `block` column. A block is the row's
   position among the workout's copies of that lift, so reordering, removing
   or replacing one of those rows re-assigns sets logged before.
+- **Reorder a workout** - "Move up" and "Move down" in an exercise's menu
+  change the order of a workout's exercises, and the next session follows it;
+  a superset moves as one block.
+- **Cardio in a program** - a cardio exercise is prescribed by a duration and
+  an optional distance ("20 min · 5 km") instead of sets, reps and RIR, and the
+  live session starts its inputs from that target.
 - **Exercise catalog** - searchable by name, on top of your custom exercises and
   muscle-group grouping. Star your favourites: they get their own section at
   the top of the catalog and come first in the in-session pickers.
@@ -463,7 +475,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 The image applies the Prisma migrations itself each time it starts, so there is
-no separate migration step.
+no separate migration step. Setups that migrate separately can turn that off
+with `SKIP_DB_MIGRATE=true` (see [docs/self-hosting.md](docs/self-hosting.md)).
 
 ### Pulling the prebuilt image
 
@@ -550,6 +563,11 @@ than CI reaching in to a small VPS.
 - [x] Free exercise switching in a live session with a rest timer per exercise
 - [x] RPE as an alternative effort scale to RIR
 - [x] Free session without a program
+- [x] Move exercises up and down in a workout (drag-and-drop still open, #557)
+- [x] Cardio exercises prescribed by duration and distance in a program (first
+      slice of #558)
+- [x] Heart rate in the coach context, and a watch file attached to a logged
+      session
 
 ## Contributing
 
@@ -594,14 +612,15 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   repeated lift's sets in the in-session coach context (#488), and tests that
   pin the eval harness's test-globals screen (#504). Then a series that makes
   the eval harness's graded-declaration self-check read code rather than text
-  (#523, #533, #547, #549).
+  (#523, #533, #547, #549, #556).
 - [@f1dot4](https://github.com/f1dot4) - first contribution: updating the
   current bodyweight from an MCP client, through a user-properties tool built
   to take more properties later (#477). Then the German interface (#497),
   German exercise names (#499) and exercise ids in the coach and MCP week
   summaries (#510). Then a fix for sets shown twice after a reload mid-workout
   (#541), Podman support for the test database (#543), and free exercise
-  switching with a rest timer per exercise (#544).
+  switching with a rest timer per exercise (#544). Then an image that applies
+  its own database migrations on start (#559).
 - [@sapatmohit](https://github.com/sapatmohit) - six interface languages in
   three days: Spanish (#513), Portuguese (#516), Italian (#518), Dutch (#532),
   Polish (#535) and Turkish (#537), each with its exercise names, plus the
@@ -619,6 +638,9 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   stopped MCP clients probing with GET from connecting at all (#314), and
   made the case for publishing the production image so self-hosters can pull
   instead of build (#310).
+- [@mattordev](https://github.com/mattordev) - asked for exercise reordering
+  in the program builder (#557) and for cardio-specific prescriptions (#558);
+  the first steps of both have shipped.
 - [@gogoku121](https://github.com/gogoku121) - proposed the browsable
   exercise library built on an MIT-licensed dataset (#308, scoped and tracked
   as #320).

@@ -96,6 +96,12 @@ survives in branches/PRs (resume from there), but unexpected working-tree change
 stop-and-reground signal. The replacement tick's prompt should state what is already
 merged so it never redoes or fights prior work.
 
+A dead agent's worktree may hold committed work that never reached a push (lesson L58:
+the #568 implementer died on an expired login after committing). Before re-running the
+task, read that worktree (`git -C <worktree> status`, `git -C <worktree> log
+origin/main..HEAD`) and resume from its commits. This is also why an implementer commits
+each finished step instead of only at the end.
+
 ## Concurrent ticks: one worktree each (lesson L15)
 
 A git checkout is single-writer state: `HEAD`, the index, and the branch pointer are shared

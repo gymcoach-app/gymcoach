@@ -963,3 +963,59 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 - **Status:** graduated -> `CONTRIBUTING.md` ("Project conventions"). The same sentence
   belongs in the `implement-issue` skill's checklist; `.claude/**` is a group B path, so
   that edit is left to a maintainer.
+
+### L55 - Read the gate's exit code directly, never through a pipe in an `&&` chain
+- **Trigger:** 2026-11-17, #569. The implementer ran `bash scripts/verify.sh | tail -1 && git
+  push` and opened the PR. The pipe's exit status was `tail`'s, so the push and the PR went
+  out while the typecheck step was red (two `verify` ledger lines failed at typecheck at
+  07:43Z and 07:44Z, the PR was opened at 07:43:38Z). Two test-typing commits fixed it within
+  minutes and the gate went green at 07:47Z, before the review and the merge. The same chain
+  had committed on a red gate once before (autonomy log, the #18-#20 batch); that time the
+  rule went into the loop prompts only, not into a skill.
+- **Lesson:** run the gate on its own line and decide on its own exit code (`bash
+  scripts/verify.sh > log 2>&1; status=$?`, then read the log and act on `$status`), or check
+  for the `GREEN-GATE PASSED` line. Never put a pipe between the gate and the `&&` that
+  commits, pushes or opens a PR.
+- **Status:** graduated -> `implement-issue` step 5 ("Read the gate's own exit code").
+
+### L56 - Removing a fail-closed over-report is a loosening; stop at the first hide and pin it
+- **Trigger:** 2026-11-16, #560. The delta review of #556 found two over-reports in the evals
+  scanner's bracket receiver rule (a non-ASCII binding before a for-of `of`, an integer
+  literal ending in a dot before `return [...]`): both report a declaration that is not
+  there, so both fail closed. The maintainer follow-up tried to stop reporting them. Review
+  round 1 was needs-changes with two blocking findings, each valid code that the attempt
+  hid and `main` reports; round 2 found a third such case (a division misread as a regex
+  in front of the digit). The attempt was dropped: the rule stayed as on `main`, and both
+  over-reports were pinned as deliberate tests next to the real reads that look like them.
+- **Lesson:** L46 budgets a race to close holes and L48 says to accept and test the false
+  positives of a fail-closed screen. This is the other direction: an attempt to remove a
+  false positive from a fail-closed screen is a loosening, and a review that finds one
+  valid case it now hides is the signal to stop, not to add one more exception. Keep the
+  over-report, pin it with a test that names it as deliberate, and move on.
+- **Status:** graduated -> `ship-pr` step 4 ("A second bypass of the same class", last
+  sentence).
+
+### L57 - A statement about what leaves the box is reviewed claim by claim against the code
+- **Trigger:** 2026-11-17, #567. The new FAQ entry "What does the AI provider receive?" said
+  that each coach call sends the equipment of the active gym. The docs-accuracy lens read
+  it against `buildCoachPayload` and the debrief and chat routes and returned a major
+  finding: only the MCP context tool adds the active gym; the debrief and the chat never
+  send it. The same record listed other calls the entry left out (program generation, the
+  set parser, the in-session chat). The entry was corrected before the merge.
+- **Lesson:** a privacy statement is a claim about the code, and a wrong one misleads in
+  either direction. Any doc that says what is sent to a provider, stored or shared gets a
+  docs-accuracy lens that checks each claim against the code that builds the payload, per
+  call, and lists the calls the doc does not mention.
+- **Status:** graduated -> `ship-pr` step 4 ("Review questions the prompt names").
+
+### L58 - Commit early; check a dead agent's worktree before re-running its task
+- **Trigger:** 2026-11-17, #568. The workflow agent implementing cardio targets died when the
+  session's login expired, after its code was committed locally in its worktree and before
+  the push. The orchestrator recovered the work from that worktree and carried it to
+  review and merge instead of re-running the implementation.
+- **Lesson:** an implementer commits each finished step in its worktree, so a dead run
+  leaves recoverable work. Before relaunching a task whose agent died, the orchestrator
+  reads that agent's worktree (`git -C <worktree> status` and `git -C <worktree> log
+  origin/main..HEAD`) and resumes from what is committed there. This extends L11, which
+  covered the dead agent as a possible second writer.
+- **Status:** graduated -> `06-orchestration.md` ("Relaunch after a crashed tick").
