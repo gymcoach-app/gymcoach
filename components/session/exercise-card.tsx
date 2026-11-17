@@ -86,7 +86,7 @@ export function ExerciseCard({
   const isCardio = exo.category === 'CARDIO';
   // Cardio target of the workout row (issue #558): shown instead of the set
   // count when the program prescribes a duration (and distance).
-  const cardioTarget = isCardio ? formatCardioTarget(programExercise) : null;
+  const cardioTarget = isCardio ? formatCardioTarget(programExercise, { locale }) : null;
 
   const repsLabel =
     programExercise.targetRepsMin === programExercise.targetRepsMax

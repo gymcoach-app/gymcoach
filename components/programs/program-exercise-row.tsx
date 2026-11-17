@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { ArrowDown, ArrowUp, Link2, MoreHorizontal, Pencil, Trash2, Unlink } from 'lucide-react';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { toast } from 'sonner';
@@ -49,6 +49,7 @@ export function ProgramExerciseRow({
   onMoveDown = null,
 }: Props) {
   const t = useTranslations('programs.exercise');
+  const locale = useLocale();
   const effortScale = useEffortScale();
   const exerciseT = useTranslations('exercises');
   const common = useTranslations('common');
@@ -83,7 +84,7 @@ export function ProgramExerciseRow({
   // A cardio exercise reads as its duration and distance target (issue #558),
   // or as a neutral label when it has none: never as sets, reps and RIR.
   const isCardio = isCardioExercise(programExercise.exercise);
-  const cardioTarget = isCardio ? formatCardioTarget(programExercise) : null;
+  const cardioTarget = isCardio ? formatCardioTarget(programExercise, { locale }) : null;
 
   return (
     <>
