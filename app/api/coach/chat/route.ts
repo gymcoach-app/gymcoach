@@ -104,19 +104,32 @@ export async function POST(req: Request) {
 
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
-        try {
-          for (let next = first; !next.done; next = await chunks.next()) {
-            assistant += next.value;
-            controller.enqueue(encoder.encode(next.value));
+        // enqueue() throws once the reader is gone (the user left the page):
+        // that ends the loop quietly and is not a provider failure.
+        const send = (text: string): boolean => {
+          try {
+            controller.enqueue(encoder.encode(text));
+            return true;
+          } catch {
+            return false;
           }
-        } catch (err) {
-          // Only the provider iteration runs in this block, so whatever it
-          // throws (an LlmError, or the raw error of a connection cut while
-          // the body was being read) is a provider failure.
-          const failure = describeAiFailure('coach chat stream', err);
-          controller.enqueue(
-            encoder.encode(formatStreamError(failure.code, failure.variable, failure.message)),
-          );
+        };
+        try {
+          let next = first;
+          while (!next.done) {
+            assistant += next.value;
+            if (!send(next.value)) break;
+            try {
+              next = await chunks.next();
+            } catch (err) {
+              // Whatever the provider iteration throws (an LlmError, or the
+              // raw error of a connection cut while the body was being read)
+              // is a provider failure.
+              const failure = describeAiFailure('coach chat stream', err);
+              send(formatStreamError(failure.code, failure.variable, failure.message));
+              break;
+            }
+          }
         } finally {
           if (assistant.trim()) {
             await db.message

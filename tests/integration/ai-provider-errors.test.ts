@@ -231,6 +231,37 @@ describe('failure side effects', () => {
     expect(stored.map((m) => m.content)).toEqual(['Hello there']);
   });
 
+  it('chat: a reader that goes away mid-answer is not logged as a provider failure', async () => {
+    await seed();
+    const encoder = new TextEncoder();
+    const sse = (text: string) =>
+      encoder.encode(`data: {"choices":[{"delta":{"content":"${text}"}}]}\n\n`);
+    stubProvider(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              controller.enqueue(sse('one '));
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              controller.enqueue(sse('two '));
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              controller.enqueue(sse('three'));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+    );
+
+    const res = await postChat(jsonReq('/api/coach/chat', { message: 'Hello coach' }));
+    const reader = res.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(logged).not.toHaveBeenCalled();
+  });
+
   it('sets/parse: a model answer that is not a set stays a 200 with parsed: null', async () => {
     const { bench } = await seed();
     stubProvider(() =>
