@@ -1,15 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_DISTANCE_M, MAX_DURATION_SEC, parseDurationToSec } from '@/lib/cardio';
+import {
+  MAX_DISTANCE_M,
+  MAX_DURATION_SEC,
+  MILES_TO_METERS,
+  cardioDistanceUnit,
+  metersPerDistanceUnit,
+  parseDurationToSec,
+} from '@/lib/cardio';
 import {
   cardioTargetLoggerInputs,
   coachCardioTarget,
+  distanceInputToM,
+  distanceMToInput,
   distanceMToKmInput,
+  distanceUnitLabel,
   durationSecToMinutesInput,
   formatCardioTarget,
+  formatCardioTargetParts,
+  formatTargetDistance,
   formatTargetDuration,
   hasCardioTarget,
   isCardioExercise,
   kmInputToDistanceM,
+  maxTargetDistance,
   minutesInputToDurationSec,
 } from '@/lib/cardio-target';
 
@@ -173,5 +186,175 @@ describe('coachCardioTarget', () => {
     expect(
       coachCardioTarget({ category: 'COMPOUND' }, { targetDurationSec: 1200, targetDistanceM: 5 }),
     ).toEqual({});
+  });
+});
+
+// --- Issue #576: localized text and the logger's distance unit ---------------
+
+const LOCALES = ['en', 'de', 'es', 'fr', 'it', 'nl', 'pl', 'pt', 'ru', 'tr', 'zh-CN'] as const;
+
+// Intl separates a number from its unit with a plain or a no-break space,
+// depending on the locale; the tests compare with plain spaces.
+function plain(text: string | null): string | null {
+  return text == null ? null : text.replace(/[\u00a0\u202f]/g, ' ');
+}
+
+describe('localized cardio target (issue #576)', () => {
+  it('defaults to English, so an untouched caller reads as before', () => {
+    expect(formatCardioTarget({ targetDurationSec: 1200, targetDistanceM: 5000 })).toBe(
+      formatCardioTarget({ targetDurationSec: 1200, targetDistanceM: 5000 }, { locale: 'en' }),
+    );
+    expect(formatTargetDistance(2500)).toBe('2.5 km');
+  });
+
+  it('names the minute in the language of each of the 11 locales', () => {
+    const minutes = Object.fromEntries(
+      LOCALES.map((locale) => [locale, plain(formatTargetDuration(1200, locale))]),
+    );
+    expect(minutes).toEqual({
+      en: '20 min',
+      de: '20 Min.',
+      es: '20 min',
+      fr: '20 min',
+      it: '20 min',
+      nl: '20 min',
+      pl: '20 min',
+      pt: '20 min',
+      ru: '20 мин',
+      tr: '20 dk.',
+      'zh-CN': '20分钟',
+    });
+  });
+
+  it('names the kilometer and writes the decimal mark of each locale', () => {
+    const km = Object.fromEntries(
+      LOCALES.map((locale) => [locale, plain(formatTargetDistance(2500, { locale }))]),
+    );
+    expect(km).toEqual({
+      en: '2.5 km',
+      de: '2,5 km',
+      es: '2,5 km',
+      fr: '2,5 km',
+      it: '2,5 km',
+      nl: '2,5 km',
+      pl: '2,5 km',
+      pt: '2,5 km',
+      ru: '2,5 км',
+      tr: '2,5 km',
+      'zh-CN': '2.5公里',
+    });
+  });
+
+  it('no longer leaves the Latin "min" or "km" in Russian and Chinese', () => {
+    for (const locale of ['ru', 'zh-CN']) {
+      const text = formatCardioTarget(
+        { targetDurationSec: 1200, targetDistanceM: 5000 },
+        { locale },
+      )!;
+      expect(text).not.toMatch(/min|km/);
+      expect(text).toContain(' · ');
+    }
+  });
+
+  it('keeps the clock format for a duration that is not whole minutes, in every locale', () => {
+    for (const locale of LOCALES) expect(formatTargetDuration(750, locale)).toBe('12:30');
+  });
+
+  it('formats every locale without throwing and returns the two halves separately', () => {
+    for (const locale of LOCALES) {
+      const parts = formatCardioTargetParts(
+        { targetDurationSec: 1200, targetDistanceM: 5000 },
+        { locale },
+      );
+      expect(parts.duration).toBeTruthy();
+      expect(parts.distance).toBeTruthy();
+      expect(
+        formatCardioTarget({ targetDurationSec: 1200, targetDistanceM: 5000 }, { locale }),
+      ).toBe(`${parts.duration} · ${parts.distance}`);
+    }
+    expect(formatCardioTargetParts({ targetDurationSec: 1200 })).toEqual({
+      duration: '20 min',
+      distance: null,
+    });
+    expect(formatCardioTargetParts({ targetDistanceM: 5000 })).toEqual({
+      duration: null,
+      distance: null,
+    });
+  });
+
+  it('labels the distance unit of a field in the reader language', () => {
+    expect(distanceUnitLabel('km')).toBe('km');
+    expect(distanceUnitLabel('mi')).toBe('mi');
+    expect(distanceUnitLabel('km', 'ru')).toBe('км');
+    expect(distanceUnitLabel('km', 'zh-CN')).toBe('公里');
+  });
+});
+
+describe('distance unit of a cardio target (issue #576)', () => {
+  it('follows the unit the set logger types its distance in: kilometers', () => {
+    expect(cardioDistanceUnit()).toBe('km');
+    // Editor default = logger unit: what the editor stores for "5" is what
+    // the logger shows back as "5".
+    const stored = distanceInputToM('5');
+    expect(stored).toBe(5000);
+    expect(distanceMToInput(stored)).toBe('5');
+    expect(
+      cardioTargetLoggerInputs({ targetDurationSec: 1200, targetDistanceM: stored }).distanceInput,
+    ).toBe(distanceMToInput(stored, cardioDistanceUnit()));
+    expect(formatTargetDistance(5000)).toBe(
+      formatTargetDistance(5000, { distanceUnit: cardioDistanceUnit() }),
+    );
+  });
+
+  it('converts a distance typed in miles to stored meters and back', () => {
+    expect(metersPerDistanceUnit('km')).toBe(1000);
+    expect(metersPerDistanceUnit('mi')).toBe(MILES_TO_METERS);
+    expect(distanceInputToM('3', 'mi')).toBe(4828);
+    expect(distanceInputToM('3,1', 'mi')).toBe(4989);
+    expect(distanceMToInput(4828, 'mi')).toBe('3');
+    expect(distanceMToInput(5000, 'mi')).toBe('3.11');
+    expect(formatTargetDistance(4828, { distanceUnit: 'mi' })).toBe('3 mi');
+    expect(
+      formatCardioTarget(
+        { targetDurationSec: 1800, targetDistanceM: 4828 },
+        { distanceUnit: 'mi' },
+      ),
+    ).toBe('30 min · 3 mi');
+  });
+
+  it('applies the same stored bound in either unit', () => {
+    expect(maxTargetDistance('km')).toBe(1000);
+    expect(maxTargetDistance('mi')).toBe(621);
+    expect(distanceInputToM('621', 'mi')).toBe(999400);
+    expect(distanceInputToM('622', 'mi')).toBeUndefined();
+    expect(distanceInputToM('', 'mi')).toBeNull();
+    expect(distanceInputToM('0', 'mi')).toBeUndefined();
+    expect(distanceInputToM('abc', 'mi')).toBeUndefined();
+  });
+
+  it('keeps the kilometer helpers as the km case of the unit-aware ones', () => {
+    expect(kmInputToDistanceM('2.5')).toBe(distanceInputToM('2.5', 'km'));
+    expect(distanceMToKmInput(2500)).toBe(distanceMToInput(2500, 'km'));
+  });
+});
+
+describe('coach payload stays numeric (issue #576)', () => {
+  it('carries minutes and kilometers as numbers, whatever the display locale or unit', () => {
+    const before = JSON.stringify(
+      coachCardioTarget({ category: 'CARDIO' }, { targetDurationSec: 750, targetDistanceM: 2500 }),
+    );
+    // Formatting for a German reader, in miles, must not leak into it.
+    formatCardioTarget(
+      { targetDurationSec: 750, targetDistanceM: 2500 },
+      { locale: 'de', distanceUnit: 'mi' },
+    );
+    const after = coachCardioTarget(
+      { category: 'CARDIO' },
+      { targetDurationSec: 750, targetDistanceM: 2500 },
+    );
+    expect(JSON.stringify(after)).toBe(before);
+    expect(before).toBe('{"targetDurationMin":12.5,"targetDistanceKm":2.5}');
+    expect(typeof after.targetDurationMin).toBe('number');
+    expect(typeof after.targetDistanceKm).toBe('number');
   });
 });

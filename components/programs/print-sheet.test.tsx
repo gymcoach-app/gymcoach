@@ -11,6 +11,8 @@ const labels: PrintSheetLabels = {
   weight: 'kg',
   reps: 'Reps',
   rir: 'RIR',
+  duration: 'Duration',
+  distance: 'Distance',
   notes: 'Notes',
   planLine: ({ sets, min, max, rir }) => `${sets} x ${min}-${max} reps, RIR ${rir}`,
   rest: (seconds) => `Rest ${seconds}s`,
@@ -120,7 +122,9 @@ describe('PrintSheet cardio rows (issue #558)', () => {
           id: 'w4',
           name: 'Conditioning',
           exercises: [
-            pe('a', 'Bench Press', 1, 3, { exercise: { name: 'Bench Press', category: 'COMPOUND' } }),
+            pe('a', 'Bench Press', 1, 3, {
+              exercise: { name: 'Bench Press', category: 'COMPOUND' },
+            }),
             pe('b', 'Running', 2, 1, {
               exercise: { name: 'Running', category: 'CARDIO' },
               targetRepsMin: 1,
@@ -144,6 +148,111 @@ describe('PrintSheet cardio rows (issue #558)', () => {
     expect(screen.queryByText('1 x 1-1 reps, RIR 2')).not.toBeInTheDocument();
     expect(screen.queryByText('Rest 120s')).not.toBeInTheDocument();
     expect(screen.queryByText('Tempo 3-1-1')).not.toBeInTheDocument();
+  });
+
+  // Issue #576: the boxes of a cardio row are what is logged for cardio.
+  it('draws duration and distance boxes for a cardio row, with the target pre-printed', () => {
+    const { container } = render(
+      <PrintSheet
+        programName="Block"
+        workout={{
+          id: 'w6',
+          name: 'Conditioning',
+          exercises: [
+            pe('a', 'Bench Press', 1, 3, {
+              exercise: { name: 'Bench Press', category: 'COMPOUND' },
+            }),
+            pe('b', 'Running', 2, 1, {
+              exercise: { name: 'Running', category: 'CARDIO' },
+              targetDurationSec: 1200,
+              targetDistanceM: 5000,
+            }),
+            pe('c', 'Rowing', 3, 1, { exercise: { name: 'Rowing', category: 'CARDIO' } }),
+          ],
+        }}
+        labels={labels}
+        exerciseName={(name) => name}
+      />,
+    );
+
+    const rows = container.querySelectorAll('tbody tr');
+    const kinds = (row: Element | undefined) =>
+      Array.from(row?.querySelectorAll('[data-print-cell]') ?? []).map((cell) =>
+        cell.getAttribute('data-print-cell'),
+      );
+    // Strength: weight, reps and RIR per set, as before.
+    expect(kinds(rows[0])).toEqual([
+      'weight',
+      'reps',
+      'rir',
+      'weight',
+      'reps',
+      'rir',
+      'weight',
+      'reps',
+      'rir',
+    ]);
+    // Cardio: one duration and one distance box, no strength box.
+    expect(kinds(rows[1])).toEqual(['duration', 'distance']);
+    expect(kinds(rows[2])).toEqual(['duration', 'distance']);
+
+    const running = rows[1]!.querySelectorAll('[data-print-cell]');
+    expect(running[0]).toHaveTextContent('Duration');
+    expect(running[0]?.querySelector('[data-print-target]')).toHaveTextContent('20 min');
+    expect(running[1]).toHaveTextContent('Distance');
+    expect(running[1]?.querySelector('[data-print-target]')).toHaveTextContent('5 km');
+    // No target: the boxes are labelled and empty.
+    expect(rows[2]!.querySelectorAll('[data-print-target]')).toHaveLength(0);
+    expect(rows[2]!.querySelectorAll('[data-print-cell]')[0]).toHaveTextContent(/^Duration$/);
+  });
+
+  it('keeps the markup of a strength row identical when a cardio row is added', () => {
+    const bench = pe('a', 'Bench Press', 1, 3, {
+      exercise: { name: 'Bench Press', category: 'COMPOUND' },
+    });
+    const sheet = (exercises: PrintSheetExerciseInput[]) =>
+      render(
+        <PrintSheet
+          programName="Block"
+          workout={{ id: 'w7', name: 'Mixed', exercises }}
+          labels={labels}
+          exerciseName={(name) => name}
+        />,
+      ).container.querySelector('tbody tr')?.outerHTML;
+
+    const alone = sheet([bench]);
+    const mixed = sheet([
+      bench,
+      pe('b', 'Running', 2, 1, {
+        exercise: { name: 'Running', category: 'CARDIO' },
+        targetDurationSec: 1200,
+      }),
+    ]);
+    expect(alone).toBeDefined();
+    expect(mixed).toBe(alone);
+  });
+
+  it('writes the cardio target in the locale it is given', () => {
+    render(
+      <PrintSheet
+        programName="Block"
+        workout={{
+          id: 'w8',
+          name: 'Conditioning',
+          exercises: [
+            pe('b', 'Running', 1, 1, {
+              exercise: { name: 'Running', category: 'CARDIO' },
+              targetDurationSec: 1200,
+              targetDistanceM: 2500,
+            }),
+          ],
+        }}
+        labels={labels}
+        exerciseName={(name) => name}
+        format={{ locale: 'de' }}
+      />,
+    );
+    expect(screen.getByText('20 Min. · 2,5 km')).toBeInTheDocument();
   });
 
   it('prints a neutral label for a cardio exercise without a target', () => {

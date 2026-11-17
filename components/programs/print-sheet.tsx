@@ -1,4 +1,9 @@
-import { buildPrintSheet, cellsBySet, type PrintSheetExerciseInput } from '@/lib/print-sheet';
+import {
+  buildPrintSheet,
+  cellsBySet,
+  type PrintSheetExerciseInput,
+  type PrintSheetOptions,
+} from '@/lib/print-sheet';
 import { cn } from '@/lib/utils';
 
 // Printable A4 workout sheet (issue #333). Server-renderable, black on white
@@ -13,6 +18,9 @@ export interface PrintSheetLabels {
   weight: string;
   reps: string;
   rir: string;
+  /** Boxes of a cardio row (issue #576). */
+  duration: string;
+  distance: string;
   notes: string;
   planLine: (row: { sets: number; min: number; max: number; rir: number }) => string;
   rest: (seconds: number) => string;
@@ -33,12 +41,21 @@ interface Props {
   workout: PrintSheetWorkout;
   labels: PrintSheetLabels;
   exerciseName: (name: string) => string;
+  /** Locale and distance unit the cardio targets are written in. */
+  format?: PrintSheetOptions;
   /** Page break after the sheet (when several workouts print in a row). */
   breakAfter?: boolean;
 }
 
-export function PrintSheet({ programName, workout, labels, exerciseName, breakAfter }: Props) {
-  const sheet = buildPrintSheet(workout.exercises);
+export function PrintSheet({
+  programName,
+  workout,
+  labels,
+  exerciseName,
+  format,
+  breakAfter,
+}: Props) {
+  const sheet = buildPrintSheet(workout.exercises, format);
   const setColumns = Array.from({ length: sheet.maxSets }, (_, i) => i + 1);
 
   return (
@@ -111,6 +128,31 @@ export function PrintSheet({ programName, workout, labels, exerciseName, breakAf
                 </td>
                 {setColumns.map((set) => {
                   const cells = cellsBySet(row, set);
+                  // A cardio row logs a duration and a distance (issue #576):
+                  // two boxes, each with its target pre-printed when set.
+                  if (row.cardio) {
+                    return (
+                      <td key={set} className="border border-black p-0">
+                        {cells.length > 0 && (
+                          <div className="grid grid-rows-2 divide-y divide-black">
+                            {cells.map((cell) => (
+                              <div
+                                key={cell.kind}
+                                data-print-cell={cell.kind}
+                                className="flex h-9 flex-wrap content-end items-end justify-between gap-x-1 px-1 pb-0.5 text-[9px] leading-none text-neutral-600"
+                              >
+                                <span>
+                                  {cell.kind === 'duration' && labels.duration}
+                                  {cell.kind === 'distance' && labels.distance}
+                                </span>
+                                {cell.target && <span data-print-target>{cell.target}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  }
                   return (
                     <td key={set} className="border border-black p-0">
                       {cells.length > 0 && (
