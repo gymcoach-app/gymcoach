@@ -71,6 +71,14 @@ services:
       # Loopback only: the reverse proxy in front terminates HTTPS.
       # Host port 3010 (3000 is taken on the shared host this file came from).
       - '127.0.0.1:3010:3000'
+    # Same probe as the image's HEALTHCHECK: GET /api/health on loopback, 200
+    # when the database answers.
+    healthcheck:
+      test: ['CMD', 'node', '/app/healthcheck.cjs']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
   # Run-once demo seeder (public demo only): resets the demo account to the
   # rich deterministic dataset (12 weeks of sessions, bodyweight trend, a

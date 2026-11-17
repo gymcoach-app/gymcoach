@@ -219,5 +219,10 @@ docker compose logs -f db
 
 ### Is there a health check endpoint?
 
-`/mcp/health` answers, but it requires an MCP token. For a liveness probe in a
-proxy or uptime monitor, request `/login` and expect `200`.
+Yes: `GET /api/health`, no login needed. It answers `200` with
+`{"status":"ok"}` when the app can query its database and `503` with
+`{"status":"unavailable"}` when it cannot. The body says nothing else (no
+version, no configuration, no error text), so it is safe to point a proxy or an
+uptime monitor at it. The image runs the same probe as its Docker healthcheck:
+`docker compose ps` shows the app as `healthy`. (`/mcp/health` is a different
+endpoint: it checks an MCP token.)

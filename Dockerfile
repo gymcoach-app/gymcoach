@@ -90,10 +90,19 @@ ENV UPLOADS_DIR=/app/uploads
 COPY scripts/docker-entrypoint.sh /usr/local/bin/gymcoach-entrypoint.sh
 RUN chmod +x /usr/local/bin/gymcoach-entrypoint.sh
 
+# Healthcheck probe, run with the image's own node (no curl or wget package).
+COPY scripts/healthcheck.cjs /app/healthcheck.cjs
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+
+# GET /api/health on loopback: 200 when the database answers. A failure during
+# the start period does not count, which leaves the entrypoint two minutes to
+# apply the migrations before the server listens.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+  CMD ["node", "/app/healthcheck.cjs"]
 
 ENTRYPOINT ["gymcoach-entrypoint.sh"]
 CMD ["node", "server.js"]

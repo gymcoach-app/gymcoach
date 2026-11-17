@@ -401,8 +401,10 @@ docker compose up -d
 docker compose ps
 ```
 
-`docker compose ps` should show `db` healthy and `app` running. Open the site
-and sign in. If the app crash-loops, read the log:
+`docker compose ps` should show `db` and `app` healthy (the app turns healthy
+once the migrations are applied and it can query the database; allow it up to
+half a minute after the start). Open the site and sign in. If the app
+crash-loops, read the log:
 
 ```bash
 docker compose logs --tail=100 app
@@ -562,14 +564,34 @@ The fastest checks on the host:
 
 ```bash
 cd ~/gymcoach
-docker compose ps                    # both services up, db healthy
+docker compose ps                    # both services up and healthy
 docker compose logs --tail=100 app   # app errors, migration failures
-curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/login
+curl -sS -w ' %{http_code}\n' http://127.0.0.1:3000/api/health
 ```
 
-A `200` from the last command means the app answers locally, so the remaining
-problem is in the proxy. `502` or a connection refused from the proxy means the
-port does not match `GYMCOACH_PORT`, or the app is not up yet.
+`{"status":"ok"} 200` from the last command means the app answers locally and
+reaches its database, so the remaining problem is in the proxy.
+`{"status":"unavailable"} 503` means the app is up but its database does not
+answer: check `db` in `docker compose ps` and its log. `502` or a connection
+refused from the proxy means the port does not match `GYMCOACH_PORT`, or the
+app is not up yet.
+
+### Health endpoint and container healthcheck
+
+`GET /api/health` needs no login and answers `200 {"status":"ok"}` or
+`503 {"status":"unavailable"}`, depending on whether a trivial database query
+comes back within two seconds. The body carries nothing else, by design. Use it
+for a reverse proxy health check or an uptime monitor.
+
+The image declares a Docker `HEALTHCHECK` on that endpoint, and the compose
+files repeat it for the `app` service. It runs `node /app/healthcheck.cjs`
+inside the container every 30 seconds (no curl or wget in the image), with a
+two-minute start period so that migrations on a large database do not count as
+failures. Docker only reports the state (`docker compose ps`, `docker inspect`);
+it does not restart an unhealthy container by itself. An image published before
+this healthcheck existed has neither the endpoint nor the script: with the
+current compose file it keeps working and is shown as `unhealthy` until you
+pull a newer image.
 
 ### AI coach errors
 
