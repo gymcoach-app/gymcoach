@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -43,12 +43,15 @@ import { muscleGroupMessageKeys } from '@/i18n/enum-keys';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { addedExerciseTargets } from '@/lib/freestyle';
 import {
-  distanceMToKmInput,
+  distanceMToInput,
+  distanceUnitLabel,
+  maxTargetDistance,
   durationSecToMinutesInput,
   isCardioExercise,
-  kmInputToDistanceM,
+  distanceInputToM,
   minutesInputToDurationSec,
 } from '@/lib/cardio-target';
+import { cardioDistanceUnit } from '@/lib/cardio';
 
 interface CreateProps {
   open: boolean;
@@ -93,6 +96,7 @@ function optionalNumber(value: unknown): number | null {
 
 export function ProgramExerciseFormDialog(props: Props) {
   const t = useTranslations('programs.exercise');
+  const locale = useLocale();
   const exerciseT = useTranslations('exercises');
   const common = useTranslations('common');
   const exerciseName = useExerciseName();
@@ -118,13 +122,19 @@ export function ProgramExerciseFormDialog(props: Props) {
     return DEFAULT_VALUES;
   }, [props]);
 
-  // Cardio target (issue #558): typed as minutes and kilometers, like the set
-  // logger types its distance, and kept as raw strings while typing. They are
-  // converted to the stored seconds and meters on submit.
+  // Cardio target (issue #558): typed as minutes and a distance, kept as raw
+  // strings while typing and converted to the stored seconds and meters on
+  // submit. The distance is typed in the unit the set logger uses (issue
+  // #576): one rule, cardioDistanceUnit, so the two never disagree.
+  const distanceUnit = cardioDistanceUnit();
+  const distanceUnitText = distanceUnitLabel(distanceUnit, locale);
+  const distanceMax = maxTargetDistance(distanceUnit);
   const initialDurationMin =
     props.mode === 'edit' ? durationSecToMinutesInput(props.programExercise.targetDurationSec) : '';
   const initialDistanceKm =
-    props.mode === 'edit' ? distanceMToKmInput(props.programExercise.targetDistanceM) : '';
+    props.mode === 'edit'
+      ? distanceMToInput(props.programExercise.targetDistanceM, distanceUnit)
+      : '';
   const [durationMin, setDurationMin] = useState(initialDurationMin);
   const [distanceKm, setDistanceKm] = useState(initialDistanceKm);
   const [cardioSubmitted, setCardioSubmitted] = useState(false);
@@ -173,7 +183,7 @@ export function ProgramExerciseFormDialog(props: Props) {
   const selectedExercise = findExercise(watchedExerciseId);
   const isCardio = selectedExercise ? isCardioExercise(selectedExercise) : false;
   const durationSec = minutesInputToDurationSec(durationMin);
-  const distanceM = kmInputToDistanceM(distanceKm);
+  const distanceM = distanceInputToM(distanceKm, distanceUnit);
   const durationInvalid = cardioSubmitted && durationSec === null;
   const distanceInvalid = cardioSubmitted && distanceM === undefined;
 
@@ -316,20 +326,27 @@ export function ProgramExerciseFormDialog(props: Props) {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="targetDistanceKm">{t('cardioDistance')}</Label>
+                <Label htmlFor="targetDistanceKm">
+                  {t('cardioDistance', { unit: distanceUnitText })}
+                </Label>
                 <Input
                   id="targetDistanceKm"
                   type="number"
                   inputMode="decimal"
                   min="0"
-                  max="1000"
+                  max={distanceMax}
                   step="0.01"
                   value={distanceKm}
                   onChange={(e) => setDistanceKm(e.target.value)}
                   aria-invalid={distanceInvalid ? true : undefined}
                 />
                 {distanceInvalid && (
-                  <p className="text-sm text-destructive">{t('cardioDistanceError')}</p>
+                  <p className="text-sm text-destructive">
+                    {t('cardioDistanceError', {
+                      max: String(distanceMax),
+                      unit: distanceUnitText,
+                    })}
+                  </p>
                 )}
               </div>
             </div>

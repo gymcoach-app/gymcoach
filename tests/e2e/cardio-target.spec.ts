@@ -94,6 +94,13 @@ test('a cardio exercise is prescribed by duration and distance in a program', as
   await page.goto(`/programs/${program.id}/print`);
   await expect(page.getByText('20 min · 5 km')).toBeVisible();
   await expect(page.getByText(/reps, RIR/)).toHaveCount(0);
+  // Its boxes are a duration and a distance with the target pre-printed, not
+  // weight, reps and RIR (issue #576).
+  await expect(page.locator('[data-print-cell="duration"] [data-print-target]')).toHaveText(
+    '20 min',
+  );
+  await expect(page.locator('[data-print-cell="distance"] [data-print-target]')).toHaveText('5 km');
+  await expect(page.locator('[data-print-cell]')).toHaveCount(2);
 
   // The live session shows the target and the logger starts from it.
   const sessionRes = await page.request.post('/api/sessions', { data: { workoutId: workout.id } });
