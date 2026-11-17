@@ -105,6 +105,9 @@ export async function POST(req: Request) {
       // only counts rows that cannot be represented (no usable duration).
       cardioSets: plan.cardioSetCount,
       cardioSkipped: parsed.cardioSkipped,
+      // Rest Timer and Note rows of the export (issue #571): not sets, so
+      // skipped with a count instead of a per-line error.
+      nonSetRowsSkipped: parsed.nonSetSkipped,
       errorCount: parsed.errors.length,
       errors: parsed.errors.slice(0, MAX_REPORTED_ERRORS),
     };

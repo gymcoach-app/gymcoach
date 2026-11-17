@@ -147,6 +147,8 @@ export const settings = {
       '{count, plural, one {# cardioset} other {# cardiosets}} (duur/afstand) inbegrepen',
     cardioSkipped:
       '{count, plural, one {# cardioregel zonder bruikbare duur wordt} other {# cardioregels zonder bruikbare duur worden}} overgeslagen',
+    nonSetRowsSkipped:
+      '{count, plural, one {# regel met een rusttimer of notitie (geen set) wordt} other {# regels met een rusttimer of notitie (geen sets) worden}} overgeslagen',
     existingDates: 'Je hebt al sessies op: {dates}',
     unreadable:
       '{count, plural, one {# regel kon niet worden gelezen en wordt} other {# regels konden niet worden gelezen en worden}} overgeslagen:',
