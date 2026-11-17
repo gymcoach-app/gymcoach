@@ -244,7 +244,7 @@ describe('ProgramExerciseFormDialog cardio target', () => {
     const fetchMock = renderEdit(cardioRow);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect('targetDurationSec' in body).toBe(false);
     expect('targetDistanceM' in body).toBe(false);
