@@ -18,12 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file replaces the first, "Remove" clears it, and a file without heart rate is
   refused. The coach receives the two values with the session and reads them
   as the overall cardiovascular load of the session, never as the effort of a
-  set or a health signal. The JSON backup (now version 11) carries the three
-  new fields both ways (#562).
+  set or a health signal. The JSON backup carries the three new fields both
+  ways (#566, closes #562).
 - The coach sees the heart rate of your cardio: imported activities and cardio
   logged with a heart rate add an average and a peak (bpm) to each day of the
   week, and an average to each week, so the weekly debrief can tell a hard run
-  from an easy one instead of guessing from its duration (#561).
+  from an easy one instead of guessing from its duration (#563, closes #561).
 - Programs: a cardio exercise in a workout is prescribed by a duration and an
   optional distance instead of sets, reps, RIR and rest. The editor asks for
   "Duration (min)" and "Distance (km, optional)" and hides the strength fields;
@@ -33,13 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the target. Stored in two new nullable columns
   (`ProgramExercise.targetDurationSec`, `targetDistanceM`), carried by the backup
   (format version 12, older files still import) and named to the coach as
-  `targetDurationMin` / `targetDistanceKm` (#558).
+  `targetDurationMin` / `targetDistanceKm` (#568, slice 1 of #558).
 - Program editor: "Move up" and "Move down" in an exercise's three-dot menu
   change the order of a workout's exercises. The order is saved and the next
   session follows it. A superset moves as one block, so A1/A2 stay together,
   and a standalone exercise jumps over a whole superset. Saved through the new
   `PUT /api/workouts/[id]/order`, which only accepts the complete list of the
-  workout's exercises (#557).
+  workout's exercises (#565, step 1 of #557).
 - The AI coach can run on a local model: `LLM_PROVIDER=openai-compatible`
   is meant for any OpenAI Chat Completions server (Ollama, LM Studio, vLLM,
   llama.cpp server, or another gateway) at `OPENAI_COMPATIBLE_BASE_URL`, with
@@ -249,7 +249,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Program editor: adding or editing an exercise whose "Fatigue per set" and
   "Load change per rep" are left on Auto saves again. The empty overrides
   reached validation as 0 and the dialog refused to save without showing an
-  error (#558).
+  error (#568).
 - The Docker image applies the Prisma migrations itself on start, through an
   entrypoint script, before it starts the server, so an image run without the
   compose files' `command` (plain `docker run`, a custom compose file, an
