@@ -102,6 +102,12 @@ export const history = {
     dropSet: '递减组',
     notes: '备注：',
   },
+  shareImage: {
+    button: '分享为图片',
+    saved: '图片已保存。',
+    error: '无法生成图片。',
+    more: '{count, plural, other {另外 # 个动作}}',
+  },
   delete: {
     button: '删除',
     title: '确定删除本次训练吗？',

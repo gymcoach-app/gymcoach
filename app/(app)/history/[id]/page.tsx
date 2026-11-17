@@ -20,8 +20,10 @@ import {
 import { formatWeight } from '@/lib/units';
 import { formatEffortValue } from '@/lib/effort';
 import { formatWorkoutText } from '@/lib/workout-text';
+import { buildShareCard } from '@/lib/share-card';
 import { blockKey, distinctExerciseCount } from '@/lib/exercise-blocks';
 import { CopyWorkoutButton } from '@/components/history/copy-workout-button';
+import { ShareImageButton } from '@/components/history/share-image-button';
 import { SaveAsWorkoutButton } from '@/components/history/save-as-workout-button';
 import { DeleteSessionButton } from '@/components/history/delete-session-button';
 import {
@@ -33,7 +35,7 @@ import { TrackDecoupling } from '@/components/history/track-decoupling';
 import { sessionHrTrackSchema } from '@/lib/schemas/watch-file';
 import { getExerciseDisplayName } from '@/i18n/exercise-names';
 import { getTrainingDisplayName } from '@/i18n/training-names';
-import { resolveCalendarTimeZone } from '@/lib/history-calendar';
+import { dateKeyInTimeZone, resolveCalendarTimeZone } from '@/lib/history-calendar';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -58,6 +60,7 @@ export default async function HistorySessionPage(props: Params) {
   const detail = await getTranslations('history.detail');
   const watchT = await getTranslations('history.watchFile');
   const copyT = await getTranslations('history.copy');
+  const shareT = await getTranslations('history.shareImage');
   const exerciseT = await getTranslations('exercises');
   const locale = await getLocale();
   const format = await getFormatter();
@@ -197,6 +200,62 @@ export default async function HistorySessionPage(props: Params) {
         )
       : null;
 
+  // "Share as image" (issue #576): the summary card of a FINISHED session,
+  // built here from the rows already loaded and drawn in the browser.
+  const shareCard =
+    session.finishedAt != null && exerciseOrder.length > 0
+      ? buildShareCard(
+          {
+            title: sessionTitle,
+            date: format.dateTime(session.startedAt, {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              timeZone,
+            }),
+            dateKey: dateKeyInTimeZone(session.startedAt, timeZone),
+            durationMin,
+            avgHr: session.avgHr,
+            maxHr: session.maxHr,
+            exercises: exerciseOrder.flatMap((key) => {
+              const entry = setsByExercise.get(key);
+              if (!entry) return [];
+              return [
+                {
+                  id: entry.exercise.id,
+                  name: getExerciseDisplayName(entry.exercise.name, locale),
+                  isCardio: entry.exercise.category === 'CARDIO',
+                  usesBodyweight: entry.exercise.usesBodyweight,
+                  sets: entry.sets.map((s) => ({
+                    weight: s.weight,
+                    reps: s.reps,
+                    isWarmup: s.isWarmup,
+                    durationSec: s.durationSec,
+                    distanceM: s.distanceM,
+                  })),
+                },
+              ];
+            }),
+          },
+          {
+            unit,
+            locale,
+            bodyweight,
+            labels: {
+              duration: detail('duration'),
+              minutes: (count) => t('minutes', { count }),
+              totalVolume: detail('totalVolume'),
+              avgHr: detail('avgHr'),
+              maxHr: detail('maxHr'),
+              bpm: (value) => watchT('bpm', { value }),
+              bodyweight: detail('bodyweight'),
+              more: (count) => shareT('more', { count }),
+              noSets: detail('noSets'),
+            },
+          },
+        )
+      : null;
+
   // "Save as a workout" (issue #394): a FINISHED session with at least one
   // working set, saved into one of the trainee's programs.
   const canSaveAsWorkout =
@@ -221,6 +280,7 @@ export default async function HistorySessionPage(props: Params) {
           </Button>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {workoutText && <CopyWorkoutButton text={workoutText} />}
+            {shareCard && <ShareImageButton card={shareCard} />}
             {canSaveAsWorkout && (
               <SaveAsWorkoutButton
                 sessionId={session.id}
@@ -519,7 +579,9 @@ export default async function HistorySessionPage(props: Params) {
                                     )}
                                   </td>
                                   <td className="py-1.5">{s.reps}</td>
-                                  <td className="py-1.5">{formatEffortValue(effortScale, s.rir)}</td>
+                                  <td className="py-1.5">
+                                    {formatEffortValue(effortScale, s.rir)}
+                                  </td>
                                   <td className="py-1.5 text-xs">
                                     {s.isWarmup
                                       ? detail('warmup')
