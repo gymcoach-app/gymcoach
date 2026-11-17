@@ -120,3 +120,21 @@ describe('parseSetDescription (untrusted model output -> typed or fail)', () => 
     expect(parseSetDescription(strengthText, 'cardio').ok).toBe(false);
   });
 });
+
+describe('leading reasoning block (issue #571)', () => {
+  const think = '<think>Maybe {"kind":"cardio"}? No: strength.</think>\n';
+
+  it('extracts the object that follows the block, not the braces inside it', () => {
+    expect(extractJsonObject(`${think}{"a":1}`)).toBe('{"a":1}');
+  });
+
+  it('parses a set prefixed by a block', () => {
+    const out = parseSetDescription(`${think}{"kind":"strength","weight":100,"reps":8}`);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.value).toEqual({ kind: 'strength', weight: 100, reps: 8 });
+  });
+
+  it('fails closed on an unclosed block', () => {
+    expect(parseSetDescription('<think>{"kind":"strength","weight":100,"reps":8}').ok).toBe(false);
+  });
+});

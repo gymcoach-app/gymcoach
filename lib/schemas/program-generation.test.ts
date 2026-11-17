@@ -92,3 +92,33 @@ describe('parseGeneratedProgram', () => {
     expect(parseGeneratedProgram(JSON.stringify(bad)).ok).toBe(false);
   });
 });
+
+describe('leading reasoning block (issue #571)', () => {
+  const think = '<think>Plan: {"days": 4}\n```json\n{"draft": true}\n```\n</think>\n\n';
+
+  it('extracts the object that follows the block, not the braces inside it', () => {
+    expect(extractJsonObject(`${think}{"a":1}`)).toBe('{"a":1}');
+    expect(extractJsonObject(`${think}\`\`\`json\n{"a":1}\n\`\`\``)).toBe('{"a":1}');
+  });
+
+  it('parses a program prefixed by one or several blocks', () => {
+    const json = JSON.stringify(validProgram);
+    const one = parseGeneratedProgram(`${think}${json}`);
+    expect(one.ok).toBe(true);
+    const several = parseGeneratedProgram(`${think}<reasoning>more {</reasoning>\n${json}`);
+    expect(several.ok).toBe(true);
+    if (several.ok) expect(several.program.name).toBe('Upper / Lower');
+  });
+
+  it('fails with the existing error on an unclosed block', () => {
+    const out = parseGeneratedProgram(`<think>thinking ${JSON.stringify(validProgram)}`);
+    expect(out).toEqual({ ok: false, error: 'No JSON object found in the model response.' });
+  });
+
+  it('keeps a block inside a string value', () => {
+    const withTag = { ...validProgram, description: '<think>kept</think> A 4-day split.' };
+    const out = parseGeneratedProgram(JSON.stringify(withTag));
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.program.description).toBe('<think>kept</think> A 4-day split.');
+  });
+});

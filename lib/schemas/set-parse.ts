@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripLeadingReasoning } from '@/lib/llm/reasoning';
 import {
   AVG_HR_MAX,
   AVG_HR_MIN,
@@ -57,8 +58,10 @@ export type CardioParse = z.infer<typeof cardioParseSchema>;
 
 // Pulls a JSON object out of a model response: tolerates code fences and
 // surrounding prose by slicing from the first '{' to the last '}'. Mirrors
-// extractJsonObject in program-generation so both LLM consumers behave alike.
-export function extractJsonObject(text: string): string | null {
+// extractJsonObject in program-generation so both LLM consumers behave alike,
+// including the leading reasoning block (<think>...</think>) dropped first.
+export function extractJsonObject(rawText: string): string | null {
+  const text = stripLeadingReasoning(rawText);
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = fenced?.[1] ?? text;
   const start = body.indexOf('{');

@@ -86,3 +86,27 @@ Great progression on the squat.
     expect(r.parseErrors).toHaveLength(1);
   });
 });
+
+describe('extractAdjustments with a leading reasoning block (issue #571)', () => {
+  const block = '<adjustments>[{"exerciseName":"Squat","summary":"Move up to 82.5 kg"}]</adjustments>';
+
+  it('drops the block and reads the real adjustments, not a draft in the thinking', () => {
+    const r = extractAdjustments(
+      `<think>Draft: <adjustments>[{"nope":1}]</adjustments></think>\n## Recap\n\nGood week.\n\n${block}`,
+    );
+    expect(r.cleaned).toBe('## Recap\n\nGood week.');
+    expect(r.parseErrors).toEqual([]);
+    expect(r.adjustments).toEqual([{ exerciseName: 'Squat', summary: 'Move up to 82.5 kg' }]);
+  });
+
+  it('returns nothing to show or apply for an unclosed block', () => {
+    const r = extractAdjustments(`<think>never closed ${block}`);
+    expect(r).toEqual({ cleaned: '', adjustments: [], parseErrors: [] });
+  });
+
+  it('keeps a reasoning tag that is not leading', () => {
+    const r = extractAdjustments(`## Recap\n\n<think>kept</think>\n\n${block}`);
+    expect(r.cleaned).toBe('## Recap\n\n<think>kept</think>');
+    expect(r.adjustments).toHaveLength(1);
+  });
+});
