@@ -3667,3 +3667,76 @@ and the demo data behind the screenshots has an active program, so the captured 
 unchanged; no screenshot work. The recorded session clip still predates
 free switching, RPE and the free session; re-record it within the next batches
 (staleness cap).
+
+## 2026-11-16/17 - A self-migrating image, heart rate on sessions and in the coach, cardio targets and reordering in programs
+
+**Context.** Since the last write-up (#555): ten PRs merged on 2026-11-16 and the morning
+of 2026-11-17. Two external: **#556** (@Retsumdk, vetted: a reserved word reached by a dot,
+or `of` used as a name, still reads as a bracket receiver in the evals scanner) and
+**#559** (@f1dot4, unvetted: the Docker image runs `prisma migrate deploy` itself through an
+entrypoint script, `SKIP_DB_MIGRATE=true` turns it off). Eight loop-authored: **#560**
+(evals tests only), **#564** (follow-up to #559: own entrypoint name, CI smoke test on the
+image defaults, `SKIP_DB_MIGRATE` documented and passed through by both compose files),
+**#566** (attach a watch file to a session, closes #562), **#565** (move an exercise up or
+down in a workout, refs #557 by @mattordev; drag-and-drop stays open), **#563** (heart rate
+of cardio in the coach context, closes #561), **#567** (follow-ups to #563 and #566: the
+prompt names the conditioning heart rate with its section, FAQ "What does the AI provider
+receive?"), **#568** (cardio exercises prescribed by duration and distance, slice 1 of #558
+by @mattordev, plus a fix for the exercise dialog that silently refused to save when the
+autoregulation overrides were left on Auto) and **#569** (follow-ups to #565 and #568).
+
+**External PRs.** #556 had a first review in prose (the token in front of a word was read
+from the raw source, so a comment ending in a period read as a member dot); the contributor
+fixed it with mutation checks, and the delta review was ready. #559 touches group B paths
+(`Dockerfile`, both compose files, `scripts/`), which the policy keeps for a human merge.
+It was reviewed with four lenses (backdoor/egress, threat model, correctness, tests), two
+ready records, green CI on the reviewed SHA; the operator then authorized the merge in the
+session, and the loop merged it after pushing the rollback tag
+`autonomy-baseline-2026-11-16` (at 716f90c). The reviewers' notes went into maintainer
+follow-up #564 the same evening, as L51 asks.
+
+**#560: a hardening attempt stopped after two rounds.** The delta review of #556 listed two
+fail-closed over-reports. The follow-up tried to remove them; round 1 (two blocking) and
+round 2 (one blocking) each found valid code the attempt hid and `main` reports. The third
+head kept the rule exactly as on `main` and pinned both over-reports as deliberate tests,
+with twelve new positive cases; ready. Recorded as L56.
+
+**Merge order and one conflict.** #565, #566 and #563 were developed in parallel. #566 and
+#563 both inserted a paragraph at the same spot of the coach system prompt, so merging
+`main` into #563 after #566 needed a hand resolution; the resolved head got its own delta
+review (correctness and tests, ready, one minor about the bare `weekCurrent` names, taken
+in #567). That is the rule already in `ship-pr` step 4 (a conflict resolution is a fixup)
+and the same-file serialization of L7, so no new lesson.
+
+**The review gate caught a false privacy statement.** #567's first docs-accuracy record was
+needs-changes with a major: the new FAQ said each coach call sends the active gym's
+equipment, which only the MCP context tool does. Fixed before the merge. Recorded as L57.
+
+**Two process slips, both recovered before the merge.** The #568 implementer (a workflow
+agent) died when the session's login expired, after committing locally and before the
+push; the work was recovered from its worktree (L58). The #569 implementer chained
+`verify.sh | tail -1 && git push`, so the PR was opened on a red typecheck; two typing
+commits made it green four minutes later, before the review (L55).
+
+**Green gate.** Ledger `verify` lines after the #555 merge, excluding this write-up's own
+run: 18 (11 default, 7 `--full`), 14 green and 4 failed: one `--full` at E2E (18:43Z on
+11-16), one `--full` at unit (05:28Z on 11-17), and two default runs at typecheck (07:43Z and
+07:44Z, the #569 episode above). Each PR body reports a green gate on its final head.
+
+**One metric.** 10 PRs merged (2 external, 8 loop-authored), 0 abandoned, 0 reverted; the
+removal attempt inside #560 was abandoned, but the PR itself merged as tests. Token spend:
+the 18 Opus 5.5 agent lines in the ledger for this window (reviews and some workflow
+subagents) come to about $12.7 at API list prices; the two Fable 5.2 lines have no list
+price in `automation/usage/prices.ts`, and the orchestrating session is not counted, so
+cost per accepted change is not computed for this batch.
+
+**Lessons.** L55 (read the gate's exit code directly) -> `implement-issue` step 5; L56
+(removing a fail-closed over-report is a loosening) -> `ship-pr` step 4; L57 (a statement
+about what leaves the box is reviewed claim by claim) -> `ship-pr` step 4; L58 (commit early,
+check a dead agent's worktree) -> `06-orchestration.md`.
+
+**Media.** Two captured pages changed for users: the session detail page in History (the
+"Attach a watch file" action and the heart rate block) and the program editor (Move up /
+Move down, cardio rows that read "20 min · 5 km"). Their screenshots are owed in a later
+media pass; this write-up does not run the app. The recorded session clip still predates
+free switching, RPE and the free session (staleness cap).

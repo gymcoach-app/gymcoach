@@ -1062,3 +1062,35 @@ lesson L54, a convention line in `CONTRIBUTING.md`, README.
 
 **Trust the gate (lower risk):** the message catalog strings in #552 and #553 (translation
 lens), the docs here.
+
+## 2026-11-16/17 - self-migrating image, session heart rate, coach heart rate, cardio targets, reordering
+
+Merged: **#556** (@Retsumdk, evals scanner), **#560** (evals tests), **#559** (@f1dot4,
+image migrates on start), **#564** (its follow-up), **#566** (watch file on a session,
+closes #562), **#565** (reorder exercises, refs #557), **#563** (coach heart rate, closes
+#561), **#567** (prompt wording, FAQ on what the provider receives), **#568** (cardio
+targets, refs #558), **#569** (editor follow-ups). In this PR: changelog fold, README,
+lessons L55 to L58 with their skill and playbook edits.
+
+**Read first:**
+
+1. **#559 + #564 - the container now migrates the database on every start.** `gh pr diff
+   559`, `gh pr diff 564`. `scripts/docker-entrypoint.sh` (installed as
+   `gymcoach-entrypoint.sh`), the `ENTRYPOINT`/`CMD` in the `Dockerfile`, the compose files
+   without their `command`, and the CI smoke job that now proves the default path. A failed
+   migration stops the container; `SKIP_DB_MIGRATE=true` skips the step.
+2. **#566 - schema change, a new upload route, and new data sent to the coach.** `gh pr diff
+   566`. Three nullable `Session` columns, `POST`/`DELETE /api/sessions/[id]/watch-file`
+   (size caps, shared import rate bucket, owner scoping), backup v11, and `avgHr`/`maxHr` in
+   the coach payload with a new prompt paragraph.
+3. **#568 - schema change and backup v12.** `gh pr diff 568`. Two nullable
+   `ProgramExercise` columns, bounds in both program-exercise routes, the coach payload, and
+   the dialog fix for the Auto overrides (a silent save refusal).
+4. **#563 + #567 - coach prompt and payload.** `gh pr diff 563`, `gh pr diff 567`. Heart rate
+   in `conditioning` (duration-weighted average, peak), the prompt's reading rules, and the
+   FAQ entry that now states what each call sends.
+5. **#565 - a new write route.** `gh pr diff 565`. `PUT /api/workouts/[id]/order` accepts only
+   an exact permutation of the workout's rows, inside one transaction.
+
+**Trust the gate (lower risk):** #556 and #560 (test-only, mutation-checked), #569 (editor
+follow-ups), the message catalogs (translation strings), the docs here.

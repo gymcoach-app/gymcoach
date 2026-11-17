@@ -106,6 +106,11 @@ for repo conventions; this skill assumes them.
    - Allow **at most 3** fix attempts. If still red after 3, do NOT open a normal
      PR: either open a **draft** PR describing what is blocked, or STOP and report.
    This is the hard feedback loop - never open a PR on a red gate.
+   **Read the gate's own exit code** (lesson L55): run it on its own line
+   (`bash scripts/verify.sh > <log> 2>&1; status=$?`) and act on `$status` or on the
+   `GREEN-GATE PASSED` line. Never pipe it into `tail` or `grep` in front of an `&&` that
+   commits, pushes or opens a PR: the chain then reads the last command's status, not the
+   gate's.
 
 6. **Commit.** Conventional Commit, e.g.
    `git commit -am "feat: support imperial units via a user preference"`.
