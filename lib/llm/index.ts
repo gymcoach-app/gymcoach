@@ -6,6 +6,8 @@ import { DemoProvider } from './demo';
 import type { LlmProvider } from './types';
 
 export * from './types';
+export * from './error-codes';
+export * from './errors';
 export type LlmProviderId = LlmProvider['id'];
 
 // Reads LLM_PROVIDER (case-insensitive). Defaults to 'anthropic'; an

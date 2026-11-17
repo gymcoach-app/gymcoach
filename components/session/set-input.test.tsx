@@ -405,6 +405,39 @@ describe('SetInput AI parse', () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ weight: 0, reps: 8, rir: 2 }));
   });
 
+  // Issue #571: when the provider call failed, the hint says so (translated
+  // from the code) instead of blaming the text.
+  it('shows the provider failure message when the parse route answers with a code', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({ error: 'server English text', code: 'ai_quota' }),
+      }),
+    );
+    renderSetInput('KG');
+
+    await user.type(screen.getByLabelText(/describe the set/i), '100 for 8');
+    await user.click(screen.getByRole('button', { name: /parse with ai/i }));
+
+    expect(screen.getByText(/rate limit reached or credits used up/i)).toBeInTheDocument();
+    expect(screen.queryByText(/could not parse that/i)).toBeNull();
+    expect(screen.queryByText('server English text')).toBeNull();
+  });
+
+  it('keeps the generic hint for a failed request without a code', async () => {
+    const user = userEvent.setup();
+    stubFetch(null, false);
+    renderSetInput('KG');
+
+    await user.type(screen.getByLabelText(/describe the set/i), '100 for 8');
+    await user.click(screen.getByRole('button', { name: /parse with ai/i }));
+
+    expect(screen.getByText(/could not parse that/i)).toBeInTheDocument();
+  });
+
   it('submits the selected physical gym equipment', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

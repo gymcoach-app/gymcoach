@@ -1,3 +1,4 @@
+import { classifyProviderFailure } from './errors';
 import {
   LlmError,
   type LlmCompletionRequest,
@@ -27,7 +28,7 @@ interface ResponsesApiResponse {
   model?: string;
   output_text?: string;
   output?: ResponsesApiOutput[];
-  error?: { message?: string };
+  error?: { message?: string; code?: unknown; type?: unknown };
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -101,7 +102,7 @@ export class CodexLbProvider implements LlmProvider {
 
   private async request(req: LlmCompletionRequest, stream: boolean): Promise<Response> {
     if (!this.apiKey) {
-      throw new LlmError(503, 'CODEX_LB_API_KEY is not configured.');
+      throw new LlmError(503, 'CODEX_LB_API_KEY is not configured.', 'not_configured');
     }
 
     const controller = new AbortController();
@@ -122,11 +123,15 @@ export class CodexLbProvider implements LlmProvider {
         throw new LlmError(
           504,
           `codex-lb timed out after ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s.`,
+          'timeout',
         );
       }
+      const networkClass = classifyProviderFailure(error).class;
       throw new LlmError(
         502,
         `Network failure to codex-lb: ${error instanceof Error ? error.message : 'unknown'}`,
+        // A fetch that rejects never got an HTTP answer.
+        networkClass === 'unknown' ? 'timeout' : networkClass,
       );
     } finally {
       clearTimeout(timer);
@@ -134,7 +139,11 @@ export class CodexLbProvider implements LlmProvider {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new LlmError(response.status, `codex-lb ${response.status}: ${text.slice(0, 500)}`);
+      throw new LlmError(
+        response.status,
+        `codex-lb ${response.status}: ${text.slice(0, 500)}`,
+        classifyProviderFailure({ status: response.status, body: text.slice(0, 2000) }).class,
+      );
     }
 
     return response;
@@ -144,18 +153,26 @@ export class CodexLbProvider implements LlmProvider {
     const response = await this.request(req, false);
     const json = (await response.json()) as ResponsesApiResponse;
     if (json.error) {
-      throw new LlmError(502, `codex-lb: ${json.error.message ?? 'unknown error'}`);
+      throw new LlmError(
+        502,
+        `codex-lb: ${json.error.message ?? 'unknown error'}`,
+        classifyProviderFailure({
+          code: json.error.code,
+          type: json.error.type,
+          message: json.error.message,
+        }).class,
+      );
     }
 
     const text = extractCodexLbText(json);
-    if (!text) throw new LlmError(502, 'Empty response from the coach.');
+    if (!text) throw new LlmError(502, 'Empty response from the coach.', 'model');
     return { text, modelUsed: json.model ?? this.model };
   }
 
   async *stream(req: LlmCompletionRequest): AsyncIterable<string> {
     const response = await this.request(req, true);
     if (!response.body) {
-      throw new LlmError(502, 'codex-lb returned no response body.');
+      throw new LlmError(502, 'codex-lb returned no response body.', 'unknown');
     }
 
     const reader = response.body.getReader();

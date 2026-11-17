@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { aiErrorMessage, type AiErrorFields } from '@/lib/ai-error-message';
+import { parseStreamError } from '@/lib/llm/error-codes';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -42,6 +44,7 @@ export function ChatClient({
   apiKeyEnvVar,
 }: Props) {
   const t = useTranslations('coach.chat');
+  const common = useTranslations('common');
   const [conversations, setConversations] = useState(initialConversations);
   const [activeId, setActiveId] = useState<string | null>(initialActiveId);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -60,6 +63,15 @@ export function ChatClient({
       if (last && last.role === 'assistant') {
         copy[copy.length - 1] = { ...last, content: last.content + chunk };
       }
+      return copy;
+    });
+  }
+
+  function replaceAssistant(content: string) {
+    setMessages((prev) => {
+      const copy = [...prev];
+      const last = copy[copy.length - 1];
+      if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, content };
       return copy;
     });
   }
@@ -87,11 +99,9 @@ export function ChatClient({
         }),
       });
 
-      if (!res.ok || !res.body) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? `Error ${res.status}`);
-      }
-
+      // Read before the status check: when the provider refuses the call the
+      // conversation and the user message already exist, and the next message
+      // must continue that conversation instead of starting another one.
       const newId = res.headers.get('X-Conversation-Id');
       if (newId && newId !== activeId) {
         setActiveId(newId);
@@ -103,12 +113,30 @@ export function ChatClient({
         }
       }
 
+      if (!res.ok || !res.body) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string } & AiErrorFields;
+        // A provider failure carries a stable code: show its translation.
+        throw new Error(aiErrorMessage(common, j) ?? j.error ?? `Error ${res.status}`);
+      }
+
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let received = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        appendToAssistant(decoder.decode(value, { stream: true }));
+        const chunk = decoder.decode(value, { stream: true });
+        received += chunk;
+        appendToAssistant(chunk);
+      }
+
+      // A provider failure after the first chunk arrives as a trailing
+      // "[error:<code>] <English text>" marker: swap it for the translation.
+      const failure = parseStreamError(received);
+      const localized = failure ? aiErrorMessage(common, failure) : null;
+      if (failure && localized) {
+        toast.error(localized);
+        replaceAssistant(`${failure.text}\n\n[error] ${localized}`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Chat failed.';

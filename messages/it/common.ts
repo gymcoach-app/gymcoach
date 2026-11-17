@@ -96,4 +96,22 @@ export const common = {
   errors: {
     generic: 'Qualcosa è andato storto. Riprova.',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey:
+      'Il provider IA ha rifiutato la chiave API. Controlla {variable} nel tuo .env e riavvia.',
+    quota:
+      'Il provider IA ha rifiutato la richiesta: limite di utilizzo raggiunto o crediti esauriti. Attendi un momento e riprova, oppure controlla i crediti del tuo account presso il provider.',
+    model:
+      'Il modello IA ha rifiutato la richiesta o ha restituito una risposta inutilizzabile. Controlla il nome del modello in {variable} oppure scegli un altro modello.',
+    outage: 'Il provider IA non è disponibile in questo momento. Riprova più tardi.',
+    timeout: 'Il provider IA non ha risposto in tempo o non è raggiungibile. Riprova.',
+    truncated:
+      'La risposta IA è stata troncata: il modello ha esaurito i token di output. Aumenta {variable} o riprova.',
+    notConfigured:
+      'Il provider IA non è configurato correttamente. Controlla {variable} nel tuo .env e riavvia.',
+    unknown:
+      'La richiesta IA non è riuscita. Riprova; se continua a fallire, controlla il log del server.',
+  },
 } satisfies MessageShape<typeof english>;

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { classifyProviderFailure } from './errors';
 import {
   LlmError,
   type LlmCompletionRequest,
@@ -30,7 +31,7 @@ export class AnthropicProvider implements LlmProvider {
 
   async complete(req: LlmCompletionRequest): Promise<LlmCompletionResult> {
     if (!this.apiKey) {
-      throw new LlmError(503, 'ANTHROPIC_API_KEY is not configured.');
+      throw new LlmError(503, 'ANTHROPIC_API_KEY is not configured.', 'not_configured');
     }
     this.client ??= new Anthropic({ apiKey: this.apiKey });
 
@@ -56,24 +57,29 @@ export class AnthropicProvider implements LlmProvider {
         .join('')
         .trim();
       if (!text) {
-        throw new LlmError(502, 'Empty response from the coach.');
+        throw new LlmError(502, 'Empty response from the coach.', 'model');
       }
       return { text, modelUsed: response.model ?? this.model };
     } catch (err) {
       if (err instanceof LlmError) throw err;
       if (err instanceof Anthropic.APIError) {
-        throw new LlmError(err.status ?? 502, `Anthropic: ${err.message}`);
+        throw new LlmError(
+          err.status ?? 502,
+          `Anthropic: ${err.message}`,
+          classifyProviderFailure(err).class,
+        );
       }
       throw new LlmError(
         502,
         `Anthropic request failed: ${err instanceof Error ? err.message : 'unknown'}`,
+        classifyProviderFailure(err).class,
       );
     }
   }
 
   async *stream(req: LlmCompletionRequest): AsyncIterable<string> {
     if (!this.apiKey) {
-      throw new LlmError(503, 'ANTHROPIC_API_KEY is not configured.');
+      throw new LlmError(503, 'ANTHROPIC_API_KEY is not configured.', 'not_configured');
     }
     this.client ??= new Anthropic({ apiKey: this.apiKey });
 
@@ -101,11 +107,16 @@ export class AnthropicProvider implements LlmProvider {
       }
     } catch (err) {
       if (err instanceof Anthropic.APIError) {
-        throw new LlmError(err.status ?? 502, `Anthropic: ${err.message}`);
+        throw new LlmError(
+          err.status ?? 502,
+          `Anthropic: ${err.message}`,
+          classifyProviderFailure(err).class,
+        );
       }
       throw new LlmError(
         502,
         `Anthropic stream failed: ${err instanceof Error ? err.message : 'unknown'}`,
+        classifyProviderFailure(err).class,
       );
     }
   }

@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
-import { getLlmProvider, LlmError } from '@/lib/llm';
+import { formatStreamError, getLlmProvider, LlmError } from '@/lib/llm';
 import { stripLeadingReasoningStream } from '@/lib/llm/reasoning';
+import { aiErrorResponse, describeAiFailure } from '@/lib/ai-error-response';
 import { buildCoachPayload, buildCurrentSessionContext } from '@/lib/coach';
 import { CHAT_SYSTEM_PROMPT } from '@/lib/prompts/chat-system-prompt';
 import { deriveConversationTitle } from '@/lib/chat';
@@ -20,6 +21,12 @@ const bodySchema = z.object({
 // POST /api/coach/chat: appends a user message and streams the assistant reply
 // (text/plain chunks). The conversation id is returned in the X-Conversation-Id
 // header. The assistant message is persisted once the stream completes.
+//
+// Provider failures (issue #571): the first chunk is awaited before the
+// response starts, so a call the provider refuses outright (bad key, quota,
+// unknown model, outage) is a JSON error with a 5xx status and a stable code,
+// like the other AI routes. A failure after the first chunk can only be
+// reported in-band, as a trailing "[error:<code>] <message>" marker.
 export async function POST(req: Request) {
   try {
     const userId = await requireApiUserId();
@@ -81,27 +88,53 @@ export async function POST(req: Request) {
     const encoder = new TextEncoder();
     let assistant = '';
 
+    // A leading <think> block of a reasoning model is held back until it
+    // closes (issue #571 part 2): it is neither streamed to the reader nor
+    // stored. Stripping happens before the first chunk is awaited, so a
+    // provider failure during the reasoning is still a JSON error.
+    const chunks = stripLeadingReasoningStream(
+      provider.stream({ system, messages: llmMessages, maxTokens: 4096, temperature: 0.5 }),
+    )[Symbol.asyncIterator]();
+    let first: IteratorResult<string>;
+    try {
+      first = await chunks.next();
+    } catch (err) {
+      if (err instanceof LlmError) {
+        const res = aiErrorResponse('coach chat', err);
+        res.headers.set('X-Conversation-Id', conversationId);
+        return res;
+      }
+      throw err;
+    }
+
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
-        try {
-          // A leading <think> block of a reasoning model is held back until
-          // it closes: it is neither streamed to the reader nor stored.
-          const answer = stripLeadingReasoningStream(
-            provider.stream({
-              system,
-              messages: llmMessages,
-              maxTokens: 4096,
-              temperature: 0.5,
-            }),
-          );
-          for await (const chunk of answer) {
-            assistant += chunk;
-            controller.enqueue(encoder.encode(chunk));
+        // enqueue() throws once the reader is gone (the user left the page):
+        // that ends the loop quietly and is not a provider failure.
+        const send = (text: string): boolean => {
+          try {
+            controller.enqueue(encoder.encode(text));
+            return true;
+          } catch {
+            return false;
           }
-        } catch (err) {
-          const msg =
-            err instanceof LlmError ? err.message : 'The coach is unavailable right now.';
-          controller.enqueue(encoder.encode(`\n\n[error] ${msg}`));
+        };
+        try {
+          let next = first;
+          while (!next.done) {
+            assistant += next.value;
+            if (!send(next.value)) break;
+            try {
+              next = await chunks.next();
+            } catch (err) {
+              // Whatever the provider iteration throws (an LlmError, or the
+              // raw error of a connection cut while the body was being read)
+              // is a provider failure.
+              const failure = describeAiFailure('coach chat stream', err);
+              send(formatStreamError(failure.code, failure.variable, failure.message));
+              break;
+            }
+          }
         } finally {
           if (assistant.trim()) {
             await db.message

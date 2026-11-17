@@ -571,4 +571,28 @@ A `200` from the last command means the app answers locally, so the remaining
 problem is in the proxy. `502` or a connection refused from the proxy means the
 port does not match `GYMCOACH_PORT`, or the app is not up yet.
 
+### AI coach errors
+
+When a call to the AI provider fails, the coach, the chat, program generation
+and "Parse with AI" show one of these messages (translated in the UI). The app
+log has one line per failure with the class and the provider's HTTP status,
+never the provider's answer:
+
+```text
+[llm] coach debrief: provider call failed (provider=openrouter class=invalid_key status=401)
+```
+
+| Class | The provider answered | What to do |
+| --- | --- | --- |
+| `invalid_key` | 401 or 403 | Check the key variable named in the message (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`, `CODEX_LB_API_KEY`) in `.env`, then restart the app. |
+| `quota` | 429, 402, or "credit balance too low" | Wait and retry, or add credits on the provider account. |
+| `model` | 400, 404, 422, an empty answer, or a generated program that failed validation | Check the model variable named in the message (for example `OPENROUTER_MODEL`), or pick another model. |
+| `outage` | 5xx, including 529 "overloaded" | Retry later. |
+| `timeout` | nothing in time, or the connection failed | Retry; for a local model server, check that it is running and reachable from the app container. |
+| `truncated` | an answer cut at the output token budget | Raise `OPENROUTER_MAX_TOKENS` or `OPENAI_COMPATIBLE_MAX_TOKENS`. |
+| `not_configured` | nothing: a required setting is missing or refused | Set the variable named in the message. |
+
+The API answers these with `502`, `503` or `504` and a body of the form
+`{ "error": "...", "code": "ai_invalid_key", "variable": "OPENROUTER_API_KEY" }`.
+
 More answers in [docs/faq.md](faq.md).

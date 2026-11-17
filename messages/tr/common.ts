@@ -97,4 +97,21 @@ export const common = {
   errors: {
     generic: 'Bir şeyler ters gitti. Lütfen tekrar dene.',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey:
+      'Yapay zeka sağlayıcısı API anahtarını reddetti. .env dosyandaki {variable} değerini kontrol et ve yeniden başlat.',
+    quota:
+      'Yapay zeka sağlayıcısı isteği reddetti: istek sınırına ulaşıldı veya kredi bitti. Biraz bekleyip tekrar dene ya da sağlayıcı hesabındaki krediyi kontrol et.',
+    model:
+      'Yapay zeka modeli isteği reddetti veya kullanılamayan bir yanıt döndürdü. {variable} içindeki model adını kontrol et ya da başka bir model seç.',
+    outage: 'Yapay zeka sağlayıcısı şu anda kullanılamıyor. Daha sonra tekrar dene.',
+    timeout: 'Yapay zeka sağlayıcısı zamanında yanıt vermedi veya ona ulaşılamadı. Tekrar dene.',
+    truncated:
+      'Yapay zeka yanıtı yarıda kesildi: modelin çıktı tokenleri tükendi. {variable} değerini artır veya tekrar dene.',
+    notConfigured:
+      'Yapay zeka sağlayıcısı doğru yapılandırılmamış. .env dosyandaki {variable} değerini kontrol et ve yeniden başlat.',
+    unknown: 'Yapay zeka isteği başarısız oldu. Tekrar dene; hata sürerse sunucu günlüğüne bak.',
+  },
 } satisfies MessageShape<typeof english>;

@@ -93,4 +93,20 @@ export const common = {
   errors: {
     generic: 'Something went wrong. Please try again.',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey: 'The AI provider rejected the API key. Check {variable} in your .env and restart.',
+    quota:
+      'The AI provider refused the request: rate limit reached or credits used up. Wait a moment and retry, or check the credits of your provider account.',
+    model:
+      'The AI model rejected the request or returned an answer that could not be used. Check the model name in {variable}, or pick another model.',
+    outage: 'The AI provider is unavailable right now. Try again later.',
+    timeout: 'The AI provider did not answer in time or could not be reached. Try again.',
+    truncated:
+      'The AI answer was cut off: the model ran out of output tokens. Raise {variable} or try again.',
+    notConfigured:
+      'The AI provider is not configured correctly. Check {variable} in your .env and restart.',
+    unknown: 'The AI request failed. Try again; if it keeps failing, check the server log.',
+  },
 };
