@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { formatStreamError, getLlmProvider, LlmError } from '@/lib/llm';
+import { stripLeadingReasoningStream } from '@/lib/llm/reasoning';
 import { aiErrorResponse, describeAiFailure } from '@/lib/ai-error-response';
 import { buildCoachPayload, buildCurrentSessionContext } from '@/lib/coach';
 import { CHAT_SYSTEM_PROMPT } from '@/lib/prompts/chat-system-prompt';
@@ -87,9 +88,13 @@ export async function POST(req: Request) {
     const encoder = new TextEncoder();
     let assistant = '';
 
-    const chunks = provider
-      .stream({ system, messages: llmMessages, maxTokens: 4096, temperature: 0.5 })
-      [Symbol.asyncIterator]();
+    // A leading <think> block of a reasoning model is held back until it
+    // closes (issue #571 part 2): it is neither streamed to the reader nor
+    // stored. Stripping happens before the first chunk is awaited, so a
+    // provider failure during the reasoning is still a JSON error.
+    const chunks = stripLeadingReasoningStream(
+      provider.stream({ system, messages: llmMessages, maxTokens: 4096, temperature: 0.5 }),
+    )[Symbol.asyncIterator]();
     let first: IteratorResult<string>;
     try {
       first = await chunks.next();

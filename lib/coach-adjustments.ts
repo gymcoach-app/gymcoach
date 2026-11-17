@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripLeadingReasoning } from '@/lib/llm/reasoning';
 
 // ============================================================
 // Adjustments proposed by the coach (BATCH 10)
@@ -37,8 +38,11 @@ export interface ExtractedAdjustments {
 // Extracts and parses the <adjustments>...</adjustments> block from a coach response.
 // Returns the cleaned markdown + the valid adjustments. On a JSON parsing or schema
 // error, we just return an empty array and the error in parseErrors (the markdown
-// stays displayable).
-export function extractAdjustments(markdown: string): ExtractedAdjustments {
+// stays displayable). A leading reasoning block (<think>...</think>) is dropped
+// first: it is not part of the debrief, and an <adjustments> example in the
+// model's thinking must not be taken for the real block.
+export function extractAdjustments(response: string): ExtractedAdjustments {
+  const markdown = stripLeadingReasoning(response);
   const match = markdown.match(ADJUSTMENTS_TAG_RE);
   if (!match) {
     return { cleaned: markdown.trim(), adjustments: [], parseErrors: [] };
