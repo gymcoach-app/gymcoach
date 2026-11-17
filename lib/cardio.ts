@@ -30,6 +30,23 @@ export const MAX_HR_MAX = 250;
 // Statute mile in meters, for imports from imperial-unit exports.
 export const MILES_TO_METERS = 1609.34;
 
+// The unit a cardio distance is typed and shown in. Storage is always meters.
+export type DistanceUnit = 'km' | 'mi';
+
+// The single rule for that unit (issue #576). The set logger types and shows
+// distance in kilometers for every user: it reads neither the weight unit
+// preference nor the locale. Everything that prescribes a distance (the
+// program editor, the workout card, the print sheet) asks this function, so a
+// future distance unit setting changes the logger and the targets together.
+export function cardioDistanceUnit(): DistanceUnit {
+  return 'km';
+}
+
+// Meters in one distance unit.
+export function metersPerDistanceUnit(unit: DistanceUnit): number {
+  return unit === 'mi' ? MILES_TO_METERS : 1000;
+}
+
 // True when a set-like record is a cardio set.
 export function isCardioSet(set: { durationSec?: number | null }): boolean {
   return set.durationSec != null;
@@ -98,10 +115,7 @@ export function formatDistance(distanceM: number): string {
 
 // One-line label for a cardio set: "12:30 · 2.5 km" (duration only when
 // there is no distance).
-export function formatCardioSet(
-  durationSec: number,
-  distanceM: number | null | undefined,
-): string {
+export function formatCardioSet(durationSec: number, distanceM: number | null | undefined): string {
   const duration = formatDuration(durationSec);
   if (distanceM != null && distanceM > 0) {
     return `${duration} · ${formatDistance(distanceM)}`;
@@ -128,10 +142,7 @@ export function paceSecPerKm(
 }
 
 // Speed in kilometers per hour, or null when distance is absent/zero.
-export function speedKmh(
-  durationSec: number,
-  distanceM: number | null | undefined,
-): number | null {
+export function speedKmh(durationSec: number, distanceM: number | null | undefined): number | null {
   if (distanceM == null || distanceM <= 0 || durationSec <= 0) return null;
   return distanceM / 1000 / (durationSec / 3600);
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCardioCells,
   buildPrintSheet,
   buildSetCells,
   cellsBySet,
@@ -125,6 +126,103 @@ describe('buildPrintSheet', () => {
     ]);
     expect(sheet.rows.map((row) => row.cardio)).toEqual([false, false]);
     expect(sheet.rows.map((row) => row.cardioTarget)).toEqual([null, null]);
+  });
+});
+
+// Cardio boxes (issue #576).
+describe('buildCardioCells', () => {
+  it('yields a duration and a distance cell per planned set, without a target key', () => {
+    expect(buildCardioCells(2)).toEqual([
+      { set: 1, kind: 'duration' },
+      { set: 1, kind: 'distance' },
+      { set: 2, kind: 'duration' },
+      { set: 2, kind: 'distance' },
+    ]);
+    expect(Object.keys(buildCardioCells(1)[0]!)).toEqual(['set', 'kind']);
+  });
+
+  it('carries each half of the target on its own cell', () => {
+    expect(buildCardioCells(1, { duration: '20 min', distance: '5 km' })).toEqual([
+      { set: 1, kind: 'duration', target: '20 min' },
+      { set: 1, kind: 'distance', target: '5 km' },
+    ]);
+    expect(buildCardioCells(1, { duration: '20 min', distance: null })).toEqual([
+      { set: 1, kind: 'duration', target: '20 min' },
+      { set: 1, kind: 'distance' },
+    ]);
+  });
+
+  it('yields nothing for a non-positive set count', () => {
+    expect(buildCardioCells(0)).toEqual([]);
+    expect(buildCardioCells(-1)).toEqual([]);
+  });
+});
+
+describe('buildPrintSheet cardio boxes (issue #576)', () => {
+  const bench = pe({ id: 'bench', order: 1, exercise: { name: 'Bench', category: 'COMPOUND' } });
+  const run = pe({
+    id: 'run',
+    order: 2,
+    exercise: { name: 'Running', category: 'CARDIO' },
+    targetSets: 1,
+    targetRepsMin: 1,
+    targetRepsMax: 1,
+    targetDurationSec: 1200,
+    targetDistanceM: 5000,
+  });
+
+  it('gives a cardio row duration and distance cells with the target, never weight, reps or RIR', () => {
+    const sheet = buildPrintSheet([bench, run]);
+    expect(sheet.rows[1]?.cells).toEqual([
+      { set: 1, kind: 'duration', target: '20 min' },
+      { set: 1, kind: 'distance', target: '5 km' },
+    ]);
+    // 3 strength sets x 3 cells + 1 cardio set x 2 cells; 3 set columns.
+    expect(sheet.cellCount).toBe(11);
+    expect(sheet.maxSets).toBe(3);
+  });
+
+  it('leaves the distance box, or both boxes, empty when that target is not set', () => {
+    const sheet = buildPrintSheet([
+      { ...run, id: 'timed', targetDistanceM: null },
+      { ...run, id: 'legacy', order: 3, targetDurationSec: null, targetDistanceM: null },
+    ]);
+    expect(sheet.rows[0]?.cells).toEqual([
+      { set: 1, kind: 'duration', target: '20 min' },
+      { set: 1, kind: 'distance' },
+    ]);
+    expect(sheet.rows[1]?.cells).toEqual([
+      { set: 1, kind: 'duration' },
+      { set: 1, kind: 'distance' },
+    ]);
+  });
+
+  it('counts set columns per set, not per three cells, on a cardio-only sheet', () => {
+    const sheet = buildPrintSheet([{ ...run, targetSets: 4 }]);
+    expect(sheet.rows[0]?.cells).toHaveLength(8);
+    expect(sheet.maxSets).toBe(4);
+    expect(cellsBySet(sheet.rows[0]!, 4).map((cell) => cell.kind)).toEqual([
+      'duration',
+      'distance',
+    ]);
+  });
+
+  it('leaves a strength row exactly as it was, with or without a cardio row next to it', () => {
+    const alone = buildPrintSheet([bench]).rows[0];
+    const mixed = buildPrintSheet([bench, run], { locale: 'de', distanceUnit: 'mi' }).rows[0];
+    expect(mixed).toEqual(alone);
+    expect(JSON.stringify(mixed)).toBe(JSON.stringify(alone));
+    expect(alone?.cells).toEqual(buildSetCells(3));
+    expect(alone?.cells.every((cell) => !('target' in cell))).toBe(true);
+  });
+
+  it('writes the target in the locale and the distance unit it is given', () => {
+    const de = buildPrintSheet([{ ...run, targetDistanceM: 2500 }], { locale: 'de' }).rows[0];
+    expect(de?.cardioTarget).toBe('20 Min. · 2,5 km');
+    expect(de?.cells.map((cell) => cell.target)).toEqual(['20 Min.', '2,5 km']);
+
+    const miles = buildPrintSheet([run], { distanceUnit: 'mi' }).rows[0];
+    expect(miles?.cardioTarget).toBe('20 min · 3.11 mi');
   });
 });
 

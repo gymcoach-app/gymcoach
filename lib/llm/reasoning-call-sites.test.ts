@@ -47,7 +47,8 @@ import { generateProgram } from '@/lib/program-generation';
 import { aiParseSet } from '@/lib/set-parse';
 import { POST as postChat } from '@/app/api/coach/chat/route';
 
-const THINK = '<think>\nThe user wants {"kind": "a plan"}.\n```json\n{"draft": true}\n```\n</think>\n\n';
+const THINK =
+  '<think>\nThe user wants {"kind": "a plan"}.\n```json\n{"draft": true}\n```\n</think>\n\n';
 
 const program = {
   name: 'Upper / Lower',
@@ -193,6 +194,39 @@ describe('POST /api/coach/chat', () => {
     const res = await postChat(chatRequest());
     expect(await res.text()).toBe('');
     expect(storedAssistantMessages()).toEqual([]);
+  });
+
+  // Test gap from #575 (issue #576): the leading reasoning block is held back,
+  // so nothing has been sent yet when the provider fails inside it. The route
+  // must still answer with the JSON error, not with an empty 200 stream.
+  it('answers the JSON error when the provider fails inside a held-back reasoning block', async () => {
+    streamMock.mockImplementation(async function* () {
+      yield '<think>x';
+      throw new LlmError(401, 'UPSTREAM-DETAIL: No auth credentials found');
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await postChat(chatRequest());
+      const raw = await res.text();
+
+      // Not 401: the browser would read that as "signed out".
+      expect(res.status).toBe(502);
+      expect(res.headers.get('Content-Type')).toContain('application/json');
+      expect(JSON.parse(raw)).toEqual({
+        error:
+          'The AI provider rejected the API key. Check OPENROUTER_API_KEY in your .env and restart.',
+        code: 'ai_invalid_key',
+        variable: 'OPENROUTER_API_KEY',
+      });
+      // Neither the reasoning text nor the provider's own message gets out.
+      expect(raw).not.toContain('<think>');
+      expect(raw).not.toContain('UPSTREAM-DETAIL');
+      // A retry continues the same conversation; no assistant message stored.
+      expect(res.headers.get('X-Conversation-Id')).toBe('conv-1');
+      expect(storedAssistantMessages()).toEqual([]);
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it('leaves an answer without a reasoning block untouched', async () => {

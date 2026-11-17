@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { unitLabel } from '@/lib/units';
 import { formatEffort } from '@/lib/effort';
+import { cardioDistanceUnit } from '@/lib/cardio';
 import { getExerciseDisplayName } from '@/i18n/exercise-names';
 import { getTrainingDisplayName } from '@/i18n/training-names';
 import { PrintSheet, type PrintSheetLabels } from '@/components/programs/print-sheet';
@@ -44,15 +45,16 @@ export default async function ProgramPrintPage(props: Props) {
         },
       },
     }),
-    db.user.findUnique({ where: { id: session.userId }, select: { unit: true, effortScale: true } }),
+    db.user.findUnique({
+      where: { id: session.userId },
+      select: { unit: true, effortScale: true },
+    }),
   ]);
   if (!program || !user) notFound();
 
   // `?workout=<id>` narrows the sheet to one workout. Anything that is not a
   // non-empty id (including an empty `?workout=`) is a 404, same as an unknown id.
-  const raw = Array.isArray(searchParams.workout)
-    ? searchParams.workout[0]
-    : searchParams.workout;
+  const raw = Array.isArray(searchParams.workout) ? searchParams.workout[0] : searchParams.workout;
   const requested = raw === undefined ? undefined : workoutParamSchema.safeParse(raw);
   if (requested && !requested.success) notFound();
   const workouts = requested
@@ -69,8 +71,11 @@ export default async function ProgramPrintPage(props: Props) {
     reps: t('reps'),
     // The effort column and the plan line follow the user's scale (issue #390).
     rir: user.effortScale === 'RPE' ? 'RPE' : t('rir'),
+    duration: t('duration'),
+    distance: t('distance'),
     notes: t('notes'),
-    planLine: ({ sets, min, max, rir }) => t('planLine', { sets, min, max, effort: formatEffort(user.effortScale, rir) }),
+    planLine: ({ sets, min, max, rir }) =>
+      t('planLine', { sets, min, max, effort: formatEffort(user.effortScale, rir) }),
     rest: (seconds) => t('rest', { seconds }),
     tempo: (tempo) => t('tempo', { tempo }),
     cardio: t('cardio'),
@@ -95,6 +100,7 @@ export default async function ProgramPrintPage(props: Props) {
             }}
             labels={labels}
             exerciseName={(name) => getExerciseDisplayName(name, locale)}
+            format={{ locale, distanceUnit: cardioDistanceUnit() }}
             breakAfter={index < workouts.length - 1}
           />
         ))
