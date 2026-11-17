@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sessionDeleteQuerySchema, sessionUpdateSchema } from '@/lib/schemas/session';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
+import { resolveFinishedAt } from '@/lib/session-finish';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -48,11 +49,28 @@ export async function PUT(req: Request, props: Params) {
     if (!session) throw new ApiError(404, 'Session not found.');
     const data = await parseJsonBody(req, sessionUpdateSchema);
 
+    // A late Finish ends the session at its last set, not at the tap (issue
+    // #571, lib/session-finish.ts). As before, every `finish: true` stamps the
+    // session again, including one sent for an already finished session.
+    let finishedAt = session.finishedAt;
+    if (data.finish) {
+      const lastSet = await db.set.findFirst({
+        where: { sessionId: session.id, session: { userId } },
+        orderBy: { completedAt: 'desc' },
+        select: { completedAt: true },
+      });
+      finishedAt = resolveFinishedAt({
+        now: new Date(),
+        startedAt: session.startedAt,
+        lastSetAt: lastSet?.completedAt ?? null,
+      });
+    }
+
     const updated = await db.session.update({
       where: { id: params.id, userId },
       data: {
         notes: data.notes ?? session.notes,
-        finishedAt: data.finish ? new Date() : session.finishedAt,
+        finishedAt,
       },
     });
     return NextResponse.json(updated);
