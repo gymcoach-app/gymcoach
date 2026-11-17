@@ -175,3 +175,9 @@ and merge through the pinned merge gate (`automation/publish/merge.ts`, see the 
 skill, step 5), which deletes a same-repo head branch on the remote after the merge. The
 old `gh pr merge --delete-branch` exited 1 after a successful merge while the branch was
 still checked out in a worktree; the gate's remote deletion does not have that problem.
+
+A workflow that splits a batch issue into parallel tracks (2026-11-17: #571 and #576, four
+tracks each) gets its worktrees from Agent isolation, which branches from the repository of
+the session's working directory. Launch it from the checkout, never with the scratchpad as
+the working directory: there the isolation cannot start and the launch fails at once
+(lesson L59). Check with `git rev-parse --show-toplevel` before the launch.

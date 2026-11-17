@@ -209,9 +209,14 @@ on your own key - all self-hosted.
 - **Workout history on a calendar** - page through the months, see which days you
   trained, open a day's sessions, and filter by program. Days are bucketed in
   your own timezone, not the server's
-  ([example](docs/screenshots/history.png)).
+  ([example](docs/screenshots/history.png)). A session whose Finish is tapped
+  more than 30 minutes after its last set ends at that set, so its duration
+  stays real.
 - **Copy a workout as text** - one tap puts a finished session's recap on the
   clipboard, ready to paste into a chat or a training log.
+- **Share a workout as an image** - a finished session draws a 1080x1350
+  summary card in the browser (duration, volume, heart rate, best sets) and
+  opens the share sheet, or downloads the PNG. Nothing is uploaded.
 - **Auto-regulation** - stalled-lift detection and a deload recommendation from
   your stalls and readiness, with a one-tap planned deload that lightens loads
   10% until it expires.
@@ -238,7 +243,8 @@ on your own key - all self-hosted.
 - **Heart rate on a lifting session** - attach the FIT, TCX or GPX recording
   of a workout you already logged: its average heart rate, peak and curve are
   stored on that session and shown on its page, with a preview before anything
-  is saved, instead of a separate cardio session.
+  is saved, instead of a separate cardio session. The heart rate is also split
+  over the logged sets, so each set shows its own average and peak.
 
 ### AI coach (bring your own model)
 
@@ -255,7 +261,10 @@ on your own key - all self-hosted.
 - **Your provider** - Anthropic SDK, any OpenRouter model, or any
   OpenAI-compatible server such as a local Ollama, LM Studio or vLLM (the
   OpenAI-compatible provider is tested against a stubbed server so far, not a
-  live one). With no key set, the app is still a clean, fast tracker.
+  live one). Reasoning models that open their answer with a `<think>` block
+  work too. When a provider call fails, the app says why (rejected key, rate
+  limit or credits, outage, timeout) and what to check. With no key set, the
+  app is still a clean, fast tracker.
 
 ### Programs and exercises
 
@@ -281,7 +290,8 @@ on your own key - all self-hosted.
   in one of your programs.
 - **Printable workout sheet** - print (or save as PDF) a clean A4 sheet per
   workout with empty weight / reps / RIR cells for every planned set, fill it in
-  by hand at the gym, and re-enter it later
+  by hand at the gym, and re-enter it later; a cardio exercise gets duration
+  and distance boxes with its target pre-printed
   ([example](docs/screenshots/print-sheet.png)).
 
 ### Your data, your server
@@ -296,7 +306,8 @@ on your own key - all self-hosted.
   confirmation and is rate limited per connection token, and a capability
   index tool tells a client which tools exist and whether it can write. Details in
   [docs/chatgpt-mcp.md](docs/chatgpt-mcp.md).
-- **Import and export** - bring history in from a Strong or Hevy CSV, or from
+- **Import and export** - bring history in from a Strong (warm-up, failure
+  and drop set markers kept) or Hevy CSV, or from
   GymCoach's own history CSV (a spreadsheet with the same columns works too;
   dry-run preview, duplicate-safe, cardio included), and export everything back
   to CSV or TCX anytime.
@@ -574,6 +585,9 @@ than CI reaching in to a small VPS.
       slice of #558)
 - [x] Heart rate in the coach context, and a watch file attached to a logged
       session
+- [x] Heart rate per set from an attached watch file
+- [x] Share a finished workout as an image
+- [x] Health endpoint and container healthcheck for self-hosters
 
 ## Contributing
 

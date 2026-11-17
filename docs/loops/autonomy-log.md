@@ -3740,3 +3740,61 @@ check a dead agent's worktree) -> `06-orchestration.md`.
 Move down, cardio rows that read "20 min · 5 km"). Their screenshots are owed in a later
 media pass; this write-up does not run the app. The recorded session clip still predates
 free switching, RPE and the free session (staleness cap).
+
+## 2026-11-17 - Two batch issues, eight parallel tracks: robustness fixes, heart rate per set, share as image, a health endpoint
+
+**Context.** Since the last write-up (#570): eight loop-authored PRs merged on 2026-11-17,
+from two batch issues. **#571** (robustness): **#572** (Strong import reads the `W`/`F`/`D`
+set markers, skips Rest Timer and Note rows), **#573** (a late Finish ends the session at
+its last set), **#574** (leading reasoning blocks stripped from model answers) and **#575**
+(AI provider failures classified, with a stable `code` and a translated next step).
+**#576** (features): **#577** (share a finished workout as an image), **#578** (cardio
+leftovers of #558: print sheet boxes, localized target text, one distance unit rule),
+**#579** (heart rate per set from an attached watch file, a migration with two `Set`
+columns, backup format 13) and **#580** (`GET /api/health` and a container healthcheck).
+No external PR in this batch.
+
+**Shape of the run.** Each batch issue was split by a workflow into four file-disjoint
+tracks, each implemented by its own agent in its own isolated worktree, stopping at the PR
+(L3). All eight PRs were ready at review round 1: no needs-changes round in the batch. The
+first workflow launch for #571 failed at once because the session's working directory was
+the scratchpad, not a git repository, so worktree isolation could not start; relaunched
+from the checkout, it ran (L59).
+
+**One conflict, resolved by the orchestrator.** #574 and #575 both changed
+`app/api/coach/chat/route.ts` (the reasoning-block hold-back and the classified error
+response). After #574 merged, the orchestrator resolved #575's conflict by hand, ran the
+full gate on the result and had the resolved head reviewed again by an independent delta
+review before the merge (`ship-pr` step 4: a conflict resolution is a fixup; same-file
+work, L7).
+
+**Re-posted review records after `update-branch`.** As siblings merged, the other PRs went
+stale on their base and were brought up to date with `update-branch`. The orchestrator
+re-posted a PR's review records for the new head only when `git patch-id --stable` of the
+PR's diff against `main` was identical to the patch-id of the reviewed diff, that is when
+the change itself was byte-for-byte the one the reviewers read; any other difference went
+back to review. This is the orchestrator's own check, not a rule of `ship-pr` or of the
+merge gate (which carries records over only for the pure base update it can prove, L39);
+it is listed in the review digest for the human to accept or reject.
+
+**Green gate.** Ledger `verify` lines after the #570 merge, excluding this write-up's own
+run: 14, all `--full`. 9 green, 4 failed (typecheck at 10:33Z and 16:22Z, integration at
+16:47Z, E2E at 16:52Z) and 1 interrupted at build (10:41Z, the second the agent that
+ran it ended). Each PR body reports a green gate on its final head.
+
+**One metric.** 8 PRs merged, 0 abandoned, 0 reverted; 8 of 8 ready at review round 1.
+Token spend: the ledger has 21 agent lines for this window, 8 Fable 5.2 (the implementers,
+no list price in `automation/usage/prices.ts`) and 13 Opus 5.5 (reviews) at about $7.5 at
+API list prices; the orchestrating session is not counted, so cost per accepted change is
+not computed for this batch.
+
+**Lessons.** L59 (launch a workflow from a git checkout, not from the scratchpad) ->
+`06-orchestration.md`. The #574/#575 conflict is covered by L7 and `ship-pr` step 4, as
+in the previous batch, so no new lesson.
+
+**Media.** Captured pages that changed for users: the session page in History (a "Share
+as image" button, "HR avg/peak" per set when a watch file is attached) and the print
+sheet (duration and distance boxes for a cardio exercise; the captured example has no
+cardio row). Not re-shot here; this write-up does not run the app. The two screenshots
+owed from the previous batch are still owed, and the recorded session clip still predates
+free switching, RPE and the free session (staleness cap).
