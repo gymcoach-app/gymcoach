@@ -101,6 +101,16 @@ services:
       - uploads:/app/uploads
     ports:
       - '${GYMCOACH_PORT:-3000}:3000'
+    # Same probe as the image's HEALTHCHECK: GET /api/health on loopback, 200
+    # when the database answers. It needs an image that ships the probe (built
+    # from 2026-11-17 on); an older pinned image runs as before but is reported
+    # unhealthy.
+    healthcheck:
+      test: ['CMD', 'node', '/app/healthcheck.cjs']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
 volumes:
   postgres-data:

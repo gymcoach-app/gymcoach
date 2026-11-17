@@ -107,6 +107,12 @@ export const history = {
     dropSet: 'Drop-Satz',
     notes: 'Notizen:',
   },
+  shareImage: {
+    button: 'Als Bild teilen',
+    saved: 'Bild gespeichert.',
+    error: 'Bild konnte nicht erstellt werden.',
+    more: '{count, plural, one {+ # weitere Übung} other {+ # weitere Übungen}}',
+  },
   delete: {
     button: 'Löschen',
     title: 'Diese Einheit löschen?',

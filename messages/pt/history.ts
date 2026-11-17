@@ -107,6 +107,12 @@ export const history = {
     dropSet: 'drop set',
     notes: 'Notas:',
   },
+  shareImage: {
+    button: 'Compartilhar como imagem',
+    saved: 'Imagem salva.',
+    error: 'Não foi possível criar a imagem.',
+    more: '{count, plural, one {+ mais # exercício} other {+ mais # exercícios}}',
+  },
   delete: {
     button: 'Excluir',
     title: 'Excluir esta sessão?',

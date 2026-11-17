@@ -106,6 +106,12 @@ export const history = {
     dropSet: 'dropset',
     notes: 'Notities:',
   },
+  shareImage: {
+    button: 'Delen als afbeelding',
+    saved: 'Afbeelding opgeslagen.',
+    error: 'Kon de afbeelding niet maken.',
+    more: '{count, plural, one {+ nog # oefening} other {+ nog # oefeningen}}',
+  },
   delete: {
     button: 'Verwijderen',
     title: 'Deze sessie verwijderen?',

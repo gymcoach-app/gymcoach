@@ -107,6 +107,12 @@ export const history = {
     dropSet: 'dégressive',
     notes: 'Notes :',
   },
+  shareImage: {
+    button: 'Partager en image',
+    saved: 'Image enregistrée.',
+    error: 'Impossible de créer l’image.',
+    more: '{count, plural, one {+ # autre exercice} other {+ # autres exercices}}',
+  },
   delete: {
     button: 'Supprimer',
     title: 'Supprimer cette séance ?',

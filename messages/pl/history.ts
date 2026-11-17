@@ -108,6 +108,12 @@ export const history = {
     dropSet: 'drop set',
     notes: 'Notatki:',
   },
+  shareImage: {
+    button: 'Udostępnij jako obraz',
+    saved: 'Obraz zapisany.',
+    error: 'Nie udało się utworzyć obrazu.',
+    more: '{count, plural, one {+ jeszcze # ćwiczenie} few {+ jeszcze # ćwiczenia} many {+ jeszcze # ćwiczeń} other {+ jeszcze # ćwiczenia}}',
+  },
   delete: {
     button: 'Usuń',
     title: 'Usunąć tę sesję?',

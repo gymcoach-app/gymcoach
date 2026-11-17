@@ -106,6 +106,12 @@ export const history = {
     dropSet: 'drop set',
     notes: 'Notlar:',
   },
+  shareImage: {
+    button: 'Görsel olarak paylaş',
+    saved: 'Görsel kaydedildi.',
+    error: 'Görsel oluşturulamadı.',
+    more: '{count, plural, one {+ # egzersiz daha} other {+ # egzersiz daha}}',
+  },
   delete: {
     button: 'Sil',
     title: 'Bu seans silinsin mi?',

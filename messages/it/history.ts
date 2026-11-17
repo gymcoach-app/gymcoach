@@ -106,6 +106,12 @@ export const history = {
     dropSet: 'drop set',
     notes: 'Note:',
   },
+  shareImage: {
+    button: 'Condividi come immagine',
+    saved: 'Immagine salvata.',
+    error: 'Impossibile creare l’immagine.',
+    more: '{count, plural, one {+ # altro esercizio} other {+ altri # esercizi}}',
+  },
   delete: {
     button: 'Elimina',
     title: 'Eliminare questa sessione?',
