@@ -29,8 +29,8 @@ const programExercise = {
   notes: null,
   supersetGroup: null,
   autoregulationMode: 'PRESERVE_RIR',
-  // Explicit overrides: jsdom reads the two empty optional number fields as
-  // 0, which the schema refuses, so the fixture fills them.
+  // Explicit overrides, so the saved body carries two known values. The
+  // untouched "Auto" case (null overrides) has its own test below.
   fatigueRate: 0.75,
   loadAdjustmentPct: 2.5,
   exercise: { id: 'ex1', name: 'Bench Press', muscleGroup: 'CHEST', defaultRestSec: 120 },
@@ -226,11 +226,36 @@ describe('ProgramExerciseFormDialog cardio target', () => {
     );
   });
 
-  it('requires a duration and saves nothing without one', async () => {
-    const fetchMock = renderEdit(cardioRow);
+  it('requires a duration once a target exists and saves nothing without one', async () => {
+    const fetchMock = renderEdit({
+      ...cardioRow,
+      targetDurationSec: 1800,
+    } as unknown as EditProps['programExercise']);
+    fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Enter a duration in minutes, up to 1440.')).toBeInTheDocument();
     expect(screen.getByLabelText('Duration (min)')).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // A cardio row saved before targets existed has none. It stays editable
+  // with both fields empty, and the save sends no target (review of #568).
+  it('saves a cardio row that never had a target without asking for one', async () => {
+    const fetchMock = renderEdit(cardioRow);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect('targetDurationSec' in body).toBe(false);
+    expect('targetDistanceM' in body).toBe(false);
+    expect(screen.queryByText('Enter a duration in minutes, up to 1440.')).not.toBeInTheDocument();
+  });
+
+  it('still asks for a duration when only a distance is typed on such a row', async () => {
+    const fetchMock = renderEdit(cardioRow);
+    fireEvent.change(screen.getByLabelText('Distance (km, optional)'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Enter a duration in minutes, up to 1440.')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
