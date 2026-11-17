@@ -419,6 +419,12 @@ export default async function HistorySessionPage(props: Params) {
               // (issue #183), matching the working-set convention used elsewhere.
               const { durationSec: cardioDurationTotal, distanceM: cardioDistanceTotal } =
                 sumCardioWorkingSets(entry.sets);
+              // Heart rate per set from the attached watch file (issue #576):
+              // the column only exists when a set of this exercise has it, so
+              // a session without a watch file renders exactly as before.
+              const showSetHr = entry.sets.some(
+                (s) => s.watchAvgHr != null && s.watchMaxHr != null,
+              );
               const cardioTotal = isCardio
                 ? [
                     formatCardioSet(cardioDurationTotal, cardioDistanceTotal),
@@ -501,11 +507,17 @@ export default async function HistorySessionPage(props: Params) {
                                       : '-'}
                                   </td>
                                   <td className="py-1.5">{pace ?? '-'}</td>
+                                  {/* What the user logged or imported wins; the
+                                      watch file only fills an empty cell. */}
                                   <td className="py-1.5">
-                                    {s.avgHr != null ? `${s.avgHr} bpm` : '-'}
+                                    {(s.avgHr ?? s.watchAvgHr) != null
+                                      ? `${s.avgHr ?? s.watchAvgHr} bpm`
+                                      : '-'}
                                   </td>
                                   <td className="py-1.5">
-                                    {s.maxHr != null ? `${s.maxHr} bpm` : '-'}
+                                    {(s.maxHr ?? s.watchMaxHr) != null
+                                      ? `${s.maxHr ?? s.watchMaxHr} bpm`
+                                      : '-'}
                                   </td>
                                 </tr>
                               );
@@ -533,6 +545,11 @@ export default async function HistorySessionPage(props: Params) {
                               <th className="py-1.5 font-medium">{detail('reps')}</th>
                               <th className="py-1.5 font-medium">{effortScale}</th>
                               <th className="py-1.5 font-medium">{detail('type')}</th>
+                              {showSetHr && (
+                                <th className="py-1.5 text-right font-medium">
+                                  {detail('setHr')}
+                                </th>
+                              )}
                             </tr>
                           </thead>
                           <tbody>
@@ -589,6 +606,29 @@ export default async function HistorySessionPage(props: Params) {
                                         ? detail('dropSet')
                                         : detail('working')}
                                   </td>
+                                  {showSetHr && (
+                                    <td
+                                      className="py-1.5 text-right text-xs tabular-nums"
+                                      data-testid="set-heart-rate"
+                                    >
+                                      {s.watchAvgHr != null && s.watchMaxHr != null ? (
+                                        <span
+                                          title={detail('setHrLabel', {
+                                            avg: s.watchAvgHr,
+                                            max: s.watchMaxHr,
+                                          })}
+                                          aria-label={detail('setHrLabel', {
+                                            avg: s.watchAvgHr,
+                                            max: s.watchMaxHr,
+                                          })}
+                                        >
+                                          {s.watchAvgHr}/{s.watchMaxHr}
+                                        </span>
+                                      ) : (
+                                        '-'
+                                      )}
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })}

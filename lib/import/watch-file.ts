@@ -44,6 +44,13 @@ export type WatchFileResult =
   | { ok: true; data: WatchFileHeartRate }
   | { ok: false; code: 'unreadable' | 'no_heart_rate'; error: string };
 
+// The same reading plus every heart rate sample of the file at full
+// resolution (issue #576): what the per-set split works on, and where a peak
+// the file does not state is read. Never stored: only `data` is.
+export type WatchFileDetailedResult =
+  | { ok: true; data: WatchFileHeartRate; hrSamples: HrPoint[] }
+  | { ok: false; code: 'unreadable' | 'no_heart_rate'; error: string };
+
 interface ParsedActivity {
   startedAt: Date;
   durationSec: number;
@@ -52,19 +59,27 @@ interface ParsedActivity {
   track: TrackPoint[] | null;
 }
 
-function parse(input: WatchFileInput): { activity: ParsedActivity | null; error: string | null } {
+interface Parsed {
+  activity: ParsedActivity | null;
+  // Sanitized samples before the downsample to MAX_TRACK_POINTS.
+  samples: TrackPoint[];
+  error: string | null;
+}
+
+function parse(input: WatchFileInput): Parsed {
   if (input.format === 'fit') {
-    const r = parseFit(new Uint8Array(Buffer.from(input.content, 'base64')));
-    return { activity: r.ok ? r.activity : null, error: r.fatalError };
+    const r = parseFit(new Uint8Array(Buffer.from(input.content, 'base64')), { samples: true });
+    return { activity: r.ok ? r.activity : null, samples: r.samples ?? [], error: r.fatalError };
   }
   if (input.format === 'tcx') {
-    const r = parseTcx(input.content);
-    return { activity: r.ok ? r.activity : null, error: r.fatalError };
+    const r = parseTcx(input.content, { samples: true });
+    return { activity: r.ok ? r.activity : null, samples: r.samples ?? [], error: r.fatalError };
   }
-  const r = parseGpx(input.content);
-  // GPX carries no peak value of its own: it is read from the track below.
+  const r = parseGpx(input.content, { samples: true });
+  // GPX carries no peak value of its own: it is read from the samples below.
   return {
     activity: r.ok && r.activity ? { ...r.activity, maxHr: null } : null,
+    samples: r.samples ?? [],
     error: r.fatalError,
   };
 }
@@ -73,40 +88,50 @@ function inBounds(value: number | null, min: number, max: number): number | null
   return value != null && Number.isInteger(value) && value >= min && value <= max ? value : null;
 }
 
-// Keep only the heart rate of a parsed track (the distance is dropped), with
-// every value re-checked against the bounds, capped at MAX_TRACK_POINTS.
-function heartRateTrack(track: TrackPoint[] | null): HrPoint[] | null {
-  if (!track) return null;
+// Keep only the heart rate of parsed points (the distance is dropped), with
+// every value re-checked against the bounds.
+function heartRatePoints(track: TrackPoint[] | null): HrPoint[] {
   const points: HrPoint[] = [];
-  for (const p of track) {
+  for (const p of track ?? []) {
     if (!Number.isInteger(p.t) || p.t < 0) continue;
     const hr = inBounds(p.hr ?? null, AVG_HR_MIN, AVG_HR_MAX);
     if (hr == null) continue;
     points.push({ t: p.t, hr });
   }
+  return points;
+}
+
+// The stored curve: the heart rate of the parsed track, capped at
+// MAX_TRACK_POINTS.
+function heartRateTrack(track: TrackPoint[] | null): HrPoint[] | null {
+  const points = heartRatePoints(track);
   if (points.length === 0) return null;
   const stride = Math.max(1, Math.ceil(points.length / MAX_TRACK_POINTS));
   return stride === 1 ? points : points.filter((_, i) => i % stride === 0);
 }
 
-// Read the heart rate of a watch file. The summary values of the file win;
-// the track fills in what the file does not state: the peak (always for GPX,
-// which has none) and the average.
-export function readWatchFile(input: WatchFileInput): WatchFileResult {
-  const { activity, error } = parse(input);
+// Read the heart rate of a watch file, with its full-resolution samples. The
+// summary values of the file win; the samples fill in what the file does not
+// state: the peak (always for GPX, which has none) and the average. Both are
+// read from every sample of the file, not from the downsampled stored curve,
+// which keeps one point out of several on a long recording and would miss a
+// peak that falls between two kept points (issue #576).
+export function readWatchFileDetailed(input: WatchFileInput): WatchFileDetailedResult {
+  const { activity, samples, error } = parse(input);
   if (!activity) {
     return { ok: false, code: 'unreadable', error: error ?? 'Unreadable file.' };
   }
 
   const hrTrack = heartRateTrack(activity.track);
+  const hrSamples = heartRatePoints(samples);
   let avgHr = inBounds(activity.avgHr, AVG_HR_MIN, AVG_HR_MAX);
   let maxHr = inBounds(activity.maxHr, MAX_HR_MIN, MAX_HR_MAX);
-  if (hrTrack) {
+  if (hrSamples.length > 0) {
     if (avgHr == null) {
-      avgHr = Math.round(hrTrack.reduce((sum, p) => sum + p.hr, 0) / hrTrack.length);
+      avgHr = Math.round(hrSamples.reduce((sum, p) => sum + p.hr, 0) / hrSamples.length);
     }
     if (maxHr == null) {
-      maxHr = hrTrack.reduce((peak, p) => Math.max(peak, p.hr), 0);
+      maxHr = hrSamples.reduce((peak, p) => Math.max(peak, p.hr), 0);
     }
   }
 
@@ -123,5 +148,12 @@ export function readWatchFile(input: WatchFileInput): WatchFileResult {
       maxHr,
       hrTrack,
     },
+    hrSamples,
   };
+}
+
+// The reading alone, without the samples (what the preview needs).
+export function readWatchFile(input: WatchFileInput): WatchFileResult {
+  const result = readWatchFileDetailed(input);
+  return result.ok ? { ok: true, data: result.data } : result;
 }

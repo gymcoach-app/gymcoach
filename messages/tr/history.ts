@@ -52,6 +52,8 @@ export const history = {
     heartRateChart: 'Zamana göre nabız',
     heartRate: 'Nabız',
     chartMinutes: '{value} dk',
+    setHr: 'Nabız ort./zirve',
+    setHrLabel: 'Ortalama {avg} bpm, zirve {max} bpm',
   },
   saveAsWorkout: {
     button: 'Antrenman olarak kaydet',

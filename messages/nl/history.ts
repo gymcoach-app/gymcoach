@@ -52,6 +52,8 @@ export const history = {
     heartRateChart: 'Hartslag in de tijd',
     heartRate: 'HS',
     chartMinutes: '{value} min',
+    setHr: 'HS gem./piek',
+    setHrLabel: 'Gemiddeld {avg} bpm, piek {max} bpm',
   },
   saveAsWorkout: {
     button: 'Opslaan als training',

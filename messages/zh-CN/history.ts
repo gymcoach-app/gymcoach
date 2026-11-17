@@ -52,6 +52,8 @@ export const history = {
     heartRateChart: '心率变化趋势',
     heartRate: '心率',
     chartMinutes: '{value} 分钟',
+    setHr: '心率 平均/峰值',
+    setHrLabel: '平均 {avg} 次/分，峰值 {max} 次/分',
   },
   saveAsWorkout: {
     button: '保存为训练模板',

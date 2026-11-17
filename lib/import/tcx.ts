@@ -63,10 +63,20 @@ export interface TcxActivity {
   track: TrackPoint[] | null;
 }
 
+// Optional extras of a parse. `samples: true` also returns every sanitized
+// sample at full resolution (before the downsample to MAX_TRACK_POINTS), for
+// a caller that needs the real peak or a per-set split (issue #576). Bounded
+// by the raw sample cap of the parser.
+export interface TcxParseOptions {
+  samples?: boolean;
+}
+
 export interface TcxParseResult {
   ok: boolean;
   fatalError: string | null;
   activity: TcxActivity | null;
+  // Only when asked for with `samples: true` and the parse succeeded.
+  samples?: TrackPoint[];
 }
 
 const fatal = (msg: string): TcxParseResult => ({
@@ -230,7 +240,7 @@ const MAX_LAPS = 1000;
 // cannot blow up memory (the shared downsampleTrack then caps stored points).
 const MAX_TRACKPOINTS = 200_000;
 
-export function parseTcx(input: string): TcxParseResult {
+export function parseTcx(input: string, options: TcxParseOptions = {}): TcxParseResult {
   if (input.length > TCX_MAX_BYTES) {
     return fatal('File too large: the limit is 5 MB.');
   }
@@ -416,12 +426,16 @@ export function parseTcx(input: string): TcxParseResult {
   // start, sanitized/bounded by cleanTrackPoint and attached to the validated
   // summary - matching the FIT and GPX importers.
   const start = earliestStart.getTime();
-  const track = downsampleTrack(
-    rawPoints
-      .map((pt) => cleanTrackPoint((pt.time.getTime() - start) / 1000, pt.cumMeters, pt.hr))
-      .filter((pt): pt is TrackPoint => pt !== null),
-  );
-  return { ok: true, fatalError: null, activity: { ...checked.data, track } };
+  const points = rawPoints
+    .map((pt) => cleanTrackPoint((pt.time.getTime() - start) / 1000, pt.cumMeters, pt.hr))
+    .filter((pt): pt is TrackPoint => pt !== null);
+  const track = downsampleTrack(points);
+  return {
+    ok: true,
+    fatalError: null,
+    activity: { ...checked.data, track },
+    ...(options.samples ? { samples: points } : {}),
+  };
 }
 
 // Default exercise name per TCX sport, matching the seeded catalog names

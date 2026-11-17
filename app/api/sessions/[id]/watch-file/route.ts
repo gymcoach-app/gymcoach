@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { watchFileInputSchema } from '@/lib/schemas/watch-file';
-import { readWatchFile } from '@/lib/import/watch-file';
+import { readWatchFileDetailed } from '@/lib/import/watch-file';
+import { splitHeartRateBySet } from '@/lib/set-heart-rate';
 import { Prisma } from '@/prisma/generated/client';
 
 interface Params {
@@ -23,6 +24,7 @@ const FAR_FROM_SESSION_MS = 6 * 60 * 60 * 1000;
 // stranger's or unknown session id yields 404.
 const HEART_RATE_SELECT = {
   startedAt: true,
+  finishedAt: true,
   avgHr: true,
   maxHr: true,
   hrTrack: true,
@@ -42,7 +44,18 @@ function chargeImportBucket(userId: string) {
 // hardened import routes: shared rate bucket, streamed body cap, read-only
 // preview, then confirm. Confirm writes avgHr, maxHr and hrTrack on the
 // session, replacing a previous attachment; it creates no session, set or
-// exercise and never touches the session's sets, dates or notes.
+// exercise and never touches the session's dates or notes.
+//
+// Confirm also splits the full-resolution heart rate of the file over the
+// session's sets (issue #576, lib/set-heart-rate.ts) and writes the average
+// and peak of each set's window in Set.watchAvgHr / Set.watchMaxHr. Those two
+// columns are the only thing it writes on a set: Set.avgHr / Set.maxHr (the
+// heart rate the user logged or imported on a cardio set) are never read or
+// written here. A replacement first clears what the previous file wrote, so a
+// set outside the new recording does not keep a stale value. A set logged
+// after the session was finished gets nothing (its log time is not when it
+// was done), and sets logged after the file was attached get nothing until a
+// file is attached again.
 export async function POST(req: Request, props: Params) {
   const params = await props.params;
   try {
@@ -62,7 +75,9 @@ export async function POST(req: Request, props: Params) {
     });
     if (!session) throw new ApiError(404, 'Session not found.');
 
-    const read = readWatchFile({ format: data.format, content: data.file });
+    // The full-resolution samples ride along for the per-set split of confirm;
+    // the preview only reports the summary.
+    const read = readWatchFileDetailed({ format: data.format, content: data.file });
     if (!read.ok) throw new ApiError(400, read.error);
     const { startedAt, durationSec, avgHr, maxHr, hrTrack } = read.data;
 
@@ -82,30 +97,72 @@ export async function POST(req: Request, props: Params) {
       return NextResponse.json({ mode: 'preview', ...summary });
     }
 
-    await db.session.update({
-      where: { id: params.id, userId },
-      data: {
-        avgHr,
-        maxHr,
-        hrTrack: hrTrack ? (hrTrack as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
-      },
-      select: { id: true },
+    const { hrSamples } = read;
+    const setsWithHeartRate = await db.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id: params.id, userId },
+        data: {
+          avgHr,
+          maxHr,
+          hrTrack: hrTrack ? (hrTrack as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+        },
+        select: { id: true },
+      });
+      // Every set query below carries the session's userId as well.
+      const ownSets = { sessionId: params.id, session: { userId } };
+      const sets = await tx.set.findMany({
+        where: ownSets,
+        orderBy: [{ completedAt: 'asc' }, { setNumber: 'asc' }, { id: 'asc' }],
+        select: { id: true, completedAt: true },
+      });
+      const perSet = splitHeartRateBySet({
+        sessionStartedAt: session.startedAt,
+        sessionFinishedAt: session.finishedAt,
+        recordingStartedAt: startedAt,
+        samples: hrSamples,
+        sets,
+      });
+      await tx.set.updateMany({
+        where: { ...ownSets, OR: [{ watchAvgHr: { not: null } }, { watchMaxHr: { not: null } }] },
+        data: { watchAvgHr: null, watchMaxHr: null },
+      });
+      for (const s of perSet) {
+        await tx.set.updateMany({
+          where: { ...ownSets, id: s.id },
+          data: { watchAvgHr: s.avgHr, watchMaxHr: s.maxHr },
+        });
+      }
+      return perSet.length;
     });
-    return NextResponse.json({ mode: 'confirm', ...summary });
+    return NextResponse.json({ mode: 'confirm', ...summary, setsWithHeartRate });
   } catch (err) {
     return handleApiError(err);
   }
 }
 
 // DELETE /api/sessions/[id]/watch-file: remove the attached heart rate. Only
-// the three columns are cleared; the session itself is untouched.
+// what the file wrote is cleared: the three session columns and the per-set
+// Set.watchAvgHr / Set.watchMaxHr (issue #576). The heart rate logged on a
+// cardio set (Set.avgHr / Set.maxHr) is not the file's and stays.
 export async function DELETE(_req: Request, props: Params) {
   const params = await props.params;
   try {
     const userId = await requireApiUserId();
-    const { count } = await db.session.updateMany({
-      where: { id: params.id, userId },
-      data: { avgHr: null, maxHr: null, hrTrack: Prisma.DbNull },
+    const count = await db.$transaction(async (tx) => {
+      const cleared = await tx.session.updateMany({
+        where: { id: params.id, userId },
+        data: { avgHr: null, maxHr: null, hrTrack: Prisma.DbNull },
+      });
+      if (cleared.count === 0) return 0;
+      await tx.set.updateMany({
+        where: {
+          sessionId: params.id,
+          session: { userId },
+          OR: [{ watchAvgHr: { not: null } }, { watchMaxHr: { not: null } }],
+        },
+        data: { watchAvgHr: null, watchMaxHr: null },
+      });
+      return cleared.count;
     });
     if (count === 0) throw new ApiError(404, 'Session not found.');
     return NextResponse.json({ ok: true });

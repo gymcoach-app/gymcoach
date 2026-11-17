@@ -323,7 +323,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(12);
+    expect(dump.version).toBe(13);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -761,6 +761,84 @@ describe('POST /api/backup - malformed and oversized input (issue #168)', () => 
       expect(s.hrTrack).toBeNull();
     }
     expect(comparable(await (await getBackup()).json())).toEqual(comparable(dump));
+  });
+
+  // Issue #576 (v13): the heart rate of a set read from the attached watch
+  // recording rides on the set, both ways, next to the logged heart rate.
+  it('round-trips the per-set watch heart rate into another account (issue #576)', async () => {
+    const user = await seedFullUser('set-hr-source@test.dev');
+    const set = await db.set.findFirstOrThrow({
+      where: { session: { userId: user.id } },
+      orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
+    });
+    await db.set.update({ where: { id: set.id }, data: { watchAvgHr: 131, watchMaxHr: 152 } });
+    actAs(user.id);
+    const dump = await (await getBackup()).json();
+    expect(dump.version).toBe(13);
+    const exportedSets = dump.sessions.flatMap(
+      (s: { sets: Array<{ watchAvgHr: number | null; watchMaxHr: number | null }> }) => s.sets,
+    );
+    expect(
+      exportedSets.filter((s: { watchAvgHr: number | null }) => s.watchAvgHr === 131),
+    ).toHaveLength(1);
+
+    const target = await db.user.create({
+      data: { email: 'set-hr-target@test.dev', passwordHash: 'x' },
+    });
+    actAs(target.id);
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+
+    const restored = await db.set.findMany({ where: { session: { userId: target.id } } });
+    expect(restored.length).toBe(exportedSets.length);
+    const withWatch = restored.filter((s) => s.watchAvgHr != null || s.watchMaxHr != null);
+    expect(withWatch).toHaveLength(1);
+    expect(withWatch[0]).toMatchObject({
+      watchAvgHr: 131,
+      watchMaxHr: 152,
+      // The logged heart rate columns are carried separately, unchanged.
+      avgHr: set.avgHr,
+      maxHr: set.maxHr,
+      weight: set.weight,
+      reps: set.reps,
+    });
+    expect(comparable(await (await getBackup()).json())).toEqual(comparable(dump));
+  });
+
+  it('still imports a version 12 backup without the per-set heart rate (issue #576)', async () => {
+    const user = await seedFullUser('set-hr-v12@test.dev');
+    actAs(user.id);
+    const dump = await (await getBackup()).json();
+    dump.version = 12;
+    for (const s of dump.sessions) {
+      for (const set of s.sets) {
+        delete set.watchAvgHr;
+        delete set.watchMaxHr;
+      }
+    }
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+    const sets = await db.set.findMany({ where: { session: { userId: user.id } } });
+    expect(sets.length).toBeGreaterThan(0);
+    for (const set of sets) {
+      expect(set.watchAvgHr).toBeNull();
+      expect(set.watchMaxHr).toBeNull();
+    }
+  });
+
+  it('rejects an out-of-bounds per-set heart rate, existing data untouched (issue #576)', async () => {
+    const user = await seedFullUser('set-hr-victim@test.dev');
+    actAs(user.id);
+    const before = await countsFor(user.id);
+    const dump = await (await getBackup()).json();
+    for (const bad of [{ watchAvgHr: 39 }, { watchAvgHr: 120.5 }, { watchMaxHr: 251 }]) {
+      const payload = structuredClone(dump);
+      const withSets = payload.sessions.find((s: { sets: unknown[] }) => s.sets.length > 0);
+      Object.assign(withSets.sets[0], bad);
+      const res = await postBackup(jsonReq({ payload, confirmReplace: true }));
+      expect(res.status).toBe(400);
+      expect(await countsFor(user.id)).toEqual(before);
+    }
   });
 
   it('still imports a version 10 backup without the session heart rate (issue #562)', async () => {

@@ -116,7 +116,12 @@ weekPrevious (usually a strength session) may carry avgHr and maxHr (bpm): the
 average and peak heart rate of a watch recording the user attached to that
 session. These are not the conditioning values above. Read them as the overall cardiovascular load and density of
 the session (short rests, circuits, supersets), not as the effort of a set:
-RIR stays the effort signal for every set. Only compare a session with the
+RIR stays the effort signal for every set. A set of such a session may carry
+its own avgHr and maxHr: the heart rate between the moment the previous set was
+logged and the moment this one was, so it covers the rest before the set as
+well as the set itself. Use them to see where in the session the heart rate
+climbed or stayed high (short rests, a hard block), never to judge how hard a
+single set was, and say nothing about a set without them. Only compare a session with the
 user's own other sessions (a similar workout at a clearly higher average heart
 rate was denser or done less recovered); never derive heart rate zones or a
 percentage of a maximum heart rate. A session without these values was simply

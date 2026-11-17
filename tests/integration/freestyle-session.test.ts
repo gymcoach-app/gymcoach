@@ -551,7 +551,7 @@ describe('readers of a freestyle session (issue #388)', () => {
     const { user, session } = await loggedFreestyle('free-backup@test.dev');
     actAs(user.id);
     const dump = await (await getBackup()).json();
-    expect(dump.version).toBe(12);
+    expect(dump.version).toBe(13);
     expect(dump.sessions).toHaveLength(1);
     expect(dump.sessions[0]).toMatchObject({
       programName: null,
