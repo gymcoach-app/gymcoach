@@ -66,6 +66,9 @@ interface Preview {
   // represented (no usable duration) and are skipped with a notice.
   cardioSets: number;
   cardioSkipped: number;
+  // Rest timer and note rows of a Strong export (issue #571), which are not
+  // sets. Only the Strong route sends it.
+  nonSetRowsSkipped?: number;
   errorCount: number;
   errors: LineError[];
 }
@@ -563,6 +566,9 @@ export function ImportSection() {
               )}
               {preview.cardioSkipped > 0 && (
                 <li>{t('cardioSkipped', { count: preview.cardioSkipped })}</li>
+              )}
+              {(preview.nonSetRowsSkipped ?? 0) > 0 && (
+                <li>{t('nonSetRowsSkipped', { count: preview.nonSetRowsSkipped ?? 0 })}</li>
               )}
               {preview.existingSessionDates.length > 0 && (
                 <li className="text-amber-700 dark:text-amber-400">

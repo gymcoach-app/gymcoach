@@ -229,3 +229,223 @@ describe('parseStrongCsv caps (untrusted input)', () => {
     expect(res.rows[0]?.exerciseName).toBe('=cmd|calc');
   });
 });
+
+// Issue #571: Strong writes letter markers in Set Order ('W' warm-up, 'F'
+// failure, 'D' drop set) and rows that are not sets ('Rest Timer', 'Note').
+describe('parseStrongCsv set markers and non-set rows (issue #571)', () => {
+  // A realistic export shape: extra Notes column, rest timer rows carrying
+  // their length in Seconds, a note row with no weight and no reps.
+  const MARKER_HEADER =
+    'Date,Workout Name,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes';
+  const MARKER_FIXTURE = [
+    MARKER_HEADER,
+    '2026-05-02 09:00:00,Push Day,Bench Press,W,40,10,0,0,', // line 2
+    '2026-05-02 09:00:00,Push Day,Bench Press,Rest Timer,,,,60,', // line 3
+    '2026-05-02 09:00:00,Push Day,Bench Press,W,60,5,0,0,', // line 4
+    '2026-05-02 09:00:00,Push Day,Bench Press,1,80,8,0,0,', // line 5
+    '2026-05-02 09:00:00,Push Day,Bench Press,Rest Timer,,,,120,', // line 6
+    '2026-05-02 09:00:00,Push Day,Bench Press,2,80,7,0,0,', // line 7
+    '2026-05-02 09:00:00,Push Day,Bench Press,F,80,5,0,0,', // line 8
+    '2026-05-02 09:00:00,Push Day,Bench Press,D,60,9,0,0,', // line 9
+    '2026-05-02 09:00:00,Push Day,Bench Press,Note,,,,,"Felt strong, elbows fine"', // line 10
+    '2026-05-02 09:00:00,Push Day,Overhead Press,1,40,8,0,0,', // line 11
+    '2026-05-02 09:00:00,Push Day,Overhead Press,2,40,7,0,0,', // line 12
+  ].join('\n');
+
+  it('imports W, F and D sets in file order and skips Rest Timer and Note rows', () => {
+    const res = parseStrongCsv(MARKER_FIXTURE);
+    expect(res.ok).toBe(true);
+    expect(res.errors).toEqual([]);
+    expect(res.cardioSkipped).toBe(0);
+    expect(res.nonSetSkipped).toBe(3);
+
+    const bench = res.rows.filter((r) => r.exerciseName === 'Bench Press');
+    // The exercise carries markers, so its sets are numbered by position.
+    expect(bench.map((r) => [r.setOrder, r.weightKg, r.reps])).toEqual([
+      [1, 40, 10],
+      [2, 60, 5],
+      [3, 80, 8],
+      [4, 80, 7],
+      [5, 80, 5],
+      [6, 60, 9],
+    ]);
+    // W maps to the warm-up flag, D to the drop-set flag; F has no notion in
+    // the Set model and is a normal set.
+    expect(bench.map((r) => r.isWarmup)).toEqual([
+      true,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(bench.map((r) => r.isDropSet)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    ]);
+    // No rest timer row became a cardio set.
+    expect(res.rows.some((r) => r.durationSec !== undefined)).toBe(false);
+  });
+
+  it('leaves an exercise without a marker untouched in the same file', () => {
+    const res = parseStrongCsv(MARKER_FIXTURE);
+    expect(res.rows.filter((r) => r.exerciseName === 'Overhead Press')).toStrictEqual([
+      {
+        dateKey: '2026-05-02',
+        workoutName: 'Push Day',
+        exerciseName: 'Overhead Press',
+        setOrder: 1,
+        weightKg: 40,
+        reps: 8,
+      },
+      {
+        dateKey: '2026-05-02',
+        workoutName: 'Push Day',
+        exerciseName: 'Overhead Press',
+        setOrder: 2,
+        weightKg: 40,
+        reps: 7,
+      },
+    ]);
+  });
+
+  it('reads the markers whatever their case and spacing', () => {
+    const res = parseStrongCsv(
+      csv(
+        '2026-05-02,Push,Bench, w ,40,10,0,0',
+        '2026-05-02,Push,Bench,rest  timer,,,,90',
+        '2026-05-02,Push,Bench,f,80,5,0,0',
+        '2026-05-02,Push,Bench,NOTE,,,,',
+        '2026-05-02,Push,Bench,d,60,9,0,0',
+      ),
+    );
+    expect(res.errors).toEqual([]);
+    expect(res.nonSetSkipped).toBe(2);
+    expect(res.rows.map((r) => r.setOrder)).toEqual([1, 2, 3]);
+    expect(res.rows[0]?.isWarmup).toBe(true);
+    expect(res.rows[2]?.isDropSet).toBe(true);
+  });
+
+  it('numbers each workout of the same exercise on its own', () => {
+    const res = parseStrongCsv(
+      csv(
+        '2026-05-02,Push,Bench,W,40,10,0,0',
+        '2026-05-02,Push,Bench,1,80,8,0,0',
+        // Same exercise, another day, no marker: file numbers kept (3, 4).
+        '2026-05-04,Push,Bench,3,80,8,0,0',
+        '2026-05-04,Push,Bench,4,80,7,0,0',
+      ),
+    );
+    expect(res.rows.map((r) => [r.dateKey, r.setOrder])).toEqual([
+      ['2026-05-02', 1],
+      ['2026-05-02', 2],
+      ['2026-05-04', 3],
+      ['2026-05-04', 4],
+    ]);
+  });
+
+  it('keeps a marked cardio set and gives it its position', () => {
+    const res = parseStrongCsv(
+      csv(
+        '2026-05-02,Cardio,Rowing,W,0,0,500,120',
+        '2026-05-02,Cardio,Rowing,1,0,0,2000,480',
+      ),
+    );
+    expect(res.errors).toEqual([]);
+    expect(res.rows).toMatchObject([
+      { setOrder: 1, durationSec: 120, distanceM: 500, isWarmup: true },
+      { setOrder: 2, durationSec: 480, distanceM: 2000 },
+    ]);
+  });
+
+  it('still reports a damaged marked set and an unknown marker as line errors', () => {
+    const res = parseStrongCsv(
+      csv(
+        '2026-05-02,Push,Bench,W,40,,0,0', // line 2: warm-up with no reps
+        '2026-05-02,Push,Bench,X,80,8,0,0', // line 3: not a known marker
+        '2026-05-02,Push,Bench,,80,8,0,0', // line 4: empty set order
+        '2026-05-02,Push,Bench,F,80,5,0,0', // line 5: fine
+      ),
+    );
+    expect(res.errors.map((e) => e.line)).toEqual([2, 3, 4]);
+    expect(res.nonSetSkipped).toBe(0);
+    // Positions count the accepted sets only.
+    expect(res.rows.map((r) => r.setOrder)).toEqual([1]);
+  });
+
+  it('reports the sets beyond 50 of a marked exercise as line errors, in file order', () => {
+    const lines = ['not-a-date,Push,Bench,1,80,8,0,0']; // line 2
+    lines.push('2026-05-02,Push,Bench,W,40,10,0,0'); // line 3
+    for (let i = 1; i <= 51; i++) lines.push(`2026-05-02,Push,Bench,${i},80,8,0,0`);
+    const res = parseStrongCsv(csv(...lines));
+    // 52 sets: the warm-up and 49 numbered ones fit. Line 53 (number 50) is
+    // the 51st set; line 54 (number 51) is already out of the file's bound.
+    expect(res.rows).toHaveLength(50);
+    expect(res.rows.at(-1)?.setOrder).toBe(50);
+    expect(res.errors.map((e) => e.line)).toEqual([2, 53, 54]);
+  });
+
+  it('gives a plain numeric file exactly the result it had before', () => {
+    const res = parseStrongCsv(
+      csv(
+        '2026-05-02 09:13:00,Push Day,Bench Press (Barbell),1,80,8,0,0',
+        '2026-05-02 09:13:00,Push Day,Bench Press (Barbell),3,80,7,0,0',
+        '2026-05-02 09:13:00,Push Day,Bench Press (Barbell),2,82.5,6,0,0',
+        '2026-05-02,Cardio,Running,1,0,0,5000,1800',
+        '2026-05-02,Push,Bench,one,80,8,0,0',
+      ),
+    );
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0]?.line).toBe(6);
+    expect(res.errors[0]?.reason).toMatch(/^setOrder: /);
+    // toStrictEqual: no extra key (not even an undefined one) on any row, and
+    // the numbers of the file are kept as written, gaps and order included.
+    expect({ ...res, errors: [] }).toStrictEqual({
+      ok: true,
+      fatalError: null,
+      rows: [
+        {
+          dateKey: '2026-05-02',
+          workoutName: 'Push Day',
+          exerciseName: 'Bench Press (Barbell)',
+          setOrder: 1,
+          weightKg: 80,
+          reps: 8,
+        },
+        {
+          dateKey: '2026-05-02',
+          workoutName: 'Push Day',
+          exerciseName: 'Bench Press (Barbell)',
+          setOrder: 3,
+          weightKg: 80,
+          reps: 7,
+        },
+        {
+          dateKey: '2026-05-02',
+          workoutName: 'Push Day',
+          exerciseName: 'Bench Press (Barbell)',
+          setOrder: 2,
+          weightKg: 82.5,
+          reps: 6,
+        },
+        {
+          dateKey: '2026-05-02',
+          workoutName: 'Cardio',
+          exerciseName: 'Running',
+          setOrder: 1,
+          weightKg: 0,
+          reps: 1,
+          durationSec: 1800,
+          distanceM: 5000,
+        },
+      ],
+      errors: [],
+      cardioSkipped: 0,
+      nonSetSkipped: 0,
+    });
+  });
+});

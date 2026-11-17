@@ -148,6 +148,8 @@ export const settings = {
       'Uwzględniono {count, plural, one {# serię cardio} few {# serie cardio} many {# serii cardio} other {# serii cardio}} (czas/dystans)',
     cardioSkipped:
       '{count, plural, one {# wiersz cardio bez użytecznego czasu zostanie pominięty} few {# wiersze cardio bez użytecznego czasu zostaną pominięte} many {# wierszy cardio bez użytecznego czasu zostanie pominiętych} other {# wiersza cardio bez użytecznego czasu zostanie pominięte}}',
+    nonSetRowsSkipped:
+      '{count, plural, one {# wiersz minutnika przerwy lub notatki (to nie seria) zostanie pominięty} few {# wiersze minutnika przerwy lub notatki (to nie serie) zostaną pominięte} many {# wierszy minutnika przerwy lub notatki (to nie serie) zostanie pominiętych} other {# wiersza minutnika przerwy lub notatki (to nie serie) zostanie pominięte}}',
     existingDates: 'Masz już sesje w dniach: {dates}',
     unreadable:
       '{count, plural, one {Nie udało się odczytać # wiersza; zostanie pominięty:} few {Nie udało się odczytać # wierszy; zostaną pominięte:} many {Nie udało się odczytać # wierszy; zostaną pominięte:} other {Nie udało się odczytać # wiersza; zostanie pominięty:}}',

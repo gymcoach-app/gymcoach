@@ -138,6 +138,8 @@ export const settings = {
     duplicatesSkipped: '{count, plural, other {将跳过 # 条完全重复的记录}}',
     cardioIncluded: '{count, plural, other {包含 # 个有氧训练组}}（时长／距离）',
     cardioSkipped: '{count, plural, other {将跳过 # 条缺少有效时长的有氧记录}}',
+    nonSetRowsSkipped:
+      '{count, plural, other {将跳过 # 条休息计时或备注记录（不是训练组）}}',
     existingDates: '以下日期已有训练记录：{dates}',
     unreadable: '{count, plural, other {有 # 行无法读取，将被跳过}}：',
     lineError: '第 {line} 行：{reason}',

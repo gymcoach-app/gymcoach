@@ -94,6 +94,68 @@ describe('POST /api/import/strong (preview)', () => {
   });
 });
 
+// Issue #571: letter markers in Set Order and rows that are not sets.
+describe('POST /api/import/strong (set markers, issue #571)', () => {
+  const MARKER_CSV = [
+    'Date,Workout Name,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes',
+    '2026-05-02 09:00:00,Push Day,Bench Press,W,40,10,0,0,',
+    '2026-05-02 09:00:00,Push Day,Bench Press,Rest Timer,,,,60,',
+    '2026-05-02 09:00:00,Push Day,Bench Press,1,80,8,0,0,',
+    '2026-05-02 09:00:00,Push Day,Bench Press,F,80,5,0,0,',
+    '2026-05-02 09:00:00,Push Day,Bench Press,D,60,9,0,0,',
+    '2026-05-02 09:00:00,Push Day,Bench Press,Note,,,,,"Good day"',
+  ].join('\n');
+
+  it('previews the sets and counts the skipped rest timer and note rows', async () => {
+    const user = await seedUser();
+    actAs(user.id);
+
+    const res = await postImport(importReq({ csv: MARKER_CSV, mode: 'preview' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      mode: 'preview',
+      sessions: 1,
+      sets: 4,
+      newExercises: ['Bench Press'],
+      cardioSets: 0,
+      cardioSkipped: 0,
+      nonSetRowsSkipped: 2,
+      errorCount: 0,
+    });
+    expect(await db.set.count()).toBe(0);
+  });
+
+  it('stores the sets in file order with the warm-up and drop-set flags', async () => {
+    const user = await seedUser();
+    actAs(user.id);
+
+    const res = await postImport(importReq({ csv: MARKER_CSV, mode: 'confirm' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      createdSessions: 1,
+      createdSets: 4,
+      nonSetRowsSkipped: 2,
+    });
+
+    const sets = await db.set.findMany({
+      where: { session: { userId: user.id } },
+      orderBy: { setNumber: 'asc' },
+    });
+    expect(
+      sets.map((s) => [s.setNumber, s.weight, s.reps, s.isWarmup, s.isDropSet, s.durationSec]),
+    ).toEqual([
+      [1, 40, 10, true, false, null],
+      [2, 80, 8, false, false, null],
+      [3, 80, 5, false, false, null],
+      [4, 60, 9, false, true, null],
+    ]);
+
+    // Importing the same file again adds nothing: the positions are stable.
+    const again = await postImport(importReq({ csv: MARKER_CSV, mode: 'preview' }));
+    expect(await again.json()).toMatchObject({ sets: 0, duplicatesSkipped: 4 });
+  });
+});
+
 describe('POST /api/import/strong (confirm)', () => {
   it('creates exercises, sessions and sets transactionally', async () => {
     const user = await seedUser();
