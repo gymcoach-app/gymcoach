@@ -1094,3 +1094,38 @@ lessons L55 to L58 with their skill and playbook edits.
 
 **Trust the gate (lower risk):** #556 and #560 (test-only, mutation-checked), #569 (editor
 follow-ups), the message catalogs (translation strings), the docs here.
+
+## 2026-11-17 - robustness batch (#571) and heart rate per set, share image, health endpoint (#576)
+
+Merged: **#572** (Strong `W`/`F`/`D` markers), **#573** (late Finish), **#574** (reasoning
+blocks), **#575** (classified provider errors), **#577** (share as image), **#578** (cardio
+print sheet and localized targets), **#579** (heart rate per set), **#580** (`/api/health`
+and healthcheck). In this PR: changelog fold, README, lesson L59 with its playbook edit.
+
+**Read first:**
+
+1. **#579 - schema change, backup format 13, new data in the coach payload.** `gh pr diff
+   579`. Migration `20261117090000_add_set_watch_heart_rate` (two nullable `Set` columns),
+   the split of the file's samples over the sets in `lib/set-heart-rate.ts`, the
+   watch-file route that writes and clears them, the backup both ways, and the per-set
+   values plus prompt wording in the coach.
+2. **#580 - a new unauthenticated route and the container definition.** `gh pr diff 580`.
+   `/api/health` added to the middleware's public paths (the body is one of two fixed
+   objects), `scripts/healthcheck.cjs`, the `HEALTHCHECK` in the `Dockerfile`, both
+   compose files and the CI job change.
+3. **#575 + #574 - the LLM layer and the coach chat route.** `gh pr diff 575`, `gh pr diff
+   574`. Error classification across every provider in `lib/llm/**`, what the server log
+   keeps, the status codes the routes now return, and the reasoning-block stripping and
+   chat hold-back. #575's head carries the orchestrator's hand-resolved conflict in
+   `app/api/coach/chat/route.ts` (delta-reviewed).
+4. **Process: review records re-posted on patch-id equality.** After `update-branch`, the
+   orchestrator re-posted records for a new head when `git patch-id --stable` of the PR
+   diff matched the reviewed one. It is not a `ship-pr` rule; decide whether to codify it
+   (and where) or to forbid it.
+5. **#573 - a change to stored session times.** `gh pr diff 573`. `finishedAt` is set to the
+   last set's time when Finish comes more than 30 minutes later, which feeds durations in
+   history, stats and the coach.
+
+**Trust the gate (lower risk):** #572 (CSV import parsing, preview counts), #577 (client-side
+canvas, nothing uploaded, no dependency), #578 (print sheet and display text), the message
+catalogs, the docs here.

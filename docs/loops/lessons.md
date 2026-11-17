@@ -1019,3 +1019,16 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   origin/main..HEAD`) and resumes from what is committed there. This extends L11, which
   covered the dead agent as a possible second writer.
 - **Status:** graduated -> `06-orchestration.md` ("Relaunch after a crashed tick").
+
+### L59 - Launch a workflow from a git checkout, not from the scratchpad
+- **Trigger:** 2026-11-17, batch #571. The first launch of the workflow that split the
+  batch into four parallel worktree tracks failed at once: the session's working
+  directory was its scratchpad, which is not a git repository, so the agents' worktree
+  isolation had nothing to branch from and no track started. Relaunched from the main
+  checkout, the same workflow ran all four tracks. Nothing was lost, only the launch.
+- **Lesson:** worktree isolation creates each agent's worktree from the repository of the
+  launching session's working directory. Before starting a workflow or isolated agents,
+  make sure that directory is the repository (`git rev-parse --show-toplevel`); keep
+  scratch files in the scratchpad by absolute path instead of `cd`-ing into it.
+- **Status:** graduated -> `06-orchestration.md` ("Concurrent ticks", the confirmed
+  pattern paragraph).

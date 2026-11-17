@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Health endpoint and container healthcheck: `GET /api/health` needs no login and
+  answers `200 {"status":"ok"}` when the database answers a trivial query within
+  two seconds, `503 {"status":"unavailable"}` otherwise, with no version,
+  configuration or error detail in the body. The production image declares a
+  `HEALTHCHECK` on it and the `app` service of `docker-compose.selfhost.yml` and
+  `docker-compose.prod.yml` repeats it, so `docker compose ps` shows the app as
+  healthy; the probe runs with the image's own `node`, no curl or wget is added
+  (#580, part of #576).
+- Heart rate per set from an attached watch file: when a FIT, TCX or GPX
+  recording is attached to a session, its heart rate is split over the logged
+  sets (from the previous set's log time, or the session start, to the set's own
+  log time) and each set shows its average and peak in the session page of
+  History ("HR avg/peak", 11 locales). The coach receives the two values per set
+  and the JSON backup carries them (format version 13). They live in two new columns,
+  so the heart rate logged on a cardio set and the conditioning numbers are
+  untouched, and removing the file clears exactly what it wrote. Also fixed: the
+  session peak is read from every sample of the file, not from the downsampled
+  stored curve, which could miss it on a long recording (#579, part 1 of #576).
+- Share a workout as an image: a finished session in the history has a "Share
+  as image" button that draws a 1080x1350 summary card in the browser (date,
+  workout name, duration, total volume in your unit, session heart rate when
+  present, up to 8 exercises with their best set or cardio total) and opens the
+  system share sheet, or downloads the PNG where sharing files is not
+  supported. Nothing is uploaded and there is no new dependency (#577, part
+  of #576).
 - **Attach a watch file to a session.** The page of a session in History has
   an "Attach a watch file" action: pick the FIT, TCX or GPX recording of that
   workout and its average heart rate, peak heart rate and heart rate curve are
@@ -242,6 +267,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Cardio leftovers from #558: on the print sheet a cardio exercise now has a
+  duration box and a distance box, with its target pre-printed when set, instead
+  of weight, reps and RIR boxes. The target text ("20 min", "20 min · 5 km") is
+  written in the reader's language in all 11 locales (unit names and decimal
+  mark), in the program editor, the workout card and the print sheet; the coach
+  payload keeps plain numbers. The distance of a cardio target follows the unit
+  the set logger uses through one shared rule (kilometers for every user today;
+  storage stays in meters) (#578, part 4 of #576).
+- A session finished late ends at its last set: when Finish is tapped more than
+  30 minutes after the last logged set (hours later, or the next morning),
+  `finishedAt` is the time of that set instead of the time of the tap, so the
+  duration in the history, the stats and the coach payload is the real one. A
+  prompt finish and a session without sets still end at the tap (#573, part
+  of #571).
+- A failed AI provider call now says what went wrong and what to do: rejected
+  API key (with the variable to check), rate limit or credits, model or request
+  refused, provider outage, timeout, answer cut off, or missing setting. The
+  coach debrief, the chat, program generation and "Parse with AI" return a
+  stable `code` (`ai_invalid_key`, `ai_quota`, ...) with a `502`/`503`/`504`
+  status instead of the provider's own status and text, the UI shows the message
+  in all 11 languages, and the server log keeps only the class and the upstream
+  status (#575, part 4 of #571).
+- A reasoning model that opens its answer with a `<think>...</think>` block
+  (also `<thinking>`, `<reasoning>`) no longer breaks program generation, the
+  AI set parse or the coach's proposed adjustments, and the block is no longer
+  shown or stored in the weekly debrief and the coach chat, where it is held
+  back until it closes. Only leading blocks are removed; a block that never
+  closes counts as no answer (#574, part of #571).
+- The Strong import reads the warm-up (`W`), failure (`F`) and drop set (`D`)
+  markers of the Set Order column instead of rejecting those lines: a warm-up
+  or drop set keeps its flag, and the sets of that exercise are numbered in
+  file order. Rest Timer and Note rows are skipped with a count in the preview
+  instead of being reported as unreadable or imported as a cardio set (#572,
+  part of #571).
 - Program editor: a cardio exercise added before cardio targets existed can be
   edited again without typing a duration (it keeps its neutral cardio label),
   and "Pair with previous" and "Unpair" wait while a new exercise order is
