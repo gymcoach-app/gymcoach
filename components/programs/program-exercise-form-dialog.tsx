@@ -210,9 +210,18 @@ export function ProgramExerciseFormDialog(props: Props) {
   async function onSubmit(values: ProgramExerciseInput) {
     // The cardio target is validated here, not by the form schema: its two
     // fields are typed in minutes and kilometers and only exist for a cardio
-    // exercise. Duration is required, distance optional.
+    // exercise. Duration is required, distance optional. One exception: a
+    // cardio row saved before targets existed has none, and it can still be
+    // edited (its notes, say) with both fields left empty; no target is sent
+    // and the row keeps reading as cardio without a target.
     let cardioTarget: { targetDurationSec?: number; targetDistanceM?: number | null } = {};
-    if (isCardio) {
+    const untouchedLegacyCardio =
+      props.mode === 'edit' &&
+      props.programExercise.targetDurationSec == null &&
+      values.exerciseId === props.programExercise.exerciseId &&
+      durationMin.trim() === '' &&
+      distanceKm.trim() === '';
+    if (isCardio && !untouchedLegacyCardio) {
       setCardioSubmitted(true);
       if (durationSec === null || distanceM === undefined) return;
       cardioTarget = { targetDurationSec: durationSec, targetDistanceM: distanceM };

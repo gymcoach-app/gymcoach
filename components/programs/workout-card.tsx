@@ -289,12 +289,17 @@ export function WorkoutCard({ workout, catalog }: Props) {
                     programExercise={pe}
                     catalog={workoutExerciseChoices(catalog, workoutExerciseIds, pe.exerciseId)}
                     supersetLabel={supersetView.labels.get(pe.id) ?? null}
+                    // Pairing reads the neighbours on screen, so it waits
+                    // while a new order is being saved: a failed save puts
+                    // the old order back.
                     onPairWithPrevious={
-                      index > 0 && !alreadyPairedWithPrevious
+                      !savingOrder && index > 0 && !alreadyPairedWithPrevious
                         ? () => handlePairWithPrevious(index)
                         : null
                     }
-                    onUnpair={pe.supersetGroup != null ? () => handleUnpair(pe) : null}
+                    onUnpair={
+                      !savingOrder && pe.supersetGroup != null ? () => handleUnpair(pe) : null
+                    }
                     onMoveUp={!savingOrder && blockIndex > 0 ? () => handleMove(pe, 'up') : null}
                     onMoveDown={
                       !savingOrder && blockIndex < blocks.length - 1
