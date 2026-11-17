@@ -147,6 +147,8 @@ export const settings = {
       '{count, plural, one {# Kardio-Satz} other {# Kardio-Sätze}} (Dauer/Distanz) enthalten',
     cardioSkipped:
       '{count, plural, one {# Kardio-Zeile} other {# Kardio-Zeilen}} ohne nutzbare Dauer werden übersprungen',
+    nonSetRowsSkipped:
+      '{count, plural, one {# Pausentimer- oder Notizzeile (kein Satz) wird} other {# Pausentimer- oder Notizzeilen (keine Sätze) werden}} übersprungen',
     existingDates: 'Du hast bereits Einheiten an: {dates}',
     unreadable:
       '{count, plural, one {# Zeile konnte} other {# Zeilen konnten}} nicht gelesen werden und werden übersprungen:',

@@ -145,6 +145,8 @@ export const settings = {
       '{count, plural, one {# kardiyo seti} other {# kardiyo seti}} (süre/mesafe) dahil',
     cardioSkipped:
       'Kullanılabilir süresi olmayan {count, plural, one {# kardiyo satırı} other {# kardiyo satırı}} atlanacak',
+    nonSetRowsSkipped:
+      'Set olmayan {count, plural, one {# dinlenme sayacı veya not satırı} other {# dinlenme sayacı veya not satırı}} atlanacak',
     existingDates: 'Şu tarihlerde zaten seansın var: {dates}',
     unreadable:
       '{count, plural, one {# satır okunamadı ve atlanacak:} other {# satır okunamadı ve atlanacak:}}',
