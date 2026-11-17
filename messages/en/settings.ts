@@ -142,6 +142,8 @@ export const settings = {
       '{count, plural, one {# cardio set} other {# cardio sets}} (duration/distance) included',
     cardioSkipped:
       '{count, plural, one {# cardio row} other {# cardio rows}} without a usable duration will be skipped',
+    nonSetRowsSkipped:
+      '{count, plural, one {# rest timer or note row (not a set)} other {# rest timer or note rows (not sets)}} will be skipped',
     existingDates: 'You already have sessions on: {dates}',
     unreadable:
       '{count, plural, one {# line could} other {# lines could}} not be read and will be skipped:',

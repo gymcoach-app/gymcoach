@@ -147,6 +147,8 @@ export const settings = {
       '{count, plural, one {# serie cardio inclusa} other {# serie cardio incluse}} (durata/distanza)',
     cardioSkipped:
       '{count, plural, one {Verrà saltata # riga cardio} other {Verranno saltate # righe cardio}} senza una durata utilizzabile',
+    nonSetRowsSkipped:
+      '{count, plural, one {Verrà saltata # riga di timer di recupero o di nota (non è una serie)} other {Verranno saltate # righe di timer di recupero o di nota (non sono serie)}}',
     existingDates: 'Hai già sessioni in queste date: {dates}',
     unreadable:
       '{count, plural, one {# riga non è leggibile e verrà saltata:} other {# righe non sono leggibili e verranno saltate:}}',
