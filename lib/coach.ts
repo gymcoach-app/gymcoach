@@ -23,7 +23,8 @@ import {
 } from '@/lib/deload';
 import { COACH_SYSTEM_PROMPT } from '@/lib/prompts/coach-system-prompt';
 import { exerciseRecords, type ExerciseRecord } from '@/lib/records';
-import { getLlmProvider } from '@/lib/llm';
+import { getLlmProvider, LlmError } from '@/lib/llm';
+import { stripLeadingReasoning } from '@/lib/llm/reasoning';
 import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 import { coachCardioTarget } from '@/lib/cardio-target';
 
@@ -1069,5 +1070,13 @@ export async function callCoach(payload: CoachPayload): Promise<CoachCompletion>
     maxTokens: 8000,
   });
 
-  return { markdown: text, modelUsed, promptText: userMessage };
+  // A reasoning model may open its answer with a <think> block: it is not part
+  // of the debrief and must not be stored or shown. Nothing after it (or a
+  // block that never closes) is an empty answer, as the providers report one.
+  const markdown = stripLeadingReasoning(text);
+  if (!markdown.trim()) {
+    throw new LlmError(502, 'Empty response from the coach.');
+  }
+
+  return { markdown, modelUsed, promptText: userMessage };
 }

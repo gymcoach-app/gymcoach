@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { getLlmProvider, LlmError } from '@/lib/llm';
+import { stripLeadingReasoningStream } from '@/lib/llm/reasoning';
 import { buildCoachPayload, buildCurrentSessionContext } from '@/lib/coach';
 import { CHAT_SYSTEM_PROMPT } from '@/lib/prompts/chat-system-prompt';
 import { deriveConversationTitle } from '@/lib/chat';
@@ -83,12 +84,17 @@ export async function POST(req: Request) {
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          for await (const chunk of provider.stream({
-            system,
-            messages: llmMessages,
-            maxTokens: 4096,
-            temperature: 0.5,
-          })) {
+          // A leading <think> block of a reasoning model is held back until
+          // it closes: it is neither streamed to the reader nor stored.
+          const answer = stripLeadingReasoningStream(
+            provider.stream({
+              system,
+              messages: llmMessages,
+              maxTokens: 4096,
+              temperature: 0.5,
+            }),
+          );
+          for await (const chunk of answer) {
             assistant += chunk;
             controller.enqueue(encoder.encode(chunk));
           }

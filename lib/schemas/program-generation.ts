@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stripLeadingReasoning } from '@/lib/llm/reasoning';
 import {
   EquipmentType,
   MuscleGroup,
@@ -65,8 +66,11 @@ export type GeneratedWorkout = z.infer<typeof generatedWorkoutSchema>;
 export type GeneratedProgram = z.infer<typeof generatedProgramSchema>;
 
 // Pulls a JSON object out of a model response: tolerates code fences and
-// surrounding prose by slicing from the first '{' to the last '}'.
-export function extractJsonObject(text: string): string | null {
+// surrounding prose by slicing from the first '{' to the last '}'. A leading
+// reasoning block (<think>...</think>) is dropped first, so a brace or a fence
+// in the model's thinking is not taken for the answer.
+export function extractJsonObject(rawText: string): string | null {
+  const text = stripLeadingReasoning(rawText);
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = fenced?.[1] ?? text;
   const start = body.indexOf('{');
