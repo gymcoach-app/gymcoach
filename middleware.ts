@@ -4,12 +4,15 @@ import { verifySession, SESSION_COOKIE } from '@/lib/auth';
 // Routes reachable without a valid session.
 // /api/auth/logout is public: replaying it without a cookie does nothing
 // harmful and lets the client clear state even if the JWT has expired.
+// /api/health is the container and uptime probe (exact path only): it answers
+// a fixed ok/unavailable body and nothing else.
 const PUBLIC_PATHS = new Set([
   '/login',
   '/signup',
   '/mcp',
   '/mcp/health',
   '/api/locale',
+  '/api/health',
   '/api/auth/login',
   '/api/auth/register',
   '/api/auth/logout',

@@ -101,7 +101,10 @@ jobs:
       # the probe below registers a user, which fails on an unmigrated database.
       - name: Start the app (image defaults - the entrypoint migrates, then the server starts)
         run: |
+          # The image's own HEALTHCHECK command runs, only more often than its
+          # 30 s default so the health step below does not wait on the clock.
           docker run -d --name smoke-app --network smoke -p 3000:3000 \
+            --health-interval 5s \
             -e DATABASE_URL=postgresql://gymcoach:gymcoach@smoke-db:5432/gymcoach \
             -e JWT_SECRET=docker-smoke-ci-secret-at-least-32-characters \
             gymcoach:smoke
@@ -146,6 +149,42 @@ jobs:
             exit 1
           fi
           echo "POST /api/auth/login -> 200"
+      - name: Health endpoint and container healthcheck
+        run: |
+          set -u
+          # Unauthenticated, exact body, nothing else in it.
+          code=$(curl -s --max-time 10 -o /tmp/health.json -w '%{http_code}' http://localhost:3000/api/health)
+          body=$(cat /tmp/health.json)
+          if [ "$code" != "200" ] || [ "$body" != '{"status":"ok"}' ]; then
+            echo "GET /api/health -> $code $body" >&2
+            exit 1
+          fi
+          echo "GET /api/health -> 200 $body"
+
+          # The image HEALTHCHECK (node /app/healthcheck.cjs, no curl in the
+          # image) must turn the container healthy.
+          status=unknown
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' smoke-app 2>/dev/null || echo unknown)
+            if [ "$status" = "healthy" ]; then break; fi
+            sleep 2
+          done
+          if [ "$status" != "healthy" ]; then
+            echo "smoke-app never became healthy (last status: $status)" >&2
+            docker inspect -f '{{json .State.Health}}' smoke-app >&2 || true
+            exit 1
+          fi
+          echo "smoke-app is healthy"
+
+          # Database gone: 503 with the fixed body, and no detail about why.
+          docker stop smoke-db >/dev/null
+          code=$(curl -s --max-time 10 -o /tmp/health.json -w '%{http_code}' http://localhost:3000/api/health)
+          body=$(cat /tmp/health.json)
+          if [ "$code" != "503" ] || [ "$body" != '{"status":"unavailable"}' ]; then
+            echo "GET /api/health without a database -> $code $body" >&2
+            exit 1
+          fi
+          echo "GET /api/health without a database -> 503 $body"
       - name: Container logs (on failure)
         if: failure()
         run: |

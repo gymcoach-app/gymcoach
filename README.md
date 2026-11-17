@@ -478,6 +478,12 @@ The image applies the Prisma migrations itself each time it starts, so there is
 no separate migration step. Setups that migrate separately can turn that off
 with `SKIP_DB_MIGRATE=true` (see [docs/self-hosting.md](docs/self-hosting.md)).
 
+The image and both compose files carry a container healthcheck on
+`GET /api/health`, an unauthenticated endpoint that answers `200 {"status":"ok"}`
+when the database responds and `503 {"status":"unavailable"}` otherwise, with
+nothing else in the body. Point a reverse proxy or an uptime monitor at it
+([details](docs/self-hosting.md#health-endpoint-and-container-healthcheck)).
+
 ### Pulling the prebuilt image
 
 Every `main` commit whose CI run is green publishes a linux/amd64 image to
