@@ -1,4 +1,13 @@
+import { classifyProviderFailure } from './errors';
 import { LlmError, type LlmCompletionRequest, type LlmCompletionResult } from './types';
+import type { LlmFailureClass } from './error-codes';
+
+// A fetch that rejects never got an HTTP answer, so when the error shape is
+// not recognised the failure is still a network one.
+function networkFailureClass(err: unknown): LlmFailureClass {
+  const found = classifyProviderFailure(err).class;
+  return found === 'unknown' ? 'timeout' : found;
+}
 
 // Shared client for the OpenAI Chat Completions wire format (request body,
 // response shape and SSE stream). OpenRouter and the generic
@@ -47,7 +56,7 @@ export function resolveMaxTokensWithFloor(
 interface ChatCompletionsResponse {
   model?: string;
   choices?: Array<{ message?: { role: string; content: string }; finish_reason?: string }>;
-  error?: { message?: unknown; code?: number | string };
+  error?: { message?: unknown; code?: number | string; type?: unknown };
 }
 
 // Parses one SSE line of a Chat Completions stream. Returns the text delta, or
@@ -121,6 +130,7 @@ async function post(
         err instanceof Error ? err.message : 'unknown',
         endpoint.secrets,
       )}`,
+      networkFailureClass(err),
     );
   }
 
@@ -133,6 +143,7 @@ async function post(
       502,
       `${sentence(endpoint.label)} answered with a redirect, which is not followed.` +
         (endpoint.redirectHint ? ` ${endpoint.redirectHint}` : ''),
+      'not_configured',
     );
   }
 
@@ -141,6 +152,7 @@ async function post(
     throw new LlmError(
       res.status,
       `${sentence(endpoint.label)} ${res.status}: ${redact(text, endpoint.secrets).slice(0, 500)}`,
+      classifyProviderFailure({ status: res.status, body: text.slice(0, 2000) }).class,
     );
   }
   return res;
@@ -156,12 +168,23 @@ export async function completeChat(
   try {
     json = (await res.json()) as ChatCompletionsResponse;
   } catch {
-    throw new LlmError(502, `${sentence(endpoint.label)} returned a response that is not JSON.`);
+    throw new LlmError(
+      502,
+      `${sentence(endpoint.label)} returned a response that is not JSON.`,
+      'unknown',
+    );
   }
   if (json.error) {
     throw new LlmError(
       502,
       `${sentence(endpoint.label)}: ${redact(errorText(json.error.message), endpoint.secrets).slice(0, 500)}`,
+      // OpenRouter answers 200 with the real status in error.code.
+      classifyProviderFailure({
+        status: typeof json.error.code === 'number' ? json.error.code : undefined,
+        code: typeof json.error.code === 'string' ? json.error.code : undefined,
+        type: json.error.type,
+        message: typeof json.error.message === 'string' ? json.error.message : undefined,
+      }).class,
     );
   }
   const choice = json.choices?.[0];
@@ -171,10 +194,11 @@ export async function completeChat(
       502,
       'The coach response was cut off: the model hit its output token budget ' +
         `(reasoning models count their thinking against it). Raise ${endpoint.maxTokensEnvVar} or retry.`,
+      'truncated',
     );
   }
   if (!text) {
-    throw new LlmError(502, 'Empty response from the coach.');
+    throw new LlmError(502, 'Empty response from the coach.', 'model');
   }
   return { text, modelUsed: json.model ?? endpoint.model };
 }
@@ -185,7 +209,7 @@ export async function* streamChat(
 ): AsyncIterable<string> {
   const res = await post(endpoint, req, true);
   if (!res.body) {
-    throw new LlmError(502, `${sentence(endpoint.label)} returned no response body.`);
+    throw new LlmError(502, `${sentence(endpoint.label)} returned no response body.`, 'unknown');
   }
 
   const reader = res.body.getReader();

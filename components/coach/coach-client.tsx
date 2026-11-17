@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { extractAdjustments, type Adjustment } from '@/lib/coach-adjustments';
+import { aiErrorMessage, type AiErrorFields } from '@/lib/ai-error-message';
 import { CoachAdjustments } from './coach-adjustments';
 
 interface DebriefItem {
@@ -46,6 +47,7 @@ export function CoachClient({
   const format = useFormatter();
   const formatDate = (iso: string) =>
     format.dateTime(new Date(iso), { day: '2-digit', month: 'long', year: 'numeric' });
+  const common = useTranslations('common');
   const [history, setHistory] = useState(initialHistory);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,8 +64,9 @@ export function CoachClient({
         throw new Error(t('client.tooManyDebriefs'));
       }
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? `Error ${res.status}`);
+        const j = (await res.json().catch(() => ({}))) as { error?: string } & AiErrorFields;
+        // A provider failure carries a stable code: show its translation.
+        throw new Error(aiErrorMessage(common, j) ?? j.error ?? `Error ${res.status}`);
       }
       const j = (await res.json()) as { id: string; response: string; createdAt: string };
       const newItem: DebriefItem = {

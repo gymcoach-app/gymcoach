@@ -4,6 +4,7 @@ import { handleApiError, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { buildCoachPayload, callCoach } from '@/lib/coach';
 import { LlmError } from '@/lib/llm';
+import { aiErrorResponse } from '@/lib/ai-error-response';
 import { isoWeekStart } from '@/lib/stats';
 
 // POST /api/coach: generates a new debrief for the current week.
@@ -53,7 +54,9 @@ export async function POST() {
     });
   } catch (err) {
     if (err instanceof LlmError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      // The provider's own text stays on the server: the client gets the
+      // failure class as a stable code plus a short message (issue #571).
+      return aiErrorResponse('coach debrief', err);
     }
     return handleApiError(err);
   }

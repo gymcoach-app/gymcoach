@@ -53,7 +53,11 @@ export async function generateProgram(userId: string, goal: string): Promise<Gen
 
   const parsed = parseGeneratedProgram(text);
   if (!parsed.ok) {
-    throw new LlmError(502, `The generated program could not be parsed: ${parsed.error}`);
+    throw new LlmError(
+      502,
+      `The generated program could not be parsed: ${parsed.error}`,
+      'model',
+    );
   }
   return parsed.program;
 }

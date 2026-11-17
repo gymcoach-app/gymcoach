@@ -144,6 +144,37 @@ describe('AnthropicProvider', () => {
     ).rejects.toMatchObject({ status: 429 });
   });
 
+  it('tags the LlmError with the failure class (issue #571)', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    const ApiErrorCtor = AnthropicMock.APIError as unknown as new (
+      status: number | undefined,
+      message: string,
+    ) => Error;
+    const p = new AnthropicProvider();
+    const request = { system: 'S', messages: [{ role: 'user' as const, content: 'x' }] };
+    const cases = [
+      [new ApiErrorCtor(401, '401 invalid x-api-key'), 'invalid_key'],
+      [new ApiErrorCtor(429, '429 rate limited'), 'quota'],
+      [new ApiErrorCtor(404, '404 model: nope'), 'model'],
+      [new ApiErrorCtor(529, '529 Overloaded'), 'outage'],
+      [new ApiErrorCtor(undefined, 'Connection error.'), 'timeout'],
+      [new Error('something unexpected'), 'unknown'],
+    ] as const;
+    for (const [thrown, failure] of cases) {
+      createMock.mockRejectedValueOnce(thrown);
+      await expect(p.complete(request), failure).rejects.toMatchObject({ failure });
+    }
+
+    createMock.mockResolvedValueOnce({ model: 'm', content: [] });
+    await expect(p.complete(request)).rejects.toMatchObject({ failure: 'model' });
+
+    delete process.env.ANTHROPIC_API_KEY;
+    await expect(new AnthropicProvider().complete(request)).rejects.toMatchObject({
+      status: 503,
+      failure: 'not_configured',
+    });
+  });
+
   it('throws 502 on an empty response', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-test';
     createMock.mockResolvedValue({ model: 'm', content: [] });

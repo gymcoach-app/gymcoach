@@ -1,4 +1,4 @@
-import { getLlmProvider } from '@/lib/llm';
+import { getLlmProvider, LlmError } from '@/lib/llm';
 import { SET_PARSE_SYSTEM_PROMPT } from '@/lib/prompts/set-parse-prompt';
 import {
   parseSetDescription,
@@ -11,6 +11,9 @@ import {
 // against the set-parse schema. Returns the typed parse or null on any failure
 // (no JSON, junk, refusal, out-of-range, wrong kind, or a provider error) so the
 // caller fills nothing - it never throws and never logs garbage.
+// aiParseSetWithFailure also hands back the provider error, when that is why
+// nothing was parsed, so the route can tell the user the provider is the
+// problem and not their text (issue #571).
 export interface SetParseContext {
   exerciseName: string;
   kind: 'strength' | 'cardio';
@@ -19,12 +22,25 @@ export interface SetParseContext {
   unit: 'KG' | 'LB';
 }
 
+export interface SetParseAttempt {
+  parsed: SetParseResult | null;
+  // Set only when the provider call itself failed.
+  providerError: LlmError | null;
+}
+
 export async function aiParseSet(
   text: string,
   ctx: SetParseContext,
 ): Promise<SetParseResult | null> {
+  return (await aiParseSetWithFailure(text, ctx)).parsed;
+}
+
+export async function aiParseSetWithFailure(
+  text: string,
+  ctx: SetParseContext,
+): Promise<SetParseAttempt> {
   const trimmed = typeof text === 'string' ? text.trim() : '';
-  if (!trimmed) return null;
+  if (!trimmed) return { parsed: null, providerError: null };
 
   const userMessage = [
     `Exercise: ${ctx.exerciseName}`,
@@ -43,11 +59,11 @@ export async function aiParseSet(
       temperature: 0,
     });
     responseText = out;
-  } catch {
+  } catch (err) {
     // A provider/network error degrades to "could not parse" - never a crash.
-    return null;
+    return { parsed: null, providerError: err instanceof LlmError ? err : null };
   }
 
   const outcome = parseSetDescription(responseText, ctx.kind);
-  return outcome.ok ? outcome.value : null;
+  return { parsed: outcome.ok ? outcome.value : null, providerError: null };
 }

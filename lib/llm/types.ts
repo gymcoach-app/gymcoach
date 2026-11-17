@@ -5,6 +5,8 @@
 // any OpenAI-compatible Chat Completions server, and the local demo provider. The active provider is selected at runtime
 // from the LLM_PROVIDER env var (see ./index).
 
+import type { LlmFailureClass } from './error-codes';
+
 export interface LlmMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -27,11 +29,15 @@ export interface LlmCompletionResult {
   modelUsed: string;
 }
 
-// Carries an HTTP-ish status so API routes can surface a meaningful code.
+// Carries the upstream HTTP-ish status and, when the throw site knows it, the
+// failure class (see ./errors). The message is for the server side only: it
+// can hold an upstream body, so routes never send it to the client. They send
+// the class message built by describeLlmFailure instead.
 export class LlmError extends Error {
   constructor(
     public status: number,
     message: string,
+    public failure?: LlmFailureClass,
   ) {
     super(message);
     this.name = 'LlmError';

@@ -97,4 +97,16 @@ export const common = {
   errors: {
     generic: '发生错误，请重试。',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey: 'AI 服务商拒绝了 API 密钥。请检查 .env 中的 {variable} 并重启。',
+    quota: 'AI 服务商拒绝了请求：已达到速率限制或额度已用完。请稍后重试，或检查服务商账户的额度。',
+    model: 'AI 模型拒绝了请求，或返回了无法使用的回答。请检查 {variable} 中的模型名称，或换一个模型。',
+    outage: 'AI 服务商暂时不可用，请稍后重试。',
+    timeout: 'AI 服务商未及时响应或无法连接，请重试。',
+    truncated: 'AI 的回答被截断：模型的输出令牌已用完。请调高 {variable} 或重试。',
+    notConfigured: 'AI 服务商配置不正确。请检查 .env 中的 {variable} 并重启。',
+    unknown: 'AI 请求失败。请重试；如果仍然失败，请查看服务器日志。',
+  },
 } satisfies MessageShape<typeof english>;

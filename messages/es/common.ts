@@ -97,4 +97,22 @@ export const common = {
   errors: {
     generic: 'Algo salió mal. Inténtalo de nuevo.',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey:
+      'El proveedor de IA rechazó la clave de API. Revisa {variable} en tu .env y reinicia.',
+    quota:
+      'El proveedor de IA rechazó la solicitud: límite de uso alcanzado o créditos agotados. Espera un momento y vuelve a intentarlo, o revisa los créditos de tu cuenta del proveedor.',
+    model:
+      'El modelo de IA rechazó la solicitud o devolvió una respuesta que no se pudo usar. Revisa el nombre del modelo en {variable} o elige otro modelo.',
+    outage: 'El proveedor de IA no está disponible en este momento. Inténtalo más tarde.',
+    timeout: 'El proveedor de IA no respondió a tiempo o no se pudo contactar. Inténtalo de nuevo.',
+    truncated:
+      'La respuesta de la IA quedó cortada: el modelo se quedó sin tokens de salida. Aumenta {variable} o inténtalo de nuevo.',
+    notConfigured:
+      'El proveedor de IA no está bien configurado. Revisa {variable} en tu .env y reinicia.',
+    unknown:
+      'La solicitud a la IA falló. Inténtalo de nuevo; si sigue fallando, revisa el registro del servidor.',
+  },
 } satisfies MessageShape<typeof english>;

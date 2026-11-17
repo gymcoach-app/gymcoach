@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
-import { aiParseSet } from '@/lib/set-parse';
+import { aiParseSetWithFailure } from '@/lib/set-parse';
+import { aiErrorResponse } from '@/lib/ai-error-response';
 
 // Opt-in "Parse with AI" for free-text set logging (issue #210). Parses ONE set
 // description into the form fields for the user to confirm - it NEVER logs a set
@@ -16,8 +17,10 @@ const bodySchema = z.object({
 });
 
 // POST /api/sets/parse -> { parsed: SetParseResult | null }. A null `parsed`
-// (junk, refusal, out-of-range model output, or a provider error) is a normal
-// 200 response, not an error: the client simply fills nothing and shows a hint.
+// (junk, refusal, out-of-range model output) is a normal 200 response, not an
+// error: the client simply fills nothing and shows a hint. A provider call
+// that failed (bad key, quota, outage, timeout) is a 5xx with
+// { error, code, variable? } so the hint can say what to fix (issue #571).
 export async function POST(req: Request) {
   try {
     const userId = await requireApiUserId();
@@ -46,12 +49,13 @@ export async function POST(req: Request) {
       throw new ApiError(404, 'Exercise not found.');
     }
 
-    const parsed = await aiParseSet(text, {
+    const { parsed, providerError } = await aiParseSetWithFailure(text, {
       exerciseName: exercise.name,
       kind: exercise.category === 'CARDIO' ? 'cardio' : 'strength',
       unit: user?.unit ?? 'KG',
     });
 
+    if (providerError) return aiErrorResponse('set parse', providerError);
     return NextResponse.json({ parsed });
   } catch (err) {
     return handleApiError(err);

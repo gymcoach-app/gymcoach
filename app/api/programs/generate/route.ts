@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { LlmError } from '@/lib/llm';
+import { aiErrorResponse } from '@/lib/ai-error-response';
 import { rateLimit } from '@/lib/rate-limit';
 import { generateProgram } from '@/lib/program-generation';
 
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ program });
   } catch (err) {
     if (err instanceof LlmError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return aiErrorResponse('program generation', err);
     }
     return handleApiError(err);
   }

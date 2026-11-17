@@ -112,8 +112,10 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   private endpoint(): ChatCompletionsEndpoint {
-    if (!this.baseUrl.ok) throw new LlmError(503, this.baseUrl.reason);
-    if (!this.model) throw new LlmError(503, 'OPENAI_COMPATIBLE_MODEL is not configured.');
+    if (!this.baseUrl.ok) throw new LlmError(503, this.baseUrl.reason, 'not_configured');
+    if (!this.model) {
+      throw new LlmError(503, 'OPENAI_COMPATIBLE_MODEL is not configured.', 'not_configured');
+    }
     return {
       label: 'the model server',
       url: `${this.baseUrl.url}/chat/completions`,

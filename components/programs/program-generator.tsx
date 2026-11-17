@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Loader2, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { GeneratedProgram } from '@/lib/schemas/program-generation';
+import { aiErrorMessage, type AiErrorFields } from '@/lib/ai-error-message';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -49,8 +50,9 @@ export function ProgramGenerator() {
         body: JSON.stringify({ goal }),
       });
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? `Error ${res.status}`);
+        const j = (await res.json().catch(() => ({}))) as { error?: string } & AiErrorFields;
+        // A provider failure carries a stable code: show its translation.
+        throw new Error(aiErrorMessage(common, j) ?? j.error ?? `Error ${res.status}`);
       }
       const j = (await res.json()) as { program: Draft };
       setDraft(j.program);

@@ -51,7 +51,7 @@ export class OpenRouterProvider implements LlmProvider {
 
   private endpoint(): ChatCompletionsEndpoint {
     if (!this.apiKey) {
-      throw new LlmError(503, 'OPENROUTER_API_KEY is not configured.');
+      throw new LlmError(503, 'OPENROUTER_API_KEY is not configured.', 'not_configured');
     }
     return {
       label: 'OpenRouter',

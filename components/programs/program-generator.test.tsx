@@ -113,3 +113,42 @@ describe('ProgramGenerator effort target', () => {
     expect(await savedRir(fetchMock)).toBe(1);
   });
 });
+
+// Issue #571: a provider failure carries a stable code; the message shown is
+// its translation, with the environment variable to check.
+describe('ProgramGenerator provider failure', () => {
+  function generateWith(body: unknown, status: number) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(body, { status })),
+    );
+    render(
+      <EffortScaleProvider scale="RIR">
+        <ProgramGenerator />
+      </EffortScaleProvider>,
+    );
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Hypertrophy, four sessions a week' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+  }
+
+  it('shows the translated message for the code', async () => {
+    generateWith(
+      { error: 'server English text', code: 'ai_model', variable: 'OPENROUTER_MODEL' },
+      502,
+    );
+    expect(
+      await screen.findByText(
+        'The AI model rejected the request or returned an answer that could not be used. ' +
+          'Check the model name in OPENROUTER_MODEL, or pick another model.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText('server English text')).toBeNull();
+  });
+
+  it('still shows the server message of an error without a code', async () => {
+    generateWith({ error: 'Describe your goal in a bit more detail.' }, 400);
+    expect(await screen.findByText('Describe your goal in a bit more detail.')).toBeTruthy();
+  });
+});

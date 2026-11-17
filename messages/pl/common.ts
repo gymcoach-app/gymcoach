@@ -102,4 +102,23 @@ export const common = {
   errors: {
     generic: 'Coś poszło nie tak. Spróbuj ponownie.',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey:
+      'Dostawca AI odrzucił klucz API. Sprawdź {variable} w pliku .env i uruchom ponownie.',
+    quota:
+      'Dostawca AI odrzucił żądanie: osiągnięto limit lub wyczerpano środki. Odczekaj chwilę i spróbuj ponownie albo sprawdź środki na koncie u dostawcy.',
+    model:
+      'Model AI odrzucił żądanie lub zwrócił odpowiedź, której nie dało się użyć. Sprawdź nazwę modelu w {variable} albo wybierz inny model.',
+    outage: 'Dostawca AI jest teraz niedostępny. Spróbuj ponownie później.',
+    timeout:
+      'Dostawca AI nie odpowiedział na czas lub nie udało się z nim połączyć. Spróbuj ponownie.',
+    truncated:
+      'Odpowiedź AI została ucięta: modelowi zabrakło tokenów wyjściowych. Zwiększ {variable} albo spróbuj ponownie.',
+    notConfigured:
+      'Dostawca AI nie jest poprawnie skonfigurowany. Sprawdź {variable} w pliku .env i uruchom ponownie.',
+    unknown:
+      'Żądanie do AI nie powiodło się. Spróbuj ponownie; jeśli błąd się powtarza, sprawdź log serwera.',
+  },
 } satisfies MessageShape<typeof english>;

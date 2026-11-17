@@ -97,4 +97,22 @@ export const common = {
   errors: {
     generic: 'Er ging iets mis. Probeer het opnieuw.',
   },
+  // A failed AI provider call, by class (issue #571). {variable} is the name
+  // of an environment variable, never its value.
+  aiErrors: {
+    invalidKey:
+      'De AI-provider heeft de API-sleutel geweigerd. Controleer {variable} in je .env en start opnieuw.',
+    quota:
+      'De AI-provider heeft het verzoek geweigerd: limiet bereikt of tegoed op. Wacht even en probeer het opnieuw, of controleer het tegoed van je provideraccount.',
+    model:
+      'Het AI-model heeft het verzoek geweigerd of gaf een onbruikbaar antwoord. Controleer de modelnaam in {variable} of kies een ander model.',
+    outage: 'De AI-provider is op dit moment niet beschikbaar. Probeer het later opnieuw.',
+    timeout: 'De AI-provider antwoordde niet op tijd of was niet bereikbaar. Probeer het opnieuw.',
+    truncated:
+      'Het AI-antwoord is afgekapt: het model had geen uitvoertokens meer. Verhoog {variable} of probeer het opnieuw.',
+    notConfigured:
+      'De AI-provider is niet goed ingesteld. Controleer {variable} in je .env en start opnieuw.',
+    unknown:
+      'Het AI-verzoek is mislukt. Probeer het opnieuw; als het blijft mislukken, bekijk dan het serverlog.',
+  },
 } satisfies MessageShape<typeof english>;

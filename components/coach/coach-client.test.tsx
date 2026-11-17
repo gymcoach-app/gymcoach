@@ -50,4 +50,37 @@ describe('CoachClient debrief request', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Request a weekly debrief' }));
     expect(await screen.findByText('Provider unavailable.')).toBeTruthy();
   });
+
+  // Issue #571: a provider failure carries a stable code; the message shown is
+  // the translation of that code, not the English text of the response.
+  it('shows the translated message of a provider failure code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json(
+          { error: 'server English text', code: 'ai_invalid_key', variable: 'OPENROUTER_API_KEY' },
+          { status: 502 },
+        ),
+      ),
+    );
+    renderClient();
+    fireEvent.click(screen.getByRole('button', { name: 'Request a weekly debrief' }));
+    expect(
+      await screen.findByText(
+        'The AI provider rejected the API key. Check OPENROUTER_API_KEY in your .env and restart.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText('server English text')).toBeNull();
+  });
+
+  it('shows the quota message for a provider rate limit, not the debrief rate-limit one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'x', code: 'ai_quota' }, { status: 503 })),
+    );
+    renderClient();
+    fireEvent.click(screen.getByRole('button', { name: 'Request a weekly debrief' }));
+    expect(await screen.findByText(/rate limit reached or credits used up/)).toBeTruthy();
+    expect(screen.queryByText('You have requested too many debriefs. Try again later.')).toBeNull();
+  });
 });

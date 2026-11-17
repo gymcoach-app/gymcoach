@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { aiErrorMessage, type AiErrorFields } from '@/lib/ai-error-message';
 import { Check, Minus, Plus } from 'lucide-react';
 import type { Exercise, ProgramExercise, WeightUnit } from '@/lib/prisma-client';
 import {
@@ -222,7 +223,10 @@ export function SetInput({
         body: JSON.stringify({ exerciseId: programExercise.exercise.id, text }),
       });
       if (!res.ok) {
-        setAiHint(t('parseError'));
+        // A provider failure carries a code: say what to fix instead of
+        // blaming the text.
+        const failure = (await res.json().catch(() => ({}))) as AiErrorFields;
+        setAiHint(aiErrorMessage(common, failure) ?? t('parseError'));
         return;
       }
       const data = (await res.json()) as { parsed: ParsedSetFill | null };
