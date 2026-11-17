@@ -17,6 +17,7 @@ const PREVIEW = {
   duplicatesSkipped: 0,
   cardioSets: 1,
   cardioSkipped: 1,
+  nonSetRowsSkipped: 3,
   errorCount: 1,
   errors: [{ line: 4, reason: 'Invalid or missing date.' }],
 };
@@ -63,6 +64,9 @@ describe('ImportSection', () => {
     expect(screen.getByText(/1 new exercise will be created/)).toBeInTheDocument();
     expect(screen.getByText(/1 cardio set \(duration\/distance\) included/)).toBeInTheDocument();
     expect(screen.getByText(/1 cardio row without a usable duration/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/3 rest timer or note rows \(not sets\) will be skipped/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/line 4: invalid or missing date/i)).toBeInTheDocument();
   });
 

@@ -147,6 +147,8 @@ export const settings = {
       '{count, plural, one {# serie de cardio incluida} other {# series de cardio incluidas}} (duración/distancia)',
     cardioSkipped:
       'Se {count, plural, one {omitirá # fila de cardio} other {omitirán # filas de cardio}} sin una duración utilizable',
+    nonSetRowsSkipped:
+      'Se {count, plural, one {omitirá # fila de temporizador de descanso o de nota (no es una serie)} other {omitirán # filas de temporizador de descanso o de nota (no son series)}}',
     existingDates: 'Ya tienes sesiones en estas fechas: {dates}',
     unreadable:
       '{count, plural, one {# línea no se pudo leer y se omitirá:} other {# líneas no se pudieron leer y se omitirán:}}',

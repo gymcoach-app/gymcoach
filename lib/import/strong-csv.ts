@@ -36,6 +36,11 @@ export interface StrongCsvRow {
   // meters (the #133 set model). Absent on strength rows.
   durationSec?: number;
   distanceM?: number | null;
+  // Set markers (issue #571): present (true) only on a row whose Set Order
+  // cell is 'W' (warm-up) or 'D' (drop set). Absent on every other row, so a
+  // plain numeric file produces the same rows as before.
+  isWarmup?: boolean;
+  isDropSet?: boolean;
 }
 
 export interface StrongCsvLineError {
@@ -54,6 +59,51 @@ export interface StrongCsvParseResult {
   // or out-of-bounds duration), skipped with a counted notice. Representable
   // cardio rows are imported as duration/distance sets since #133.
   cardioSkipped: number;
+  // Rows that are not sets at all (issue #571): Strong's 'Rest Timer' and
+  // 'Note' rows, skipped with a count instead of a per-line error.
+  nonSetSkipped: number;
+}
+
+// The 1..50 bound on a set's order, shared by the Zod schemas below and by
+// the renumbering of an exercise that carries a letter marker.
+const MAX_SET_ORDER = 50;
+
+// ------------------------------------------------------------
+// What the Set Order cell says about a row (issue #571)
+// ------------------------------------------------------------
+// Strong writes more than integers in Set Order:
+// - 'W' (warm-up), 'F' (failure) and, in some versions, 'D' (drop set) on a
+//   real set, in place of its number;
+// - 'Rest Timer' and 'Note' on rows that are not sets: a rest timer row
+//   carries the rest length in Seconds, a note row carries its text in Notes.
+//
+// The rule: the Set Order cell ALONE decides the kind of row (trimmed, case
+// and inner spacing ignored). Empty weight and reps are deliberately not used
+// as a signal: a rest timer row has Seconds > 0 and no reps, exactly the
+// shape of a cardio set, so it would be imported as a bogus cardio set of the
+// exercise it follows; and a real set with a blank Reps cell is a damaged
+// line the user should see as an error, not have silently dropped. Anything
+// else in the cell goes to Zod as before: an integer is kept, garbage (or a
+// marker this parser does not know) stays a per-line error.
+type SetOrderCell =
+  | { kind: 'number' }
+  | { kind: 'marker'; marker: 'W' | 'F' | 'D' }
+  | { kind: 'not-a-set' };
+
+function readSetOrderCell(cell: string | undefined): SetOrderCell {
+  switch (headerKey(cell ?? '')) {
+    case 'w':
+      return { kind: 'marker', marker: 'W' };
+    case 'f':
+      return { kind: 'marker', marker: 'F' };
+    case 'd':
+      return { kind: 'marker', marker: 'D' };
+    case 'rest timer':
+    case 'note':
+      return { kind: 'not-a-set' };
+    default:
+      return { kind: 'number' };
+  }
 }
 
 // Bounds mirror lib/schemas/set.ts so imported sets satisfy the same contract
@@ -62,7 +112,7 @@ const rowSchema = z.object({
   dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   workoutName: z.string().trim().min(1).max(200),
   exerciseName: z.string().trim().min(1).max(120),
-  setOrder: z.coerce.number().int().min(1).max(50),
+  setOrder: z.coerce.number().int().min(1).max(MAX_SET_ORDER),
   weightKg: z.coerce.number().min(0).max(500),
   reps: z.coerce.number().int().min(1).max(100),
 });
@@ -73,7 +123,7 @@ const cardioRowSchema = z.object({
   dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   workoutName: z.string().trim().min(1).max(200),
   exerciseName: z.string().trim().min(1).max(120),
-  setOrder: z.coerce.number().int().min(1).max(50),
+  setOrder: z.coerce.number().int().min(1).max(MAX_SET_ORDER),
   durationSec: z.number().int().min(1).max(MAX_DURATION_SEC),
   distanceM: z.number().min(0).max(MAX_DISTANCE_M).nullable(),
 });
@@ -173,6 +223,7 @@ export function parseStrongCsv(
     rows: [],
     errors: [],
     cardioSkipped: 0,
+    nonSetSkipped: 0,
   });
 
   if (text.length > STRONG_CSV_MAX_BYTES) {
@@ -201,10 +252,40 @@ export function parseStrongCsv(
   const rows: StrongCsvRow[] = [];
   const errors: StrongCsvLineError[] = [];
   let cardioSkipped = 0;
+  let nonSetSkipped = 0;
+  // Parallel to `rows`: the file line of each accepted row and whether its
+  // Set Order was a letter marker, for the renumbering pass below.
+  const rowLines: number[] = [];
+  const rowHasMarker: boolean[] = [];
 
   for (const record of dataRecords) {
     const get = (idx: number | null) =>
       idx === null ? undefined : record.fields[idx];
+
+    // Rest Timer / Note rows are not sets: counted and skipped before any
+    // other check, so they neither fail the line nor reach the cardio branch.
+    const setOrderCell = readSetOrderCell(get(map.setOrder));
+    if (setOrderCell.kind === 'not-a-set') {
+      nonSetSkipped++;
+      continue;
+    }
+    // A letter marker has no number of its own: it validates with a
+    // placeholder and gets its real order from its position (pass below).
+    const hasMarker = setOrderCell.kind === 'marker';
+    const setOrderInput = hasMarker ? 1 : get(map.setOrder);
+    // W maps to the Set model's warm-up flag, D to its drop-set flag. The
+    // model has no failure notion, so F is imported as a normal set.
+    const markerFlags =
+      setOrderCell.kind === 'marker' && setOrderCell.marker === 'W'
+        ? { isWarmup: true }
+        : setOrderCell.kind === 'marker' && setOrderCell.marker === 'D'
+          ? { isDropSet: true }
+          : {};
+    const accept = (row: StrongCsvRow) => {
+      rows.push({ ...row, ...markerFlags });
+      rowLines.push(record.line);
+      rowHasMarker.push(hasMarker);
+    };
 
     const dateKey = toDateKey(get(map.date) ?? '');
     if (!dateKey) {
@@ -241,7 +322,7 @@ export function parseStrongCsv(
         dateKey,
         workoutName: get(map.workoutName) ?? '',
         exerciseName: get(map.exerciseName) ?? '',
-        setOrder: get(map.setOrder),
+        setOrder: setOrderInput,
         durationSec: Math.round(seconds),
         distanceM,
       });
@@ -253,7 +334,7 @@ export function parseStrongCsv(
         });
         continue;
       }
-      rows.push({ ...cardioParsed.data, weightKg: 0, reps: 1 });
+      accept({ ...cardioParsed.data, weightKg: 0, reps: 1 });
       continue;
     }
 
@@ -264,7 +345,7 @@ export function parseStrongCsv(
       dateKey,
       workoutName: get(map.workoutName) ?? '',
       exerciseName: get(map.exerciseName) ?? '',
-      setOrder: get(map.setOrder),
+      setOrder: setOrderInput,
       weightKg,
       reps,
     });
@@ -276,8 +357,49 @@ export function parseStrongCsv(
       });
       continue;
     }
-    rows.push(parsed.data);
+    accept(parsed.data);
   }
 
-  return { ok: true, fatalError: null, rows, errors, cardioSkipped };
+  if (!rowHasMarker.includes(true)) {
+    return { ok: true, fatalError: null, rows, errors, cardioSkipped, nonSetSkipped };
+  }
+
+  // Renumbering pass (issue #571), only reached when the file has a letter
+  // marker. Strong numbers the working sets of an exercise on their own
+  // (W, W, 1, 2, 3), so giving a number to the marked rows alone would
+  // collide with the numbered ones: two sets with order 1, displayed in the
+  // wrong sequence, and collapsed as duplicates when weight and reps match.
+  // So every exercise of a workout (same day, workout name and exercise) that
+  // carries at least one marker is renumbered 1..n in file order, which keeps
+  // each set at the position it has in the export. An exercise without a
+  // marker keeps the numbers of the file untouched.
+  const groupKey = (row: StrongCsvRow) =>
+    `${row.dateKey}\u0000${row.workoutName}\u0000${row.exerciseName.toLowerCase()}`;
+  const markedGroups = new Set<string>();
+  rows.forEach((row, i) => {
+    if (rowHasMarker[i]) markedGroups.add(groupKey(row));
+  });
+  const nextOrder = new Map<string, number>();
+  const kept: StrongCsvRow[] = [];
+  rows.forEach((row, i) => {
+    const key = groupKey(row);
+    if (!markedGroups.has(key)) {
+      kept.push(row);
+      return;
+    }
+    const order = (nextOrder.get(key) ?? 0) + 1;
+    nextOrder.set(key, order);
+    if (order > MAX_SET_ORDER) {
+      errors.push({
+        line: rowLines[i]!,
+        reason: `setOrder: more than ${MAX_SET_ORDER} sets for one exercise in a workout.`,
+      });
+      return;
+    }
+    kept.push({ ...row, setOrder: order });
+  });
+  // Errors found by this pass come after the per-line ones: back to file order.
+  errors.sort((a, b) => a.line - b.line);
+
+  return { ok: true, fatalError: null, rows: kept, errors, cardioSkipped, nonSetSkipped };
 }
