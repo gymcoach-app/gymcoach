@@ -45,7 +45,7 @@ describe('scripts/healthcheck.cjs', () => {
       execFile(
         process.execPath,
         [script],
-        { env: { PATH: process.env.PATH, PORT: String(port) }, timeout: 15000 },
+        { env: { ...process.env, PORT: String(port) }, timeout: 15000 },
         (error) => resolve(error ? (typeof error.code === 'number' ? error.code : -1) : 0),
       );
     });
