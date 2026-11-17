@@ -9,7 +9,8 @@ export const sessionStartSchema = z.object({
 
 export const sessionUpdateSchema = z.object({
   notes: z.string().trim().max(2000).optional().nullable(),
-  // If true, sets finishedAt to now.
+  // If true, finishes the session: finishedAt is now, or the time of the last
+  // set when that set is more than 30 minutes old (lib/session-finish.ts).
   finish: z.boolean().optional(),
 });
 
