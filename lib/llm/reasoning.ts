@@ -62,7 +62,8 @@ function scan(text: string): Scan {
       return { state, rest: stripped ? body : rest, stripped };
     }
     const afterOpen = body.slice(open[0].length);
-    const close = CLOSE_TAG_RE[open[1].toLowerCase() as TagName].exec(afterOpen);
+    const name = (open[1] ?? 'think').toLowerCase() as TagName;
+    const close = CLOSE_TAG_RE[name].exec(afterOpen);
     if (!close) {
       return { state: 'open', rest: stripped ? body : rest, stripped };
     }
