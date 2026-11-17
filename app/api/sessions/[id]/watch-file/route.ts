@@ -24,6 +24,7 @@ const FAR_FROM_SESSION_MS = 6 * 60 * 60 * 1000;
 // stranger's or unknown session id yields 404.
 const HEART_RATE_SELECT = {
   startedAt: true,
+  finishedAt: true,
   avgHr: true,
   maxHr: true,
   hrTrack: true,
@@ -51,8 +52,10 @@ function chargeImportBucket(userId: string) {
 // columns are the only thing it writes on a set: Set.avgHr / Set.maxHr (the
 // heart rate the user logged or imported on a cardio set) are never read or
 // written here. A replacement first clears what the previous file wrote, so a
-// set outside the new recording does not keep a stale value. Sets logged
-// after the file was attached get nothing until a file is attached again.
+// set outside the new recording does not keep a stale value. A set logged
+// after the session was finished gets nothing (its log time is not when it
+// was done), and sets logged after the file was attached get nothing until a
+// file is attached again.
 export async function POST(req: Request, props: Params) {
   const params = await props.params;
   try {
@@ -114,6 +117,7 @@ export async function POST(req: Request, props: Params) {
       });
       const perSet = splitHeartRateBySet({
         sessionStartedAt: session.startedAt,
+        sessionFinishedAt: session.finishedAt,
         recordingStartedAt: startedAt,
         samples: hrSamples,
         sets,

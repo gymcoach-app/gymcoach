@@ -537,6 +537,20 @@ describe('heart rate per set on confirm (issue #576)', () => {
     expect(await db.set.count({ where: { session: { userId: user.id } } })).toBe(5);
   });
 
+  it('gives nothing to sets entered after the session was finished', async () => {
+    // seedLifter logs its two sets now, months after the session of June 10.
+    const { user, session } = await seedLifter('set-hr-entered-later@test.dev');
+    actAs(user.id);
+
+    const res = await attach(session.id, { format: 'tcx', file: SETS_TCX, mode: 'confirm' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ maxHr: 165, setsWithHeartRate: 0 });
+    expect(await setHeartRates(session.id)).toEqual([
+      [null, null, null, null],
+      [null, null, null, null],
+    ]);
+  });
+
   it('clears what a previous file wrote when the new one does not cover a set', async () => {
     const { user, session } = await seedTimedSession('set-hr-replace@test.dev');
     actAs(user.id);

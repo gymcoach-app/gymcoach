@@ -458,7 +458,8 @@ model Set {
   // by POST /api/sessions/[id]/watch-file and cleared by its DELETE, never by
   // the user: avgHr / maxHr above stay what was logged or imported on a
   // cardio set, and stay the only heart rate the conditioning stats read.
-  // NULL without an attached file and on a set outside the recording.
+  // NULL without an attached file, on a set outside the recording and on a
+  // set logged after the session was finished.
   watchAvgHr                     Int?
   watchMaxHr                     Int?
   // Downsampled pace/HR track of an imported cardio activity (issue #254,

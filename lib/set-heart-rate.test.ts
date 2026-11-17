@@ -118,6 +118,38 @@ describe('splitHeartRateBySet', () => {
     ).toEqual([{ id: 'in', avgHr: 125, maxHr: 130 }]);
   });
 
+  it('gives nothing to a set logged after the session was finished', () => {
+    const samples = [
+      { t: 30, hr: 100 },
+      { t: 90, hr: 140 },
+      { t: 200, hr: 170 },
+    ];
+    const sets = [set('a', 60), set('b', 120), set('added-later', 86_400)];
+    // Without an end (session still running) the last set takes what is left.
+    expect(split(samples, sets)).toEqual([
+      { id: 'a', avgHr: 100, maxHr: 100 },
+      { id: 'b', avgHr: 140, maxHr: 140 },
+      { id: 'added-later', avgHr: 170, maxHr: 170 },
+    ]);
+    expect(split(samples, sets, { sessionFinishedAt: null })).toHaveLength(3);
+    // Finished at +300 s: the set typed in a day later has no window.
+    expect(split(samples, sets, { sessionFinishedAt: at(300) })).toEqual([
+      { id: 'a', avgHr: 100, maxHr: 100 },
+      { id: 'b', avgHr: 140, maxHr: 140 },
+    ]);
+    // A set logged at the very instant the session was finished still counts.
+    expect(split(samples, sets, { sessionFinishedAt: at(120) })).toHaveLength(2);
+  });
+
+  it('gives nothing when every set was entered after the session', () => {
+    const samples = [
+      { t: 30, hr: 100 },
+      { t: 90, hr: 140 },
+    ];
+    const sets = [set('a', 5_000_000), set('b', 5_000_060)];
+    expect(split(samples, sets, { sessionFinishedAt: at(3600) })).toEqual([]);
+  });
+
   it('gives nothing when the file is from another day', () => {
     const recordingStartedAt = new Date('2026-06-12T07:30:00.000Z');
     expect(split([{ t: 10, hr: 100 }], [set('a', 60)], { recordingStartedAt })).toEqual([]);
@@ -180,5 +212,6 @@ describe('splitHeartRateBySet', () => {
     expect(split(samples, [set('a', 60)], { sessionStartedAt: new Date('nope') })).toEqual([]);
     expect(split(samples, [set('a', 60)], { recordingStartedAt: new Date('nope') })).toEqual([]);
     expect(split(samples, [{ id: 'a', completedAt: new Date('nope') }])).toEqual([]);
+    expect(split(samples, [set('a', 60)], { sessionFinishedAt: new Date('nope') })).toEqual([]);
   });
 });

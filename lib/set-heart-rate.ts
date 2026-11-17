@@ -15,6 +15,12 @@ import { AVG_HR_MAX, AVG_HR_MIN, MAX_HR_MAX, MAX_HR_MIN } from '@/lib/cardio';
 // session start, which is inclusive so the first sample of a recording that
 // starts with the session is not lost.
 //
+// Only a set logged while the session was running has a window. A set logged
+// after the session was finished (added later from the history, or every set
+// of a session entered after the fact) has a log time that says nothing about
+// when it was done: it gets no heart rate, instead of a window that would run
+// from the last real set to whenever it was typed in.
+//
 // Where the result is stored: Set.watchAvgHr / Set.watchMaxHr, two columns
 // only this feature writes. Set.avgHr / Set.maxHr stay what the user logged
 // or imported on a cardio set, and stay the only heart rate the conditioning
@@ -42,6 +48,8 @@ export interface SetHeartRate {
 
 export interface SplitHeartRateInput {
   sessionStartedAt: Date;
+  // NULL while the session is still running: no upper limit then.
+  sessionFinishedAt?: Date | null;
   recordingStartedAt: Date;
   samples: readonly HrSample[];
   sets: readonly LoggedSet[];
@@ -50,12 +58,15 @@ export interface SplitHeartRateInput {
 // One entry per set whose window holds at least one sample; a set whose
 // window is empty (logged before the recording started, after it ended, in a
 // gap of the recording, or at the same instant as the previous set) gets no
-// entry. Neither input needs to be sorted. The result follows the log order
-// of the sets.
+// entry, and neither does a set logged after the session was finished.
+// Neither input needs to be sorted. The result follows the log order of the
+// sets.
 export function splitHeartRateBySet(input: SplitHeartRateInput): SetHeartRate[] {
   const recordingStartMs = input.recordingStartedAt.getTime();
   const sessionStartMs = input.sessionStartedAt.getTime();
   if (!Number.isFinite(recordingStartMs) || !Number.isFinite(sessionStartMs)) return [];
+  const sessionEndMs = input.sessionFinishedAt ? input.sessionFinishedAt.getTime() : Infinity;
+  if (Number.isNaN(sessionEndMs)) return [];
 
   // Absolute time of every usable sample, ascending.
   const samples: Array<{ at: number; hr: number }> = [];
@@ -69,7 +80,10 @@ export function splitHeartRateBySet(input: SplitHeartRateInput): SetHeartRate[] 
   // Sets in log order. The sort is stable, so two sets logged at the same
   // instant keep the order they came in.
   const sets = input.sets
-    .filter((set) => Number.isFinite(set.completedAt.getTime()))
+    .filter((set) => {
+      const loggedAt = set.completedAt.getTime();
+      return Number.isFinite(loggedAt) && loggedAt <= sessionEndMs;
+    })
     .slice()
     .sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
 
