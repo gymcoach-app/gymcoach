@@ -1,7 +1,8 @@
-import { Gunzip, Unzip, UnzipInflate } from 'fflate';
+import { Gunzip } from 'fflate';
 import { IMPORT_CSV_MAX_BYTES } from '@/lib/import/csv';
 import { ImportCancelledError } from '@/lib/import/import-queue';
 import { STRAVA_CSV_MAX_BYTES, stravaActivityKey } from '@/lib/import/strava-csv';
+import { createSelectiveUnzip } from '@/lib/import/zip-stream';
 
 // ============================================================
 // Strava archive reader (issue #582) - browser side
@@ -10,7 +11,9 @@ import { STRAVA_CSV_MAX_BYTES, stravaActivityKey } from '@/lib/import/strava-csv
 // The archive can weigh gigabytes (photos and videos under media/), so it is
 // never held whole: it is read chunk by chunk, and only two kinds of entries
 // are inflated at all - activities.csv and the files of the activities/
-// folder. Everything else is skipped without being decompressed.
+// folder. Everything else is dropped as it is read, neither decompressed nor
+// kept (lib/import/zip-stream.ts: fflate's own Unzip would buffer the
+// compressed bytes of every entry it is not asked to read).
 //
 // Each entry is handed to the caller as soon as it is complete, and the next
 // slice of the archive is not read before the caller is done with it: the
@@ -153,57 +156,51 @@ export async function readStravaArchive(
 ): Promise<number> {
   const { onEntry, onProgress, signal, wants } = options;
   const ready: StravaArchiveEntry[] = [];
-  let failure = false;
   let seen = 0;
   let handed = 0;
 
-  const unzip = new Unzip((entry) => {
+  const unzip = createSelectiveUnzip((entry) => {
     const kind = classifyStravaEntry(entry.name);
-    if (!kind) return;
+    if (!kind) return null;
     seen += 1;
     const path = stravaActivityKey(entry.name) ?? entry.name;
     if (kind.kind === 'unsupported') {
       ready.push({ kind: 'skipped', path, reason: 'unsupported' });
-      return;
+      return null;
     }
-    if (kind.kind === 'activity' && wants && !wants(path)) return;
+    if (kind.kind === 'activity' && wants && !wants(path)) return null;
     const cap = kind.kind === 'csv' ? STRAVA_CSV_MAX_BYTES : STRAVA_MAX_ACTIVITY_BYTES;
     // The declared size is advisory (absent with a data descriptor); the
     // count below is the real control.
     if ((entry.originalSize ?? 0) > cap) {
       ready.push({ kind: 'skipped', path, reason: 'too-large' });
-      return;
+      return null;
     }
     const chunks: Uint8Array[] = [];
     let total = 0;
-    entry.ondata = (err, data, final) => {
-      if (err) {
-        failure = true;
-        return;
-      }
+    return (data, final) => {
       total += data.length;
-      // Past the cap the rest is inflated and dropped, never kept.
-      if (total <= cap) chunks.push(data);
-      else chunks.length = 0;
-      if (!final) return;
       if (total > cap) {
+        // Past the cap the entry is given up: what was kept is released and
+        // the rest of it is neither kept nor inflated.
+        chunks.length = 0;
         ready.push({ kind: 'skipped', path, reason: 'too-large' });
-        return;
+        return false;
       }
+      if (data.length > 0) chunks.push(data);
+      if (!final) return;
       const bytes = concat(chunks, total);
       chunks.length = 0;
       if (kind.kind === 'csv') {
         ready.push({ kind: 'csv', text: new TextDecoder().decode(bytes) });
         return;
       }
-      const data2 = kind.gz ? gunzipCapped(bytes, cap) : bytes;
-      if (typeof data2 === 'string') ready.push({ kind: 'skipped', path, reason: data2 });
-      else if (data2.length === 0) ready.push({ kind: 'skipped', path, reason: 'unreadable' });
-      else ready.push({ kind: 'activity', path, format: kind.format, data: data2 });
+      const inflated = kind.gz ? gunzipCapped(bytes, cap) : bytes;
+      if (typeof inflated === 'string') ready.push({ kind: 'skipped', path, reason: inflated });
+      else if (inflated.length === 0) ready.push({ kind: 'skipped', path, reason: 'unreadable' });
+      else ready.push({ kind: 'activity', path, format: kind.format, data: inflated });
     };
-    entry.start();
   });
-  unzip.register(UnzipInflate);
 
   const drain = async () => {
     while (ready.length > 0) {
@@ -227,7 +224,6 @@ export async function readStravaArchive(
       } catch {
         throw new StravaArchiveError('unreadable');
       }
-      if (failure) throw new StravaArchiveError('unreadable');
       await drain();
     }
     bytesRead += chunk.length;
@@ -239,7 +235,6 @@ export async function readStravaArchive(
   } catch {
     throw new StravaArchiveError('unreadable');
   }
-  if (failure) throw new StravaArchiveError('unreadable');
   await drain();
   if (seen === 0) throw new StravaArchiveError('not-strava');
   return handed;

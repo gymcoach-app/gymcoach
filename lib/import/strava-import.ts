@@ -47,7 +47,8 @@ export interface StravaPreview {
   unreadable: number;
   unsupported: number;
   tooLarge: number;
-  // Null when the archive has no readable activities.csv.
+  // Null when it cannot be known: no readable activities.csv in the archive,
+  // or one whose filename column was not found.
   withoutFile: number | null;
   // The first STRAVA_MAX_PROBLEMS files that will not be imported.
   problems: StravaProblem[];
@@ -275,7 +276,7 @@ export async function runStravaPreview(
       .map(([exerciseName, n]) => ({ exerciseName, count: n }))
       .sort((a, b) => b.count - a.count || a.exerciseName.localeCompare(b.exerciseName)),
     ...totals,
-    withoutFile: index && index.recognized ? index.withoutFile : null,
+    withoutFile: index ? index.withoutFile : null,
     problems: problems.map((p) => ({ ...p, name: names.get(p.path) ?? null })),
     keep,
   };

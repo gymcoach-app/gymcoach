@@ -67,25 +67,33 @@ export function StravaImport({ sleep }: Props) {
     const controller = new AbortController();
     abort.current = controller;
     let last = '';
+    // Where the pass stands, to come back to after a rate-limit wait.
+    let running: Status = { kind: 'running', pass, read: 0, total: archive.size, activities: 0 };
     const onProgress = (p: StravaProgress) => {
       // A state update per percent or per activity, not per 64 KB chunk.
       const step = `${p.totalBytes > 0 ? Math.floor((p.bytesRead / p.totalBytes) * 100) : 100}:${p.activities}`;
       if (step === last || !alive.current || controller.signal.aborted) return;
       last = step;
-      setStatus({
+      running = {
         kind: 'running',
         pass,
         read: p.bytesRead,
         total: p.totalBytes,
         activities: p.activities,
-      });
+      };
+      setStatus(running);
     };
-    setStatus({ kind: 'running', pass, read: 0, total: archive.size, activities: 0 });
+    setStatus(running);
     const queue = createImportQueue({
       signal: controller.signal,
       sleep,
       onWait: (seconds) => {
         if (alive.current) setStatus({ kind: 'waiting', pass, seconds });
+      },
+      // The wait is over: the notice goes now, not when the request that is
+      // sent again is answered (a FIT batch can take seconds).
+      onResume: () => {
+        if (alive.current && !controller.signal.aborted) setStatus(running);
       },
     });
     return { queue, signal: controller.signal, onProgress };

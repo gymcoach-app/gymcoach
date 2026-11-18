@@ -209,7 +209,24 @@ describe('StravaImport', () => {
     expect(sleep).toHaveBeenCalledWith(21_000, expect.anything());
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // The request sent again is slow to answer: the waiting notice must not
+    // sit there meanwhile, the pass is checking again.
+    let answer: () => void = () => {};
+    fetchMock.mockImplementationOnce(
+      (url: string, init: RequestInit) =>
+        new Promise((resolve) => {
+          answer = () => resolve(routes(url, init));
+        }),
+    );
     release();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.queryByText('Import limit reached, continuing in 21 s')).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(/^Checking/);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+    answer();
     await waitFor(() => screen.getByTestId('import-preview'));
     const calls = callsOf(fetchMock);
     expect(calls[1]).toEqual(calls[0]);

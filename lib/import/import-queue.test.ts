@@ -91,13 +91,19 @@ describe('createImportQueue', () => {
       .mockResolvedValueOnce(answer(429, { error: 'Too many.' }, { 'Retry-After': '12' }))
       .mockResolvedValueOnce(answer(200, { done: true }));
     const onWait = vi.fn();
-    const queue = createImportQueue({ fetchImpl, onWait });
+    // How many requests had gone out when the wait was declared over.
+    const sentAtResume: number[] = [];
+    const onResume = vi.fn(() => void sentAtResume.push(fetchImpl.mock.calls.length));
+    const queue = createImportQueue({ fetchImpl, onWait, onResume });
     const pending = queue.post('/api/import/fit', { fits: ['AA=='], mode: 'confirm' });
 
     await vi.advanceTimersByTimeAsync(11_999);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(onWait).toHaveBeenCalledWith(12);
+    expect(onResume).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
+    // Once per wait, when it ends and before the request goes out again.
+    expect(sentAtResume).toEqual([1]);
     expect(await pending).toMatchObject({ status: 200, json: { done: true } });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl.mock.calls[1]).toEqual(fetchImpl.mock.calls[0]);

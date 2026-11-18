@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
-import { gzipSync, strToU8, strFromU8, zipSync } from 'fflate';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { gzipSync, Inflate, strToU8, strFromU8, Unzip, zipSync } from 'fflate';
 import { ImportCancelledError } from './import-queue';
 import {
   classifyStravaEntry,
@@ -10,6 +10,7 @@ import {
   StravaArchiveError,
   type StravaArchiveEntry,
 } from './strava-archive';
+import { halfNoise, heldBytes, noise } from './zip-test-support';
 
 const CSV = 'Activity ID,Activity Date,Activity Name,Activity Type,Filename\n1,d,Run,Run,activities/1.gpx\n';
 const GPX = '<gpx><trk><name>Morning Run</name></trk></gpx>';
@@ -75,6 +76,10 @@ describe('gunzipCapped', () => {
   it('reports bytes that are not gzip', () => {
     expect(gunzipCapped(strToU8('definitely not gzip data'), 1000)).toBe('unreadable');
   });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('readStravaArchive', () => {
@@ -168,6 +173,77 @@ describe('readStravaArchive', () => {
       { kind: 'skipped', path: 'activities/bomb.gpx.gz', reason: 'too-large' },
       expect.objectContaining({ kind: 'activity', path: 'activities/ok.gpx' }),
     ]);
+  });
+
+  it('holds none of the bytes of the entries it does not read', async () => {
+    // What a real archive is mostly made of: media, files over the size cap
+    // and, on the confirm pass, activities the preview did not keep. None of
+    // their bytes may stay in memory, during the read or after it.
+    const zip = zipSync({
+      'media/video.mp4': [noise(400_000, 1), { level: 0 }],
+      'media/photo.jpg': [noise(300_000, 2), { level: 6 }],
+      'activities/1.gpx': strToU8(GPX),
+      'activities/unwanted.fit': [noise(300_000, 3), { level: 0 }],
+      'activities/huge.fit': [new Uint8Array(STRAVA_MAX_ACTIVITY_BYTES + 1), { level: 0 }],
+      'activities/9.kml': [noise(200_000, 4), { level: 0 }],
+      'routes/route.gpx': [noise(200_000, 5), { level: 6 }],
+      'activities/2.gpx': strToU8(GPX),
+      'media/last.jpg': [noise(300_000, 6), { level: 0 }],
+    });
+    expect(zip.length).toBeGreaterThan(STRAVA_MAX_ACTIVITY_BYTES + 1_700_000);
+
+    // The reader's Unzip, caught on its first push.
+    const push = vi.spyOn(Unzip.prototype, 'push');
+    const unzipOf = () => push.mock.contexts[0] as Unzip;
+    const heldAtEntry: number[] = [];
+    const entries: StravaArchiveEntry[] = [];
+    let worst = 0;
+    await readStravaArchive(blobOf(zip), {
+      wants: (path) => path !== 'activities/unwanted.fit',
+      onProgress: () => {
+        worst = Math.max(worst, heldBytes(unzipOf()));
+      },
+      onEntry: (e) => {
+        entries.push(e);
+        heldAtEntry.push(heldBytes(unzipOf()));
+      },
+    });
+
+    expect(entries.map((e) => (e.kind === 'csv' ? 'csv' : `${e.kind}:${e.path}`))).toEqual([
+      'activity:activities/1.gpx',
+      'skipped:activities/huge.fit',
+      'skipped:activities/9.kml',
+      'activity:activities/2.gpx',
+    ]);
+    expect(heldAtEntry).toEqual([0, 0, 0, 0]);
+    expect(worst).toBe(0);
+    expect(heldBytes(unzipOf())).toBe(0);
+  });
+
+  it('stops inflating an activity file once it is over the size cap', async () => {
+    // Twice the cap once inflated, and a header that declares 1 KB: only the
+    // count of inflated bytes can tell.
+    const payload = halfNoise(2 * STRAVA_MAX_ACTIVITY_BYTES);
+    const zip = zipSync({ 'activities/bomb.gpx': payload, 'activities/ok.gpx': strToU8(GPX) });
+    const lying = zip.slice();
+    new DataView(lying.buffer).setUint32(22, 1024, true);
+    const compressed = new DataView(zip.buffer).getUint32(18, true);
+    expect(compressed).toBeGreaterThan(STRAVA_MAX_ACTIVITY_BYTES * 0.8);
+
+    let inflateInput = 0;
+    const realPush = Inflate.prototype.push;
+    vi.spyOn(Inflate.prototype, 'push').mockImplementation(function (this: Inflate, chunk, final) {
+      inflateInput += chunk.length;
+      realPush.call(this, chunk, final);
+    });
+
+    const entries = await entriesOf(lying);
+    expect(entries).toEqual([
+      { kind: 'skipped', path: 'activities/bomb.gpx', reason: 'too-large' },
+      expect.objectContaining({ kind: 'activity', path: 'activities/ok.gpx' }),
+    ]);
+    // Half the entry inflates to the cap; the other half is never inflated.
+    expect(inflateInput).toBeLessThan(compressed * 0.6);
   });
 
   it('reports a .gz file that is not gzip as unreadable, without failing the archive', async () => {

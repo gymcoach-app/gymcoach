@@ -152,6 +152,20 @@ describe('runStravaPreview', () => {
     expect(preview.withoutFile).toBeNull();
   });
 
+  it('leaves the manual entry count unknown when activities.csv has no filename column', async () => {
+    const { queue } = fakeRoutes();
+    const preview = await runStravaPreview(
+      blobOf({
+        // Recognized by its id column only: no row can be told to be manual.
+        'activities.csv': strToU8('A,B,C,D\n55,d,Run,Run\n56,d,Yoga,Yoga\n'),
+        'activities/55.gpx': strToU8('run-55'),
+      }),
+      { queue },
+    );
+    expect(preview.importable).toBe(1);
+    expect(preview.withoutFile).toBeNull();
+  });
+
   it('fails the pass on an error that is not about one file', async () => {
     const { queue } = fakeRoutes();
     await expect(

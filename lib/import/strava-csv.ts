@@ -44,7 +44,9 @@ export interface StravaCsv {
   recognized: boolean;
   activities: StravaCsvActivity[];
   // Activities with no file in the archive (typed in by hand on Strava).
-  withoutFile: number;
+  // Null when the filename column could not be found: the count is then
+  // unknown, which is not the same as zero.
+  withoutFile: number | null;
 }
 
 // Decompressed size cap for activities.csv. Recent exports carry about ninety
@@ -189,7 +191,7 @@ export function parseStravaActivitiesCsv(text: string): StravaCsv {
   const rows = records.slice(1, 1 + IMPORT_CSV_MAX_ROWS).map((r) => r.fields);
   const columns = matchStravaCsvHeader(header, rows);
   const recognized = columns.id !== -1 || columns.filename !== -1;
-  if (!recognized) return { recognized, activities: [], withoutFile: 0 };
+  if (!recognized) return { recognized, activities: [], withoutFile: null };
 
   const activities: StravaCsvActivity[] = [];
   let withoutFile = 0;
@@ -206,5 +208,5 @@ export function parseStravaActivitiesCsv(text: string): StravaCsv {
     });
   }
   // Without a filename column nothing can be said about manual entries.
-  return { recognized, activities, withoutFile: columns.filename === -1 ? 0 : withoutFile };
+  return { recognized, activities, withoutFile: columns.filename === -1 ? null : withoutFile };
 }

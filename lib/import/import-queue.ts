@@ -30,6 +30,8 @@ export interface ImportQueueOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   // Called before each rate-limit wait with its length in seconds.
   onWait?: (seconds: number) => void;
+  // Called when such a wait is over, right before the request is sent again.
+  onResume?: () => void;
   // Aborting rejects the pending and the queued requests with
   // ImportCancelledError, including one that is waiting out a 429.
   signal?: AbortSignal;
@@ -86,6 +88,7 @@ export function createImportQueue(options: ImportQueueOptions = {}): ImportQueue
   const {
     sleep = abortableSleep,
     onWait,
+    onResume,
     signal,
     maxWaits = IMPORT_QUEUE_MAX_WAITS,
   } = options;
@@ -116,6 +119,7 @@ export function createImportQueue(options: ImportQueueOptions = {}): ImportQueue
       const seconds = retryAfterSeconds(res.headers?.get('retry-after'), json);
       onWait?.(seconds);
       await sleep(seconds * 1000, signal);
+      onResume?.();
     }
   }
 

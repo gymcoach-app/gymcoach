@@ -158,7 +158,9 @@ describe('parseStravaActivitiesCsv', () => {
   it('says nothing about manual entries when no filename column can be found', () => {
     const parsed = parseStravaActivitiesCsv('A,B,C,D\n55,d,Run,Run\n56,d,Run,Run\n');
     expect(parsed.recognized).toBe(true);
-    expect(parsed.withoutFile).toBe(0);
+    // Unknown, not zero: every row has a null filename here, and none of them
+    // is known to be a manual entry.
+    expect(parsed.withoutFile).toBeNull();
     expect(parsed.activities.map((a) => a.filename)).toEqual([null, null]);
   });
 
@@ -166,7 +168,7 @@ describe('parseStravaActivitiesCsv', () => {
     expect(parseStravaActivitiesCsv('Date,Exercise,Weight\n2024-01-01,Squat,100\n')).toEqual({
       recognized: false,
       activities: [],
-      withoutFile: 0,
+      withoutFile: null,
     });
     expect(parseStravaActivitiesCsv('').recognized).toBe(false);
   });
