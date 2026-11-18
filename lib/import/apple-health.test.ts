@@ -1,16 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { IMPORT_DUPLICATE_WINDOW_MS } from './duplicate-window';
 import {
   APPLE_HEALTH_GENERIC_EXERCISE,
+  APPLE_HEALTH_SCAN_SLICE,
   AppleHealthScanner,
   appleHealthActivityType,
   appleHealthExerciseName,
+  appleHealthLocalDayKey,
+  appleHealthLocalDayStart,
   decodeXmlEntities,
+  dedupeAppleHealthWorkouts,
   isAppleHealthStrengthType,
   normalizeAppleHealthBodyMass,
   normalizeAppleHealthWorkout,
   parseAppleHealthDate,
   scanAppleHealthExport,
-  utcDayKey,
 } from './apple-health';
 
 const NOW = new Date('2025-01-01T00:00:00.000Z');
@@ -94,9 +98,9 @@ const EXPECTED = {
   skippedStrength: 1,
   skippedInvalid: 1,
   bodyMass: [
-    { measuredAt: '2023-11-02T13:30:00.000Z', weightKg: 81.65 },
+    { measuredAt: '2023-11-02T13:30:00.000Z', weightKg: 81.65, utcOffsetMin: -300 },
     // Two measurements on 2024-03-05: the later one is kept.
-    { measuredAt: '2024-03-05T20:00:00.000Z', weightKg: 82.06 },
+    { measuredAt: '2024-03-05T20:00:00.000Z', weightKg: 82.06, utcOffsetMin: 60 },
   ],
 };
 
@@ -219,6 +223,111 @@ describe('scanAppleHealthExport', () => {
     const result = scanner.end();
     expect(result.bodyMass).toEqual([]);
     expect(result.workouts.map((w) => w.activityType)).toEqual(['Elliptical']);
+  });
+
+  it('does not read a tag that holds a raw <, and reads the one that starts there', () => {
+    const run =
+      '<Workout workoutActivityType="HKWorkoutActivityTypeRunning" startDate="2024-01-03 08:00:00 +0000" duration="10" durationUnit="min"/>';
+    const result = scanAppleHealthExport(
+      `<Record type="HKQuantityTypeIdentifierBodyMass" unit="kg" startDate="2024-01-03 08:00:00 +0000" note="a<b" value="80"/>` +
+        `<Workout workoutActivityType="HKWorkoutActivityTypeCycling" startDate="2024-01-02 08:00:00 +0000" device="${run}`,
+      NOW,
+    );
+    expect(result.bodyMass).toEqual([]);
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Running']);
+  });
+
+  // Each of these made the scanner search the same text again and again (an
+  // opener that never ends was searched to the end of the buffer, then the
+  // next opener inside it was, and so on): 220 KB of the first pattern took
+  // 20 s. The scan is linear now, so 1 MB takes a few milliseconds; the bound
+  // is generous to stay green on a loaded machine.
+  it.each([
+    ['openers inside a quote that never closes', '<Record a="', '<Record '],
+    ['openers that never end', '', '<Record '],
+    ['openers that each open a quote', '', "<Workout a='"],
+    ['openers with alternating quotes', '', `<Record a="<Record b='`],
+    ['workout children that never end', '<Workout a="b">', '<WorkoutStatistics '],
+  ])('scans 1 MB of %s in linear time', (_label, head, unit) => {
+    const text = head + unit.repeat(Math.ceil((1024 * 1024) / unit.length));
+    const tail =
+      '><Workout workoutActivityType="HKWorkoutActivityTypeRowing" startDate="2024-01-03 08:00:00 +0000" duration="10" durationUnit="min"/>';
+
+    for (const step of [text.length, 64 * 1024, 4096]) {
+      const scanner = new AppleHealthScanner(NOW);
+      const started = performance.now();
+      for (let offset = 0; offset < text.length; offset += step) {
+        scanner.push(text.slice(offset, offset + step));
+      }
+      scanner.push(tail);
+      const result = scanner.end();
+      expect(performance.now() - started, `pushed ${step} at a time`).toBeLessThan(1500);
+      // The scanner is still in step with the input afterwards.
+      expect(result.workouts.map((w) => w.activityType)).toEqual(['Rowing']);
+    }
+  });
+
+  it('resumes an unfinished tag where it stopped, quote state included', () => {
+    // A long but legal tag (under the 64 KB rule) fed a few characters at a
+    // time, with a '>' inside a quoted value that only counts as text if the
+    // scanner remembers it is inside the quote.
+    const tag =
+      `<Workout workoutActivityType="HKWorkoutActivityTypeHiking" note='${'a > b " '.repeat(2000)}' ` +
+      'startDate="2024-01-03 08:00:00 +0000" duration="10" durationUnit="min"/>';
+    expect(tag.length).toBeLessThan(64 * 1024);
+    const scanner = new AppleHealthScanner(NOW);
+    for (let offset = 0; offset < tag.length; offset += 7) scanner.push(tag.slice(offset, offset + 7));
+    expect(scanner.end().workouts).toEqual([
+      {
+        activityType: 'Hiking',
+        startedAt: '2024-01-03T08:00:00.000Z',
+        durationSec: 600,
+        distanceM: null,
+        avgHr: null,
+        maxHr: null,
+      },
+    ]);
+  });
+
+  it('works through one huge chunk in bounded slices', () => {
+    const record =
+      '<Record type="HKQuantityTypeIdentifierStepCount" unit="count" startDate="2024-01-01 07:00:00 +0000" value="12"/>\n';
+    const run =
+      '<Workout workoutActivityType="HKWorkoutActivityTypeRunning" startDate="2024-01-03 08:00:00 +0000" duration="10" durationUnit="min"/>';
+    const text = record.repeat(Math.ceil((3 * APPLE_HEALTH_SCAN_SLICE) / record.length)) + run;
+    const bytes = new TextEncoder().encode(text);
+    expect(bytes.length).toBeGreaterThan(3 * APPLE_HEALTH_SCAN_SLICE);
+
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+    try {
+      const fromBytes = scanAppleHealthExport(bytes, NOW);
+      const sizes = decode.mock.calls.map(([input]) => (input as Uint8Array | undefined)?.byteLength ?? 0);
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(APPLE_HEALTH_SCAN_SLICE);
+      expect(sizes.filter((n) => n > 0).length).toBeGreaterThanOrEqual(4);
+      expect(fromBytes.workouts.map((w) => w.activityType)).toEqual(['Running']);
+    } finally {
+      decode.mockRestore();
+    }
+    // Text goes through the same slices.
+    expect(scanAppleHealthExport(text, NOW).workouts.map((w) => w.activityType)).toEqual(['Running']);
+  });
+
+  it('keeps one body weight per local day of the export, not per UTC day', () => {
+    const record = (at: string, value: string) =>
+      `<Record type="HKQuantityTypeIdentifierBodyMass" unit="kg" startDate="${at}" value="${value}"/>`;
+    const result = scanAppleHealthExport(
+      // Late evening of the 5th in California: already the 6th in UTC.
+      record('2024-03-05 23:30:00 -0800', '80') +
+        // Morning and evening of the 6th: one day, the evening one is kept,
+        // although the evening is the 7th in UTC.
+        record('2024-03-06 08:00:00 -0800', '81') +
+        record('2024-03-06 20:00:00 -0800', '82'),
+      NOW,
+    );
+    expect(result.bodyMass).toEqual([
+      { measuredAt: '2024-03-06T07:30:00.000Z', weightKg: 80, utcOffsetMin: -480 },
+      { measuredAt: '2024-03-07T04:00:00.000Z', weightKg: 82, utcOffsetMin: -480 },
+    ]);
   });
 
   it('ignores pushes after end()', () => {
@@ -367,9 +476,68 @@ describe('body mass', () => {
     ).toBeNull();
   });
 
-  it('keys a measurement by its UTC day', () => {
-    expect(utcDayKey('2024-03-05T23:30:00.000Z')).toBe('2024-03-05');
-    expect(utcDayKey(new Date('2024-03-06T00:10:00+02:00'))).toBe('2024-03-05');
+  it('carries the UTC offset of the timestamp', () => {
+    const offset = (startDate: string) =>
+      normalizeAppleHealthBodyMass({ startDate, value: '80', unit: 'kg' }, NOW)?.utcOffsetMin;
+    expect(offset('2024-03-05 07:00:00 +0100')).toBe(60);
+    expect(offset('2024-03-05 07:00:00 -0530')).toBe(-330);
+    expect(offset('2024-03-05T07:00:00+14:00')).toBe(840);
+    expect(offset('2024-03-05T07:00:00Z')).toBe(0);
+    expect(offset('2024-03-05 07:00:00 +0000')).toBe(0);
+    expect(Object.is(offset('2024-03-05 07:00:00 -0000'), 0)).toBe(true);
+    // No time zone is 15 hours from UTC: read as UTC.
+    expect(offset('2024-03-05 07:00:00 +1500')).toBe(0);
+  });
+
+  it('keys a measurement by the local day of its own offset', () => {
+    const key = (measuredAt: string, utcOffsetMin: number) =>
+      appleHealthLocalDayKey({ measuredAt, utcOffsetMin });
+    expect(key('2024-03-06T07:30:00.000Z', -480)).toBe('2024-03-05');
+    expect(key('2024-03-05T22:30:00.000Z', 120)).toBe('2024-03-06');
+    expect(key('2024-03-05T23:30:00.000Z', 0)).toBe('2024-03-05');
+    expect(appleHealthLocalDayKey({ measuredAt: new Date('2024-03-06T07:30:00.000Z'), utcOffsetMin: -480 })).toBe(
+      '2024-03-05',
+    );
+
+    // The day starts at local midnight and lasts 24 hours from there.
+    const at = Date.parse('2024-03-06T07:30:00.000Z');
+    expect(new Date(appleHealthLocalDayStart(at, -480)).toISOString()).toBe('2024-03-05T08:00:00.000Z');
+    expect(new Date(appleHealthLocalDayStart(at, 0)).toISOString()).toBe('2024-03-06T00:00:00.000Z');
+    expect(new Date(appleHealthLocalDayStart(at, 840)).toISOString()).toBe('2024-03-05T10:00:00.000Z');
+  });
+});
+
+describe('dedupeAppleHealthWorkouts', () => {
+  const at = (iso: string, activityType = 'Running') => ({
+    activityType,
+    startedAt: iso,
+    durationSec: 600,
+    distanceM: null,
+    avgHr: null,
+    maxHr: null,
+  });
+
+  it('applies the 2 minute window of the server, the earliest of a pair winning', () => {
+    expect(IMPORT_DUPLICATE_WINDOW_MS).toBe(120_000);
+    const result = dedupeAppleHealthWorkouts([
+      at('2024-01-01T08:10:00.000Z', 'Walking'),
+      at('2024-01-01T08:00:00.000Z'),
+      // Exactly on the edge of the window: still a duplicate.
+      at('2024-01-01T08:02:00.000Z', 'Cycling'),
+      // Within 2 minutes of the dropped one but not of the kept one: kept,
+      // as on the server, where only kept starts are compared against.
+      at('2024-01-01T08:03:30.000Z', 'Hiking'),
+      // And this one is then a duplicate of that one.
+      at('2024-01-01T08:05:00.000Z', 'Rowing'),
+    ]);
+    expect(result.duplicates).toBe(2);
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Running', 'Hiking', 'Walking']);
+  });
+
+  it('keeps everything when nothing is close, and handles an empty list', () => {
+    const list = [at('2024-01-01T08:00:00.000Z'), at('2024-01-01T08:02:00.001Z')];
+    expect(dedupeAppleHealthWorkouts(list)).toEqual({ workouts: list, duplicates: 0 });
+    expect(dedupeAppleHealthWorkouts([])).toEqual({ workouts: [], duplicates: 0 });
   });
 });
 

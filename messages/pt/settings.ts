@@ -191,6 +191,8 @@ export const settings = {
       noExportXml:
         'Este arquivo compactado não contém export.xml. Escolha o export.zip criado pelo app Saúde.',
       unreadable: 'Não foi possível ler este arquivo.',
+      tooLarge:
+        'Esta exportação é grande demais para ser lida aqui: seus dados passam de {limit} GB depois de descompactados.',
       workouts:
         '{count, plural, one {# treino de cardio} other {# treinos de cardio}} para importar',
       byType: '{name}: {count}',

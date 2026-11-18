@@ -186,6 +186,8 @@ export const settings = {
       noExportXml:
         'This archive has no export.xml. Pick the export.zip made by the Health app.',
       unreadable: 'This file could not be read.',
+      tooLarge:
+        'This export is too large to read here: its data is over {limit} GB once unzipped.',
       workouts:
         '{count, plural, one {# cardio workout} other {# cardio workouts}} to import',
       byType: '{name}: {count}',

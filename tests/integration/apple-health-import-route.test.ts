@@ -370,6 +370,42 @@ describe('POST /api/import/apple-health (body weight)', () => {
     expect(entries.map((e) => e.weightKg)).toEqual([82, 81.1]);
   });
 
+  it('reads the day of an entry in its own UTC offset, not in UTC', async () => {
+    const user = await seedUser('ah-weight-local-day@test.dev');
+    actAs(user.id);
+    // A manual weigh-in on the evening of March 7th in California (UTC-8):
+    // the 8th in UTC.
+    await db.bodyweightEntry.create({
+      data: { userId: user.id, weightKg: 82, measuredAt: new Date('2024-03-08T05:00:00.000Z') },
+    });
+    const bodyMass = [
+      // 23:30 on the 5th and 08:00 on the 6th, local time: two days, although
+      // both instants are on the 6th in UTC.
+      { measuredAt: '2024-03-06T07:30:00.000Z', weightKg: 80.1, utcOffsetMin: -480 },
+      { measuredAt: '2024-03-06T16:00:00.000Z', weightKg: 80.2, utcOffsetMin: -480 },
+      // 20:00 on the 6th: the second entry of that local day (the 7th in UTC).
+      { measuredAt: '2024-03-07T04:00:00.000Z', weightKg: 80.3, utcOffsetMin: -480 },
+      // 10:00 on the 7th: the day of the manual entry (not its UTC day).
+      { measuredAt: '2024-03-07T18:00:00.000Z', weightKg: 80.4, utcOffsetMin: -480 },
+    ];
+
+    const preview = await postImport(importReq({ mode: 'preview', bodyMass }));
+    expect((await preview.json()).bodyMass).toEqual({ importable: 2, duplicates: 2 });
+
+    const res = await postImport(importReq({ mode: 'confirm', bodyMass }));
+    expect((await res.json()).bodyMass).toEqual({ created: 2, duplicates: 2 });
+    const entries = await db.bodyweightEntry.findMany({
+      where: { userId: user.id },
+      orderBy: { measuredAt: 'asc' },
+    });
+    expect(entries.map((e) => e.weightKg)).toEqual([80.1, 80.2, 82]);
+
+    // Importing the same export again finds every entry on its day.
+    const again = await postImport(importReq({ mode: 'confirm', bodyMass }));
+    expect((await again.json()).bodyMass).toEqual({ created: 0, duplicates: 4 });
+    expect(await db.bodyweightEntry.count({ where: { userId: user.id } })).toBe(3);
+  });
+
   it('does not move the current bodyweight when the imported entries are older', async () => {
     const user = await seedUser('ah-weight-old@test.dev');
     actAs(user.id);
@@ -401,6 +437,9 @@ describe('POST /api/import/apple-health (validation and limits)', () => {
     ['a body weight under 20 kg', { bodyMass: [{ ...WEIGHTS[0], weightKg: 19.9 }] }],
     ['a body weight over 300 kg', { bodyMass: [{ ...WEIGHTS[0], weightKg: 300.1 }] }],
     ['a body weight sent as text', { bodyMass: [{ ...WEIGHTS[0], weightKg: '80' }] }],
+    ['a UTC offset past 14 hours', { bodyMass: [{ ...WEIGHTS[0], utcOffsetMin: 841 }] }],
+    ['a UTC offset under -14 hours', { bodyMass: [{ ...WEIGHTS[0], utcOffsetMin: -841 }] }],
+    ['a fractional UTC offset', { bodyMass: [{ ...WEIGHTS[0], utcOffsetMin: 60.5 }] }],
     ['an empty batch', { workouts: [], bodyMass: [] }],
     ['no batch at all', {}],
     [

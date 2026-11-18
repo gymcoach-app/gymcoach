@@ -35,8 +35,8 @@ const SCAN: AppleHealthScanResult = {
   skippedStrength: 4,
   skippedInvalid: 1,
   bodyMass: [
-    { measuredAt: '2020-01-01T07:00:00.000Z', weightKg: 80 },
-    { measuredAt: '2020-01-02T07:00:00.000Z', weightKg: 80.5 },
+    { measuredAt: '2020-01-01T07:00:00.000Z', weightKg: 80, utcOffsetMin: 60 },
+    { measuredAt: '2020-01-02T07:00:00.000Z', weightKg: 80.5, utcOffsetMin: 60 },
   ],
 };
 
@@ -183,6 +183,73 @@ describe('AppleHealthImport', () => {
     expect(screen.getByText('Running: 3')).toBeInTheDocument();
   });
 
+  it('removes the duplicates inside the file before batching, so preview and confirm agree', async () => {
+    const user = userEvent.setup();
+    // Workouts 499 and 500 are one effort recorded twice (a minute apart) and
+    // would land on either side of the 500-workout batch boundary; another
+    // pair sits inside the first batch.
+    const twin = (index: number) => ({
+      ...workoutAt(index),
+      activityType: 'Walking',
+      startedAt: new Date(Date.parse(workoutAt(index).startedAt) + 60_000).toISOString(),
+    });
+    const workouts = [
+      ...Array.from({ length: 500 }, (_, i) => workoutAt(i)),
+      twin(499),
+      ...Array.from({ length: 99 }, (_, i) => workoutAt(500 + i)),
+      twin(10),
+    ];
+    mockRead.mockResolvedValue({ workouts, skippedStrength: 0, skippedInvalid: 0, bodyMass: [] });
+    const empty = {
+      mode: 'preview',
+      workouts: { importable: 0, duplicates: 0, conflicts: 0, byExercise: [] },
+      bodyMass: { importable: 0, duplicates: 0 },
+    };
+    const none = {
+      mode: 'confirm',
+      createdSessions: 0,
+      createdSets: 0,
+      createdExercises: 0,
+      skippedDuplicates: 0,
+      skippedConflicts: 0,
+      bodyMass: { created: 0, duplicates: 0 },
+    };
+    fetchMock
+      .mockResolvedValueOnce(
+        ok({ ...empty, workouts: { importable: 498, duplicates: 2, conflicts: 0, byExercise: [] } }),
+      )
+      .mockResolvedValueOnce(
+        ok({ ...empty, workouts: { importable: 99, duplicates: 0, conflicts: 0, byExercise: [] } }),
+      )
+      .mockResolvedValueOnce(ok({ ...none, createdSessions: 498, skippedDuplicates: 2 }))
+      .mockResolvedValueOnce(ok({ ...none, createdSessions: 99 }));
+    render(<AppleHealthImport />);
+
+    await user.upload(fileInput(), exportFile());
+    await waitFor(() => screen.getByTestId('import-preview'));
+
+    // 601 workouts in the file, 599 sent: neither twin reaches the server.
+    const previewed = fetchMock.mock.calls.map((c) => bodyOf(c).workouts as Array<{ startedAt: string }>);
+    expect(previewed.map((b) => b.length)).toEqual([500, 99]);
+    const sent = previewed.flat().map((w) => w.startedAt);
+    expect(sent).not.toContain(twin(499).startedAt);
+    expect(sent).not.toContain(twin(10).startedAt);
+    expect(sent).toContain(workoutAt(499).startedAt);
+    // The preview counts them with the duplicates the server found.
+    expect(screen.getByText('597 cardio workouts to import')).toBeInTheDocument();
+    expect(
+      screen.getByText('4 workouts already in your history will be skipped'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    // Confirm sends exactly what was previewed.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(bodyOf(fetchMock.mock.calls[2]).workouts).toEqual(previewed[0]);
+    expect(bodyOf(fetchMock.mock.calls[3]).workouts).toEqual(previewed[1]);
+    expect(toast.success).toHaveBeenCalledWith('Imported 597 workouts (4 skipped).');
+  });
+
   it('waits out the import rate limit and retries the same batch', async () => {
     const user = userEvent.setup();
     const sleep = vi.fn().mockResolvedValue(undefined);
@@ -247,6 +314,22 @@ describe('AppleHealthImport', () => {
         'This archive has no export.xml. Pick the export.zip made by the Health app.',
       ),
     );
+    expect(screen.queryByTestId('import-preview')).not.toBeInTheDocument();
+  });
+
+  it('explains an export over the size limit', async () => {
+    const user = userEvent.setup();
+    mockRead.mockRejectedValue(new AppleHealthFileError('too-large'));
+    render(<AppleHealthImport />);
+
+    await user.upload(fileInput(), exportFile());
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'This export is too large to read here: its data is over 2 GB once unzipped.',
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('import-preview')).not.toBeInTheDocument();
   });
 

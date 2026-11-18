@@ -178,6 +178,7 @@ export const settings = {
       nothingFound: '此文件中没有训练或体重记录。',
       noExportXml: '此压缩包中没有 export.xml。请选择“健康”App 生成的 export.zip。',
       unreadable: '无法读取此文件。',
+      tooLarge: '此导出文件过大，无法在此读取：解压后的数据超过 {limit} GB。',
       workouts: '{count, plural, other {将导入 # 次有氧训练}}',
       byType: '{name}：{count}',
       duplicates: '{count, plural, other {将跳过 # 次训练历史中已有的训练}}',

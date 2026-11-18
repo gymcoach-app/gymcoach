@@ -8,8 +8,16 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
-import type { AppleHealthBodyMass, AppleHealthWorkout } from '@/lib/import/apple-health';
-import { AppleHealthFileError, readAppleHealthFile } from '@/lib/import/apple-health-file';
+import {
+  dedupeAppleHealthWorkouts,
+  type AppleHealthBodyMass,
+  type AppleHealthWorkout,
+} from '@/lib/import/apple-health';
+import {
+  APPLE_HEALTH_MAX_INFLATED_GB,
+  AppleHealthFileError,
+  readAppleHealthFile,
+} from '@/lib/import/apple-health-file';
 import {
   APPLE_HEALTH_MAX_BODY_MASS_PER_REQUEST,
   APPLE_HEALTH_MAX_WORKOUTS_PER_REQUEST,
@@ -17,7 +25,10 @@ import {
 
 // What the file held, after the browser-side scan.
 interface Scan {
+  // Without the duplicates inside the file itself.
   workouts: AppleHealthWorkout[];
+  // Workouts left out because the file holds the same effort twice.
+  fileDuplicates: number;
   bodyMass: AppleHealthBodyMass[];
   skippedStrength: number;
   skippedInvalid: number;
@@ -184,15 +195,19 @@ export function AppleHealthImport({ sleep = defaultSleep }: Props) {
         return;
       }
 
+      // Duplicates inside the file are removed here, over the whole scan: the
+      // server only sees one batch at a time, so a pair cut by a batch
+      // boundary would be previewed as importable and then skipped at confirm.
+      const deduped = dedupeAppleHealthWorkouts(result.workouts);
       const responses = await sendAll<PreviewResponse>(
         'preview',
-        toBatches(result.workouts, result.bodyMass),
+        toBatches(deduped.workouts, result.bodyMass),
       );
       if (!responses) return;
       const counts = new Map<string, number>();
       const totals: PreviewTotals = {
         importable: 0,
-        duplicates: 0,
+        duplicates: deduped.duplicates,
         conflicts: 0,
         byExercise: [],
         bodyMassImportable: 0,
@@ -211,14 +226,17 @@ export function AppleHealthImport({ sleep = defaultSleep }: Props) {
       totals.byExercise = [...counts.entries()]
         .map(([name, count]) => ({ exerciseName: name, count }))
         .sort((a, b) => b.count - a.count || a.exerciseName.localeCompare(b.exerciseName));
-      setScan(result);
+      setScan({ ...result, workouts: deduped.workouts, fileDuplicates: deduped.duplicates });
       setPreview(totals);
       setWithBodyMass(true);
       setStatus({ kind: 'idle' });
     } catch (err) {
       if (!alive.current) return;
       if (err instanceof AppleHealthFileError) {
-        toast.error(err.code === 'no-export-xml' ? t('noExportXml') : t('unreadable'));
+        if (err.code === 'no-export-xml') toast.error(t('noExportXml'));
+        else if (err.code === 'too-large') {
+          toast.error(t('tooLarge', { limit: APPLE_HEALTH_MAX_INFLATED_GB }));
+        } else toast.error(t('unreadable'));
       } else {
         toast.error(err instanceof Error ? err.message : t('unreadable'));
       }
@@ -237,7 +255,7 @@ export function AppleHealthImport({ sleep = defaultSleep }: Props) {
       if (!responses) return;
       let sessions = 0;
       let weights = 0;
-      let skipped = 0;
+      let skipped = scan.fileDuplicates;
       for (const r of responses) {
         sessions += r.createdSessions;
         weights += r.bodyMass.created;

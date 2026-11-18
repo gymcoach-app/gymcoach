@@ -7,6 +7,7 @@ import {
   MAX_HR_MIN,
   MILES_TO_METERS,
 } from '@/lib/cardio';
+import { IMPORT_DUPLICATE_WINDOW_MS } from '@/lib/import/duplicate-window';
 import { lbToKg } from '@/lib/units';
 
 // ============================================================
@@ -43,6 +44,13 @@ export const APPLE_HEALTH_FUTURE_SLACK_MS = 24 * 60 * 60 * 1000;
 // few hundred characters): the scanner stops waiting for its end and moves on,
 // so a broken file cannot make it buffer without bound.
 const MAX_TAG_CHARS = 64 * 1024;
+
+// The scanner works through its input in slices of at most this many bytes
+// (or characters, for text), whatever the size of the chunk it is handed: one
+// huge chunk (a deflate stream can turn 64 KB into tens of MB) is then never
+// decoded into one string, and the scan buffer stays under one slice plus one
+// pending tag.
+export const APPLE_HEALTH_SCAN_SLICE = 256 * 1024;
 
 // Hard caps on what one file can yield (memory bound in the browser). Twenty
 // thousand workouts is ten a day for five years.
@@ -107,14 +115,33 @@ export function appleHealthExerciseName(type: string): string {
 const DATE_RE =
   /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\s*(Z|[+-]\d{2}:?\d{2})$/;
 
-export function parseAppleHealthDate(raw: string | undefined): Date | null {
+// The widest UTC offsets in use are -12:00 and +14:00. The server refuses
+// anything outside this range (lib/schemas/import.ts).
+export const APPLE_HEALTH_MAX_UTC_OFFSET_MIN = 14 * 60;
+
+// The instant a date string names, and the UTC offset it was written in
+// (minutes east of UTC: '+0100' is 60, '-0500' is -300, 'Z' is 0). An offset
+// no time zone uses reads as 0, so such an entry falls back to its UTC day.
+function parseDateWithOffset(raw: string | undefined): { date: Date; utcOffsetMin: number } | null {
   if (!raw) return null;
   const m = DATE_RE.exec(raw.trim());
   if (!m) return null;
   const zone = m[7]!;
   const offset = zone === 'Z' ? 'Z' : `${zone.slice(0, 3)}:${zone.slice(-2)}`;
   const date = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${offset}`);
-  return Number.isNaN(date.getTime()) ? null : date;
+  if (Number.isNaN(date.getTime())) return null;
+  let utcOffsetMin = 0;
+  if (zone !== 'Z') {
+    const minutes = Number(zone.slice(1, 3)) * 60 + Number(zone.slice(-2));
+    if (minutes > 0 && minutes <= APPLE_HEALTH_MAX_UTC_OFFSET_MIN) {
+      utcOffsetMin = zone[0] === '-' ? -minutes : minutes;
+    }
+  }
+  return { date, utcOffsetMin };
+}
+
+export function parseAppleHealthDate(raw: string | undefined): Date | null {
+  return parseDateWithOffset(raw)?.date ?? null;
 }
 
 function toNumber(raw: string | undefined): number | null {
@@ -277,6 +304,10 @@ export interface AppleHealthBodyMass {
   // ISO 8601 instant (UTC).
   measuredAt: string;
   weightKg: number;
+  // The UTC offset the export wrote this timestamp in, in minutes east of UTC.
+  // It is what tells which calendar day the measurement was taken on, see
+  // appleHealthLocalDayStart.
+  utcOffsetMin: number;
 }
 
 // Returns null when the record is unreadable or outside the bodyweight bounds.
@@ -284,11 +315,11 @@ export function normalizeAppleHealthBodyMass(
   attrs: Record<string, string>,
   now: Date = new Date(),
 ): AppleHealthBodyMass | null {
-  const at = parseAppleHealthDate(attrs.startDate);
+  const parsed = parseDateWithOffset(attrs.startDate);
   if (
-    !at ||
-    at.getTime() < APPLE_HEALTH_MIN_DATE.getTime() ||
-    at.getTime() > now.getTime() + APPLE_HEALTH_FUTURE_SLACK_MS
+    !parsed ||
+    parsed.date.getTime() < APPLE_HEALTH_MIN_DATE.getTime() ||
+    parsed.date.getTime() > now.getTime() + APPLE_HEALTH_FUTURE_SLACK_MS
   ) {
     return null;
   }
@@ -296,13 +327,62 @@ export function normalizeAppleHealthBodyMass(
   if (kg === null) return null;
   const weightKg = Math.round(kg * 100) / 100;
   if (weightKg < BODY_MASS_MIN_KG || weightKg > BODY_MASS_MAX_KG) return null;
-  return { measuredAt: at.toISOString(), weightKg };
+  return { measuredAt: parsed.date.toISOString(), weightKg, utcOffsetMin: parsed.utcOffsetMin };
 }
 
-// The UTC calendar day of an ISO instant ('2024-03-05'): the "same day" key the
-// body weight dedup uses on the client and on the server.
-export function utcDayKey(iso: string | Date): string {
-  return (typeof iso === 'string' ? iso : iso.toISOString()).slice(0, 10);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The "same day" rule of the body weight dedup, on the client and on the
+// server: the calendar day is the entry's own local day, read in the UTC
+// offset its Apple timestamp carries (the Health app writes the dates of an
+// export with the offset of the phone), not the UTC day. A weigh-in at
+// '2024-03-05 23:30:00 -0800' belongs to March 5th, although its UTC instant
+// is on the 6th.
+//
+// Returns the instant (epoch ms) that local day starts at; the day is the 24
+// hours from there. Another instant is on the same day as the entry when it
+// falls in that range.
+export function appleHealthLocalDayStart(atMs: number, utcOffsetMin: number): number {
+  const offsetMs = utcOffsetMin * 60_000;
+  return Math.floor((atMs + offsetMs) / DAY_MS) * DAY_MS - offsetMs;
+}
+
+// The local calendar day of an entry as text ('2024-03-05').
+export function appleHealthLocalDayKey(entry: {
+  measuredAt: string | Date;
+  utcOffsetMin: number;
+}): string {
+  const at =
+    typeof entry.measuredAt === 'string' ? Date.parse(entry.measuredAt) : entry.measuredAt.getTime();
+  return new Date(at + entry.utcOffsetMin * 60_000).toISOString().slice(0, 10);
+}
+
+// Drop the workouts that start within the duplicate window (2 minutes) of an
+// earlier one of the same list: Apple Health often holds one effort twice,
+// once from the watch and once from an app that synced it. This is the rule
+// the server applies inside a batch (planWorkouts in the import route: oldest
+// first, the first of a pair wins), applied here to the whole scan before it
+// is cut into batches, so a pair that straddles two batches is counted as a
+// duplicate in the preview too, and what is left never collides with itself
+// at confirm.
+export function dedupeAppleHealthWorkouts(workouts: readonly AppleHealthWorkout[]): {
+  workouts: AppleHealthWorkout[];
+  duplicates: number;
+} {
+  const sorted = [...workouts].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+  const kept: AppleHealthWorkout[] = [];
+  let lastKept = Number.NEGATIVE_INFINITY;
+  let duplicates = 0;
+  for (const workout of sorted) {
+    const at = Date.parse(workout.startedAt);
+    if (at - lastKept <= IMPORT_DUPLICATE_WINDOW_MS) {
+      duplicates += 1;
+    } else {
+      kept.push(workout);
+      lastKept = at;
+    }
+  }
+  return { workouts: kept, duplicates };
 }
 
 export interface AppleHealthScanResult {
@@ -313,8 +393,8 @@ export interface AppleHealthScanResult {
   // Workouts left out because the type, start or duration was unusable (or the
   // per-file cap was reached).
   skippedInvalid: number;
-  // Body weight, one entry per UTC day (the last measurement of the day),
-  // oldest first.
+  // Body weight, one entry per local day (the last measurement of the day,
+  // see appleHealthLocalDayStart), oldest first.
   bodyMass: AppleHealthBodyMass[];
 }
 
@@ -358,6 +438,7 @@ function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+const CH_LT = 60; // <
 const CH_GT = 62; // >
 const CH_SLASH = 47; // /
 const CH_BANG = 33; // !
@@ -366,23 +447,10 @@ const CH_SQUOTE = 39; // '
 const CH_UPPER_R = 82; // R
 const CH_UPPER_W = 87; // W
 
-// Index of the '>' that closes the tag whose attributes start at `from`,
-// honouring quoted attribute values (a '>' is legal inside one). -1 when the
-// buffer ends before the tag does.
-function findTagEnd(buf: string, from: number): number {
-  let quote = 0;
-  for (let i = from; i < buf.length; i++) {
-    const c = buf.charCodeAt(i);
-    if (quote !== 0) {
-      if (c === quote) quote = 0;
-    } else if (c === CH_DQUOTE || c === CH_SQUOTE) {
-      quote = c;
-    } else if (c === CH_GT) {
-      return i;
-    }
-  }
-  return -1;
-}
+// What findTagEnd answers when it finds no '>': the buffer ended first, or a
+// '<' came first.
+const TAG_UNFINISHED = -1;
+const TAG_BROKEN = -2;
 
 // True when `name` sits at `at` and is followed by a name boundary (so
 // 'Workout' does not match 'WorkoutStatistics').
@@ -412,15 +480,25 @@ export class AppleHealthScanner {
   private skippedInvalid = 0;
   private readonly bodyMassByDay = new Map<string, AppleHealthBodyMass>();
   private ended = false;
+  // Where the search for the end of the unfinished tag at the start of `buf`
+  // resumes on the next push (0: no such tag), and the quote it was inside.
+  private tagCursor = 0;
+  private tagQuote = 0;
 
   constructor(private readonly now: Date = new Date()) {}
 
   push(chunk: Uint8Array | string): void {
     if (this.ended) return;
-    const text = typeof chunk === 'string' ? chunk : this.decoder.decode(chunk, { stream: true });
-    if (text.length === 0) return;
-    this.buf = this.buf.length > 0 ? this.buf + text : text;
-    this.scan(false);
+    for (let offset = 0; offset < chunk.length; offset += APPLE_HEALTH_SCAN_SLICE) {
+      const end = offset + APPLE_HEALTH_SCAN_SLICE;
+      const text =
+        typeof chunk === 'string'
+          ? chunk.slice(offset, end)
+          : this.decoder.decode(chunk.subarray(offset, end), { stream: true });
+      if (text.length === 0) continue;
+      this.buf = this.buf.length > 0 ? this.buf + text : text;
+      this.scan(false);
+    }
   }
 
   end(): AppleHealthScanResult {
@@ -462,7 +540,7 @@ export class AppleHealthScanner {
   private addBodyMass(attrs: Record<string, string>): void {
     const entry = normalizeAppleHealthBodyMass(attrs, this.now);
     if (!entry) return;
-    const day = utcDayKey(entry.measuredAt);
+    const day = appleHealthLocalDayKey(entry);
     const known = this.bodyMassByDay.get(day);
     if (!known) {
       if (this.bodyMassByDay.size >= MAX_BODY_MASS_DAYS) return;
@@ -487,6 +565,33 @@ export class AppleHealthScanner {
       workout.statDistanceSum = attrs.sum;
       workout.statDistanceUnit = attrs.unit;
     }
+  }
+
+  // Index of the '>' that closes the tag being read, searching from `from`
+  // and honouring quoted attribute values (a '>' is legal inside one).
+  // TAG_BROKEN when a '<' comes first: a raw '<' is not legal anywhere inside
+  // a tag, quoted or not (XML requires &lt;), so the tag is not one we can
+  // read and the scan goes on from that '<'. TAG_UNFINISHED when the buffer
+  // ends first; the quote state is then kept for the next push.
+  //
+  // Both rules are what keeps the scan linear: a tag is searched once, up to
+  // the next '<' at most, and an unfinished one is resumed where the search
+  // stopped instead of being searched again from its start on every push.
+  private findTagEnd(buf: string, from: number, startQuote: number): number {
+    let quote = startQuote;
+    for (let i = from; i < buf.length; i++) {
+      const c = buf.charCodeAt(i);
+      if (c === CH_LT) return TAG_BROKEN;
+      if (quote !== 0) {
+        if (c === quote) quote = 0;
+      } else if (c === CH_DQUOTE || c === CH_SQUOTE) {
+        quote = c;
+      } else if (c === CH_GT) {
+        return i;
+      }
+    }
+    this.tagQuote = quote;
+    return TAG_UNFINISHED;
   }
 
   // Walk the buffer from one '<' to the next. A raw '<' never appears inside
@@ -557,14 +662,21 @@ export class AppleHealthScanner {
         continue;
       }
 
-      const end = findTagEnd(buf, lt + 1 + name.length);
+      // An unfinished tag is always kept at the start of the buffer.
+      const resumed = lt === 0 && this.tagCursor > 0;
+      const end = resumed
+        ? this.findTagEnd(buf, this.tagCursor, this.tagQuote)
+        : this.findTagEnd(buf, lt + 1 + name.length, 0);
+      this.tagCursor = 0;
       if (end < 0) {
-        if (final || buf.length - lt > MAX_TAG_CHARS) {
-          // Truncated or absurdly long: not a tag we can read. Move on.
+        if (end === TAG_BROKEN || final || buf.length - lt > MAX_TAG_CHARS) {
+          // Malformed, truncated or absurdly long: not a tag we can read.
+          // Move on.
           pos = lt + 1;
           continue;
         }
         keepFrom = lt;
+        this.tagCursor = buf.length - lt;
         break;
       }
       const selfClosing = buf.charCodeAt(end - 1) === CH_SLASH;

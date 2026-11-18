@@ -1,11 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
-import { strToU8, zipSync } from 'fflate';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Inflate, Unzip, strToU8, zipSync } from 'fflate';
+import { AppleHealthScanner } from './apple-health';
 import {
+  APPLE_HEALTH_MAX_INFLATED_BYTES,
+  APPLE_HEALTH_MAX_INFLATED_GB,
   AppleHealthFileError,
   isAppleHealthExportEntry,
   readAppleHealthFile,
 } from './apple-health-file';
+import { heldBytes, noise } from './zip-test-support';
 
 const NOW = new Date('2025-01-01T00:00:00.000Z');
 
@@ -32,7 +36,123 @@ function blobOf(bytes: Uint8Array): Blob {
   return new Blob([bytes as BlobPart]);
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('readAppleHealthFile', () => {
+  it('holds none of the bytes of the entries it does not read', async () => {
+    // What a real export.zip carries beside the export: the clinical document
+    // (as large as the export), GPS routes and ECGs. Stored and deflated,
+    // before and after the export.
+    const zip = zipSync({
+      'apple_health_export/export_cda.xml': [noise(400_000, 1), { level: 0 }],
+      'apple_health_export/workout-routes/route_2024-01-02.gpx': [noise(300_000, 2), { level: 6 }],
+      'apple_health_export/export.xml': strToU8(EXPORT_XML),
+      'apple_health_export/electrocardiograms/ecg_2024-01-02.csv': [noise(300_000, 3), { level: 0 }],
+      'apple_health_export/workout-routes/route_2024-01-04.gpx': [noise(200_000, 4), { level: 6 }],
+    });
+    expect(zip.length).toBeGreaterThan(1_200_000);
+
+    // The reader's Unzip, caught on its first push.
+    const push = vi.spyOn(Unzip.prototype, 'push');
+    const unzipOf = () => push.mock.contexts[0] as Unzip;
+    let worst = 0;
+    let samples = 0;
+    const result = await readAppleHealthFile(blobOf(zip), {
+      now: NOW,
+      onProgress: () => {
+        samples += 1;
+        worst = Math.max(worst, heldBytes(unzipOf()));
+      },
+    });
+
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Running', 'Walking']);
+    expect(samples).toBeGreaterThan(0);
+    expect(worst).toBe(0);
+    expect(heldBytes(unzipOf())).toBe(0);
+  });
+
+  it('reads one export entry, the first match, and inflates no later one', async () => {
+    const second =
+      '<HealthData>' + workout('Cycling', '10') + workout('Hiking', '11') + '</HealthData>';
+    const zip = zipSync({
+      'apple_health_export/export.xml': strToU8(EXPORT_XML),
+      'apple_health_export/export 2.xml': strToU8(second),
+      'backup/export.xml': strToU8(second),
+    });
+    const inflate = vi.spyOn(Inflate.prototype, 'push');
+    const result = await readAppleHealthFile(blobOf(zip), { now: NOW });
+    const inflatedIn = inflate.mock.calls.reduce((sum, [data]) => sum + data.length, 0);
+
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Running', 'Walking']);
+    expect(result.skippedStrength).toBe(1);
+    // Only the compressed bytes of the first entry went through an inflater.
+    expect(inflatedIn).toBeGreaterThan(0);
+    expect(inflatedIn).toBeLessThan(zip.length - 2 * 100);
+
+    // The first match wins whatever its name: here the localized one.
+    const other = zipSync({
+      'apple_health_export/Exportieren.xml': strToU8(second),
+      'apple_health_export/export.xml': strToU8(EXPORT_XML),
+    });
+    const fromOther = await readAppleHealthFile(blobOf(other), { now: NOW });
+    expect(fromOther.workouts.map((w) => w.activityType)).toEqual(['Cycling', 'Hiking']);
+  });
+
+  it('stops with too-large once the export inflates past the cap', async () => {
+    // 2 GB, the documented limit.
+    expect(APPLE_HEALTH_MAX_INFLATED_BYTES).toBe(APPLE_HEALTH_MAX_INFLATED_GB * 1024 ** 3);
+
+    // A deflate bomb: 64 MB of spaces in about 64 KB of archive.
+    const bomb = zipSync({ 'apple_health_export/export.xml': new Uint8Array(64 * 1024 * 1024).fill(32) });
+    expect(bomb.length).toBeLessThan(200_000);
+    const cap = 1024 * 1024;
+    const scanned = vi.spyOn(AppleHealthScanner.prototype, 'push');
+    const inflate = vi.spyOn(Inflate.prototype, 'push');
+    const progress: number[] = [];
+
+    await expect(
+      readAppleHealthFile(blobOf(bomb), {
+        now: NOW,
+        maxInflatedBytes: cap,
+        onProgress: (read) => progress.push(read),
+      }),
+    ).rejects.toMatchObject({ name: 'AppleHealthFileError', code: 'too-large' });
+
+    // Nothing past the cap reached the scanner, and the inflater was not fed
+    // the rest of the entry: the read stopped within one slice of the archive.
+    const scannedBytes = scanned.mock.calls.reduce((sum, [chunk]) => sum + chunk.length, 0);
+    expect(scannedBytes).toBeLessThanOrEqual(cap);
+    const inflatedIn = inflate.mock.calls.reduce((sum, [data]) => sum + data.length, 0);
+    expect(inflatedIn).toBeLessThanOrEqual(16 * 1024);
+    expect(progress).toEqual([]);
+  });
+
+  it('caps a stored entry too, and accepts an export exactly at the cap', async () => {
+    const xml = strToU8(EXPORT_XML);
+    const stored = zipSync({ 'apple_health_export/export.xml': xml }, { level: 0 });
+    await expect(
+      readAppleHealthFile(blobOf(stored), { now: NOW, maxInflatedBytes: xml.length - 1 }),
+    ).rejects.toMatchObject({ code: 'too-large' });
+    const result = await readAppleHealthFile(blobOf(stored), { now: NOW, maxInflatedBytes: xml.length });
+    expect(result.workouts).toHaveLength(2);
+  });
+
+  it('hands the scanner bounded chunks even when the archive inflates a lot per slice', async () => {
+    // 8 MB of spaces: one 16 KB slice of archive holds all of it.
+    const zip = zipSync({
+      'apple_health_export/export.xml': strToU8(' '.repeat(8 * 1024 * 1024) + workout('Running', '02')),
+    });
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+    const result = await readAppleHealthFile(blobOf(zip), { now: NOW });
+    const largest = Math.max(
+      ...decode.mock.calls.map(([input]) => (input as Uint8Array | undefined)?.byteLength ?? 0),
+    );
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Running']);
+    expect(largest).toBeLessThanOrEqual(256 * 1024);
+  });
+
   it('reads export.xml out of an export.zip, and only that entry', async () => {
     const zip = zipSync({
       'apple_health_export/export_cda.xml': DECOY,
@@ -48,7 +168,9 @@ describe('readAppleHealthFile', () => {
 
     expect(result.workouts.map((w) => w.activityType)).toEqual(['Running', 'Walking']);
     expect(result.skippedStrength).toBe(1);
-    expect(result.bodyMass).toEqual([{ measuredAt: '2024-01-01T07:00:00.000Z', weightKg: 80 }]);
+    expect(result.bodyMass).toEqual([
+      { measuredAt: '2024-01-01T07:00:00.000Z', weightKg: 80, utcOffsetMin: 0 },
+    ]);
     // Progress counts the bytes of the picked file and ends at its size.
     expect(progress.length).toBeGreaterThan(0);
     expect(progress[progress.length - 1]).toEqual([zip.length, zip.length]);

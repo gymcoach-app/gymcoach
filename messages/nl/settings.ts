@@ -192,6 +192,8 @@ export const settings = {
       noExportXml:
         'Dit archief bevat geen export.xml. Kies de export.zip die de Gezondheid-app heeft gemaakt.',
       unreadable: 'Dit bestand kon niet worden gelezen.',
+      tooLarge:
+        'Deze export is te groot om hier te lezen: de gegevens zijn uitgepakt groter dan {limit} GB.',
       workouts:
         '{count, plural, one {# cardiotraining} other {# cardiotrainingen}} om te importeren',
       byType: '{name}: {count}',

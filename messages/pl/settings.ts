@@ -193,6 +193,8 @@ export const settings = {
       noExportXml:
         'To archiwum nie zawiera pliku export.xml. Wybierz plik export.zip utworzony przez aplikację Zdrowie.',
       unreadable: 'Nie udało się odczytać tego pliku.',
+      tooLarge:
+        'Ten eksport jest zbyt duży, aby go tutaj odczytać: po rozpakowaniu jego dane zajmują ponad {limit} GB.',
       workouts:
         '{count, plural, one {# trening cardio} few {# treningi cardio} many {# treningów cardio} other {# treningu cardio}} do zaimportowania',
       byType: '{name}: {count}',

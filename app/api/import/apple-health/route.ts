@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { appleHealthImportInputSchema, type AppleHealthImportInput } from '@/lib/schemas/import';
-import { appleHealthExerciseName, utcDayKey } from '@/lib/import/apple-health';
+import { appleHealthExerciseName, appleHealthLocalDayStart } from '@/lib/import/apple-health';
 import {
   createCardioSession,
   findSessionStartsNear,
@@ -50,7 +50,16 @@ async function planWorkouts(userId: string, workouts: Workout[]) {
 }
 
 // Split a batch of body weight entries into the ones to add and the ones on a
-// (UTC) day that already has an entry. One entry per day inside the batch too.
+// day that already has an entry. One entry per day inside the batch too.
+//
+// "Day" is the entry's own local day: the 24 hours from local midnight in the
+// UTC offset its Apple timestamp was written in (appleHealthLocalDayStart).
+// An entry is a duplicate when the user already has a weigh-in, stored or
+// accepted earlier in this batch, whose instant falls in that range. A stored
+// entry has no offset of its own, so it is placed on the calendar of the
+// entry it is compared with: a manual weigh-in of the same local evening is
+// found, and importing the same export twice finds every entry again. An
+// entry sent without an offset is read in UTC.
 async function planBodyMass(
   client: Prisma.TransactionClient | typeof db,
   userId: string,
@@ -60,29 +69,45 @@ async function planBodyMass(
   const sorted = [...entries].sort((a, b) => a.measuredAt.getTime() - b.measuredAt.getTime());
   const first = sorted[0]!.measuredAt.getTime();
   const last = sorted[sorted.length - 1]!.measuredAt.getTime();
+  // A local day starts at most 24 h before its entry and ends at most 24 h
+  // after it, whatever the offset.
   const existing = await client.bodyweightEntry.findMany({
     where: {
       userId,
-      measuredAt: {
-        gte: new Date(Math.floor(first / DAY_MS) * DAY_MS),
-        lt: new Date((Math.floor(last / DAY_MS) + 1) * DAY_MS),
-      },
+      measuredAt: { gt: new Date(first - DAY_MS), lt: new Date(last + DAY_MS) },
     },
     select: { measuredAt: true },
+    orderBy: { measuredAt: 'asc' },
   });
-  const takenDays = new Set(existing.map((e) => utcDayKey(e.measuredAt)));
+  const taken = existing.map((e) => e.measuredAt.getTime());
   const fresh: BodyMass[] = [];
+  // Entries are walked oldest first, so the last accepted one is the only
+  // accepted one that can still be on the day of the next.
+  let lastAccepted = Number.NEGATIVE_INFINITY;
   let duplicates = 0;
   for (const entry of sorted) {
-    const day = utcDayKey(entry.measuredAt);
-    if (takenDays.has(day)) {
+    const at = entry.measuredAt.getTime();
+    const dayStart = appleHealthLocalDayStart(at, entry.utcOffsetMin);
+    if (lastAccepted >= dayStart || hasInstantIn(taken, dayStart, dayStart + DAY_MS)) {
       duplicates += 1;
     } else {
-      takenDays.add(day);
+      lastAccepted = at;
       fresh.push(entry);
     }
   }
   return { fresh, duplicates };
+}
+
+// True when the ascending list holds an instant in [from, to).
+function hasInstantIn(sorted: readonly number[], from: number, to: number): boolean {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! < from) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo < sorted.length && sorted[lo]! < to;
 }
 
 // POST /api/import/apple-health: import the cardio workouts (and optionally

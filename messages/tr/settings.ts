@@ -190,6 +190,8 @@ export const settings = {
       noExportXml:
         'Bu arşivde export.xml yok. Sağlık uygulamasının oluşturduğu export.zip dosyasını seçin.',
       unreadable: 'Bu dosya okunamadı.',
+      tooLarge:
+        'Bu dışa aktarım burada okunamayacak kadar büyük: açıldığında verileri {limit} GB’ı aşıyor.',
       workouts:
         '{count, plural, one {# kardiyo antrenmanı içe aktarılacak} other {# kardiyo antrenmanı içe aktarılacak}}',
       byType: '{name}: {count}',
