@@ -21,6 +21,7 @@ import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { formatEffort } from '@/lib/effort';
 import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import { formatCardioTarget, isCardioExercise } from '@/lib/cardio-target';
+import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 
 type ProgramExerciseWithExercise = ProgramExercise & { exercise: Exercise };
 
@@ -84,7 +85,10 @@ export function ProgramExerciseRow({
   // A cardio exercise reads as its duration and distance target (issue #558),
   // or as a neutral label when it has none: never as sets, reps and RIR.
   const isCardio = isCardioExercise(programExercise.exercise);
-  const cardioTarget = isCardio ? formatCardioTarget(programExercise, { locale }) : null;
+  const distanceUnit = useDistanceUnit();
+  const cardioTarget = isCardio
+    ? formatCardioTarget(programExercise, { locale, distanceUnit })
+    : null;
 
   return (
     <>

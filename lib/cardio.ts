@@ -1,4 +1,4 @@
-import type { WeightUnit } from '@/lib/prisma-client';
+import type { DistanceUnitPreference, WeightUnit } from '@/lib/prisma-client';
 import type { TrackPoint } from '@/lib/import/track';
 
 // ============================================================
@@ -33,13 +33,26 @@ export const MILES_TO_METERS = 1609.34;
 // The unit a cardio distance is typed and shown in. Storage is always meters.
 export type DistanceUnit = 'km' | 'mi';
 
-// The single rule for that unit (issue #576). The set logger types and shows
-// distance in kilometers for every user: it reads neither the weight unit
-// preference nor the locale. Everything that prescribes a distance (the
-// program editor, the workout card, the print sheet) asks this function, so a
-// future distance unit setting changes the logger and the targets together.
-export function cardioDistanceUnit(): DistanceUnit {
-  return 'km';
+// The two profile columns the distance unit is derived from.
+export interface DistanceUnitProfile {
+  // User.distanceUnit: the explicit choice, null (or absent) for automatic.
+  distanceUnit?: DistanceUnitPreference | null;
+  // User.unit: the weight unit, which the automatic choice follows.
+  unit?: WeightUnit | null;
+}
+
+// The single rule for that unit (issues #576 and #582). An explicit distance
+// unit preference wins. Without one the unit follows the weight unit - miles
+// for a pounds user, kilometers otherwise - which is what pace and speed
+// already did before the preference existed. It never reads the locale.
+// Everything that types, shows or prescribes a distance (the set logger, the
+// program editor, the workout card, the history, the print sheet, the share
+// card) asks this function, so they can never disagree. Without a profile
+// (a caller that has none, a signed-out render) the answer is kilometers.
+export function cardioDistanceUnit(profile?: DistanceUnitProfile | null): DistanceUnit {
+  if (profile?.distanceUnit === 'MI') return 'mi';
+  if (profile?.distanceUnit === 'KM') return 'km';
+  return profile?.unit === 'LB' ? 'mi' : 'km';
 }
 
 // Meters in one distance unit.
@@ -105,20 +118,52 @@ export function formatDuration(durationSec: number): string {
   return `${minutes}:${ss}`;
 }
 
-// Formats a distance in meters as kilometers with up to 2 decimals
-// (trailing zeros trimmed): 2500 -> "2.5 km", 10000 -> "10 km".
-export function formatDistance(distanceM: number): string {
-  const km = distanceM / 1000;
-  const rounded = +km.toFixed(2);
-  return `${rounded} km`;
+// Stored meters as a number of `unit`, rounded to 2 decimals for display or
+// for an input field: 2500 -> 2.5 (km), 8047 -> 5 (mi). Two decimals are
+// enough for the round trip to be exact: a distance typed with up to 2
+// decimals in either unit is stored to the nearest meter, and a meter is far
+// below half a hundredth of a kilometer or a mile.
+export function distanceInUnit(distanceM: number, unit: DistanceUnit = 'km'): number {
+  return +(distanceM / metersPerDistanceUnit(unit)).toFixed(2);
+}
+
+// A distance typed in `unit` to stored meters, rounded to the meter.
+//
+// `shownM` lists the stored distances the field may have been filled from (a
+// row's saved target, the previous set). When the typed value still reads as
+// one of them in `unit`, that stored value is returned as is instead of being
+// converted again: a 5000 m target shows "3.11" to a miles user, and saving
+// the form without touching the field keeps 5000 m rather than writing the
+// 5005 m that 3.11 mi converts to. So a value is converted exactly once, when
+// it is typed, and re-saving never drifts.
+export function distanceToM(
+  value: number,
+  unit: DistanceUnit = 'km',
+  shownM: readonly (number | null | undefined)[] = [],
+): number {
+  for (const stored of shownM) {
+    if (stored != null && stored > 0 && distanceInUnit(stored, unit) === value) return stored;
+  }
+  return Math.round(value * metersPerDistanceUnit(unit));
+}
+
+// Formats a distance in meters in `unit` (kilometers by default) with up to 2
+// decimals (trailing zeros trimmed): 2500 -> "2.5 km", 10000 -> "10 km",
+// 8047 in miles -> "5 mi".
+export function formatDistance(distanceM: number, unit: DistanceUnit = 'km'): string {
+  return `${distanceInUnit(distanceM, unit)} ${unit}`;
 }
 
 // One-line label for a cardio set: "12:30 · 2.5 km" (duration only when
-// there is no distance).
-export function formatCardioSet(durationSec: number, distanceM: number | null | undefined): string {
+// there is no distance), the distance in `unit`.
+export function formatCardioSet(
+  durationSec: number,
+  distanceM: number | null | undefined,
+  unit: DistanceUnit = 'km',
+): string {
   const duration = formatDuration(durationSec);
   if (distanceM != null && distanceM > 0) {
-    return `${duration} · ${formatDistance(distanceM)}`;
+    return `${duration} · ${formatDistance(distanceM, unit)}`;
   }
   return duration;
 }
@@ -129,8 +174,8 @@ export function formatCardioSet(durationSec: number, distanceM: number | null | 
 // The single number runners/cyclists train on. Both are derived from the
 // stored duration and distance; both return null when there is no distance
 // (e.g. a duration-only erg set) so callers never divide by zero or render
-// NaN/Infinity. Storage stays metric (meters/seconds); the unit only affects
-// the display helpers below.
+// NaN/Infinity. Storage stays metric (meters/seconds); the distance unit only
+// affects the display helpers below.
 
 // Pace as seconds per kilometer, or null when distance is absent/zero.
 export function paceSecPerKm(
@@ -147,34 +192,34 @@ export function speedKmh(durationSec: number, distanceM: number | null | undefin
   return distanceM / 1000 / (durationSec / 3600);
 }
 
-// Formats pace for display, respecting the user's unit: "6:00 /km" in metric,
-// "9:39 /mi" in imperial. Returns null when distance is absent (no pace to
-// show). The mm:ss part reuses formatDuration so it stays consistent.
+// Formats pace for display in the user's distance unit: "6:00 /km" in
+// kilometers, "9:39 /mi" in miles. Returns null when distance is absent (no
+// pace to show). The mm:ss part reuses formatDuration so it stays consistent.
 export function formatPace(
   durationSec: number,
   distanceM: number | null | undefined,
-  unit: WeightUnit,
+  unit: DistanceUnit,
 ): string | null {
   const secPerKm = paceSecPerKm(durationSec, distanceM);
   if (secPerKm == null) return null;
-  if (unit === 'LB') {
+  if (unit === 'mi') {
     const secPerMile = secPerKm * (MILES_TO_METERS / 1000);
     return `${formatDuration(secPerMile)} /mi`;
   }
   return `${formatDuration(secPerKm)} /km`;
 }
 
-// Formats speed for display, respecting the user's unit: "10 km/h" in metric,
-// "6.2 mph" in imperial. Returns null when distance is absent. One decimal,
-// trailing zeros trimmed.
+// Formats speed for display in the user's distance unit: "10 km/h" in
+// kilometers, "6.2 mph" in miles. Returns null when distance is absent. One
+// decimal, trailing zeros trimmed.
 export function formatSpeed(
   durationSec: number,
   distanceM: number | null | undefined,
-  unit: WeightUnit,
+  unit: DistanceUnit,
 ): string | null {
   const kmh = speedKmh(durationSec, distanceM);
   if (kmh == null) return null;
-  if (unit === 'LB') {
+  if (unit === 'mi') {
     const mph = kmh * (1000 / MILES_TO_METERS);
     return `${+mph.toFixed(1)} mph`;
   }

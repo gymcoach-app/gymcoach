@@ -2,7 +2,8 @@ import type { ExerciseCategory } from '@/lib/prisma-client';
 import {
   MAX_DISTANCE_M,
   MAX_DURATION_SEC,
-  cardioDistanceUnit,
+  distanceInUnit,
+  distanceToM,
   formatDuration,
   metersPerDistanceUnit,
   type DistanceUnit,
@@ -18,7 +19,7 @@ import {
 // print sheet, the live session card, the set logger and the coach payload
 // all go through them. Storage is metric (seconds, meters) like a cardio Set;
 // the editor types minutes and a distance in the unit the set logger uses
-// (cardioDistanceUnit in lib/cardio, kilometers today).
+// (cardioDistanceUnit in lib/cardio: the user's distance unit preference).
 //
 // The text is localized (issue #576): the unit names and the decimal mark
 // come from Intl.NumberFormat in the reader's locale ("20 min", "20 Min.",
@@ -43,7 +44,7 @@ export function hasCardioTarget(target: CardioTargetFields): boolean {
 export interface CardioTargetFormatOptions {
   /** BCP 47 locale of the reader. Default "en". */
   locale?: string;
-  /** Unit the distance is shown in. Default: the logger's unit. */
+  /** Unit the distance is shown in. Default: kilometers. */
   distanceUnit?: DistanceUnit;
 }
 
@@ -83,8 +84,8 @@ export function formatTargetDistance(
   distanceM: number,
   options: CardioTargetFormatOptions = {},
 ): string {
-  const { locale = 'en', distanceUnit = cardioDistanceUnit() } = options;
-  const value = +(distanceM / metersPerDistanceUnit(distanceUnit)).toFixed(2);
+  const { locale = 'en', distanceUnit = 'km' } = options;
+  const value = distanceInUnit(distanceM, distanceUnit);
   return unitFormat(locale, INTL_UNIT[distanceUnit]).format(value);
 }
 
@@ -144,18 +145,24 @@ export function minutesInputToDurationSec(input: string): number | null {
   return seconds;
 }
 
-// A distance typed in the program editor, in `unit`, to stored meters.
-// `undefined` means the text is invalid (not a number, zero, or over the
-// 1000 km bound); null means the field was left empty, which is allowed
-// (distance is optional).
+// A distance typed in the program editor or the set logger, in `unit`, to
+// stored meters. `undefined` means the text is invalid (not a number, zero,
+// or over the 1000 km bound); null means the field was left empty, which is
+// allowed (distance is optional).
+//
+// `shownM` lists the stored distances the field may have been filled from:
+// a text that still reads as one of them keeps that stored value instead of
+// being converted again (distanceToM in lib/cardio), so re-saving a form
+// never drifts.
 export function distanceInputToM(
   input: string,
-  unit: DistanceUnit = cardioDistanceUnit(),
+  unit: DistanceUnit = 'km',
+  shownM: readonly (number | null | undefined)[] = [],
 ): number | null | undefined {
   const trimmed = input.trim().replace(',', '.');
   if (trimmed === '') return null;
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return undefined;
-  const meters = Math.round(parseFloat(trimmed) * metersPerDistanceUnit(unit));
+  const meters = distanceToM(parseFloat(trimmed), unit, shownM);
   if (meters <= 0 || meters > MAX_DISTANCE_M) return undefined;
   return meters;
 }
@@ -175,10 +182,10 @@ export function durationSecToMinutesInput(durationSec: number | null | undefined
 // the same rounding the set logger uses.
 export function distanceMToInput(
   distanceM: number | null | undefined,
-  unit: DistanceUnit = cardioDistanceUnit(),
+  unit: DistanceUnit = 'km',
 ): string {
   if (distanceM == null || distanceM <= 0) return '';
-  return String(+(distanceM / metersPerDistanceUnit(unit)).toFixed(2));
+  return String(distanceInUnit(distanceM, unit));
 }
 
 // Stored meters as kilometers (distanceMToInput in km).
@@ -190,17 +197,20 @@ export function distanceMToKmInput(distanceM: number | null | undefined): string
 
 // The values the set logger starts from on a cardio exercise with a target,
 // in the raw-string shape of its two inputs: duration as "m:ss" (what the
-// logger parses back) and distance in the logger's unit (cardioDistanceUnit).
-// Empty strings when there is no target, which is the logger's behavior
-// before this slice.
-export function cardioTargetLoggerInputs(target: CardioTargetFields): {
+// logger parses back) and distance in the logger's unit (the user's distance
+// unit, kilometers by default). Empty strings when there is no target, which
+// is the logger's behavior before this slice.
+export function cardioTargetLoggerInputs(
+  target: CardioTargetFields,
+  distanceUnit: DistanceUnit = 'km',
+): {
   durationInput: string;
   distanceInput: string;
 } {
   if (!hasCardioTarget(target)) return { durationInput: '', distanceInput: '' };
   return {
     durationInput: formatDuration(target.targetDurationSec!),
-    distanceInput: distanceMToInput(target.targetDistanceM, cardioDistanceUnit()),
+    distanceInput: distanceMToInput(target.targetDistanceM, distanceUnit),
   };
 }
 

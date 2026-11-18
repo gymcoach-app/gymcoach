@@ -102,7 +102,7 @@ export const progress = {
     description:
       '对比每周有氧训练时长与每周 {target} 分钟的参考目标。悬停提示中可查看训练距离和次数。',
     summary:
-      '本周：{minutes} 分钟{distance, select, none {} other { · {distance} 公里}}{current, select, none {} other { · {sessions, plural, other {# 次训练}}}} · 最近 {weeks} 周合计：{totalMinutes} 分钟{totalDistance, select, none {} other {，{totalDistance} 公里}}。',
+      '本周：{minutes} 分钟{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, other {# 次训练}}}} · 最近 {weeks} 周合计：{totalMinutes} 分钟{totalDistance, select, none {} other {，{totalDistance} {unit}}}。',
   },
   deload: {
     activeTitle: '正在进行减量周',

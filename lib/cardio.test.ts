@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
+  cardioDistanceUnit,
+  distanceInUnit,
+  distanceToM,
   formatCardioSet,
   formatDistance,
   formatDuration,
   formatPace,
   formatSpeed,
   isCardioSet,
+  MAX_DISTANCE_M,
   MAX_DURATION_SEC,
+  MILES_TO_METERS,
   paceSecPerKm,
   parseDurationToSec,
   speedKmh,
@@ -120,33 +125,33 @@ describe('speedKmh', () => {
 
 describe('formatPace', () => {
   it('formats metric pace as mm:ss /km', () => {
-    expect(formatPace(1800, 5000, 'KG')).toBe('6:00 /km');
+    expect(formatPace(1800, 5000, 'km')).toBe('6:00 /km');
   });
 
   it('formats imperial pace as mm:ss /mi', () => {
     // 6:00 /km -> 6:00 * 1.60934 = 579.4 s/mi -> 9:39.
-    expect(formatPace(1800, 5000, 'LB')).toBe('9:39 /mi');
+    expect(formatPace(1800, 5000, 'mi')).toBe('9:39 /mi');
   });
 
   it('returns null when there is no distance', () => {
-    expect(formatPace(1800, 0, 'KG')).toBeNull();
-    expect(formatPace(1800, null, 'LB')).toBeNull();
+    expect(formatPace(1800, 0, 'km')).toBeNull();
+    expect(formatPace(1800, null, 'mi')).toBeNull();
   });
 });
 
 describe('formatSpeed', () => {
   it('formats metric speed as km/h', () => {
-    expect(formatSpeed(1800, 5000, 'KG')).toBe('10 km/h');
+    expect(formatSpeed(1800, 5000, 'km')).toBe('10 km/h');
   });
 
   it('formats imperial speed as mph', () => {
     // 10 km/h -> 10 / 1.60934 = 6.21 mph -> 6.2.
-    expect(formatSpeed(1800, 5000, 'LB')).toBe('6.2 mph');
+    expect(formatSpeed(1800, 5000, 'mi')).toBe('6.2 mph');
   });
 
   it('returns null when there is no distance', () => {
-    expect(formatSpeed(1800, 0, 'KG')).toBeNull();
-    expect(formatSpeed(1800, null, 'LB')).toBeNull();
+    expect(formatSpeed(1800, 0, 'km')).toBeNull();
+    expect(formatSpeed(1800, null, 'mi')).toBeNull();
   });
 });
 
@@ -262,5 +267,100 @@ describe('trackDecoupling (issue #268)', () => {
         { t: 0, d: 300, hr: 150 },
       ]),
     ).toBeNull(); // all at the same instant
+  });
+});
+
+// Distance unit setting (issue #582).
+describe('cardioDistanceUnit', () => {
+  it('is kilometers without a profile', () => {
+    expect(cardioDistanceUnit()).toBe('km');
+    expect(cardioDistanceUnit(null)).toBe('km');
+    expect(cardioDistanceUnit({})).toBe('km');
+  });
+
+  it('follows the weight unit while the preference is automatic', () => {
+    expect(cardioDistanceUnit({ distanceUnit: null, unit: 'KG' })).toBe('km');
+    expect(cardioDistanceUnit({ distanceUnit: null, unit: 'LB' })).toBe('mi');
+    expect(cardioDistanceUnit({ unit: 'LB' })).toBe('mi');
+  });
+
+  it('lets an explicit preference win over the weight unit', () => {
+    expect(cardioDistanceUnit({ distanceUnit: 'KM', unit: 'LB' })).toBe('km');
+    expect(cardioDistanceUnit({ distanceUnit: 'MI', unit: 'KG' })).toBe('mi');
+    expect(cardioDistanceUnit({ distanceUnit: 'MI' })).toBe('mi');
+  });
+});
+
+describe('distance in the user unit', () => {
+  it('converts stored meters to the unit, rounded to 2 decimals', () => {
+    expect(distanceInUnit(2500)).toBe(2.5);
+    expect(distanceInUnit(2500, 'km')).toBe(2.5);
+    expect(distanceInUnit(5000, 'mi')).toBe(3.11);
+    expect(distanceInUnit(8047, 'mi')).toBe(5);
+    expect(distanceInUnit(42195, 'mi')).toBe(26.22);
+  });
+
+  it('formats a distance in kilometers by default and in miles on request', () => {
+    expect(formatDistance(5000)).toBe('5 km');
+    expect(formatDistance(5000, 'km')).toBe('5 km');
+    expect(formatDistance(5000, 'mi')).toBe('3.11 mi');
+    expect(formatDistance(1609.34, 'mi')).toBe('1 mi');
+  });
+
+  it('labels a cardio set in the unit', () => {
+    expect(formatCardioSet(1800, 5000, 'mi')).toBe('30:00 · 3.11 mi');
+    expect(formatCardioSet(1800, 5000, 'km')).toBe('30:00 · 5 km');
+    expect(formatCardioSet(1800, null, 'mi')).toBe('30:00');
+  });
+
+  it('keeps pace, speed and distance on the same unit', () => {
+    expect(formatPace(1800, 5000, 'mi')).toBe('9:39 /mi');
+    expect(formatSpeed(1800, 5000, 'mi')).toBe('6.2 mph');
+    expect(formatDistance(5000, 'mi')).toContain('mi');
+  });
+});
+
+describe('distanceToM', () => {
+  it('converts a typed distance to whole meters', () => {
+    expect(distanceToM(5)).toBe(5000);
+    expect(distanceToM(2.5, 'km')).toBe(2500);
+    expect(distanceToM(5, 'mi')).toBe(8047);
+    expect(distanceToM(3.1, 'mi')).toBe(Math.round(3.1 * MILES_TO_METERS));
+  });
+
+  it('reads back exactly what was typed, in either unit, at any 2-decimal value', () => {
+    for (const unit of ['km', 'mi'] as const) {
+      const max = Math.floor(MAX_DISTANCE_M / (unit === 'mi' ? MILES_TO_METERS : 1000));
+      // Every value up to the bound, checked in a plain loop (one assertion
+      // per unit) so the sweep stays cheap.
+      const drifted: number[] = [];
+      for (let hundredths = 1; hundredths <= max * 100; hundredths++) {
+        const typed = hundredths / 100;
+        const stored = distanceToM(typed, unit);
+        const shown = distanceInUnit(stored, unit);
+        // Saving what is shown again stores the same meters: no drift.
+        if (shown !== typed || distanceToM(shown, unit) !== stored) drifted.push(typed);
+      }
+      expect(drifted).toEqual([]);
+    }
+  });
+
+  it('keeps the stored meters of a value the field was only showing', () => {
+    // 5000 m reads 3.11 mi; converting 3.11 mi again would give 5005 m.
+    expect(distanceToM(3.11, 'mi')).toBe(5005);
+    expect(distanceToM(3.11, 'mi', [5000])).toBe(5000);
+    // A different value typed over it is converted normally.
+    expect(distanceToM(3.2, 'mi', [5000])).toBe(5150);
+    // Null and zero candidates are ignored.
+    expect(distanceToM(3.11, 'mi', [null, undefined, 0])).toBe(5005);
+  });
+
+  it('never drifts over repeated saves after a unit switch', () => {
+    let stored = 5000; // typed as 5 km
+    for (let i = 0; i < 5; i++) {
+      stored = distanceToM(distanceInUnit(stored, 'mi'), 'mi', [stored]);
+      stored = distanceToM(distanceInUnit(stored, 'km'), 'km', [stored]);
+    }
+    expect(stored).toBe(5000);
   });
 });

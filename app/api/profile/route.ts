@@ -14,6 +14,7 @@ const PROFILE_SELECT = {
   weeklyFrequency: true,
   coachNote: true,
   unit: true,
+  distanceUnit: true,
   effortScale: true,
 } as const;
 
@@ -53,6 +54,8 @@ export async function PATCH(req: Request) {
           ? { coachNote: data.coachNote ? data.coachNote : null }
           : {}),
         ...(data.unit !== undefined ? { unit: data.unit } : {}),
+        // null is a value here: it returns the distance unit to automatic.
+        ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}),
         ...(data.effortScale !== undefined ? { effortScale: data.effortScale } : {}),
       },
       select: PROFILE_SELECT,

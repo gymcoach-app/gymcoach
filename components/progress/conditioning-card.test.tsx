@@ -35,6 +35,17 @@ describe('ConditioningCard', () => {
     ).toBeInTheDocument();
   });
 
+  it('converts the distances to miles for a miles user (issue #582)', () => {
+    const weeks = [
+      week({ weekKey: '2026-W23', weekStartIso: '2026-06-01T00:00:00.000Z', minutes: 90, distanceKm: 10, sessions: 2 }),
+      week({ minutes: 45, distanceKm: 5, sessions: 1 }),
+    ];
+    render(<ConditioningCard weeks={weeks} distanceUnit="mi" />);
+    expect(
+      screen.getByText(/This week: 45 min · 3.11 mi · 1 session · 2-week total: 135 min, 9.32 mi./),
+    ).toBeInTheDocument();
+  });
+
   it('omits distance copy when the window has no distance data', () => {
     render(<ConditioningCard weeks={[week({ minutes: 30, sessions: 1 })]} />);
     expect(screen.getByText(/This week: 30 min · 1 session · 1-week total: 30 min./)).toBeInTheDocument();

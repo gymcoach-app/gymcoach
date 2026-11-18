@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { ProgramDetailView } from '@/components/programs/program-detail-view';
 import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
+import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
+import { cardioDistanceUnit } from '@/lib/cardio';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -34,14 +36,20 @@ export default async function ProgramDetailPage(props: Props) {
       where: { userId: session.userId },
       orderBy: [{ muscleGroup: 'asc' }, { name: 'asc' }],
     }),
-    // The prescription line of each exercise follows the effort scale (#390).
-    db.user.findUnique({ where: { id: session.userId }, select: { effortScale: true } }),
+    // The prescription line of each exercise follows the effort scale (#390)
+    // and, for a cardio target, the distance unit (#582).
+    db.user.findUnique({
+      where: { id: session.userId },
+      select: { effortScale: true, unit: true, distanceUnit: true },
+    }),
   ]);
 
   return (
     <main className="flex-1 px-4 py-6">
       <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
-        <ProgramDetailView program={program} catalog={exercisesCatalog} />
+        <DistanceUnitProvider unit={cardioDistanceUnit(user)}>
+          <ProgramDetailView program={program} catalog={exercisesCatalog} />
+        </DistanceUnitProvider>
       </EffortScaleProvider>
     </main>
   );

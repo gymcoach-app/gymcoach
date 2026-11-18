@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { SettingsClient } from '@/components/settings/settings-client';
 import { ProfileSection } from '@/components/settings/profile-section';
 import { ImportSection } from '@/components/settings/import-section';
+import { cardioDistanceUnit } from '@/lib/cardio';
 import { GymProfilesSection } from '@/components/settings/gym-profiles-section';
 import { McpSection } from '@/components/settings/mcp-section';
 
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
         goal: true,
         weeklyFrequency: true,
         unit: true,
+        distanceUnit: true,
         effortScale: true,
         activeGymId: true,
       },
@@ -80,6 +82,7 @@ export default async function SettingsPage() {
             goal: user?.goal ?? null,
             weeklyFrequency: user?.weeklyFrequency ?? null,
             unit: user?.unit ?? 'KG',
+            distanceUnit: user?.distanceUnit ?? null,
             effortScale: user?.effortScale ?? 'RIR',
           }}
         />
@@ -90,7 +93,7 @@ export default async function SettingsPage() {
           exercises={exercises}
         />
 
-        <ImportSection />
+        <ImportSection distanceUnit={cardioDistanceUnit(user)} />
 
         <McpSection
           initialTokens={mcpTokens.map((token) => ({

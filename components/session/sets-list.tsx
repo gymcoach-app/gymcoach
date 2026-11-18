@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import type { PendingSet } from '@/lib/indexeddb';
 import { detectPRs, type PRType } from '@/lib/records';
 import { formatCardioSet } from '@/lib/cardio';
+import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 import { formatEffort } from '@/lib/effort';
 import { useEffortScale } from '@/components/shared/effort-scale-provider';
 
@@ -79,6 +80,7 @@ function RowDone({
 }) {
   const t = useTranslations('session.setsList');
   const effortScale = useEffortScale();
+  const distanceUnit = useDistanceUnit();
   const weightLabel = set.weight === 0 ? t('bodyweight') : `${set.weight} kg`;
   // Cardio sets (issue #133) render as duration/distance, never weight x reps.
   const isCardio = set.durationSec != null;
@@ -93,7 +95,7 @@ function RowDone({
         </span>
         <span className="truncate text-sm text-muted-foreground">
           {isCardio ? (
-            formatCardioSet(set.durationSec!, set.distanceM)
+            formatCardioSet(set.durationSec!, set.distanceM, distanceUnit)
           ) : (
             <>
               {weightLabel} × {set.reps}
