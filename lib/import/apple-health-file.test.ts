@@ -104,9 +104,14 @@ describe('readAppleHealthFile', () => {
     // 2 GB, the documented limit.
     expect(APPLE_HEALTH_MAX_INFLATED_BYTES).toBe(APPLE_HEALTH_MAX_INFLATED_GB * 1024 ** 3);
 
-    // A deflate bomb: 64 MB of spaces in about 64 KB of archive.
-    const bomb = zipSync({ 'apple_health_export/export.xml': new Uint8Array(64 * 1024 * 1024).fill(32) });
-    expect(bomb.length).toBeLessThan(200_000);
+    // A deflate bomb: 32 MB of spaces in a few tens of KB of archive (more
+    // than one slice of it). Building it is the slow part of this test.
+    const bomb = zipSync(
+      { 'apple_health_export/export.xml': new Uint8Array(32 * 1024 * 1024).fill(32) },
+      { level: 1 },
+    );
+    expect(bomb.length).toBeGreaterThan(16 * 1024);
+    expect(bomb.length).toBeLessThan(400_000);
     const cap = 1024 * 1024;
     const scanned = vi.spyOn(AppleHealthScanner.prototype, 'push');
     const inflate = vi.spyOn(Inflate.prototype, 'push');
@@ -127,7 +132,7 @@ describe('readAppleHealthFile', () => {
     const inflatedIn = inflate.mock.calls.reduce((sum, [data]) => sum + data.length, 0);
     expect(inflatedIn).toBeLessThanOrEqual(16 * 1024);
     expect(progress).toEqual([]);
-  });
+  }, 30_000);
 
   it('caps a stored entry too, and accepts an export exactly at the cap', async () => {
     const xml = strToU8(EXPORT_XML);
