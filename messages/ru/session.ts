@@ -118,9 +118,9 @@ export const session = {
     duration: 'Длительность (мм:сс)',
     durationExample: 'например: 12:30',
     durationError: 'Формат: мм:сс, ч:мм:сс или количество минут.',
-    distance: 'Дистанция (км, необязательно)',
+    distance: 'Дистанция ({unit}, необязательно)',
     distanceExample: 'например: 2.5',
-    distanceError: 'Введите дистанцию от 0 до 1000 км.',
+    distanceError: 'Введите дистанцию от 0 до {max} {unit}.',
     quickEntry: 'Быстрый ввод',
     quickEntryExample: 'например: 100x8@9 ({unit} x повторы @ RPE)',
     quickEntryError:

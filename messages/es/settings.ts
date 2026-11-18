@@ -93,6 +93,12 @@ export const settings = {
     generalFitness: 'Forma física general',
     kilograms: 'Kilogramos (kg)',
     pounds: 'Libras (lb)',
+    distanceUnit: 'Unidad de distancia',
+    distanceUnitDescription:
+      'Cambia cómo se muestran e introducen la distancia, el ritmo y la velocidad del cardio. Las distancias siempre se guardan en metros, así que cambiar de unidad nunca altera las sesiones pasadas. Automática sigue la unidad de peso: millas con libras, kilómetros con kilogramos.',
+    distanceAuto: 'Automática (sigue la unidad de peso)',
+    kilometers: 'Kilómetros (km)',
+    miles: 'Millas (mi)',
   },
   backup: {
     title: 'Datos',

@@ -92,6 +92,12 @@ export const settings = {
     generalFitness: 'Genel fitness',
     kilograms: 'Kilogram (kg)',
     pounds: 'Libre (lb)',
+    distanceUnit: 'Mesafe birimi',
+    distanceUnitDescription:
+      'Kardiyoda mesafenin, temponun ve hızın nasıl gösterilip girildiğini değiştirir. Mesafeler her zaman metre olarak saklanır, bu yüzden birim değiştirmek geçmiş seansları asla etkilemez. Otomatik seçenek ağırlık birimini izler: libre ile mil, kilogram ile kilometre.',
+    distanceAuto: 'Otomatik (ağırlık birimini izler)',
+    kilometers: 'Kilometre (km)',
+    miles: 'Mil (mi)',
   },
   backup: {
     title: 'Veriler',

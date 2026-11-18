@@ -121,9 +121,9 @@ export const session = {
     durationExample: 'p. ej. 12:30 o 12.30',
     durationError:
       'Formato esperado: mm:ss (p. ej. 12:30, o 12.30 en un teclado numérico), h:mm:ss o solo minutos.',
-    distance: 'Distancia (km, opcional)',
+    distance: 'Distancia ({unit}, opcional)',
     distanceExample: 'p. ej. 2.5',
-    distanceError: 'Introduce una distancia entre 0 y 1000 km.',
+    distanceError: 'Introduce una distancia entre 0 y {max} {unit}.',
     quickEntry: 'Entrada rápida',
     quickEntryExample: 'p. ej. 100x8@9 ({unit} x reps @ RPE)',
     quickEntryError:

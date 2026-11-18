@@ -5,7 +5,7 @@ import { requireSession } from '@/lib/auth';
 import { EmptyState } from '@/components/ui/empty-state';
 import { applyBodyweight, totalVolume } from '@/lib/stats';
 import { formatWeight } from '@/lib/units';
-import { formatDistance, formatDuration } from '@/lib/cardio';
+import { cardioDistanceUnit, formatDistance, formatDuration } from '@/lib/cardio';
 import { HistoryFilters } from '@/components/history/history-filters';
 import {
   HistoryCalendar,
@@ -70,7 +70,7 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
     }),
     db.user.findUnique({
       where: { id: auth.userId },
-      select: { bodyweight: true, unit: true },
+      select: { bodyweight: true, unit: true, distanceUnit: true },
     }),
     db.session.count({
       where: { userId: auth.userId, finishedAt: { not: null } },
@@ -78,6 +78,7 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
   ]);
 
   const unit = user?.unit ?? 'KG';
+  const distanceUnit = cardioDistanceUnit(user);
   const calendarSessions: HistoryCalendarSession[] = sessions.map((session) => {
     const enrichedSets = applyBodyweight(
       session.sets.map((set) => ({
@@ -125,7 +126,7 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
             }),
           }),
       durationLabel: !isCardio && durationMin != null ? t('minutes', { count: durationMin }) : null,
-      cardioDistanceLabel: isCardio && cardioDistance > 0 ? formatDistance(cardioDistance) : null,
+      cardioDistanceLabel: isCardio && cardioDistance > 0 ? formatDistance(cardioDistance, distanceUnit) : null,
       cardioDurationLabel:
         isCardio && (cardioDurationSec > 0 || durationMin != null)
           ? formatDuration(cardioDurationSec || (durationMin ?? 0) * 60)

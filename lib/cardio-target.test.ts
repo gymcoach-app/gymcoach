@@ -291,7 +291,7 @@ describe('localized cardio target (issue #576)', () => {
 });
 
 describe('distance unit of a cardio target (issue #576)', () => {
-  it('follows the unit the set logger types its distance in: kilometers', () => {
+  it('follows the unit the set logger types its distance in: kilometers by default', () => {
     expect(cardioDistanceUnit()).toBe('km');
     // Editor default = logger unit: what the editor stores for "5" is what
     // the logger shows back as "5".
@@ -356,5 +356,53 @@ describe('coach payload stays numeric (issue #576)', () => {
     expect(before).toBe('{"targetDurationMin":12.5,"targetDistanceKm":2.5}');
     expect(typeof after.targetDurationMin).toBe('number');
     expect(typeof after.targetDistanceKm).toBe('number');
+  });
+});
+
+// Distance unit setting (issue #582): the editor, the logger prefill and the
+// target text all take the unit resolved from the profile.
+describe('cardio target in the user distance unit (issue #582)', () => {
+  const miles = cardioDistanceUnit({ distanceUnit: 'MI', unit: 'KG' });
+
+  it('types, shows and prefills in miles for a miles user', () => {
+    expect(miles).toBe('mi');
+    const stored = distanceInputToM('3', miles);
+    expect(stored).toBe(4828);
+    expect(distanceMToInput(stored, miles)).toBe('3');
+    expect(
+      cardioTargetLoggerInputs({ targetDurationSec: 1200, targetDistanceM: stored }, miles)
+        .distanceInput,
+    ).toBe('3');
+    expect(formatCardioTarget({ targetDurationSec: 1200, targetDistanceM: stored }, {
+      distanceUnit: miles,
+    })).toBe('20 min · 3 mi');
+  });
+
+  it('keeps kilometers for every helper called without a unit', () => {
+    expect(distanceInputToM('5')).toBe(5000);
+    expect(distanceMToInput(5000)).toBe('5');
+    expect(formatTargetDistance(5000)).toBe('5 km');
+    expect(
+      cardioTargetLoggerInputs({ targetDurationSec: 1200, targetDistanceM: 5000 }).distanceInput,
+    ).toBe('5');
+  });
+
+  it('does not drift when a target typed in kilometers is re-saved in miles', () => {
+    const shown = distanceMToInput(5000, 'mi');
+    expect(shown).toBe('3.11');
+    // Without the stored value the text converts to 5005 m.
+    expect(distanceInputToM(shown, 'mi')).toBe(5005);
+    // With it, an untouched field keeps the 5000 m it was showing.
+    expect(distanceInputToM(shown, 'mi', [5000])).toBe(5000);
+    expect(distanceInputToM('3,11', 'mi', [5000])).toBe(5000);
+    // A value typed over it is converted once.
+    expect(distanceInputToM('3.5', 'mi', [5000])).toBe(5633);
+  });
+
+  it('still validates a text that matches nothing shown', () => {
+    expect(distanceInputToM('', 'mi', [5000])).toBeNull();
+    expect(distanceInputToM('abc', 'mi', [5000])).toBeUndefined();
+    expect(distanceInputToM('0', 'mi', [5000])).toBeUndefined();
+    expect(distanceInputToM('622', 'mi', [5000])).toBeUndefined();
   });
 });

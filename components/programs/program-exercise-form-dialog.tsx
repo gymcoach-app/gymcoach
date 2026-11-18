@@ -51,7 +51,7 @@ import {
   distanceInputToM,
   minutesInputToDurationSec,
 } from '@/lib/cardio-target';
-import { cardioDistanceUnit } from '@/lib/cardio';
+import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 
 interface CreateProps {
   open: boolean;
@@ -124,9 +124,10 @@ export function ProgramExerciseFormDialog(props: Props) {
 
   // Cardio target (issue #558): typed as minutes and a distance, kept as raw
   // strings while typing and converted to the stored seconds and meters on
-  // submit. The distance is typed in the unit the set logger uses (issue
-  // #576): one rule, cardioDistanceUnit, so the two never disagree.
-  const distanceUnit = cardioDistanceUnit();
+  // submit. The distance is typed in the unit the set logger uses (issues
+  // #576 and #582): the user's distance unit, resolved by one rule
+  // (cardioDistanceUnit) on the server page, so the two never disagree.
+  const distanceUnit = useDistanceUnit();
   const distanceUnitText = distanceUnitLabel(distanceUnit, locale);
   const distanceMax = maxTargetDistance(distanceUnit);
   const initialDurationMin =
@@ -183,7 +184,14 @@ export function ProgramExerciseFormDialog(props: Props) {
   const selectedExercise = findExercise(watchedExerciseId);
   const isCardio = selectedExercise ? isCardioExercise(selectedExercise) : false;
   const durationSec = minutesInputToDurationSec(durationMin);
-  const distanceM = distanceInputToM(distanceKm, distanceUnit);
+  // A field left as it was shown keeps the stored meters: a 5000 m target
+  // reads "3.11" in miles, and saving the row again must not turn it into the
+  // 5005 m that 3.11 mi converts to.
+  const distanceM = distanceInputToM(
+    distanceKm,
+    distanceUnit,
+    props.mode === 'edit' ? [props.programExercise.targetDistanceM] : [],
+  );
   const durationInvalid = cardioSubmitted && durationSec === null;
   const distanceInvalid = cardioSubmitted && distanceM === undefined;
 
@@ -219,7 +227,7 @@ export function ProgramExerciseFormDialog(props: Props) {
 
   async function onSubmit(values: ProgramExerciseInput) {
     // The cardio target is validated here, not by the form schema: its two
-    // fields are typed in minutes and kilometers and only exist for a cardio
+    // fields are typed in minutes and the user's distance unit and only exist for a cardio
     // exercise. Duration is required, distance optional. One exception: a
     // cardio row saved before targets existed has none, and it can still be
     // edited (its notes, say) with both fields left empty; no target is sent

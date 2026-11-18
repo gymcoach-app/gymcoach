@@ -36,6 +36,7 @@ import { BodyweightCard } from '@/components/progress/bodyweight-card';
 import { MeasurementsCard } from '@/components/progress/measurements-card';
 import { PhotosCard } from '@/components/progress/photos-card';
 import { ConditioningCard } from '@/components/progress/conditioning-card';
+import { cardioDistanceUnit } from '@/lib/cardio';
 import { RecordsCard } from '@/components/progress/records-card';
 
 interface SearchParams {
@@ -85,6 +86,7 @@ export default async function ProgressPage(
         bodyweight: true,
         bodyweightGoalKg: true,
         unit: true,
+        distanceUnit: true,
         weeklyFrequency: true,
         deloadUntil: true,
       },
@@ -508,6 +510,7 @@ export default async function ProgressPage(
               distanceKm: w.distanceKm,
               sessions: w.sessions,
             }))}
+            distanceUnit={cardioDistanceUnit(user)}
           />
         )}
 

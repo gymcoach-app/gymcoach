@@ -93,6 +93,12 @@ export const settings = {
     generalFitness: 'Allgemeine Fitness',
     kilograms: 'Kilogramm (kg)',
     pounds: 'Pfund (lb)',
+    distanceUnit: 'Distanzeinheit',
+    distanceUnitDescription:
+      'Ändert, wie Distanz, Tempo und Geschwindigkeit beim Cardio angezeigt und eingegeben werden. Distanzen werden immer in Metern gespeichert, daher verändert ein Wechsel niemals vergangene Einheiten. Automatisch folgt der Gewichtseinheit: Meilen bei Pfund, Kilometer bei Kilogramm.',
+    distanceAuto: 'Automatisch (folgt der Gewichtseinheit)',
+    kilometers: 'Kilometer (km)',
+    miles: 'Meilen (mi)',
   },
   backup: {
     title: 'Daten',

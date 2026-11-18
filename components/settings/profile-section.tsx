@@ -4,7 +4,13 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Save, User } from 'lucide-react';
 import { toast } from 'sonner';
-import type { EffortScale, Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
+import type {
+  DistanceUnitPreference,
+  EffortScale,
+  Sex,
+  TrainingGoal,
+  WeightUnit,
+} from '@/lib/prisma-client';
 import { EFFORT_SCALES } from '@/lib/effort';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -26,6 +32,8 @@ export interface ProfileData {
   goal: TrainingGoal | null;
   weeklyFrequency: number | null;
   unit: WeightUnit;
+  // null = automatic: the distance unit follows the weight unit (issue #582).
+  distanceUnit: DistanceUnitPreference | null;
   effortScale: EffortScale;
 }
 
@@ -42,6 +50,11 @@ const GOAL_OPTIONS: TrainingGoal[] = [
   'GENERAL_FITNESS',
 ];
 const UNIT_OPTIONS: WeightUnit[] = ['KG', 'LB'];
+// The Select cannot hold null, so automatic gets a value of its own; it is
+// sent to the API as null.
+const DISTANCE_AUTO = 'AUTO';
+type DistanceChoice = DistanceUnitPreference | typeof DISTANCE_AUTO;
+const DISTANCE_OPTIONS: DistanceChoice[] = [DISTANCE_AUTO, 'KM', 'MI'];
 
 function numOrEmpty(n: number | null): string {
   return n != null ? String(n) : '';
@@ -61,6 +74,9 @@ export function ProfileSection({ initial }: Props) {
     initial.goal ?? undefined,
   );
   const [unit, setUnit] = useState<WeightUnit>(initial.unit);
+  const [distanceUnit, setDistanceUnit] = useState<DistanceChoice>(
+    initial.distanceUnit ?? DISTANCE_AUTO,
+  );
   const [effortScale, setEffortScale] = useState<EffortScale>(initial.effortScale);
   const [pending, setPending] = useState(false);
 
@@ -91,6 +107,7 @@ export function ProfileSection({ initial }: Props) {
       if (sex) body.sex = sex;
       if (goal) body.goal = goal;
       body.unit = unit;
+      body.distanceUnit = distanceUnit === DISTANCE_AUTO ? null : distanceUnit;
       body.effortScale = effortScale;
 
       const res = await fetch('/api/profile', {
@@ -251,6 +268,32 @@ export function ProfileSection({ initial }: Props) {
           <p className="text-xs text-muted-foreground">
             {t('unitDescription')}
           </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="distanceUnit" className="text-sm">
+            {t('distanceUnit')}
+          </Label>
+          <Select
+            value={distanceUnit}
+            onValueChange={(v) => setDistanceUnit(v as DistanceChoice)}
+          >
+            <SelectTrigger id="distanceUnit" className="max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DISTANCE_OPTIONS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option === 'KM'
+                    ? t('kilometers')
+                    : option === 'MI'
+                      ? t('miles')
+                      : t('distanceAuto')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t('distanceUnitDescription')}</p>
         </div>
 
         <div className="space-y-1.5">

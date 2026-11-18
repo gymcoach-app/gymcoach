@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { muscleGroupMessageKeys } from '@/i18n/enum-keys';
 import { applyBodyweight, best1RM, totalVolume } from '@/lib/stats';
 import {
+  cardioDistanceUnit,
   formatCardioSet,
   formatDistance,
   formatDuration,
@@ -93,7 +94,7 @@ export default async function HistorySessionPage(props: Params) {
     }),
     db.user.findUnique({
       where: { id: auth.userId },
-      select: { bodyweight: true, unit: true, effortScale: true },
+      select: { bodyweight: true, unit: true, distanceUnit: true, effortScale: true },
     }),
   ]);
 
@@ -102,6 +103,8 @@ export default async function HistorySessionPage(props: Params) {
   }
   const bodyweight = user?.bodyweight ?? null;
   const unit = user?.unit ?? 'KG';
+  // Cardio distance, pace and speed read in the user's distance unit (#582).
+  const distanceUnit = cardioDistanceUnit(user);
   // Effort is stored as RIR; the column follows the user's scale (issue #390).
   const effortScale = user?.effortScale ?? 'RIR';
 
@@ -188,6 +191,7 @@ export default async function HistorySessionPage(props: Params) {
           },
           {
             unit,
+            distanceUnit,
             locale,
             labels: {
               warmup: copyT('warmup'),
@@ -239,6 +243,7 @@ export default async function HistorySessionPage(props: Params) {
           },
           {
             unit,
+            distanceUnit,
             locale,
             bodyweight,
             labels: {
@@ -427,9 +432,9 @@ export default async function HistorySessionPage(props: Params) {
               );
               const cardioTotal = isCardio
                 ? [
-                    formatCardioSet(cardioDurationTotal, cardioDistanceTotal),
-                    formatPace(cardioDurationTotal, cardioDistanceTotal, unit),
-                    formatSpeed(cardioDurationTotal, cardioDistanceTotal, unit),
+                    formatCardioSet(cardioDurationTotal, cardioDistanceTotal, distanceUnit),
+                    formatPace(cardioDurationTotal, cardioDistanceTotal, distanceUnit),
+                    formatSpeed(cardioDurationTotal, cardioDistanceTotal, distanceUnit),
                   ]
                     .filter(Boolean)
                     .join(' · ')
@@ -493,7 +498,7 @@ export default async function HistorySessionPage(props: Params) {
                             {entry.sets.map((s) => {
                               const pace =
                                 s.durationSec != null
-                                  ? formatPace(s.durationSec, s.distanceM, unit)
+                                  ? formatPace(s.durationSec, s.distanceM, distanceUnit)
                                   : null;
                               return (
                                 <tr key={s.id} className="border-b border-border/40">
@@ -503,7 +508,7 @@ export default async function HistorySessionPage(props: Params) {
                                   </td>
                                   <td className="py-1.5">
                                     {s.distanceM != null && s.distanceM > 0
-                                      ? formatDistance(s.distanceM)
+                                      ? formatDistance(s.distanceM, distanceUnit)
                                       : '-'}
                                   </td>
                                   <td className="py-1.5">{pace ?? '-'}</td>

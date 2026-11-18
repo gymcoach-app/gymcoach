@@ -104,7 +104,7 @@ export const progress = {
     description:
       'Minutos semanais de cardio comparados à recomendação de {target} min/semana. A distância e as sessões aparecem na dica do gráfico.',
     summary:
-      'Nesta semana: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# sessão} other {# sessões}}}} · Total ({weeks} sem.): {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'Nesta semana: {minutes} min{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# sessão} other {# sessões}}}} · Total ({weeks} sem.): {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Semana de deload em andamento',

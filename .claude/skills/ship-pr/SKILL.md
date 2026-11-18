@@ -185,6 +185,29 @@ changes on.
    records carry over, stops always, ready records only when made on a base that is on
    `main` (a retargeted stacked PR's records never carry). A conflict resolution, a hand
    edit in the merge or any extra commit is a fixup like any other.
+   **Identical-diff carry-over (#582).** The gate also counts a record pinned to
+   (record base, record head) for the live head when git proves all of this in the
+   trusted gate tree: (a) the record head is an ancestor of the live head; (b) every
+   commit added since, on the first-parent chain, is a two-parent merge whose second
+   parent is on `main` (no plain commit, no merge of another branch, at most 20 merges);
+   (c) `git patch-id --stable` of the PR diff (merge base with `main` to the head) is the
+   same for the record and for the live PR; (d) the PR's file list is the same; and, on
+   top of patch-id (which ignores whitespace and line numbers), every file of the PR has
+   the same blob and mode on both sides of both diffs, so `main` changed none of them. The
+   record base must be on `main` and the live head must contain the live tip. A PR file
+   that `main` also changed is left to the pure base update proof above (a clean re-merge)
+   or to a fresh review; a hand-resolved conflict changes the diff, so (c) fails and a
+   fresh review of the delta posts new records. Any git error refuses the merge
+   (`base-update-unverified`). The gate prints one line per carried record with the rule
+   (`pure-base-update` or `identical-diff`) and what git proved, and a
+   `review-for-other-head` refusal names the rule that failed for each older record.
+   **So never re-post or re-pin a record for a new head by hand**, patch-id check or not:
+   post each record for the head and base the reviewer read, as soon as the reviewer
+   returns, and let the gate decide. When the branch was updated before a record could be
+   posted (the review finished after an `update-branch`), post it unchanged with
+   `npx tsx automation/review/record.ts <n> --file <review.json> --head-moved`: it keeps
+   the SHAs the reviewer read and skips only the live head and base check; a record the
+   gate cannot carry over simply does not count.
 
 5. **Merge.** Only if CI is green AND review is clean. **Every merge, loop-authored or
    external, goes through the merge gate pinned to the SHA the review covered**, run from
@@ -229,8 +252,10 @@ changes on.
    true and the tier rules of `docs/loops/10-external-contributions.md` allow it, GitHub
    writes that merge itself:
    `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/<n>/update-branch -f expected_head_sha=<head>`,
-   otherwise ask the contributor to merge `main`; a merge with a hand-resolved conflict is
-   not a pure base update, so every record must be posted again for the new head, which is
+   otherwise ask the contributor to merge `main`; after such an update the gate carries
+   the records over by itself, step 4, never re-post them; a merge with a hand-resolved
+   conflict is not a pure base update and changes the PR diff, so nothing carries and a
+   fresh review of the delta must post new records for the new head, which is
    why a PR adds a `changelog.d/` fragment instead of editing `CHANGELOG.md` (lesson L47);
    when an older PR still edits `CHANGELOG.md` and conflicts, move its entry into a
    fragment in the same merge commit), or git in the gate tree could not verify
@@ -309,7 +334,8 @@ changes on.
   the merge call pins the head, not the base, so a merge by another session or a human in
   the seconds between that read and the merge call is not caught. Keep merges one at a
   time. Merge `main` in without hand edits so the review records
-  carry over; re-run `verify.sh` on the result when it is loop-authored code. A merge
+  carry over (the gate proves it and says so; no record is re-posted by hand); re-run
+  `verify.sh` on the result when it is loop-authored code. A merge
   that needs a conflict resolution is a fixup: review the delta and post fresh records.
 - Inherited deny-list still applies (no force-push, no hard reset).
 

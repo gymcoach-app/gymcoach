@@ -123,9 +123,9 @@ export const session = {
     durationExample: 'bv. 12:30 of 12.30',
     durationError:
       'Verwacht formaat: mm:ss (bv. 12:30, of 12.30 op een numeriek toetsenbord), u:mm:ss of gewoon minuten.',
-    distance: 'Afstand (km, optioneel)',
+    distance: 'Afstand ({unit}, optioneel)',
     distanceExample: 'bv. 2.5',
-    distanceError: 'Vul een afstand in tussen 0 en 1000 km.',
+    distanceError: 'Vul een afstand in tussen 0 en {max} {unit}.',
     quickEntry: 'Snel invoeren',
     quickEntryExample: 'bv. 100x8@9 ({unit} x herh. @ RPE)',
     quickEntryError:

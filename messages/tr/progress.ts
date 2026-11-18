@@ -104,7 +104,7 @@ export const progress = {
       'Haftalık kardiyo dakikaları, haftada {target} dk önerisine göre. Mesafe ve seanslar ipucunda görünür.',
 
     summary:
-      'Bu hafta: {minutes} dk{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# seans} other {# seans}}}} · {weeks} haftalık toplam: {totalMinutes} dk{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'Bu hafta: {minutes} dk{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# seans} other {# seans}}}} · {weeks} haftalık toplam: {totalMinutes} dk{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Deload haftası devam ediyor',

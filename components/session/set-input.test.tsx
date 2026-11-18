@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { SetInput } from './set-input';
 import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
+import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
 
 const exo: Exercise = {
   id: 'e1',
@@ -755,5 +756,107 @@ describe('SetInput cardio target prefill', () => {
     expect(screen.getByLabelText(/duration/i)).toHaveValue('15:00');
     // The logged set had no distance: the target's is not put back.
     expect(screen.getByLabelText(/distance/i)).toHaveValue(null);
+  });
+});
+
+// Distance unit setting (issue #582): the logger types and shows distance in
+// the user's unit and stores meters.
+describe('SetInput distance unit (issue #582)', () => {
+  type Existing = Parameters<typeof SetInput>[0]['existingSets'];
+
+  function renderInMiles(
+    target: { targetDurationSec: number | null; targetDistanceM: number | null } = {
+      targetDurationSec: null,
+      targetDistanceM: null,
+    },
+    existingSets: Existing = [],
+  ) {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DistanceUnitProvider unit="mi">
+        <SetInput
+          programExercise={{ ...cardioPE, ...target }}
+          existingSets={existingSets}
+          lastPerformance={undefined}
+          readiness={null}
+          deloadActive={false}
+          unit="KG"
+          onSubmit={onSubmit}
+        />
+      </DistanceUnitProvider>,
+    );
+    return { onSubmit };
+  }
+
+  it('labels the distance field in kilometers without a provider', () => {
+    renderCardioInput();
+    expect(screen.getByLabelText('Distance (km, optional)')).toBeInTheDocument();
+  });
+
+  it('labels the field in miles and stores the miles typed as meters', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderInMiles();
+    const distance = screen.getByLabelText('Distance (mi, optional)');
+
+    await user.type(screen.getByLabelText(/duration/i), '40:00');
+    await user.type(distance, '5');
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSec: 2400, distanceM: 8047 }),
+    );
+  });
+
+  it('prefills a kilometer target in miles and logs it without drift', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderInMiles({ targetDurationSec: 1800, targetDistanceM: 5000 });
+    // 5000 m reads 3.11 mi; logging it untouched stores 5000 m, not 5005 m.
+    expect(screen.getByLabelText(/distance/i)).toHaveValue(3.11);
+
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSec: 1800, distanceM: 5000 }),
+    );
+  });
+
+  it('converts a value typed over the prefill once', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderInMiles({ targetDurationSec: 1800, targetDistanceM: 5000 });
+    const distance = screen.getByLabelText(/distance/i);
+    await user.clear(distance);
+    await user.type(distance, '3');
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ distanceM: 4828 }));
+  });
+
+  it('prefills the previous set of the session in miles and repeats its meters', async () => {
+    const user = userEvent.setup();
+    const logged = [
+      {
+        setNumber: 1,
+        weight: 0,
+        reps: 1,
+        rir: null,
+        durationSec: 900,
+        distanceM: 2000,
+        isWarmup: false,
+        isDropSet: false,
+      },
+    ] as unknown as Existing;
+    const { onSubmit } = renderInMiles({ targetDurationSec: null, targetDistanceM: null }, logged);
+    expect(screen.getByLabelText(/distance/i)).toHaveValue(1.24);
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSec: 900, distanceM: 2000 }),
+    );
+  });
+
+  it('refuses a distance over the bound, quoted in miles', async () => {
+    const user = userEvent.setup();
+    renderInMiles();
+    await user.type(screen.getByLabelText(/duration/i), '40:00');
+    await user.type(screen.getByLabelText(/distance/i), '622');
+    expect(screen.getByText('Enter a distance between 0 and 621 mi.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /log the set/i })).toBeDisabled();
   });
 });

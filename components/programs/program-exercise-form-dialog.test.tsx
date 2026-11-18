@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProgramExerciseFormDialog } from './program-exercise-form-dialog';
 import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
+import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -276,6 +277,65 @@ describe('ProgramExerciseFormDialog cardio target', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(
       await screen.findByText('Enter a distance up to 1000 km, or leave it empty.'),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Distance unit setting (issue #582).
+  function renderEditInMiles(row: EditProps['programExercise']) {
+    const fetchMock = vi.fn(async () => Response.json({}));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <EffortScaleProvider scale="RIR">
+        <DistanceUnitProvider unit="mi">
+          <ProgramExerciseFormDialog
+            open
+            onOpenChange={vi.fn()}
+            mode="edit"
+            programExercise={row}
+            catalog={[row.exercise]}
+          />
+        </DistanceUnitProvider>
+      </EffortScaleProvider>,
+    );
+    return fetchMock;
+  }
+
+  it('types the distance in miles for a miles user and saves meters', async () => {
+    const fetchMock = renderEditInMiles(cardioRow);
+    fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Distance (mi, optional)'), {
+      target: { value: '3' },
+    });
+    const body = await savedBody(fetchMock);
+    expect(body).toMatchObject({ targetDurationSec: 1800, targetDistanceM: 4828 });
+  });
+
+  it('re-saves a kilometer target shown in miles without drift', async () => {
+    const fetchMock = renderEditInMiles({
+      ...cardioRow,
+      targetDurationSec: 1800,
+      targetDistanceM: 5000,
+    } as unknown as EditProps['programExercise']);
+    // 5000 m reads 3.11 mi, which converts back to 5005 m: the untouched
+    // field must keep the stored 5000 m.
+    expect((screen.getByLabelText('Distance (mi, optional)') as HTMLInputElement).value).toBe(
+      '3.11',
+    );
+    fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '35' } });
+    const body = await savedBody(fetchMock);
+    expect(body).toMatchObject({ targetDurationSec: 2100, targetDistanceM: 5000 });
+  });
+
+  it('refuses a distance over the bound, quoted in miles', async () => {
+    const fetchMock = renderEditInMiles(cardioRow);
+    fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '20' } });
+    fireEvent.change(screen.getByLabelText('Distance (mi, optional)'), {
+      target: { value: '622' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(
+      await screen.findByText('Enter a distance up to 621 mi, or leave it empty.'),
     ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CI_APP_ID, REQUIRED_CHECKS } from './checks';
-import { type CheckRun, type GateInput, type RefusalCode, evaluateMergeGate } from './gate';
+import {
+  type CheckRun,
+  type GateInput,
+  type IdenticalDiffCarry,
+  type RefusalCode,
+  evaluateMergeGate,
+} from './gate';
 import type { ReviewEvidence } from '../review/comment';
 import type { StructuredReview } from '../review/schema';
 
@@ -515,6 +521,116 @@ describe('merge gate', () => {
       expect(codes(updated({ reviews: [evidence({ headSha: OLD_HEAD }), stop] }))).toEqual([
         'review-not-ready',
       ]);
+    });
+
+    // Identical-diff carry-over (#582): base-update.ts proves it per record
+    // pin (base, head); the gate only links the proof to this run.
+    describe('identical-diff carry-over', () => {
+      const proof = (over: Partial<IdenticalDiffCarry> = {}): IdenticalDiffCarry => ({
+        recordHead: OLD_HEAD,
+        recordBase: BASE,
+        head: SHA,
+        base: TIP,
+        carried: true,
+        detail: '1 merge(s) of the base branch, identical diff',
+        ...over,
+      });
+      const carriedBy = (identicalDiffs: IdenticalDiffCarry[], over: Partial<GateInput> = {}) =>
+        updated({ baseUpdates: { hops: [], basesOnMain: [], identicalDiffs, error: null }, ...over });
+
+      it('carries a ready record whose pin git proved, and says why', () => {
+        const decision = evaluateMergeGate(input(carriedBy([proof()])));
+        expect(decision).toMatchObject({
+          mergeable: true,
+          reviews: [
+            {
+              commentId: 900,
+              carriedFrom: OLD_HEAD,
+              carriedBy: 'identical-diff',
+              carriedWhy: '1 merge(s) of the base branch, identical diff',
+            },
+          ],
+        });
+      });
+
+      it('names the rule of a pure base update too', () => {
+        expect(evaluateMergeGate(input(updated()))).toMatchObject({
+          mergeable: true,
+          reviews: [{ carriedFrom: OLD_HEAD, carriedBy: 'pure-base-update' }],
+        });
+      });
+
+      it('carries nothing on a refused proof, and the refusal says why', () => {
+        const decision = evaluateMergeGate(
+          input(carriedBy([proof({ carried: false, detail: 'a commit was added' })])),
+        );
+        expect(decision.mergeable).toBe(false);
+        if (!decision.mergeable) {
+          expect(decision.refusals.map((r) => r.code)).toEqual(['review-for-other-head']);
+          expect(decision.refusals[0]!.detail).toContain(
+            `not carried over: ${OLD_HEAD.slice(0, 12)} (base ${BASE.slice(0, 12)}): a commit was added`,
+          );
+        }
+      });
+
+      it('ignores a proof made for another head, another tip or another pin', () => {
+        for (const stray of [
+          proof({ head: OTHER }),
+          proof({ base: OTHER }),
+          proof({ recordHead: OTHER }),
+          proof({ recordHead: SHA }),
+        ]) {
+          expect(codes(carriedBy([stray]))).toEqual(['review-for-other-head']);
+        }
+        // The head carried for another record's base, not for this one's.
+        expect(codes(carriedBy([proof({ recordBase: OTHER })]))).toEqual(['review-for-other-base']);
+        // The PR's base must be the live tip the proof was made against.
+        expect(
+          codes(carriedBy([proof()], { pull: { ...pull, baseSha: BASE }, baseTipSha: TIP })),
+        ).toEqual(['base-stale', 'review-for-other-head']);
+      });
+
+      it('carries nothing when git reported an error', () => {
+        expect(
+          codes(
+            updated({
+              baseUpdates: { hops: [], basesOnMain: [], identicalDiffs: [proof()], error: 'boom' },
+            }),
+          ),
+        ).toEqual(['base-update-unverified', 'review-for-other-head']);
+      });
+
+      it('carries a stop on a carried head whatever its own pin proved', () => {
+        // The ready record's pin carries; another lens stopped the same head
+        // on a pin git did not prove. Dropping it would let the merge of main
+        // erase a stop.
+        const stop = evidence(
+          {
+            headSha: OLD_HEAD,
+            baseSha: OTHER,
+            lenses: ['security'],
+            verdict: 'needs-changes',
+            findings: [{ severity: 'major', file: 'lib/a.ts', line: 1, claim: 'x' }],
+          },
+          901,
+        );
+        const reviews = [evidence({ headSha: OLD_HEAD }), stop];
+        expect(
+          codes(carriedBy([proof(), proof({ recordBase: OTHER, carried: false })], { reviews })),
+        ).toEqual(['review-not-ready']);
+        // The same lens retracts it with a later record on the new head.
+        const retract = evidence({ baseSha: TIP, lenses: ['security'] }, 902);
+        expect(
+          evaluateMergeGate(input(carriedBy([proof()], { reviews: [...reviews, retract] })))
+            .mergeable,
+        ).toBe(true);
+      });
+
+      it('still requires the lenses and the checks on the approved head', () => {
+        expect(
+          codes(carriedBy([proof()], { checkRuns: [], changedFiles: paths('lib/auth.ts') })),
+        ).toEqual(expect.arrayContaining(['no-checks', 'check-missing']));
+      });
     });
 
     it('still needs a record on the current base for the approved head itself', () => {

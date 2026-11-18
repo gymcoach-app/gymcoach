@@ -1,4 +1,4 @@
-import { formatCardioSet, sumCardioWorkingSets } from '@/lib/cardio';
+import { formatCardioSet, sumCardioWorkingSets, type DistanceUnit } from '@/lib/cardio';
 import type { WeightUnit } from '@/lib/prisma-client';
 import { applyBodyweight, estimate1RM, totalVolume } from '@/lib/stats';
 import { formatWeight } from '@/lib/units';
@@ -62,6 +62,8 @@ export interface ShareCardLabels {
 
 export interface ShareCardOptions {
   unit: WeightUnit;
+  // Unit cardio distance reads in (issue #582). Default: kilometers.
+  distanceUnit?: DistanceUnit;
   locale: string;
   // The user's bodyweight in kg, when known: it ranks the sets of a
   // bodyweight exercise and counts in the total volume, as on the page.
@@ -156,7 +158,7 @@ function formatStrengthSet(
 function exerciseDetail(exercise: ShareCardExercise, options: ShareCardOptions): string {
   if (exercise.isCardio) {
     const { durationSec, distanceM } = sumCardioWorkingSets(exercise.sets);
-    return durationSec > 0 ? formatCardioSet(durationSec, distanceM) : '-';
+    return durationSec > 0 ? formatCardioSet(durationSec, distanceM, options.distanceUnit) : '-';
   }
   const best = bestStrengthSet(exercise, options.bodyweight);
   return best ? formatStrengthSet(best, exercise.usesBodyweight, options) : '-';

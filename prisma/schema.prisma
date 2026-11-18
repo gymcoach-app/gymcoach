@@ -29,6 +29,12 @@ model User {
   // Preferred weight unit for display and input. Data is always stored in kg;
   // this only affects the presentation layer. Default keeps existing users on kg.
   unit              WeightUnit         @default(KG)
+  // Preferred distance unit for cardio display and input (issue #582). Cardio
+  // distance is always stored in meters; this only affects the presentation
+  // layer. Null = automatic: follows the weight unit (LB reads miles, KG
+  // kilometers), the rule pace and speed already used. See cardioDistanceUnit
+  // in lib/cardio.ts.
+  distanceUnit      DistanceUnitPreference?
   // Preferred effort scale for display and input (issue #390). Effort is always
   // stored as RIR on the set; this only affects the presentation layer. Default
   // keeps existing users on RIR.
@@ -110,6 +116,13 @@ enum Sex {
 enum WeightUnit {
   KG
   LB
+}
+
+// The unit cardio distance is shown and typed in (issue #582). Storage is
+// always meters.
+enum DistanceUnitPreference {
+  KM
+  MI
 }
 
 // How effort is shown and entered (issue #390). Storage is always Set.rir;

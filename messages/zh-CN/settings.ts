@@ -91,6 +91,12 @@ export const settings = {
     generalFitness: '综合体能',
     kilograms: '千克（kg）',
     pounds: '磅（lb）',
+    distanceUnit: '距离单位',
+    distanceUnitDescription:
+      '更改有氧训练中距离、配速和速度的显示和输入单位。距离始终以米保存，因此切换单位不会改变历史训练记录。“自动”会跟随重量单位：使用磅时为英里，使用千克时为公里。',
+    distanceAuto: '自动（跟随重量单位）',
+    kilometers: '公里（km）',
+    miles: '英里（mi）',
   },
   backup: {
     title: '数据管理',

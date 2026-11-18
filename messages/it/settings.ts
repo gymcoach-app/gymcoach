@@ -93,6 +93,12 @@ export const settings = {
     generalFitness: 'Forma fisica generale',
     kilograms: 'Chilogrammi (kg)',
     pounds: 'Libbre (lb)',
+    distanceUnit: 'Unità di distanza',
+    distanceUnitDescription:
+      'Cambia come distanza, passo e velocità del cardio vengono mostrati e inseriti. Le distanze sono sempre salvate in metri, quindi cambiare unità non modifica mai le sessioni passate. Automatica segue l’unità di peso: miglia con le libbre, chilometri con i chilogrammi.',
+    distanceAuto: 'Automatica (segue l’unità di peso)',
+    kilometers: 'Chilometri (km)',
+    miles: 'Miglia (mi)',
   },
   backup: {
     title: 'Dati',

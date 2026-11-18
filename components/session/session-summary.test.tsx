@@ -3,6 +3,8 @@ import { render, screen } from '@testing-library/react';
 import type { Exercise, ProgramExercise, Session } from '@/lib/prisma-client';
 import type { PendingSet } from '@/lib/indexeddb';
 import { SessionSummary, computeSessionPRs } from './session-summary';
+import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
+import { cardioDistanceUnit } from '@/lib/cardio';
 
 const exo: Exercise = {
   id: 'e1',
@@ -208,19 +210,43 @@ describe('SessionSummary cardio pace/speed', () => {
     expect(screen.getByText(/30:00 · 5 km · 6:00 \/km · 10 km\/h/)).toBeTruthy();
   });
 
+  // Since issue #582 the session page resolves the distance unit from the
+  // profile (cardioDistanceUnit) and provides it: a pounds user without an
+  // explicit distance unit still reads miles, as before, and the distance now
+  // joins the pace and the speed.
   it('shows pace and speed in imperial when the unit is LB', () => {
     render(
-      <SessionSummary
-        session={session}
-        sets={[cardioSet({ localId: 'c' })]}
-        programExercises={[cardioPe]}
-        unit="LB"
-        onBack={() => {}}
-        onFinish={() => {}}
-        finishing={false}
-      />,
+      <DistanceUnitProvider unit={cardioDistanceUnit({ unit: 'LB', distanceUnit: null })}>
+        <SessionSummary
+          session={session}
+          sets={[cardioSet({ localId: 'c' })]}
+          programExercises={[cardioPe]}
+          unit="LB"
+          onBack={() => {}}
+          onFinish={() => {}}
+          finishing={false}
+        />
+      </DistanceUnitProvider>,
     );
     expect(screen.getByText(/9:39 \/mi · 6\.2 mph/)).toBeTruthy();
+    expect(screen.getByText(/30:00 · 3\.11 mi · 9:39 \/mi · 6\.2 mph/)).toBeTruthy();
+  });
+
+  it('follows an explicit distance unit over the weight unit (issue #582)', () => {
+    render(
+      <DistanceUnitProvider unit={cardioDistanceUnit({ unit: 'LB', distanceUnit: 'KM' })}>
+        <SessionSummary
+          session={session}
+          sets={[cardioSet({ localId: 'c' })]}
+          programExercises={[cardioPe]}
+          unit="LB"
+          onBack={() => {}}
+          onFinish={() => {}}
+          finishing={false}
+        />
+      </DistanceUnitProvider>,
+    );
+    expect(screen.getByText(/30:00 · 5 km · 6:00 \/km · 10 km\/h/)).toBeTruthy();
   });
 
   it('omits pace and speed for a duration-only cardio set', () => {
