@@ -13,6 +13,7 @@ import {
   isAppleHealthStrengthType,
   normalizeAppleHealthBodyMass,
   normalizeAppleHealthWorkout,
+  parseAttributes,
   parseAppleHealthDate,
   scanAppleHealthExport,
 } from './apple-health';
@@ -267,6 +268,35 @@ describe('scanAppleHealthExport', () => {
     }
   });
 
+  // The attribute parser used to be a regular expression that retried from
+  // every character of a run of name characters with no '=' after it: one
+  // 60 000 character run in a Workout tag took 9 to 17 s, and a tag can be
+  // 64 KB long. Attributes are parsed in one pass now (a few milliseconds
+  // here); the bound is generous to stay green on a loaded machine.
+  it.each([
+    ['a Workout tag', (run: string) => `<Workout ${run}>`],
+    [
+      'a body mass Record tag',
+      (run: string) => `<Record type="HKQuantityTypeIdentifierBodyMass" ${run} unit="kg"/>`,
+    ],
+    [
+      'a WorkoutStatistics tag',
+      (run: string) => `<Workout a="b"><WorkoutStatistics ${run}/></Workout>`,
+    ],
+    ['a name followed by spaces', (run: string) => `<Workout ${run}${' '.repeat(30_000)}x>`],
+    ['an unclosed value', (run: string) => `<Workout ${run.replace(/a/g, 'a="')}>`],
+  ])('parses the attributes of %s holding a long run without = in linear time', (_label, tag) => {
+    const run = 'a'.repeat(30_000) + ':.-_9'.repeat(6_000);
+    const good =
+      '<Workout workoutActivityType="HKWorkoutActivityTypeRowing" startDate="2024-01-03 08:00:00 +0000" duration="10" durationUnit="min"/>';
+    // Twenty such tags, about 1.2 MB.
+    const text = tag(run).repeat(20) + good;
+    const started = performance.now();
+    const result = scanAppleHealthExport(text, NOW);
+    expect(performance.now() - started).toBeLessThan(1500);
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Rowing']);
+  });
+
   it('resumes an unfinished tag where it stopped, quote state included', () => {
     // A long but legal tag (under the 64 KB rule) fed a few characters at a
     // time, with a '>' inside a quoted value that only counts as text if the
@@ -454,6 +484,52 @@ describe('activity type mapping', () => {
     expect(appleHealthExerciseName('Running')).toBe(fitExerciseName('Running'));
     expect(appleHealthExerciseName('Cycling')).toBe(fitExerciseName('Biking'));
     expect(APPLE_HEALTH_GENERIC_EXERCISE).toBe(fitExerciseName('Other'));
+  });
+});
+
+describe('parseAttributes', () => {
+  it('reads every name="value" and name=\'value\' of a tag', () => {
+    expect(
+      parseAttributes(
+        `<Record type="HK" unit='lb'\n\tvalue = "1 > 0"  source:name.x-1="a 'b' c" empty="" amp="R&amp;D"`,
+      ),
+    ).toEqual({
+      type: 'HK',
+      unit: 'lb',
+      value: '1 > 0',
+      'source:name.x-1': `a 'b' c`,
+      empty: '',
+      amp: 'R&D',
+    });
+  });
+
+  it('gives what the regular expression it replaces gave on odd input', () => {
+    const regex = (tag: string) => {
+      const out = Object.create(null) as Record<string, string>;
+      for (const m of tag.matchAll(/([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+        out[m[1]!] = decodeXmlEntities(m[2] ?? m[3] ?? '');
+      }
+      return out;
+    };
+    for (const tag of [
+      '<Workout',
+      '<Workout a b c>',
+      '<Workout a=b c="d">',
+      '<Workout 1abc="x" -y="z" 9="n">',
+      '<Workout a="1" a="2">',
+      `<Workout a="unclosed b='c' d='e'`,
+      `<Workout a='unclosed b="c" d="e"`,
+      '<Workout a = = "x" b="y">',
+      '<Workout a="x"b="y"c=\'z\'>',
+      '<Workout a.b:c-d_e="x" =\'lonely\' f="g"',
+      '<Workout a="x" b=',
+      '<Workout a="x" b="',
+      '<Workout constructor="c" __proto__="p" toString="t">',
+    ]) {
+      expect(parseAttributes(tag), tag).toEqual(regex(tag));
+    }
+    // Not on the prototype chain: an attribute named like a method is data.
+    expect(Object.getPrototypeOf(parseAttributes('<Workout a="b">'))).toBeNull();
   });
 });
 

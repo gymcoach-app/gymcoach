@@ -5,11 +5,12 @@ import { AppleHealthScanner } from './apple-health';
 import {
   APPLE_HEALTH_MAX_INFLATED_BYTES,
   APPLE_HEALTH_MAX_INFLATED_GB,
+  APPLE_HEALTH_MAX_ZIP_ENTRIES,
   AppleHealthFileError,
   isAppleHealthExportEntry,
   readAppleHealthFile,
 } from './apple-health-file';
-import { heldBytes, noise } from './zip-test-support';
+import { heldBytes, manyEntriesZip, noise } from './zip-test-support';
 
 const NOW = new Date('2025-01-01T00:00:00.000Z');
 
@@ -98,6 +99,50 @@ describe('readAppleHealthFile', () => {
     });
     const fromOther = await readAppleHealthFile(blobOf(other), { now: NOW });
     expect(fromOther.workouts.map((w) => w.activityType)).toEqual(['Cycling', 'Hiking']);
+  });
+
+  it('stops reading the archive once the export entry has arrived', async () => {
+    const tail = noise(1_500_000, 9);
+    const zip = zipSync({
+      'apple_health_export/export.xml': strToU8(EXPORT_XML),
+      'apple_health_export/export_cda.xml': [tail, { level: 0 }],
+    });
+    // Count what the reader pulls out of the file.
+    const blob = blobOf(zip);
+    let pulled = 0;
+    Object.defineProperty(blob, 'stream', { value: undefined });
+    const slice = blob.slice.bind(blob);
+    blob.slice = (start?: number, end?: number) => {
+      pulled += Math.min(end ?? zip.length, zip.length) - (start ?? 0);
+      return slice(start, end);
+    };
+    const pushed = vi.spyOn(Unzip.prototype, 'push');
+    const progress: Array<[number, number]> = [];
+
+    const result = await readAppleHealthFile(blob, {
+      now: NOW,
+      onProgress: (read, total) => progress.push([read, total]),
+    });
+
+    expect(result.workouts.map((w) => w.activityType)).toEqual(['Running', 'Walking']);
+    // One 1 MB read holds the whole export entry: the 1.5 MB after it are
+    // neither read from the file nor pushed into the unzip.
+    expect(pulled).toBe(1024 * 1024);
+    const unzipped = pushed.mock.calls.reduce((sum, [chunk]) => sum + chunk.length, 0);
+    expect(unzipped).toBeLessThan(200_000);
+    // Progress still ends on the full size.
+    expect(progress).toEqual([[zip.length, zip.length]]);
+  });
+
+  it('refuses an archive with too many entries before the export', async () => {
+    const zip = manyEntriesZip(30, zipSync({ 'apple_health_export/export.xml': strToU8(EXPORT_XML) }));
+    await expect(
+      readAppleHealthFile(blobOf(zip), { now: NOW, maxZipEntries: 30 }),
+    ).rejects.toMatchObject({ name: 'AppleHealthFileError', code: 'too-many-files' });
+    // The export is entry 31: readable with one more.
+    const result = await readAppleHealthFile(blobOf(zip), { now: NOW, maxZipEntries: 31 });
+    expect(result.workouts).toHaveLength(2);
+    expect(APPLE_HEALTH_MAX_ZIP_ENTRIES).toBe(50_000);
   });
 
   it('stops with too-large once the export inflates past the cap', async () => {

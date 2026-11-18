@@ -406,6 +406,47 @@ describe('POST /api/import/apple-health (body weight)', () => {
     expect(await db.bodyweightEntry.count({ where: { userId: user.id } })).toBe(3);
   });
 
+  it('keeps both days when the UTC offset changes between two entries', async () => {
+    const user = await seedUser('ah-weight-dst@test.dev');
+    actAs(user.id);
+    // Daylight saving time starts on 2024-03-31 in central Europe:
+    // '2024-03-30 23:30:00 +0100' then '2024-03-31 08:00:00 +0200'. The first
+    // instant falls inside the 24 hours of the second entry's local day
+    // (which starts at 22:00 UTC on the 30th), but it is another date.
+    const bodyMass = [
+      { measuredAt: '2024-03-30T22:30:00.000Z', weightKg: 80.1, utcOffsetMin: 60 },
+      { measuredAt: '2024-03-31T06:00:00.000Z', weightKg: 80.2, utcOffsetMin: 120 },
+      // A second weigh-in of the 31st, for good measure: still one a day.
+      { measuredAt: '2024-03-31T19:00:00.000Z', weightKg: 80.3, utcOffsetMin: 120 },
+    ];
+
+    const preview = await postImport(importReq({ mode: 'preview', bodyMass }));
+    expect((await preview.json()).bodyMass).toEqual({ importable: 2, duplicates: 1 });
+    const res = await postImport(importReq({ mode: 'confirm', bodyMass }));
+    expect((await res.json()).bodyMass).toEqual({ created: 2, duplicates: 1 });
+    const weights = async () =>
+      (
+        await db.bodyweightEntry.findMany({
+          where: { userId: user.id },
+          orderBy: { measuredAt: 'asc' },
+        })
+      ).map((e) => e.weightKg);
+    expect(await weights()).toEqual([80.1, 80.2]);
+
+    // The same export again: every entry is found on its own day.
+    const again = await postImport(importReq({ mode: 'confirm', bodyMass }));
+    expect((await again.json()).bodyMass).toEqual({ created: 0, duplicates: 3 });
+
+    // And when only the 30th is stored (an earlier, shorter export), the
+    // 31st of a later export is still added.
+    await db.bodyweightEntry.deleteMany({
+      where: { userId: user.id, measuredAt: new Date('2024-03-31T06:00:00.000Z') },
+    });
+    const later = await postImport(importReq({ mode: 'confirm', bodyMass }));
+    expect((await later.json()).bodyMass).toEqual({ created: 1, duplicates: 2 });
+    expect(await weights()).toEqual([80.1, 80.2]);
+  });
+
   it('does not move the current bodyweight when the imported entries are older', async () => {
     const user = await seedUser('ah-weight-old@test.dev');
     actAs(user.id);

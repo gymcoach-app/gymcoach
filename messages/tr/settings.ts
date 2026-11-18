@@ -190,6 +190,7 @@ export const settings = {
       noExportXml:
         'Bu arşivde export.xml yok. Sağlık uygulamasının oluşturduğu export.zip dosyasını seçin.',
       unreadable: 'Bu dosya okunamadı.',
+      tooManyFiles: 'Bu arşivde {limit, number} dosyadan fazlası var ve burada okunamıyor.',
       tooLarge:
         'Bu dışa aktarım burada okunamayacak kadar büyük: açıldığında verileri {limit} GB’ı aşıyor.',
       workouts:
@@ -229,6 +230,7 @@ export const settings = {
       notStrava:
         'Bu arşivde activities.csv dosyası da activities klasörü de yok. Strava’nın size e-postayla gönderdiği zip dosyasını seçin.',
       unreadable: 'Bu arşiv okunamadı.',
+      tooManyFiles: 'Bu arşivde {limit, number} dosyadan fazlası var ve burada okunamıyor.',
       activities:
         '{count, plural, one {# etkinlik içe aktarılacak} other {# etkinlik içe aktarılacak}}',
       byType: '{name}: {count}',

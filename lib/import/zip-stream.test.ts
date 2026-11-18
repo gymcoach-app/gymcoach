@@ -1,8 +1,13 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Inflate, strFromU8, strToU8, Zip, ZipDeflate, ZipPassThrough, zipSync, type Unzip } from 'fflate';
-import { createSelectiveUnzip, type ZipEntryPicker } from './zip-stream';
-import { halfNoise, heldBytes, noise } from './zip-test-support';
+import {
+  ZIP_MAX_ENTRIES,
+  ZipEntryLimitError,
+  createSelectiveUnzip,
+  type ZipEntryPicker,
+} from './zip-stream';
+import { halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
 
 const SLICE = 64 * 1024;
 
@@ -62,6 +67,44 @@ afterEach(() => {
 });
 
 describe('createSelectiveUnzip', () => {
+  it('refuses an archive with more entries than the limit, at the first one past it', () => {
+    const zip = manyEntriesZip(40, zipSync({ 'keep.txt': strToU8('kept') }));
+    // 41 entries in all: fine with a limit of 41.
+    const all = collect((name) => name === 'keep.txt');
+    feed(createSelectiveUnzip(all.pick, 41), zip);
+    expect(all.seen).toHaveLength(41);
+    expect(all.texts.get('keep.txt')).toBe('kept');
+
+    const some = collect(() => true);
+    let caught: unknown = null;
+    try {
+      feed(createSelectiveUnzip(some.pick, 25), zip);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ZipEntryLimitError);
+    expect((caught as ZipEntryLimitError).limit).toBe(25);
+    // The picker never saw the entry past the limit.
+    expect(some.seen).toHaveLength(25);
+  });
+
+  it('reads an archive right at the default limit in bounded time, and no larger one', () => {
+    // fflate's Unzip is quadratic in the entry count: the default limit is
+    // what keeps the worst case to a couple of seconds (about ten times that
+    // for twice the entries). The bound is generous for a loaded machine.
+    expect(ZIP_MAX_ENTRIES).toBe(50_000);
+    const zip = manyEntriesZip(ZIP_MAX_ENTRIES + 1);
+    let seen = 0;
+    const started = performance.now();
+    const count: ZipEntryPicker = () => {
+      seen += 1;
+      return null;
+    };
+    expect(() => feed(createSelectiveUnzip(count), zip)).toThrow(ZipEntryLimitError);
+    expect(performance.now() - started).toBeLessThan(30_000);
+    expect(seen).toBe(ZIP_MAX_ENTRIES);
+  }, 120_000);
+
   it('hands over the picked entries, deflated, stored or empty, and only those', () => {
     const text = 'a line of text\n'.repeat(20_000);
     const zip = zipSync({

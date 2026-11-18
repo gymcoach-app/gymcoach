@@ -15,6 +15,7 @@ import {
 } from '@/lib/import/apple-health';
 import {
   APPLE_HEALTH_MAX_INFLATED_GB,
+  APPLE_HEALTH_MAX_ZIP_ENTRIES,
   AppleHealthFileError,
   readAppleHealthFile,
 } from '@/lib/import/apple-health-file';
@@ -236,6 +237,8 @@ export function AppleHealthImport({ sleep = defaultSleep }: Props) {
         if (err.code === 'no-export-xml') toast.error(t('noExportXml'));
         else if (err.code === 'too-large') {
           toast.error(t('tooLarge', { limit: APPLE_HEALTH_MAX_INFLATED_GB }));
+        } else if (err.code === 'too-many-files') {
+          toast.error(t('tooManyFiles', { limit: APPLE_HEALTH_MAX_ZIP_ENTRIES }));
         } else toast.error(t('unreadable'));
       } else {
         toast.error(err instanceof Error ? err.message : t('unreadable'));

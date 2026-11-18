@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { createImportQueue, ImportCancelledError } from '@/lib/import/import-queue';
-import { StravaArchiveError } from '@/lib/import/strava-archive';
+import { STRAVA_MAX_ZIP_ENTRIES, StravaArchiveError } from '@/lib/import/strava-archive';
 import {
   runStravaConfirm,
   runStravaPreview,
@@ -106,7 +106,9 @@ export function StravaImport({ sleep }: Props) {
           ? t('notZip')
           : err.code === 'not-strava'
             ? t('notStrava')
-            : t('unreadable'),
+            : err.code === 'too-many-files'
+              ? t('tooManyFiles', { limit: STRAVA_MAX_ZIP_ENTRIES })
+              : t('unreadable'),
       );
     } else {
       toast.error(err instanceof Error ? err.message : shared('importFailed'));

@@ -333,6 +333,21 @@ describe('AppleHealthImport', () => {
     expect(screen.queryByTestId('import-preview')).not.toBeInTheDocument();
   });
 
+  it('explains an archive with too many files', async () => {
+    const user = userEvent.setup();
+    mockRead.mockRejectedValue(new AppleHealthFileError('too-many-files'));
+    render(<AppleHealthImport />);
+
+    await user.upload(fileInput(), exportFile());
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'This archive holds more than 50,000 files and cannot be read here.',
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('surfaces a server rejection and drops the preview', async () => {
     const user = userEvent.setup();
     fetchMock.mockResolvedValue({

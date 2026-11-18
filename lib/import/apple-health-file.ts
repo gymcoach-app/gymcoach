@@ -1,6 +1,6 @@
 import type { Unzip } from 'fflate';
 import { AppleHealthScanner, type AppleHealthScanResult } from '@/lib/import/apple-health';
-import { createSelectiveUnzip } from '@/lib/import/zip-stream';
+import { ZIP_MAX_ENTRIES, ZipEntryLimitError, createSelectiveUnzip } from '@/lib/import/zip-stream';
 
 // ============================================================
 // Apple Health export reader (issue #582) - browser side
@@ -14,13 +14,23 @@ import { createSelectiveUnzip } from '@/lib/import/zip-stream';
 // of every entry it is not asked to read, and export_cda.xml alone can be as
 // large as the export).
 
-export type AppleHealthFileErrorCode = 'no-export-xml' | 'unreadable' | 'too-large';
+export type AppleHealthFileErrorCode =
+  | 'no-export-xml'
+  | 'unreadable'
+  | 'too-large'
+  | 'too-many-files';
 
 const ERROR_TEXT: Record<AppleHealthFileErrorCode, string> = {
   'no-export-xml': 'No export.xml in this archive.',
   unreadable: 'Unreadable file.',
   'too-large': 'Export too large.',
+  'too-many-files': 'Too many files in this archive.',
 };
+
+// The entry count past which an archive is refused with 'too-many-files'
+// (see ZIP_MAX_ENTRIES). It only counts the entries before the export: the
+// read stops once the export has been read.
+export const APPLE_HEALTH_MAX_ZIP_ENTRIES = ZIP_MAX_ENTRIES;
 
 export class AppleHealthFileError extends Error {
   constructor(public readonly code: AppleHealthFileErrorCode) {
@@ -92,17 +102,20 @@ export interface ReadAppleHealthOptions {
   now?: Date;
   // Injectable for tests. Default APPLE_HEALTH_MAX_INFLATED_BYTES.
   maxInflatedBytes?: number;
+  // Injectable for tests. Default APPLE_HEALTH_MAX_ZIP_ENTRIES.
+  maxZipEntries?: number;
 }
 
 // Read an Apple Health export and return its cardio workouts and body weight
 // entries. Throws AppleHealthFileError when the archive is damaged, holds no
-// export XML, or holds one that inflates past the size cap; an XML file with
-// nothing of interest resolves with empty lists.
+// export XML, holds one that inflates past the size cap, or holds too many
+// entries; an XML file with nothing of interest resolves with empty lists.
 //
 // Exactly one entry of a zip is read: the first one, in archive order, that
-// isAppleHealthExportEntry accepts. A later match is skipped like any other
-// entry (not inflated, not kept), so two exports in one archive are never
-// merged into one history.
+// isAppleHealthExportEntry accepts. Once its last byte has arrived the read
+// stops: whatever follows it in the archive (a second export, the routes) is
+// not even read from the file, so two exports in one archive are never merged
+// into one history.
 export async function readAppleHealthFile(
   file: Blob,
   options: ReadAppleHealthOptions = {},
@@ -114,6 +127,8 @@ export async function readAppleHealthFile(
   let foundEntry = false;
   let inflated = 0;
   let tooLarge = false;
+  // The export entry has been read to its end.
+  let complete = false;
   let first = true;
 
   try {
@@ -124,7 +139,7 @@ export async function readAppleHealthFile(
           unzip = createSelectiveUnzip((entry) => {
             if (foundEntry || !isAppleHealthExportEntry(entry.name)) return null;
             foundEntry = true;
-            return (data) => {
+            return (data, final) => {
               inflated += data.length;
               if (inflated > maxInflatedBytes) {
                 // Returning false drops the rest of the entry uninflated.
@@ -132,24 +147,36 @@ export async function readAppleHealthFile(
                 return false;
               }
               scanner.push(data);
+              if (final) complete = true;
             };
-          });
+          }, options.maxZipEntries);
         }
       }
       if (unzip) {
-        for (let offset = 0; offset < chunk.length && !tooLarge; offset += ZIP_SLICE_BYTES) {
+        for (
+          let offset = 0;
+          offset < chunk.length && !tooLarge && !complete;
+          offset += ZIP_SLICE_BYTES
+        ) {
           unzip.push(chunk.subarray(offset, offset + ZIP_SLICE_BYTES), false);
         }
       } else {
         scanner.push(chunk);
       }
       if (tooLarge) break;
+      if (complete) {
+        // Nothing else of the archive is needed: the read is over.
+        options.onProgress?.(file.size, file.size);
+        break;
+      }
       bytesRead += chunk.length;
       options.onProgress?.(bytesRead, file.size);
     }
-    if (unzip && !tooLarge) unzip.push(new Uint8Array(0), true);
-  } catch {
-    throw new AppleHealthFileError('unreadable');
+    if (unzip && !tooLarge && !complete) unzip.push(new Uint8Array(0), true);
+  } catch (err) {
+    throw new AppleHealthFileError(
+      err instanceof ZipEntryLimitError ? 'too-many-files' : 'unreadable',
+    );
   }
   if (tooLarge) throw new AppleHealthFileError('too-large');
   if (unzip && !foundEntry) throw new AppleHealthFileError('no-export-xml');

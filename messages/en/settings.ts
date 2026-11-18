@@ -186,6 +186,7 @@ export const settings = {
       noExportXml:
         'This archive has no export.xml. Pick the export.zip made by the Health app.',
       unreadable: 'This file could not be read.',
+      tooManyFiles: 'This archive holds more than {limit, number} files and cannot be read here.',
       tooLarge:
         'This export is too large to read here: its data is over {limit} GB once unzipped.',
       workouts:
@@ -223,6 +224,7 @@ export const settings = {
       notStrava:
         'This archive has no activities.csv and no activities folder. Pick the zip Strava emailed you.',
       unreadable: 'This archive could not be read.',
+      tooManyFiles: 'This archive holds more than {limit, number} files and cannot be read here.',
       activities: '{count, plural, one {# activity} other {# activities}} to import',
       byType: '{name}: {count}',
       duplicates:

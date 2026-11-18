@@ -422,14 +422,57 @@ export function decodeXmlEntities(value: string): string {
   });
 }
 
-const ATTR_RE = /([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+// [A-Za-z_:], the characters an attribute name starts with.
+function isNameStart(c: number): boolean {
+  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95 || c === 58;
+}
 
-// The attributes of one start tag (the text between '<' and '>').
-function parseAttributes(tag: string): Record<string, string> {
+// [A-Za-z0-9_:.-], the characters an attribute name goes on with.
+function isNameChar(c: number): boolean {
+  return isNameStart(c) || (c >= 48 && c <= 57) || c === 46 || c === 45;
+}
+
+function isSpace(c: number): boolean {
+  return c === 32 || c === 9 || c === 10 || c === 13;
+}
+
+// The attributes of one start tag (the text between '<' and '>'): every
+// name="value" or name='value' in it, whitespace allowed around the '='.
+//
+// Written by hand, as one pass over the tag, instead of a regular expression:
+// the obvious one (/([A-Za-z_:][\w:.-]*)\s*=\s*("[^"]*"|'[^']*')/g) retries
+// from every character of a long run of name characters that no '=' follows,
+// which is quadratic, and a tag can be 64 KB long. Here a name run is read
+// once, whether an attribute comes out of it or not, and a value is found with
+// one indexOf.
+export function parseAttributes(tag: string): Record<string, string> {
   const attrs: Record<string, string> = Object.create(null) as Record<string, string>;
-  ATTR_RE.lastIndex = 0;
-  for (let m = ATTR_RE.exec(tag); m !== null; m = ATTR_RE.exec(tag)) {
-    attrs[m[1]!] = decodeXmlEntities(m[2] ?? m[3] ?? '');
+  const length = tag.length;
+  let i = 0;
+  while (i < length) {
+    if (!isNameStart(tag.charCodeAt(i))) {
+      i += 1;
+      continue;
+    }
+    const nameStart = i;
+    i += 1;
+    while (i < length && isNameChar(tag.charCodeAt(i))) i += 1;
+    const nameEnd = i;
+    while (i < length && isSpace(tag.charCodeAt(i))) i += 1;
+    if (tag.charCodeAt(i) !== CH_EQUALS) continue;
+    i += 1;
+    while (i < length && isSpace(tag.charCodeAt(i))) i += 1;
+    const quote = tag.charCodeAt(i);
+    if (quote !== CH_DQUOTE && quote !== CH_SQUOTE) continue;
+    const close = tag.indexOf(quote === CH_DQUOTE ? '"' : "'", i + 1);
+    // No closing quote in the tag: there is none for any later attribute
+    // either, since every quote left is of the other kind or absent.
+    if (close < 0) {
+      i += 1;
+      continue;
+    }
+    attrs[tag.slice(nameStart, nameEnd)] = decodeXmlEntities(tag.slice(i + 1, close));
+    i = close + 1;
   }
   return attrs;
 }
@@ -442,6 +485,7 @@ const CH_LT = 60; // <
 const CH_GT = 62; // >
 const CH_SLASH = 47; // /
 const CH_BANG = 33; // !
+const CH_EQUALS = 61; // =
 const CH_DQUOTE = 34; // "
 const CH_SQUOTE = 39; // '
 const CH_UPPER_R = 82; // R

@@ -31,6 +31,24 @@ export type ZipEntrySink = (data: Uint8Array, final: boolean) => void | false;
 // sink to read the entry, or null to skip it.
 export type ZipEntryPicker = (entry: UnzipFile) => ZipEntrySink | null;
 
+// The most entries one archive may hold. fflate's Unzip keeps one (empty)
+// slot per entry it has seen and shifts them all on every new entry, so its
+// cost grows with the square of the entry count: 50 000 one-byte entries take
+// between one and two seconds here, 100 000 take eleven, 200 000 over a
+// minute, and the memory grows along. Past the cap the read stops with a
+// ZipEntryLimitError. Real archives are far below it: an Apple Health export
+// holds one route file per outdoor workout (ten a week for ten years is about
+// 5 000) and a Strava archive one file per activity plus its photos.
+export const ZIP_MAX_ENTRIES = 50_000;
+
+// Thrown out of push() at the first entry past the limit.
+export class ZipEntryLimitError extends Error {
+  constructor(public readonly limit: number) {
+    super(`More than ${limit} entries in this zip archive.`);
+    this.name = 'ZipEntryLimitError';
+  }
+}
+
 const STORED = 0;
 const DEFLATED = 8;
 
@@ -40,12 +58,14 @@ interface Slot {
 
 // An Unzip to push the archive into, slice by slice. A damaged deflate stream,
 // or a picked entry in a compression method other than stored and deflate,
-// throws out of push().
-export function createSelectiveUnzip(pick: ZipEntryPicker): Unzip {
+// throws out of push(), and so does (with a ZipEntryLimitError) an archive of
+// more than `maxEntries` entries (ZIP_MAX_ENTRIES unless a test says otherwise).
+export function createSelectiveUnzip(pick: ZipEntryPicker, maxEntries = ZIP_MAX_ENTRIES): Unzip {
   // The slot of the entry being started: fflate builds the decoder inside
   // start(), synchronously, and gives it nothing but the entry's name.
   let starting: Slot | null = null;
   const registered = new Set<number>();
+  let entries = 0;
 
   const decoderFor = (compression: number): UnzipDecoderConstructor =>
     class {
@@ -73,6 +93,8 @@ export function createSelectiveUnzip(pick: ZipEntryPicker): Unzip {
     };
 
   const unzip = new Unzip((entry) => {
+    entries += 1;
+    if (entries > maxEntries) throw new ZipEntryLimitError(maxEntries);
     const slot: Slot = { sink: pick(entry) };
     if (!registered.has(entry.compression)) {
       registered.add(entry.compression);
