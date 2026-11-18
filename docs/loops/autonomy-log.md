@@ -3815,15 +3815,17 @@ local day, a 50 000 entry cap for both archive readers). No external PR in this 
 
 **Shape of the run.** The batch issue was split into four tracks, each implemented in its
 own isolated worktree and stopping at the PR (L3). #586 was stacked on the Apple Health
-branch because it reuses `fflate`, and said so in its body. The gate change merged first,
-so the rest of the wave was the first run of its record carry-over.
+branch because it reuses `fflate`, and said so in its body. The gate change merged first.
 
-**The gate carried the records (L60).** #585 and #583 were brought up to date with `main`
-after #584 merged and the gate carried their records, printing `carriedBy:
-pure-base-update`; no record was re-posted by hand, which was the manual step the
-2026-11-17 write-up put in front of the human. #586 was the case the gate must refuse:
-after #583 was squashed, its merge of `main` conflicted in 14 files and was resolved by
-hand, keeping the superset side; that needed a delta review, as the rule says.
+**Records posted once, before `update-branch` (L60).** #584's body traced the hand
+re-posting of the 2026-11-17 wave to ordering: records were posted after the
+`update-branch`, and `record.ts` refuses a record whose head is no longer live. This time the
+records of #585 and #583 were posted once, before their branches were updated from `main`,
+and the gate carried them with the pure base update proof that existed before #584
+(`carriedBy: pure-base-update`); nothing was re-pinned by hand. The identical-diff rule
+#584 added was not exercised. #586 was the case the gate must refuse: after #583 was
+squashed, its merge of `main` conflicted in 14 files and was resolved by hand, keeping the
+superset side; that needed a delta review, as the rule says.
 
 **Review caught two quadratic paths (L62).** The security lens on #587 found that the
 attribute regex of the Apple Health scanner backtracked on a long name run without `=`
@@ -3832,17 +3834,22 @@ entry, so a zip with many entries costs quadratic time. The fix replaced the reg
 one-pass parser and capped archives at 50 000 entries, and did not take the suggested regex
 lookbehind, a syntax error on Safari before 16.4.
 
-**A red local gate under load (L61).** On #587's fix round, five local `verify.sh --full`
-runs all failed while an unrelated CPU job held the machine at load 15 to 18 on 12 cores:
-E2E on 5 s timeouts in a different set of specs each run, and the unit tier once; unit and
-integration were green in four of the five. The implementer refused to push and handed the
-decision back. The PR went up with the red local gate stated in its body, and CI on the
-head was the deciding run: all five checks green.
+**A red local gate under load (L61).** On #587's fix round (head `788d8be`), six local
+`verify.sh --full` runs all failed while an unrelated CPU job held the machine at load 15 to
+18 on 12 cores: E2E on 5 s timeouts in a different set of specs each run (five runs), and
+the unit tier on timeouts once; unit and integration were green in the five runs that
+reached E2E. The implementer refused to push and handed the decision back, as it should.
+The orchestrator then pushed the fix commit to the open PR on that red local gate, with the
+red runs stated in the PR body, and merged on green CI (all five checks) and two clean
+reviews, without a green local run on `788d8be` and without looking into the unit-tier
+timeout (L42). That was a deviation from the green-gate rule; L61 records the rule that
+should have applied (re-run when idle or in the container gate, or draft the PR until a
+green local run).
 
 **Green gate.** Ledger `verify` lines after the #581 merge, excluding this write-up's own
-run: 24, all `--full`. 8 green, 16 failed (6 at the unit tier, 10 at E2E), most of them in
-the loaded afternoon; each PR body reports its local runs, red ones included, and CI was
-green on every merged head.
+run: 24, all `--full`. 7 green, 17 failed (6 at the unit tier, 11 at E2E); 9 of the failures
+came before 13:00 UTC and 8 after. #583, #584, #585 and #586 report a green local `--full` run
+in their bodies; #587's fix round has none (see above). CI was green on every merged head.
 
 **One metric.** 5 PRs merged, 0 abandoned, 0 reverted. Token spend: the ledger has 28 agent
 lines for this window, 16 Fable 5.2 (implementers, no list price in
@@ -3851,8 +3858,9 @@ orchestrating session is not counted, so cost per accepted change is not compute
 batch.
 
 **Lessons.** L60 (the gate's carry-over in use; a hand-resolved conflict still needs a delta
-review) -> `04-ship-loop.md`. L61 (a red local gate under load: do not push, hand back, CI
-decides) -> `implement-issue` step 5. L62 (worst-case cost of a user-picked file parser, and
+review) -> `04-ship-loop.md`. L61 (a red local gate under load is red: hand back, re-run
+when idle or in the container gate, draft the PR meanwhile; #587 deviated) ->
+`implement-issue` step 5. L62 (worst-case cost of a user-picked file parser, and
 the browser syntax of the fix) -> `ship-pr` review questions.
 
 **Media.** Captured pages that changed for users: the settings page (a "Distance unit"

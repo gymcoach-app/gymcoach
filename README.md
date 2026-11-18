@@ -244,9 +244,12 @@ on your own key - all self-hosted.
   pace per heartbeat drifted over the effort) on the session detail.
 - **Apple Health and Strava archives** - pick the Health app's `export.zip`
   or Strava's "Download your data" zip: it is unzipped and read in the browser
-  as a stream, however large, and only workout summaries or activity files reach
-  the server. Cardio workouts become sessions, Apple Health body mass records can
-  fill the bodyweight log, and one preview comes before anything is written,
+  as a stream, so a large archive is never loaded into memory whole (an Apple
+  Health export that inflates past 2 GB, or an archive of more than 50 000 zip
+  entries, is refused with a message), and only workout summaries, activity
+  files and, when you choose, body mass entries reach the server. Cardio
+  workouts become sessions, Apple Health body mass records can fill the
+  bodyweight log, and one preview comes before anything is written,
   with duplicates left out so a newer export only adds what is new.
 - **Heart rate on a lifting session** - attach the FIT, TCX or GPX recording
   of a workout you already logged: its average heart rate, peak and curve are

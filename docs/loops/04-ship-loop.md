@@ -82,12 +82,14 @@ once, for the head the reviewer read (`record.ts --head-moved` when the branch w
 in the meantime), and the gate prints which rule carried each one. A hand-resolved
 conflict changes the diff and still needs a fresh review of the delta.
 
-First use, the same day (2026-11-18, lesson L60): after #584 merged, #585 and #583 were
-brought up to date with `main` and the gate carried their records itself, printing
-`carriedBy: pure-base-update`; nothing was re-posted. #586, stacked on the Apple Health
-branch, conflicted with the squash of #583 in 14 files; that hand resolution (the superset
-side kept) is not a merge the gate can prove, so it went through a delta review as the rule
-says.
+The same day (2026-11-18, lesson L60): after #584 merged, #585 and #583 were brought up to
+date with `main` and the gate carried their records with the pure base update proof that
+existed before #584 (now printed as `carriedBy: pure-base-update`). What changed in practice
+is the ordering: the records were posted once, before the `update-branch`, and nothing was
+re-pinned by hand. The new identical-diff rule was not exercised in this batch. #586,
+stacked on the Apple Health branch, conflicted with the squash of #583 in 14 files; that hand
+resolution (the superset side kept) is not a merge the gate can prove, so it needed a delta
+review, as the rule says.
 
 What it cost before the fix (2026-10-19, the #485-#489 wave, lesson L47): every PR added
 its entry to the same lines of `CHANGELOG.md`, so each merge left the next PRs with a

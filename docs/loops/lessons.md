@@ -1033,35 +1033,44 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 - **Status:** graduated -> `06-orchestration.md` ("Concurrent ticks", the confirmed
   pattern paragraph).
 
-### L60 - The gate carries records over a clean merge of `main`; a hand-resolved conflict does not
-- **Trigger:** 2026-11-18, batch #582. #584 taught the merge gate to carry a review record
-  over merges of `main` by itself. Right after it merged, #585 and #583 were updated from
-  `main` and merged on their existing records, the gate printing `carriedBy:
-  pure-base-update` for each; no record was re-posted by hand (the manual step of the
-  2026-11-17 wave). #586 was stacked on the Apple Health branch; after #583 was squashed
-  into `main`, its merge of `main` conflicted in 14 files, resolved by hand by keeping the
-  superset side. That merge is not one the gate can prove, so it needed a review of the
-  delta.
-- **Lesson:** after `update-branch`, let the gate decide: post records once, for the head
-  the reviewer read, and read the gate's `carriedBy` line instead of re-posting. A
-  hand-resolved conflict, even one that "only keeps both sides", is new code to review.
+### L60 - Post records once, before `update-branch`; a hand-resolved conflict still needs a delta review
+- **Trigger:** 2026-11-18, batch #582. #584 added a second carry-over rule to the merge gate
+  (identical diff), a printed line naming the rule that carried each record, and
+  `record.ts --head-moved`. Its body traced the hand re-posting of the 2026-11-17 wave to
+  ordering: records were posted after the `update-branch`, and `record.ts` refuses a record
+  whose head is no longer live, so they were re-pinned by hand. In this batch the records of
+  #585 and #583 were posted once, before their `update-branch`, and the gate carried them
+  with the pure base update proof that already existed before #584 (`carriedBy:
+  pure-base-update`); nothing was re-pinned. The new identical-diff rule was not exercised.
+  #586 was stacked on the Apple Health branch; after #583 was squashed into `main`, its merge
+  of `main` conflicted in 14 files, resolved by hand by keeping the superset side. That merge
+  is not one the gate can prove, so it needed a review of the delta.
+- **Lesson:** post records once, for the head the reviewer read, before updating the branch
+  (or with `--head-moved` after), and read the gate's `carriedBy` line instead of
+  re-posting. A hand-resolved conflict, even one that "only keeps both sides", is new code
+  to review.
 - **Status:** graduated -> `ship-pr` step 4 and `04-ship-loop.md` (#584, "Sequential
-  merges"); first use recorded there in this PR.
+  merges"); this batch recorded there in this PR.
 
-### L61 - A red local gate under unrelated load: do not push, hand back with the evidence
-- **Trigger:** 2026-11-18, #587 (fix round, head `788d8be`). Five local `verify.sh --full`
-  runs all exited 1 while an unrelated CPU job held the machine at load 15 to 18 on 12
-  cores: E2E failed in four runs on 5 s timeouts, a different set of specs each run (auth,
-  bodyweight, deload, signup and others), and the unit tier timed out once; unit (4051
-  tests) and integration (603) were green in four of the five. The implementer refused to
-  push on a red gate and handed the decision back. The PR body then stated the red local
-  gate as it was, CI was the deciding run, and CI was fully green (lint, typecheck, unit,
-  integration, build, Docker smoke test, E2E).
-- **Lesson:** the rule "never open a PR on a red gate" held, and it should: the implementer
-  cannot tell load from a regression on its own. It records the load and the per-tier
-  outcome of each run and stops; only the orchestrator may open the PR, saying in the body
-  that the local gate was red and why it is believed to be load, and only green CI on the
-  pinned head lets it merge. Do not raise timeouts to make such runs green (L42).
+### L61 - A red local gate under load is red: hand back, re-run when idle, never push on it
+- **Trigger:** 2026-11-18, #587 (fix round, head `788d8be`). Six local `verify.sh --full`
+  runs on that head all exited 1 (ledger, 15:19 to 16:42 UTC) while an unrelated CPU job held
+  the machine at load 15 to 18 on 12 cores: E2E failed in five runs on 5 s timeouts, a
+  different set of specs each run (auth, bodyweight, deload, signup and others), and the unit
+  tier failed on timeouts once; unit and integration were green in the five runs that
+  reached E2E. The implementer refused to push on a red gate and handed the decision back,
+  which was right. The orchestrator then deviated: it pushed the fix commit to the open PR on
+  that red local gate (the PR body stated the red runs honestly) and merged on green CI and
+  two clean reviews, with no green local run on `788d8be`. The one unit-tier timeout run was
+  not investigated, although L42 treats a timeout under load as a performance defect with a
+  cause.
+- **Lesson:** the rule stays absolute: never open or update a PR for merge on a red gate. The
+  implementer records `uptime` and each tier's result per run, does not push, and hands
+  back. The orchestrator re-runs the full gate once the machine is idle, or through the
+  container gate (`scripts/container-gate.sh`), before pushing. If it must push to an
+  already-open PR earlier, it first converts that PR to draft and marks it ready only after a
+  green local run on the pinned head. A unit-tier timeout under load is investigated as L42
+  says, not waved through as load. What happened on #587 is the deviation; this is the rule.
 - **Status:** graduated -> `implement-issue` step 5 ("A red gate under machine load is still
   red").
 
@@ -1080,4 +1089,5 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   reader; and a fix shipped to the browser is checked against the oldest browser it must
   run on, not only against the test runtime.
 - **Status:** graduated -> `ship-pr` step 4 (review questions, "If the change parses a file
-  or archive a user picks").
+  or archive a user picks", with the browser baseline named: Next.js 15's default list,
+  Safari 12 and up, since the repository sets no browserslist).

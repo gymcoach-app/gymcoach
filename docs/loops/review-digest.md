@@ -1154,9 +1154,14 @@ with their skill and playbook edits.
    `cardioDistanceUnit` in `lib/cardio.ts` (Automatic follows the weight unit, so pounds
    accounts now type miles), and the no-drift rule when a prefilled distance is saved.
 4. **#586 - the archive reader and the request queue.** `gh pr diff 586`.
-   `lib/import/zip-stream.ts` (shared with #587), the per-file and gzip caps, and the 429
-   handling in `lib/import/import-queue.ts`. Its head carries a hand-resolved merge of 14
-   files (delta-reviewed).
+   `lib/import/zip-stream.ts` (shared with #587), the per-file and gzip caps in
+   `lib/import/strava-archive.ts`, and the 429 handling in `lib/import/import-queue.ts`.
+   Its head carries a hand-resolved merge of 14 files (delta-reviewed).
+5. **Process: #587 merged without a green local gate.** Its fix head `788d8be` had six red
+   local `--full` runs under machine load and was pushed and merged on green CI and two
+   clean reviews. Lesson L61 calls that a deviation and restates the rule (re-run when
+   idle or in the container gate, or keep the PR in draft); decide whether that rule is
+   the one you want.
 
 **Trust the gate (lower risk):** the import UI components and their tests, the message
 catalogs, the FAQ additions, the docs here.

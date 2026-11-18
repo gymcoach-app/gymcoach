@@ -123,8 +123,10 @@ changes on.
    (an import), ask the security lens for the worst-case cost on crafted input: regex
    backtracking on tag or attribute text, per-entry work inside a third-party reader (an
    unzip), each measured with a timed test; and check that the fix's syntax runs on the
-   oldest browser the app supports (a regex lookbehind is a syntax error on Safari before
-   16.4) (lesson L62).
+   app's browser baseline. The repository sets no browserslist, so the baseline is Next.js
+   15's default (`node_modules/next/dist/shared/lib/modern-browserslist-target.js`: Chrome
+   64, Edge 79, Firefox 67, Opera 51, Safari 12). The compiler lowers most syntax to it, but
+   not regex features: a lookbehind is a syntax error on Safari before 16.4 (lesson L62).
    **A hardening race has a budget.** When the same security or validity control draws
    a new blocking or major bypass in three consecutive reviews, state the remaining round
    budget (at most two more) before the next fixup. When it is spent, stop hardening:

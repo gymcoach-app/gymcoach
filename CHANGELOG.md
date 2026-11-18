@@ -303,8 +303,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a duplicate in the preview wherever it falls (preview and import now agree),
   and "one body weight entry a day" uses the day of the phone's time zone
   instead of the UTC day, also across a daylight saving change. An archive of
-  more than 50 000 files is refused with a message, in the Apple Health and in
-  the Strava import (#587, closes #582).
+  more than 50 000 zip entries is refused with a message, in the Apple Health and
+  in the Strava import; in Apple Health only the entries up to the export entry
+  are counted, since the read stops there (#587, closes #582).
 - Cardio leftovers from #558: on the print sheet a cardio exercise now has a
   duration box and a distance box, with its target pre-printed when set, instead
   of weight, reps and RIR boxes. The target text ("20 min", "20 min · 5 km") is
