@@ -3,7 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GIT_ENV, type Git, runGit, verifyBaseUpdates } from './base-update';
+import {
+  GIT_ENV,
+  type Git,
+  MAX_CARRY_MERGES,
+  runGit,
+  verifyBaseUpdates,
+  verifyIdenticalDiff,
+} from './base-update';
 
 // Real git in a throwaway repository: the hops are what git proves, so the
 // cases are built as an author would build them. The harness, like the gate,
@@ -256,5 +263,280 @@ describe('pure base update verification', () => {
       basesOnMain: [],
       error: expect.stringContaining('not a git repository'),
     });
+  });
+});
+
+// Identical-diff carry-over (#582): a record pinned to (base, head) counts for
+// a newer head when only merges of main were added and the PR's diff is the
+// same, blob for blob. Same throwaway repository, same real git.
+describe('identical-diff carry-over', () => {
+  const pin = () => ({ baseSha: base, headSha: head });
+  const CHANGELOG = 'top\n\nmiddle\n\nbottom\n';
+
+  // A PR that edits a file main already has, so main (or a merge) can touch
+  // the same file.
+  function changelogPr(branch: string, content: string): string {
+    sh('checkout', '-q', '-b', branch, base);
+    return commitFile('CHANGELOG.md', content, `${branch} edits the changelog`);
+  }
+
+  // A side branch standing in for a main that also edited the changelog, so
+  // the real main stays free of it for the other cases.
+  function mainEditingChangelog(branch: string, content: string): string {
+    sh('checkout', '-q', '-b', branch, advanceMain());
+    return commitFile('CHANGELOG.md', content, `${branch}: main edits the changelog`);
+  }
+
+  it('carries a record over a clean merge of main and says why', () => {
+    const tip = advanceMain();
+    const merged = mergeInto('idc-clean', tip, { from: head });
+    const result = verifyIdenticalDiff(git, pin(), merged, tip);
+    expect(result).toMatchObject({
+      recordHead: head,
+      recordBase: base,
+      head: merged,
+      base: tip,
+      carried: true,
+    });
+    expect(result.detail).toContain('1 merge(s) of the base branch');
+    expect(result.detail).toContain("the PR's 1 file(s)");
+    expect(result.detail).toMatch(/patch-id --stable [0-9a-f]{12} is identical/);
+  });
+
+  it('carries across more merges than the pure-update walk follows, and skips a pin the hops carry', () => {
+    sh('branch', '-f', 'idc-many', head);
+    const heads = [head];
+    let tip = '';
+    for (let i = 0; i < 6; i += 1) {
+      tip = advanceMain();
+      heads.push(mergeInto('idc-many', tip));
+    }
+    const evidence = verifyBaseUpdates(
+      git,
+      heads[6]!,
+      tip,
+      [base],
+      [pin(), pin(), { baseSha: base, headSha: heads[3]! }, { baseSha: base, headSha: heads[6]! }],
+    );
+    expect(evidence.error).toBeNull();
+    // Six pure hops exist; the walk proves five, so `head` is out of its reach.
+    expect(evidence.hops).toHaveLength(5);
+    // One proof for the pin the hops do not reach; none for the one they
+    // carry (heads[3]) nor for the approved head itself.
+    expect(evidence.identicalDiffs).toHaveLength(1);
+    expect(evidence.identicalDiffs![0]).toMatchObject({ recordHead: head, carried: true });
+    expect(evidence.identicalDiffs![0]!.detail).toContain('6 merge(s)');
+  });
+
+  it('examines no pin when every record is for the approved head or hop-carried', () => {
+    const tip = advanceMain();
+    const merged = mergeInto('idc-hop', tip, { from: head });
+    const evidence = verifyBaseUpdates(git, merged, tip, [base], [pin()]);
+    expect(evidence).toEqual({
+      hops: [{ head: merged, reviewedHead: head, base: tip }],
+      basesOnMain: [base],
+      error: null,
+    });
+  });
+
+  it('refuses when a non-merge commit was added after or before the merge', () => {
+    const tip = advanceMain();
+    mergeInto('idc-extra', tip, { from: head });
+    const after = commitFile('extra.ts', 'export const x = 1;\n', 'fixup after the merge');
+    const afterResult = verifyIdenticalDiff(git, pin(), after, tip);
+    expect(afterResult.carried).toBe(false);
+    expect(afterResult.detail).toContain('is not a merge of the base branch (1 parent(s))');
+    sh('checkout', '-q', '-b', 'idc-fixup-first', head);
+    const fixup = commitFile('extra.ts', 'export const x = 1;\n', 'fixup before the merge');
+    const merged = mergeInto('idc-fixup-first', tip);
+    const beforeResult = verifyIdenticalDiff(git, pin(), merged, tip);
+    expect(beforeResult.carried).toBe(false);
+    expect(beforeResult.detail).toContain(`${fixup.slice(0, 12)} is not a merge`);
+  });
+
+  it('refuses when the merge resolution changed the diff', () => {
+    const prHead = changelogPr('idc-conflict-pr', 'top\n\nmiddle from the PR\n\nbottom\n');
+    const tip = mainEditingChangelog('idc-conflict-main', 'top\n\nmiddle from main\n\nbottom\n');
+    const merged = mergeInto('idc-conflict-pr', tip, {
+      edit: () => write('CHANGELOG.md', 'top\n\nmiddle from the PR and main\n\nbottom\n'),
+    });
+    const result = verifyIdenticalDiff(git, { baseSha: base, headSha: prHead }, merged, tip);
+    expect(result.carried).toBe(false);
+    expect(result.detail).toContain('git patch-id --stable differs');
+    // Keeping the PR's side verbatim is still another diff: main's line is
+    // now what the PR removes.
+    const kept = mergeInto('idc-conflict-kept', tip, {
+      from: prHead,
+      edit: () => write('CHANGELOG.md', 'top\n\nmiddle from the PR\n\nbottom\n'),
+    });
+    expect(verifyIdenticalDiff(git, { baseSha: base, headSha: prHead }, kept, tip)).toMatchObject({
+      carried: false,
+      detail: expect.stringContaining('git patch-id --stable differs'),
+    });
+  });
+
+  it('refuses a whitespace-only edit in the merge, which patch-id does not see', () => {
+    const prHead = changelogPr('idc-space-pr', 'top\n\nrm -rf build/tmp\n\nbottom\n');
+    const tip = advanceMain();
+    const merged = mergeInto('idc-space-pr', tip, {
+      edit: () => write('CHANGELOG.md', 'top\n\nrm -rf build/ tmp\n\nbottom\n'),
+    });
+    const result = verifyIdenticalDiff(git, { baseSha: base, headSha: prHead }, merged, tip);
+    expect(result.carried).toBe(false);
+    expect(result.detail).toContain('does not have the same blobs');
+    // The clean merge of the same PR carries.
+    const clean = mergeInto('idc-space-clean', tip, { from: prHead });
+    expect(verifyIdenticalDiff(git, { baseSha: base, headSha: prHead }, clean, tip).carried).toBe(
+      true,
+    );
+  });
+
+  it('leaves a PR file that main also changed to the pure-update proof', () => {
+    // The PR edits the first line, main the last: a clean merge and the same
+    // patch-id, but not the blobs the reviewers read.
+    const prHead = changelogPr('idc-both-pr', 'top from the PR\n\nmiddle\n\nbottom\n');
+    const tip = mainEditingChangelog('idc-both-main', 'top\n\nmiddle\n\nbottom from main\n');
+    const merged = mergeInto('idc-both-pr', tip);
+    const record = { baseSha: base, headSha: prHead };
+    const result = verifyIdenticalDiff(git, record, merged, tip);
+    expect(result.carried).toBe(false);
+    expect(result.detail).toContain('does not have the same blobs');
+    // The hop proof (a clean re-merge) still carries it.
+    expect(verifyBaseUpdates(git, merged, tip, [base], [record])).toEqual({
+      hops: [{ head: merged, reviewedHead: prHead, base: tip }],
+      basesOnMain: [base],
+      error: null,
+    });
+    expect(CHANGELOG).toBe(sh('show', `${base}:CHANGELOG.md`) + '\n');
+  });
+
+  it('refuses when the merge commit adds a file', () => {
+    const tip = advanceMain();
+    const merged = mergeInto('idc-sneaky', tip, {
+      from: head,
+      edit: () => write('sneaky.ts', 'export const sneaky = true;\n'),
+    });
+    expect(verifyIdenticalDiff(git, pin(), merged, tip)).toMatchObject({
+      carried: false,
+      detail: "the PR's file list changed since the reviewed head",
+    });
+  });
+
+  it('refuses when the other parent is not on main', () => {
+    sh('checkout', '-q', '-b', 'idc-stranger', base);
+    const stranger = commitFile('idc-stranger.ts', 'export const c = 3;\n', 'not on main');
+    const first = mergeInto('idc-foreign', stranger, { from: head });
+    const tip = advanceMain();
+    const merged = mergeInto('idc-foreign', tip);
+    const result = verifyIdenticalDiff(git, pin(), merged, tip);
+    expect(result.carried).toBe(false);
+    expect(result.detail).toContain(
+      `${first.slice(0, 12)} merges ${stranger.slice(0, 12)}, which is not on the base branch`,
+    );
+    // Swapped parents: main first, the reviewed head second.
+    const swapped = mergeInto('idc-swapped', head, { from: tip });
+    expect(verifyIdenticalDiff(git, pin(), swapped, tip)).toMatchObject({
+      carried: false,
+      detail: expect.stringContaining('which is not on the base branch'),
+    });
+    // An octopus merge is not a merge of main alone.
+    sh('branch', '-f', 'idc-octopus', head);
+    sh('checkout', '-q', 'idc-octopus');
+    sh('merge', '-q', '--no-ff', '-m', 'octopus', tip, stranger);
+    expect(verifyIdenticalDiff(git, pin(), sh('rev-parse', 'HEAD'), tip)).toMatchObject({
+      carried: false,
+      detail: expect.stringContaining('(3 parent(s))'),
+    });
+  });
+
+  it('refuses when the reviewed head is not an ancestor of the approved head', () => {
+    sh('checkout', '-q', '-b', 'idc-elsewhere', base);
+    const elsewhere = commitFile('feature.ts', 'export const a = 1;\n', 'same change, other commit');
+    const tip = advanceMain();
+    const merged = mergeInto('idc-ancestor', tip, { from: head });
+    const refused = {
+      carried: false,
+      detail: `the reviewed head is not an ancestor of ${merged.slice(0, 12)}`,
+    };
+    expect(
+      verifyIdenticalDiff(git, { baseSha: base, headSha: elsewhere }, merged, tip),
+    ).toMatchObject(refused);
+    // A head that is not in the repository (a force-pushed PR's old head) is
+    // not an ancestor either: a refusal, not an error.
+    const absent = '1'.repeat(40);
+    expect(verifyBaseUpdates(git, merged, tip, [base], [{ baseSha: base, headSha: absent }])).toMatchObject({
+      identicalDiffs: [{ recordHead: absent, ...refused }],
+      error: null,
+    });
+    expect(verifyIdenticalDiff(git, { baseSha: base, headSha: 'main' }, merged, tip).carried).toBe(
+      false,
+    );
+  });
+
+  it('refuses a record base that is not on main, and an approved head without the live tip', () => {
+    sh('checkout', '-q', '-b', 'idc-stack-parent', base);
+    const stackTip = commitFile('idc-stack.ts', 'export const p = 1;\n', 'parent PR, never merged');
+    const older = advanceMain();
+    const merged = mergeInto('idc-behind', older, { from: head });
+    expect(
+      verifyIdenticalDiff(git, { baseSha: stackTip, headSha: head }, merged, older),
+    ).toMatchObject({ carried: false, detail: 'the record base is not on the base branch' });
+    expect(verifyIdenticalDiff(git, pin(), merged, older).carried).toBe(true);
+    // main moved on: the approved head merged an older commit of main.
+    const tip = advanceMain();
+    expect(verifyIdenticalDiff(git, pin(), merged, tip)).toMatchObject({
+      carried: false,
+      detail: `${merged.slice(0, 12)} does not contain the live tip of the base branch`,
+    });
+  });
+
+  it('stops after MAX_CARRY_MERGES merges', () => {
+    sh('branch', '-f', 'idc-long', head);
+    let tip = '';
+    let merged = '';
+    for (let i = 0; i <= MAX_CARRY_MERGES; i += 1) {
+      tip = advanceMain();
+      merged = mergeInto('idc-long', tip);
+    }
+    expect(verifyIdenticalDiff(git, pin(), merged, tip)).toMatchObject({
+      carried: false,
+      detail: `more than ${MAX_CARRY_MERGES} commits were added since the reviewed head`,
+    });
+  });
+
+  it('fails closed when git cannot answer', () => {
+    // A hand-edited merge: no hop, so the pin is examined.
+    const tip = advanceMain();
+    const merged = mergeInto('idc-broken', tip, {
+      from: head,
+      edit: () => write('feature.ts', 'export const a = 1;\nexport const b = 2;\n'),
+    });
+    expect(verifyBaseUpdates(git, merged, tip, [base], [pin()])).toMatchObject({
+      hops: [],
+      identicalDiffs: [{ carried: false }],
+      error: null,
+    });
+    for (const command of ['patch-id', 'diff', 'merge-base', 'rev-list', 'cat-file']) {
+      // The first rev-list call is the hop walk's; the carry-over walk's own
+      // call is the one that must fail closed.
+      let revLists = 0;
+      const broken: Git = (args, opts) =>
+        args[0] === command && !(command === 'rev-list' && (revLists += 1) === 1)
+          ? { status: 128, stdout: '', stderr: `fatal: ${command} is broken` }
+          : git(args, opts);
+      const evidence = verifyBaseUpdates(broken, merged, tip, [], [pin()]);
+      expect(evidence.error, command).toContain(command);
+      expect(evidence).toMatchObject({ hops: [], basesOnMain: [] });
+      expect(evidence.identicalDiffs, command).toBeUndefined();
+    }
+    // An unexpected entry in the raw diff is an error too, never a guess.
+    const garbled: Git = (args, opts) =>
+      args.includes('--raw') ? { status: 0, stdout: 'not a raw entry\0path\0', stderr: '' } : git(args, opts);
+    expect(verifyBaseUpdates(garbled, merged, tip, [], [pin()]).error).toContain(
+      'unexpected git diff entry',
+    );
+    expect(() => verifyIdenticalDiff(garbled, pin(), mergeInto('idc-garbled', tip, { from: head }), tip)).toThrow(
+      'unexpected git diff entry',
+    );
   });
 });

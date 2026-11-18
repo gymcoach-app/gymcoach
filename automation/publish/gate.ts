@@ -21,8 +21,10 @@
 // remedy. That merge is a new head; the records of the head before it carry
 // over only across pure base updates (base-update.ts proves each hop: two
 // parents, the second one on `main`, the same .gitattributes files on both
-// parents, a tree equal to a clean re-merge), and CI must still pass on the
-// new head itself.
+// parents, a tree equal to a clean re-merge) or across merges of `main` that
+// left the PR's diff identical, blob for blob (identical-diff carry-over, #582,
+// also proven in base-update.ts), and CI must still pass on the new head
+// itself.
 //
 // The ready records must also cover the review lenses the PR needs (lens
 // routing, automation/review/lenses.ts): a pure function of the changed paths
@@ -118,6 +120,28 @@ export interface PureBaseUpdate {
   base: string;
 }
 
+// Identical-diff carry-over (#582): what git proved, in the trusted gate tree,
+// about one review record pin (recordBase, recordHead) against the approved
+// head and the live tip of the base branch. `carried` is true only when
+// (a) recordHead is an ancestor of the approved head, (b) every commit added
+// since on the first-parent chain is a two-parent merge whose second parent is
+// on the base branch, (c) `git patch-id --stable` of the PR diff is the same
+// before and after, (d) the PR's file list is the same, and, stricter than
+// patch-id (which ignores whitespace and line numbers), every file of the PR
+// has the same blob and mode on both sides of both diffs, so the base branch
+// changed none of them. The record base must be on the base branch and the
+// approved head must contain the live tip.
+export interface IdenticalDiffCarry {
+  recordHead: string;
+  recordBase: string;
+  // The approved head and the live tip the proof was made against.
+  head: string;
+  base: string;
+  carried: boolean;
+  // What git proved when carried; otherwise the first rule that failed.
+  detail: string;
+}
+
 export interface BaseUpdateEvidence {
   // Newest first: hops[0].head is the approved head.
   hops: PureBaseUpdate[];
@@ -125,6 +149,10 @@ export interface BaseUpdateEvidence {
   // record counts only when its base is listed: a record bound to another
   // branch (a stacked PR later retargeted to main) never carries.
   basesOnMain: string[];
+  // One entry per review record pin (base, head) for a head other than the
+  // approved one: whether git proved the identical-diff carry-over rule for
+  // it. Absent when no such pin was examined.
+  identicalDiffs?: IdenticalDiffCarry[];
   // Set when git could not answer. The gate refuses: it never guesses.
   error: string | null;
 }
@@ -171,8 +199,11 @@ export interface PassedReview {
   reviewer: string;
   lenses: string[];
   // The head the record was posted for, when it reached the approved head
-  // through pure base updates.
+  // through pure base updates or an identical-diff carry-over.
   carriedFrom?: string;
+  // Which rule carried it, and what git proved (printed by the CLI).
+  carriedBy?: 'pure-base-update' | 'identical-diff';
+  carriedWhy?: string;
 }
 
 // A reviewer's identity for the gate: who reviewed (kind and model) and what
@@ -400,11 +431,39 @@ export function carriedHeads(input: GateInput): string[] {
   return carried;
 }
 
+// The identical-diff proofs that count for this gate run: carried, and made
+// against the approved head and a live tip that is also the PR's base (the
+// same link carriedHeads requires of the newest hop). None on a git error.
+export function identicalDiffCarries(input: GateInput): IdenticalDiffCarry[] {
+  const { pull, approvedSha, baseUpdates } = input;
+  if (baseUpdates.error !== null) return [];
+  return (baseUpdates.identicalDiffs ?? []).filter(
+    (c) =>
+      c.carried &&
+      c.head === approvedSha &&
+      c.recordHead !== approvedSha &&
+      c.base === pull.baseSha &&
+      c.base === input.baseTipSha,
+  );
+}
+
+// Why the records of other heads did not carry, for a refusal's detail.
+function notCarried(input: GateInput): string {
+  const failed = (input.baseUpdates.identicalDiffs ?? []).filter((c) => !c.carried);
+  if (failed.length === 0) return '';
+  const lines = failed.map(
+    (c) => `${c.recordHead.slice(0, 12)} (base ${c.recordBase.slice(0, 12)}): ${c.detail}`,
+  );
+  return `; not carried over: ${lines.join('; ')}`;
+}
+
 // The review evidence for the approved head. A record counts when it is for
 // (approved head, current base), or for a head that reached the approved head
-// through pure base updates only (carriedHeads); every other record is stale,
-// never a fallback. A carried record keeps its verdict either way: a stop on
-// the older head still stops, so merging `main` can never erase it. Among the
+// through pure base updates only (carriedHeads), or for a (base, head) pin git
+// proved an identical-diff carry-over for (identicalDiffCarries); every other
+// record is stale, never a fallback. A carried record keeps its verdict either
+// way: a stop on the older head still stops, so merging `main` can never erase
+// it. Among the
 // records that count, the latest of each reviewer identity decides, and every
 // one must be ready with no blocking or major finding: one lens cannot
 // override another lens's stop (multi-lens unanimity, docs/loops/10), only the
@@ -421,14 +480,23 @@ function evaluateReviews(
     return null;
   }
   const carried = new Set(carriedHeads(input));
+  const diffCarries = identicalDiffCarries(input);
+  const diffCarriedHeads = new Set(diffCarries.map((c) => c.recordHead));
+  const diffCarry = (r: ReviewEvidence) =>
+    diffCarries.find(
+      (c) => c.recordHead === r.review.headSha && c.recordBase === r.review.baseSha,
+    );
   const forHead = reviews.filter(
-    (r) => r.review.headSha === approvedSha || carried.has(r.review.headSha),
+    (r) =>
+      r.review.headSha === approvedSha ||
+      carried.has(r.review.headSha) ||
+      diffCarriedHeads.has(r.review.headSha),
   );
   if (forHead.length === 0) {
     const heads = [...new Set(reviews.map((r) => r.review.headSha.slice(0, 12)))];
     refuse(
       'review-for-other-head',
-      `review records cover head(s) [${heads.join(', ')}], not ${approvedSha}`,
+      `review records cover head(s) [${heads.join(', ')}], not ${approvedSha}${notCarried(input)}`,
     );
     return null;
   }
@@ -437,18 +505,23 @@ function evaluateReviews(
   // it, basesOnMain): otherwise the commits between that base and `main` (a
   // stacked PR's parent branch, say) would merge unreviewed. A carried stop
   // counts whatever its base: dropping it could only widen what merges. The
-  // hops prove that only `main` was merged in since.
+  // hops prove that only `main` was merged in since. An identical-diff
+  // carry-over is proven per (base, head) pin, record base on `main` included;
+  // a stop on a head some pin carried counts whatever its own pin proved, for
+  // the same reason.
   const onMain = new Set(input.baseUpdates.basesOnMain);
+  const byPureUpdate = (r: ReviewEvidence) =>
+    carried.has(r.review.headSha) && onMain.has(r.review.baseSha);
   const matching = forHead.filter((r) =>
-    carried.has(r.review.headSha)
-      ? onMain.has(r.review.baseSha) || isStop(r.review)
-      : r.review.baseSha === pull.baseSha,
+    r.review.headSha === approvedSha
+      ? r.review.baseSha === pull.baseSha
+      : byPureUpdate(r) || diffCarry(r) !== undefined || isStop(r.review),
   );
   if (matching.length === 0) {
     const bases = [...new Set(forHead.map((r) => r.review.baseSha.slice(0, 12)))];
     refuse(
       'review-for-other-base',
-      `the review of ${approvedSha.slice(0, 12)} was made on base(s) [${bases.join(', ')}], the PR's base is now ${pull.baseSha}`,
+      `the review of ${approvedSha.slice(0, 12)} was made on base(s) [${bases.join(', ')}], the PR's base is now ${pull.baseSha}${notCarried(input)}`,
     );
     return null;
   }
@@ -471,7 +544,19 @@ function evaluateReviews(
       author: r.author,
       reviewer: r.review.reviewer.model ?? r.review.reviewer.kind,
       lenses: r.review.lenses,
-      ...(r.review.headSha === approvedSha ? {} : { carriedFrom: r.review.headSha }),
+      ...(r.review.headSha === approvedSha
+        ? {}
+        : byPureUpdate(r)
+          ? {
+              carriedFrom: r.review.headSha,
+              carriedBy: 'pure-base-update' as const,
+              carriedWhy: `every commit since ${r.review.headSha.slice(0, 12)} is a merge of ${input.baseBranch} whose tree equals a clean re-merge`,
+            }
+          : {
+              carriedFrom: r.review.headSha,
+              carriedBy: 'identical-diff' as const,
+              carriedWhy: diffCarry(r)?.detail ?? '',
+            }),
     });
   }
   return stopped ? null : passed;

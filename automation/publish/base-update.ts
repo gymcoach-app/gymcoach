@@ -3,7 +3,12 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FULL_SHA, type BaseUpdateEvidence, type PureBaseUpdate } from '@/automation/publish/gate';
+import {
+  FULL_SHA,
+  type BaseUpdateEvidence,
+  type IdenticalDiffCarry,
+  type PureBaseUpdate,
+} from '@/automation/publish/gate';
 
 // Pure base updates (lesson L39, roadmap milestone 2). When `main` moves, the
 // merge gate refuses a PR whose base is stale until `origin/main` is merged
@@ -23,6 +28,11 @@ import { FULL_SHA, type BaseUpdateEvidence, type PureBaseUpdate } from '@/automa
 // `main`: a record bound to another branch (a stacked PR later retargeted)
 // never carries; a base absent locally is not on `main`. Any other git failure
 // is reported as an error, and the gate refuses on it rather than guess.
+//
+// Identical-diff carry-over (#582) is the second proof made here, for the
+// record pins the hops do not reach (GitHub's update-branch wrote a merge this
+// git re-merges differently, more than MAX_HOPS updates, an attributes
+// mismatch): see verifyIdenticalDiff below.
 
 export const MAX_HOPS = 5;
 
@@ -32,7 +42,12 @@ export interface GitResult {
   stderr: string;
 }
 
-export type Git = (args: string[], opts?: { cwd?: string }) => GitResult;
+// `input` is sent on stdin; `exact` keeps stdout untrimmed (a patch may end
+// with a blank context line).
+export type Git = (
+  args: string[],
+  opts?: { cwd?: string; input?: string; exact?: boolean },
+) => GitResult;
 
 // The re-merge must not depend on, or be steered through, the host's git
 // configuration: no global or system config (no user filters, merge drivers,
@@ -63,10 +78,11 @@ export function runGit(cwd: string): Git {
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
       env: { ...process.env, ...GIT_ENV, GIT_TERMINAL_PROMPT: '0' },
+      ...(opts?.input === undefined ? {} : { input: opts.input }),
     });
     return {
       status: r.status ?? 1,
-      stdout: (r.stdout ?? '').trim(),
+      stdout: opts?.exact ? (r.stdout ?? '') : (r.stdout ?? '').trim(),
       stderr: (r.stderr ?? '').trim(),
     };
   };
@@ -138,14 +154,171 @@ function attributesOf(git: Git, commit: string): string {
     .join('\0');
 }
 
-// The pure hops ending at `approvedSha`, newest first, and which of the given
-// review record bases are on `main` (ancestors of the live tip). The commits
+export const MAX_CARRY_MERGES = 20;
+
+export interface RecordPin {
+  baseSha: string;
+  headSha: string;
+}
+
+interface PrDiff {
+  // "status path" per changed file, NUL-joined: the PR's file list.
+  files: string;
+  // The same entries with both modes and both blob ids.
+  raw: string;
+  count: number;
+  // `git patch-id --stable` of the diff; empty for an empty diff.
+  patchId: string;
+}
+
+const RAW_ENTRY = /^:[0-7]{6} [0-7]{6} [0-9a-f]{40} [0-9a-f]{40} ([ADMT])$/;
+// The same fixed options for both sides: no rename guessing, no external or
+// textconv driver.
+const DIFF_OPTIONS = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-renames'];
+
+// What a PR changes: the diff from `from` (the merge base with the base
+// branch) to `to` (the PR head), as a file list, exact blobs and a patch-id.
+function prDiff(git: Git, from: string, to: string): PrDiff {
+  const raw = must(git, ['diff', ...DIFF_OPTIONS, '--raw', '--no-abbrev', '-z', from, to]);
+  // A path that is not valid UTF-8 was decoded lossily: never compare it.
+  if (raw.includes('\uFFFD')) throw new GitFailure('a changed path is not valid UTF-8');
+  const fields = raw.split('\0').filter((f) => f !== '');
+  if (fields.length % 2 !== 0) throw new GitFailure('unexpected git diff --raw output');
+  const files: string[] = [];
+  for (let i = 0; i < fields.length; i += 2) {
+    const status = RAW_ENTRY.exec(fields[i]!)?.[1];
+    if (!status) throw new GitFailure(`unexpected git diff entry: ${JSON.stringify(fields[i])}`);
+    files.push(`${status} ${fields[i + 1]!}`);
+  }
+  // A binary file is one "Binary files differ" line here: its content is
+  // compared through the blob ids of `raw`, like every other file's.
+  const patch = git(['diff', ...DIFF_OPTIONS, '-U3', from, to], { exact: true });
+  if (patch.status !== 0) {
+    throw new GitFailure(`git diff ${from} ${to}: ${patch.stderr.split('\n')[0] || 'failed'}`);
+  }
+  const id = git(['patch-id', '--stable'], { input: patch.stdout });
+  if (id.status !== 0) {
+    throw new GitFailure(`git patch-id: ${id.stderr.split('\n')[0] || `exit ${id.status}`}`);
+  }
+  return { files: files.join('\0'), raw, count: files.length, patchId: id.stdout };
+}
+
+const short = (sha: string) => sha.slice(0, 12);
+
+// Identical-diff carry-over (#582): whether a review record pinned to
+// (pin.baseSha, pin.headSha) still describes the PR at `approvedSha`, with
+// `baseTip` the live tip of `main`. Carried only when all of this holds:
+//   (a) the reviewed head is an ancestor of the approved head;
+//   (b) every commit added since, walking first parents from the approved head
+//       down to the reviewed head, is a two-parent merge whose second parent
+//       is on `main`: no plain commit, no merge of another branch, no octopus,
+//       at most MAX_CARRY_MERGES of them;
+//   (c) `git patch-id --stable` of the PR diff (merge base with the base
+//       branch to the head) is the same for the record and for the live PR;
+//   (d) the PR's file list is the same;
+//   and, beyond what patch-id sees (it ignores whitespace, line numbers and
+//   a binary file's content), every file of the PR has the same mode and
+//   blob on both sides of both diffs. `main` therefore changed none of the
+//   PR's files since the review, and the approved tree is the live tip plus
+//   exactly the blobs the reviewers read. A PR file that `main` also changed
+//   is left to the pure-update proof above (a clean re-merge) or to a fresh
+//   review.
+// The record base must be on `main` (a retargeted stack never carries) and the
+// approved head must contain the live tip. A hand-resolved conflict changes
+// the diff, so (c) fails. Returns `carried: false` with the first rule that
+// failed; a git failure throws, and the gate refuses on it.
+export function verifyIdenticalDiff(
+  git: Git,
+  pin: RecordPin,
+  approvedSha: string,
+  baseTip: string,
+  liveDiff: () => PrDiff = () => prDiff(git, baseTip, approvedSha),
+): IdenticalDiffCarry {
+  const { baseSha: recordBase, headSha: recordHead } = pin;
+  const result = (carried: boolean, detail: string): IdenticalDiffCarry => ({
+    recordHead,
+    recordBase,
+    head: approvedSha,
+    base: baseTip,
+    carried,
+    detail,
+  });
+  const no = (detail: string) => result(false, detail);
+  if (!FULL_SHA.test(recordHead) || !FULL_SHA.test(recordBase)) {
+    return no('the record head and base must be full SHAs');
+  }
+  // Every ancestor of the fetched PR head is local, so an absent commit is
+  // not an ancestor (a force-pushed PR's old head, say): no, not an error.
+  if (!hasObject(git, recordHead) || !isAncestor(git, recordHead, approvedSha)) {
+    return no(`the reviewed head is not an ancestor of ${short(approvedSha)}`);
+  }
+  if (!hasObject(git, recordBase) || !isAncestor(git, recordBase, baseTip)) {
+    return no('the record base is not on the base branch');
+  }
+  let at = approvedSha;
+  let merges = 0;
+  while (at !== recordHead) {
+    if (merges === MAX_CARRY_MERGES) {
+      return no(`more than ${MAX_CARRY_MERGES} commits were added since the reviewed head`);
+    }
+    const [commit, ...parents] = must(git, ['rev-list', '--parents', '-n', '1', at]).split(' ');
+    if (commit !== at) throw new GitFailure(`unexpected git rev-list output for ${at}`);
+    if (parents.length !== 2) {
+      return no(
+        `${short(at)} is not a merge of the base branch (${parents.length} parent(s)): a commit was added since the reviewed head`,
+      );
+    }
+    const [first, second] = parents as [string, string];
+    if (!isAncestor(git, second, baseTip)) {
+      return no(`${short(at)} merges ${short(second)}, which is not on the base branch`);
+    }
+    at = first;
+    merges += 1;
+  }
+  if (!isAncestor(git, baseTip, approvedSha)) {
+    return no(`${short(approvedSha)} does not contain the live tip of the base branch`);
+  }
+  // Exit 1 is "no merge base"; any other failure is an error.
+  const found = git(['merge-base', '--all', recordBase, recordHead]);
+  if (found.status !== 0 && found.status !== 1) {
+    throw new GitFailure(`git merge-base --all: ${found.stderr.split('\n')[0] || 'failed'}`);
+  }
+  const mergeBases = found.stdout.split('\n');
+  if (found.status === 1 || mergeBases.length !== 1 || !FULL_SHA.test(mergeBases[0]!)) {
+    return no('the reviewed head has no single merge base with its record base');
+  }
+  const reviewed = prDiff(git, mergeBases[0]!, recordHead);
+  // The live tip is in the approved head, so it is the live merge base.
+  const live = liveDiff();
+  if (reviewed.files !== live.files) {
+    return no("the PR's file list changed since the reviewed head");
+  }
+  if (reviewed.patchId === '' || reviewed.patchId !== live.patchId) {
+    return no(
+      "the PR's diff changed since the reviewed head (git patch-id --stable differs or is empty)",
+    );
+  }
+  if (reviewed.raw !== live.raw) {
+    return no(
+      'a file of the PR does not have the same blobs as when it was reviewed (the base branch changed it too, or the merge edited it)',
+    );
+  }
+  return result(
+    true,
+    `${merges} merge(s) of the base branch since ${short(recordHead)}, no other commit; the PR's ${live.count} file(s) and their blobs are unchanged, git patch-id --stable ${short(live.patchId)} is identical`,
+  );
+}
+
+// The pure hops ending at `approvedSha`, newest first, which of the given
+// review record bases are on `main` (ancestors of the live tip), and the
+// identical-diff proof for each record pin of another head. The commits
 // must already be in the local repository (see collectBaseUpdates).
 export function verifyBaseUpdates(
   git: Git,
   approvedSha: string,
   baseTip: string,
   recordBases: readonly string[] = [],
+  recordPins: readonly RecordPin[] = [],
 ): BaseUpdateEvidence {
   const hops: PureBaseUpdate[] = [];
   try {
@@ -173,7 +346,26 @@ export function verifyBaseUpdates(
     const basesOnMain = [...new Set(recordBases)].filter(
       (b) => FULL_SHA.test(b) && hasObject(git, b) && isAncestor(git, b, baseTip),
     );
-    return { hops, basesOnMain, error: null };
+    // A pin the hops already carry (its head on the chain, its base on
+    // `main`) needs no second proof.
+    const hopHeads = new Set(hops.map((h) => h.reviewedHead));
+    const pins = new Map<string, RecordPin>();
+    for (const pin of recordPins) {
+      if (pin.headSha === approvedSha) continue;
+      if (hopHeads.has(pin.headSha) && basesOnMain.includes(pin.baseSha)) continue;
+      pins.set(`${pin.baseSha} ${pin.headSha}`, pin);
+    }
+    let live: PrDiff | undefined;
+    const liveDiff = () => (live ??= prDiff(git, baseTip, approvedSha));
+    const identicalDiffs = [...pins.values()].map((pin) =>
+      verifyIdenticalDiff(git, pin, approvedSha, baseTip, liveDiff),
+    );
+    return {
+      hops,
+      basesOnMain,
+      ...(identicalDiffs.length ? { identicalDiffs } : {}),
+      error: null,
+    };
   } catch (err) {
     return { hops: [], basesOnMain: [], error: err instanceof Error ? err.message : String(err) };
   }
@@ -190,6 +382,7 @@ export function collectBaseUpdates(
   approvedSha: string,
   baseTip: string,
   recordBases: readonly string[],
+  recordPins: readonly RecordPin[] = [],
 ): BaseUpdateEvidence {
   const ns = `refs/gymcoach-gate/${process.pid}-${randomBytes(4).toString('hex')}`;
   const refs = [`${ns}/pr-${pr}`, `${ns}/${baseBranch}`];
@@ -202,7 +395,7 @@ export function collectBaseUpdates(
       `+refs/pull/${pr}/head:${refs[0]}`,
       `+refs/heads/${baseBranch}:${refs[1]}`,
     ]);
-    return verifyBaseUpdates(git, approvedSha, baseTip, recordBases);
+    return verifyBaseUpdates(git, approvedSha, baseTip, recordBases, recordPins);
   } catch (err) {
     return { hops: [], basesOnMain: [], error: err instanceof Error ? err.message : String(err) };
   } finally {
