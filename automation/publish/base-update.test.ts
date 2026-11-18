@@ -268,8 +268,10 @@ describe('pure base update verification', () => {
 
 // Identical-diff carry-over (#582): a record pinned to (base, head) counts for
 // a newer head when only merges of main were added and the PR's diff is the
-// same, blob for blob. Same throwaway repository, same real git.
-describe('identical-diff carry-over', () => {
+// same, blob for blob. Same throwaway repository, same real git. The cases
+// build many real merges (twenty-one for the limit), which is slow when the
+// whole suite runs in parallel: hence the timeout.
+describe('identical-diff carry-over', { timeout: 60_000 }, () => {
   const pin = () => ({ baseSha: base, headSha: head });
   const CHANGELOG = 'top\n\nmiddle\n\nbottom\n';
 
