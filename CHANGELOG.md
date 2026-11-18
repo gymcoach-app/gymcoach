@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Apple Health import: Settings, Import training history accepts the Health
+  app's `export.zip` (or `export.xml`). The file is streamed in the browser,
+  however large, and only workout summaries reach the server; cardio workouts
+  become sessions with duration, distance and average and peak heart rate,
+  strength workouts are skipped with a count, workouts already in the history
+  are not imported twice, and body mass records can be added to the bodyweight
+  log (#583, part 1 of #582).
+- Distance unit setting: Settings > Profile has a "Distance unit" choice
+  (Automatic, Kilometers, Miles). The cardio set logger, cardio targets in the
+  program editor and the workout card, the session summary, the history, the
+  print sheet, the share card, the copied workout text, the import previews and
+  the conditioning card type and show distance, pace and speed in that unit.
+  Automatic, the default for every account, follows the weight unit: miles
+  with pounds, kilometers with kilograms. Behavior change for accounts on
+  pounds: cardio distance, which was typed and shown in kilometers next to a
+  pace per mile, is now typed and shown in miles; pick Kilometers to keep the
+  old input. Distances stay stored in meters and are converted once, when
+  typed: re-saving a target or logging a prefilled distance keeps the stored
+  value. The coach payload, the CSV and TCX exports and the MCP tools stay
+  metric. Backups carry the preference (format version 14; older backups keep
+  the account's setting) (#585, part 3 of #582).
+- Strava archive import: Settings, Import training history accepts the zip of
+  Strava's "Download your data". The archive is unzipped in the browser as a
+  stream (photos and videos are never read) and its activity files (`.fit`,
+  `.gpx`, `.tcx`, also `.gz`) go through the existing FIT, GPX and TCX imports
+  in a rate-limit aware queue, with one combined preview before anything is
+  written, a cancel button, duplicates left out and manual entries without a
+  file counted as skipped (#586, part 2 of #582).
 - Health endpoint and container healthcheck: `GET /api/health` needs no login and
   answers `200 {"status":"ok"}` when the database answers a trivial query within
   two seconds, `503 {"status":"unavailable"}` otherwise, with no version,
@@ -267,6 +295,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apple Health import, hardened: the routes, ECGs and clinical document of an
+  `export.zip` are dropped as they are read instead of being kept in memory,
+  only the first export file of an archive is read, an export that unpacks to
+  more than 2 GB is refused early with a message, a malformed file can no longer
+  make the scan take minutes, a workout saved twice in the export is counted as
+  a duplicate in the preview wherever it falls (preview and import now agree),
+  and "one body weight entry a day" uses the day of the phone's time zone
+  instead of the UTC day, also across a daylight saving change. An archive of
+  more than 50 000 zip entries is refused with a message, in the Apple Health and
+  in the Strava import; in Apple Health only the entries up to the export entry
+  are counted, since the read stops there (#587, closes #582).
 - Cardio leftovers from #558: on the print sheet a cardio exercise now has a
   duration box and a distance box, with its target pre-printed when set, instead
   of weight, reps and RIR boxes. The target text ("20 min", "20 min · 5 km") is
@@ -462,6 +501,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Loop tooling: the merge gate carries a review record over to a newer head by
+  itself when the commits added since the reviewed head are only merges of
+  `main` and the PR's diff is identical (`git patch-id --stable`, same file
+  list, same blobs), and prints which rule carried it; records are no longer
+  re-posted by hand after an `update-branch` (#584, part 4 of #582).
 - The self-hosting FAQ says what the AI provider receives, heart rate included
   (average and peak only, never the curve), and the coach prompt names the
   weekly cardio heart rate with its section so it is not confused with the heart

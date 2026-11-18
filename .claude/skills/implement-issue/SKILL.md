@@ -106,6 +106,18 @@ for repo conventions; this skill assumes them.
    - Allow **at most 3** fix attempts. If still red after 3, do NOT open a normal
      PR: either open a **draft** PR describing what is blocked, or STOP and report.
    This is the hard feedback loop - never open a PR on a red gate.
+   **A red gate under machine load is still red** (lesson L61); the rule above has no
+   exception. When the failures look load-induced (timeouts in specs the change does not
+   touch, a different set each run), record `uptime` and each tier's result per run, do not
+   push, and hand back with that evidence. The orchestrator re-runs the full
+   `verify.sh --full` on an idle machine before pushing. The container scripts
+   (`scripts/container-gate.sh`, `scripts/container-integration.sh`) may confirm the default
+   and integration tiers early, but no container script runs E2E, so they do not replace
+   that run. If it must push to an already-open PR earlier, it first converts that PR to
+   draft (gh 2.4.0 has no `gh pr ready --undo`: use the GraphQL mutation
+   `convertPullRequestToDraft`) and marks it ready only after a green local run on the
+   pinned head. A unit-tier timeout under load is a performance defect to investigate
+   (lesson L42), not load to wave through.
    **Read the gate's own exit code** (lesson L55): run it on its own line
    (`bash scripts/verify.sh > <log> 2>&1; status=$?`) and act on `$status` or on the
    `GREEN-GATE PASSED` line. Never pipe it into `tail` or `grep` in front of an `&&` that

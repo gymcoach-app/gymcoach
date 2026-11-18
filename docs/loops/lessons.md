@@ -1032,3 +1032,64 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   scratch files in the scratchpad by absolute path instead of `cd`-ing into it.
 - **Status:** graduated -> `06-orchestration.md` ("Concurrent ticks", the confirmed
   pattern paragraph).
+
+### L60 - Post records once, before `update-branch`; a hand-resolved conflict still needs a delta review
+- **Trigger:** 2026-11-18, batch #582. #584 added a second carry-over rule to the merge gate
+  (identical diff), a printed line naming the rule that carried each record, and
+  `record.ts --head-moved`. Its body traced the hand re-posting of the 2026-11-17 wave to
+  ordering: records were posted after the `update-branch`, and `record.ts` refuses a record
+  whose head is no longer live, so they were re-pinned by hand. In this batch the records of
+  #585 and #583 were posted once, before their `update-branch`, and the gate carried them
+  with the pure base update proof that already existed before #584 (`carriedBy:
+  pure-base-update`); nothing was re-pinned. The new identical-diff rule was not exercised.
+  #586 was stacked on the Apple Health branch; after #583 was squashed into `main`, its merge
+  of `main` conflicted in 14 files, resolved by hand by keeping the superset side. That merge
+  is not one the gate can prove, so it needed a review of the delta.
+- **Lesson:** post records once, for the head the reviewer read, before updating the branch
+  (or with `--head-moved` after), and read the gate's `carriedBy` line instead of
+  re-posting. A hand-resolved conflict, even one that "only keeps both sides", is new code
+  to review.
+- **Status:** graduated -> `ship-pr` step 4 and `04-ship-loop.md` (#584, "Sequential
+  merges"); this batch recorded there in this PR.
+
+### L61 - A red local gate under load is red: hand back, re-run when idle, never push on it
+- **Trigger:** 2026-11-18, #587 (fix round, head `788d8be`). Six local `verify.sh --full`
+  runs on that head all exited 1 (ledger, 15:19 to 16:42 UTC) while an unrelated CPU job held
+  the machine at load 15 to 18 on 12 cores: E2E failed in five runs on 5 s timeouts, a
+  different set of specs each run (auth, bodyweight, deload, signup and others), and the unit
+  tier failed on timeouts once; unit and integration were green in the five runs that
+  reached E2E. The implementer refused to push on a red gate and handed the decision back,
+  which was right. The orchestrator then deviated: it pushed the fix commit to the open PR on
+  that red local gate (the PR body stated the red runs honestly) and merged on green CI and
+  two clean reviews, with no green local run on `788d8be`. The one unit-tier timeout run was
+  not investigated, although L42 treats a timeout under load as a performance defect with a
+  cause.
+- **Lesson:** the rule stays absolute: never open or update a PR for merge on a red gate. The
+  implementer records `uptime` and each tier's result per run, does not push, and hands
+  back. The orchestrator re-runs the full `verify.sh --full` on an idle machine before
+  pushing. The container scripts (`scripts/container-gate.sh`,
+  `scripts/container-integration.sh`) may confirm the default and integration tiers early,
+  but none runs E2E, the tier that failed on #587, so they do not replace that run. If it must push to an
+  already-open PR earlier, it first converts that PR to draft and marks it ready only after a
+  green local run on the pinned head. A unit-tier timeout under load is investigated as L42
+  says, not waved through as load. What happened on #587 is the deviation; this is the rule.
+- **Status:** graduated -> `implement-issue` step 5 ("A red gate under machine load is still
+  red").
+
+### L62 - Imports of user-picked files: review the worst-case cost, and the browser syntax of the fix
+- **Trigger:** 2026-11-18, review round of #587. The security lens found two quadratic paths
+  in the Apple Health import: the attribute regex retried from every character of a long
+  name run with no `=` (60 000 characters took 17 s for the reviewer, 8.6 s for the
+  author), and fflate 0.8.2's `Unzip` keeps one slot per entry and shifts them all on each
+  new entry (`k.unshift`), so the entry count is quadratic (100 000 entries 10.8 s). The fix
+  parses attributes in one hand-written pass and caps a zip at 50 000 entries
+  (`ZIP_MAX_ENTRIES`, a "too many files" message in the Apple Health and Strava imports).
+  The reviewer's suggested regex lookbehind was not taken: it is a syntax error on Safari
+  before 16.4, which would break the module on older iPhones.
+- **Lesson:** a parser that runs on a file the user picks gets a worst-case cost question in
+  review, with a timed test on crafted input, including the per-entry cost of a third-party
+  reader; and a fix shipped to the browser is checked against the oldest browser it must
+  run on, not only against the test runtime.
+- **Status:** graduated -> `ship-pr` step 4 (review questions, "If the change parses a file
+  or archive a user picks", with the browser baseline named: Next.js 15's default list,
+  Safari 12 and up, since the repository sets no browserslist).
