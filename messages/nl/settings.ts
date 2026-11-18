@@ -170,6 +170,8 @@ export const settings = {
       fit: 'exporteer de activiteit als FIT-bestand vanaf je Garmin-horloge (of een ander horloge); deze wordt één cardiotraining met duur, afstand en hartslag',
       appleHealth:
         'tik in de Gezondheid-app op je profielfoto, dan op Exporteer alle gezondheidsgegevens, en kies het export.zip-bestand dat wordt gemaakt (of de export.xml daarin)',
+      strava:
+        'open op strava.com Instellingen, Mijn account, dan Aan de slag onder Download of verwijder je account, vraag je archief aan en kies het zip-bestand dat Strava je mailt',
     },
     appleHealth: {
       description:
@@ -201,6 +203,41 @@ export const settings = {
         '{count, plural, one {# meting van je lichaamsgewicht op een dag die al is ingevuld, wordt overgeslagen} other {# metingen van je lichaamsgewicht op dagen die al zijn ingevuld, worden overgeslagen}}',
       done:
         '{sessions, plural, one {# training} other {# trainingen}} geïmporteerd{weights, plural, =0 {} one {, # meting van je lichaamsgewicht} other {, # metingen van je lichaamsgewicht}}{skipped, plural, =0 {.} other { (# overgeslagen).}}',
+    },
+    strava: {
+      description:
+        'Haal je activiteiten uit Strava: {hint}. Bekijk hier het voorbeeld en bevestig daarna.',
+      chooseFile: 'Strava-archief kiezen',
+      privacy:
+        'Het archief wordt op dit apparaat uitgepakt: alleen de activiteitsbestanden (FIT, GPX, TCX) gaan naar je GymCoach-server; foto’s en al het andere worden nooit gelezen. Imports zijn beperkt tot 10 verzoeken per minuut, dus een lange geschiedenis duurt even: houd dit tabblad open. Activiteiten die al in je geschiedenis staan, worden niet dubbel geïmporteerd.',
+      checking:
+        'Archief controleren: {read} van {total} MB, {count, plural, one {# activiteit gecontroleerd} other {# activiteiten gecontroleerd}}',
+      importing:
+        'Importeren: {read} van {total} MB, {count, plural, one {# activiteit verzonden} other {# activiteiten verzonden}}',
+      waiting: 'Importlimiet bereikt, gaat verder over {seconds} s',
+      cancelled: 'Import geannuleerd. Er is niets geïmporteerd.',
+      cancelledAfterStart:
+        'Import geannuleerd. De al geïmporteerde activiteiten blijven in je geschiedenis staan.',
+      notZip: 'Dit bestand is geen zip-archief. Kies het zip-bestand dat Strava je heeft gemaild.',
+      notStrava:
+        'Dit archief bevat geen activities.csv en geen map activities. Kies het zip-bestand dat Strava je heeft gemaild.',
+      unreadable: 'Dit archief kon niet worden gelezen.',
+      activities:
+        '{count, plural, one {# activiteit om te importeren} other {# activiteiten om te importeren}}',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# activiteit staat al in je geschiedenis en wordt overgeslagen} other {# activiteiten staan al in je geschiedenis en worden overgeslagen}}',
+      withoutFile:
+        '{count, plural, one {# activiteit zonder bestand (met de hand ingevoerd op Strava) wordt overgeslagen} other {# activiteiten zonder bestand (met de hand ingevoerd op Strava) worden overgeslagen}}',
+      unsupported:
+        '{count, plural, one {# bestand in een indeling die GymCoach niet leest, wordt overgeslagen} other {# bestanden in een indeling die GymCoach niet leest, worden overgeslagen}}',
+      tooLarge:
+        '{count, plural, one {# bestand groter dan 5 MB wordt overgeslagen} other {# bestanden groter dan 5 MB worden overgeslagen}}',
+      unreadableFiles:
+        '{count, plural, one {# onleesbaar bestand wordt overgeslagen} other {# onleesbare bestanden worden overgeslagen}}',
+      skippedFiles: 'Bestanden die worden overgeslagen',
+      done:
+        '{sessions, plural, one {# activiteit geïmporteerd} other {# activiteiten geïmporteerd}}{skipped, plural, =0 {.} other { (# overgeslagen).}}',
     },
   },
   mcp: {
