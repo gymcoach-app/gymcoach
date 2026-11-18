@@ -70,6 +70,18 @@ which it proves with git in its own trusted tree
 record carries only when its base is on `main`. A hand-resolved conflict is not a pure
 update, so every record has to be posted again for the new head.
 
+Since #582 the gate has a second proof for the pins the first one does not reach
+(identical-diff carry-over, same file): a record pinned to (base, head) counts for the
+live head when its head is an ancestor of the live head, every commit added since is a
+two-parent merge whose second parent is on `main`, `git patch-id --stable` of the PR diff
+and the PR's file list are unchanged, and every file of the PR has the same blobs on both
+sides of both diffs (so `main` changed none of them; patch-id alone ignores whitespace and
+line numbers). It replaces a manual step of the 2026-11-17 wave, where the orchestrator
+re-posted records for the new head after its own patch-id check: records are now posted
+once, for the head the reviewer read (`record.ts --head-moved` when the branch was updated
+in the meantime), and the gate prints which rule carried each one. A hand-resolved
+conflict changes the diff and still needs a fresh review of the delta.
+
 What it cost before the fix (2026-10-19, the #485-#489 wave, lesson L47): every PR added
 its entry to the same lines of `CHANGELOG.md`, so each merge left the next PRs with a
 conflict that GitHub's update-branch could not write. That gave 3 hand-resolved merges and

@@ -8,12 +8,16 @@ import { type StructuredReview, structuredReviewSchema } from '@/automation/revi
 // Posts a structured review record on a PR as the comment the merge gate reads
 // (roadmap milestones 2 and 4).
 //
-//   npx tsx automation/review/record.ts <pr> --file review.json [--dry-run]
+//   npx tsx automation/review/record.ts <pr> --file review.json [--dry-run] [--head-moved]
 //
 // It validates the record, refuses when its head or base SHA is not the PR's
 // live head and base (the reviewer read something else), refuses when the gh
 // account is not a maintainer (the gate would ignore the comment), and only
-// then posts. Exit codes: 0 posted (or valid on --dry-run), 1 refused,
+// then posts. `--head-moved` is for a review that finished after the branch
+// was updated: the record is posted as it is, pinned to the head and base the
+// reviewer read, and the merge gate decides with git whether it carries over
+// to the live head (base-update.ts). Never rewrite a record's SHAs instead.
+// Exit codes: 0 posted (or valid on --dry-run), 1 refused,
 // 2 usage error, 3 gh or network error.
 
 export class UsageError extends Error {}
@@ -22,6 +26,7 @@ export interface RecordArgs {
   pr: number;
   file: string;
   dryRun: boolean;
+  headMoved: boolean;
 }
 
 export function parseRecordArgs(argv: string[]): RecordArgs {
@@ -31,6 +36,7 @@ export function parseRecordArgs(argv: string[]): RecordArgs {
   }
   let file: string | undefined;
   let dryRun = false;
+  let headMoved = false;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i]!;
     if (arg === '--file') {
@@ -43,12 +49,15 @@ export function parseRecordArgs(argv: string[]): RecordArgs {
     } else if (arg === '--dry-run') {
       if (dryRun) throw new UsageError('--dry-run given twice');
       dryRun = true;
+    } else if (arg === '--head-moved') {
+      if (headMoved) throw new UsageError('--head-moved given twice');
+      headMoved = true;
     } else {
       throw new UsageError(`unknown argument ${arg}`);
     }
   }
   if (!file) throw new UsageError('--file <review.json> is required');
-  return { pr: Number(prArg), file, dryRun };
+  return { pr: Number(prArg), file, dryRun, headMoved };
 }
 
 export type RecordRefusal =
@@ -60,13 +69,16 @@ export type RecordRefusal =
   | 'not-maintainer';
 
 // Pure: whether a validated record may be posted on the live PR by the
-// authenticated gh account (matched by numeric user id, like the gate).
+// authenticated gh account (matched by numeric user id, like the gate). With
+// `headMoved`, a head or base that is no longer live is not a refusal: the
+// gate, not this CLI, decides whether such a record counts.
 export function checkRecord(
   review: StructuredReview,
   pr: number,
   live: PullState,
   account: { login: string; id: number },
   maintainers: readonly Maintainer[],
+  { headMoved = false }: { headMoved?: boolean } = {},
 ): { code: RecordRefusal; detail: string }[] {
   const refusals: { code: RecordRefusal; detail: string }[] = [];
   if (review.pr !== pr) {
@@ -75,13 +87,13 @@ export function checkRecord(
   if (live.state !== 'open' || live.merged) {
     refusals.push({ code: 'pr-not-open', detail: `PR #${pr} is not open` });
   }
-  if (review.headSha !== live.headSha) {
+  if (!headMoved && review.headSha !== live.headSha) {
     refusals.push({
       code: 'head-mismatch',
       detail: `record head ${review.headSha}, live head ${live.headSha}`,
     });
   }
-  if (review.baseSha !== live.baseSha) {
+  if (!headMoved && review.baseSha !== live.baseSha) {
     refusals.push({
       code: 'base-mismatch',
       detail: `record base ${review.baseSha}, live base ${live.baseSha}`,
@@ -113,9 +125,14 @@ function run(argv: string[]): number {
   }
   const live = fetchPull(args.pr).pull;
   const account = gh<{ login: string; id: number }>(['user']);
-  const refusals = checkRecord(parsed.data, args.pr, live, account, MAINTAINERS);
+  const refusals = checkRecord(parsed.data, args.pr, live, account, MAINTAINERS, args);
   for (const r of refusals) console.error(`${r.code}: ${r.detail}`);
   if (refusals.length) return 1;
+  if (parsed.data.headSha !== live.headSha || parsed.data.baseSha !== live.baseSha) {
+    console.log(
+      `Record pinned to head ${parsed.data.headSha} and base ${parsed.data.baseSha}; the live head is ${live.headSha}. It counts only if the merge gate proves a carry-over.`,
+    );
+  }
   const body = formatReviewComment(parsed.data);
   if (args.dryRun) {
     console.log(body);
@@ -137,7 +154,7 @@ function main() {
   } catch (err) {
     if (err instanceof UsageError) {
       console.error(`Usage error: ${err.message}`);
-      console.error('Usage: record.ts <pr> --file <review.json> [--dry-run]');
+      console.error('Usage: record.ts <pr> --file <review.json> [--dry-run] [--head-moved]');
       process.exit(2);
     }
     const message = err instanceof Error ? err.message : String(err);

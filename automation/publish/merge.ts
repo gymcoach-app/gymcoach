@@ -360,8 +360,21 @@ export function fetchIssueComments(pr: number): IssueComment[] {
   ).map(toIssueComment);
 }
 
+// Pure: one line per review record that counts for the approved head although
+// it was posted for an older one, naming the rule and what git proved.
+export function carryOverLines(decision: GateDecision): string[] {
+  if (!decision.mergeable) return [];
+  return decision.reviews
+    .filter((r) => r.carriedFrom !== undefined)
+    .map(
+      (r) =>
+        `Review record ${r.commentId} carried over from ${r.carriedFrom!.slice(0, 12)} to ${decision.sha.slice(0, 12)} (${r.carriedBy ?? 'carry-over'}): ${r.carriedWhy ?? ''}`,
+    );
+}
+
 function print(decision: GateDecision, reviews: ParsedReviews) {
   console.log(JSON.stringify(decision, null, 2));
+  for (const line of carryOverLines(decision)) console.log(line);
   // A maintainer comment with the marker that did not parse or was edited
   // refuses the merge (review-comment-invalid); name it so it can be fixed by
   // posting a fresh record and deleting the broken comment.
@@ -399,6 +412,7 @@ async function run(argv: string[]): Promise<number> {
         args.sha,
         baseTipSha,
         reviews.records.map((r) => r.review.baseSha),
+        reviews.records.map((r) => ({ baseSha: r.review.baseSha, headSha: r.review.headSha })),
       )
     : { hops: [], basesOnMain: [], error: null };
   const decision = evaluateMergeGate({

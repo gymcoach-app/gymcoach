@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PullState } from './gate';
 import { REPO } from './checks';
 import {
+  carryOverLines,
   changedPaths,
   collectPages,
   fetchSettledPull,
@@ -18,6 +19,42 @@ import {
 
 const SHA = 'c'.repeat(40);
 const BASE = 'd'.repeat(40);
+
+describe('carry-over lines', () => {
+  const OLD = 'e'.repeat(40);
+  const decision = (reviews: Parameters<typeof carryOverLines>[0] & { mergeable: true }) => reviews;
+
+  it('names each carried record, the rule and what git proved', () => {
+    const lines = carryOverLines(
+      decision({
+        mergeable: true,
+        sha: SHA,
+        checks: [],
+        requiredChecksSource: 'repository',
+        advisories: [],
+        reviews: [
+          { commentId: 1, author: 'JulienAu', reviewer: 'm', lenses: ['correctness'] },
+          {
+            commentId: 2,
+            author: 'JulienAu',
+            reviewer: 'm',
+            lenses: ['security'],
+            carriedFrom: OLD,
+            carriedBy: 'identical-diff',
+            carriedWhy: '1 merge(s) of the base branch, identical diff',
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual([
+      `Review record 2 carried over from ${OLD.slice(0, 12)} to ${SHA.slice(0, 12)} (identical-diff): 1 merge(s) of the base branch, identical diff`,
+    ]);
+  });
+
+  it('prints nothing for a refusal', () => {
+    expect(carryOverLines({ mergeable: false, refusals: [] })).toEqual([]);
+  });
+});
 
 describe('base update verification trigger', () => {
   const OLD = 'e'.repeat(40);
