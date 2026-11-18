@@ -331,13 +331,17 @@ describe('distanceToM', () => {
   it('reads back exactly what was typed, in either unit, at any 2-decimal value', () => {
     for (const unit of ['km', 'mi'] as const) {
       const max = Math.floor(MAX_DISTANCE_M / (unit === 'mi' ? MILES_TO_METERS : 1000));
-      for (let hundredths = 1; hundredths <= max * 100; hundredths += 7) {
+      // Every value up to the bound, checked in a plain loop (one assertion
+      // per unit) so the sweep stays cheap.
+      const drifted: number[] = [];
+      for (let hundredths = 1; hundredths <= max * 100; hundredths++) {
         const typed = hundredths / 100;
         const stored = distanceToM(typed, unit);
-        expect(distanceInUnit(stored, unit)).toBe(typed);
+        const shown = distanceInUnit(stored, unit);
         // Saving what is shown again stores the same meters: no drift.
-        expect(distanceToM(distanceInUnit(stored, unit), unit)).toBe(stored);
+        if (shown !== typed || distanceToM(shown, unit) !== stored) drifted.push(typed);
       }
+      expect(drifted).toEqual([]);
     }
   });
 
