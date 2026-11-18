@@ -2,7 +2,7 @@ import { Gunzip } from 'fflate';
 import { IMPORT_CSV_MAX_BYTES } from '@/lib/import/csv';
 import { ImportCancelledError } from '@/lib/import/import-queue';
 import { STRAVA_CSV_MAX_BYTES, stravaActivityKey } from '@/lib/import/strava-csv';
-import { createSelectiveUnzip } from '@/lib/import/zip-stream';
+import { ZIP_MAX_ENTRIES, ZipEntryLimitError, createSelectiveUnzip } from '@/lib/import/zip-stream';
 
 // ============================================================
 // Strava archive reader (issue #582) - browser side
@@ -53,7 +53,11 @@ export type StravaArchiveEntry =
   | { kind: 'activity'; path: string; format: StravaActivityFormat; data: Uint8Array }
   | { kind: 'skipped'; path: string; reason: 'unsupported' | 'too-large' | 'unreadable' };
 
-export type StravaArchiveErrorCode = 'not-zip' | 'not-strava' | 'unreadable';
+export type StravaArchiveErrorCode = 'not-zip' | 'not-strava' | 'unreadable' | 'too-many-files';
+
+// The entry count past which an archive is refused with 'too-many-files'
+// (see ZIP_MAX_ENTRIES): photos and videos count, like every entry.
+export const STRAVA_MAX_ZIP_ENTRIES = ZIP_MAX_ENTRIES;
 
 export class StravaArchiveError extends Error {
   constructor(public readonly code: StravaArchiveErrorCode) {
@@ -62,7 +66,9 @@ export class StravaArchiveError extends Error {
         ? 'Not a zip archive.'
         : code === 'not-strava'
           ? 'No Strava activity in this archive.'
-          : 'Unreadable archive.',
+          : code === 'too-many-files'
+            ? 'Too many files in this archive.'
+            : 'Unreadable archive.',
     );
     this.name = 'StravaArchiveError';
   }
@@ -145,11 +151,14 @@ export interface ReadStravaArchiveOptions {
   // Activity paths to leave compressed (the confirm pass only needs the
   // files the preview kept). Return false to skip the entry.
   wants?: (path: string) => boolean;
+  // Injectable for tests. Default STRAVA_MAX_ZIP_ENTRIES.
+  maxZipEntries?: number;
 }
 
 // Read a Strava archive entry by entry. Resolves with the number of entries
 // handed over. Throws StravaArchiveError when the file is not a zip, is
-// damaged, or holds neither an activities.csv nor an activities/ file.
+// damaged, holds too many entries, or holds neither an activities.csv nor an
+// activities/ file.
 export async function readStravaArchive(
   file: Blob,
   options: ReadStravaArchiveOptions,
@@ -200,7 +209,7 @@ export async function readStravaArchive(
       else if (inflated.length === 0) ready.push({ kind: 'skipped', path, reason: 'unreadable' });
       else ready.push({ kind: 'activity', path, format: kind.format, data: inflated });
     };
-  });
+  }, options.maxZipEntries);
 
   const drain = async () => {
     while (ready.length > 0) {
@@ -221,8 +230,10 @@ export async function readStravaArchive(
     for (let offset = 0; offset < chunk.length; offset += ZIP_SLICE_BYTES) {
       try {
         unzip.push(chunk.subarray(offset, offset + ZIP_SLICE_BYTES), false);
-      } catch {
-        throw new StravaArchiveError('unreadable');
+      } catch (err) {
+        throw new StravaArchiveError(
+          err instanceof ZipEntryLimitError ? 'too-many-files' : 'unreadable',
+        );
       }
       await drain();
     }

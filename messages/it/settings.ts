@@ -191,6 +191,9 @@ export const settings = {
       noExportXml:
         'Questo archivio non contiene export.xml. Scegli il file export.zip creato dall’app Salute.',
       unreadable: 'Impossibile leggere questo file.',
+      tooManyFiles: 'Questo archivio contiene più di {limit, number} file e non può essere letto qui.',
+      tooLarge:
+        'Questa esportazione è troppo grande per essere letta qui: i suoi dati superano {limit} GB una volta decompressi.',
       workouts:
         '{count, plural, one {# allenamento cardio} other {# allenamenti cardio}} da importare',
       byType: '{name}: {count}',
@@ -228,6 +231,7 @@ export const settings = {
       notStrava:
         'Questo archivio non contiene activities.csv né la cartella activities. Scegli lo zip che Strava ti ha inviato per e-mail.',
       unreadable: 'Impossibile leggere questo archivio.',
+      tooManyFiles: 'Questo archivio contiene più di {limit, number} file e non può essere letto qui.',
       activities: '{count, plural, one {# attività} other {# attività}} da importare',
       byType: '{name}: {count}',
       duplicates:

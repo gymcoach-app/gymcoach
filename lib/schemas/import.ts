@@ -5,6 +5,7 @@ import { GPX_MAX_BYTES } from '@/lib/import/gpx';
 import { FIT_MAX_BYTES } from '@/lib/import/fit';
 import {
   APPLE_HEALTH_FUTURE_SLACK_MS,
+  APPLE_HEALTH_MAX_UTC_OFFSET_MIN,
   APPLE_HEALTH_MIN_DATE,
   isAppleHealthStrengthType,
 } from '@/lib/import/apple-health';
@@ -140,6 +141,14 @@ const appleHealthWorkoutSchema = z.object({
 const appleHealthBodyMassSchema = z.object({
   measuredAt: appleHealthInstant,
   weightKg: bodyweightKgSchema,
+  // The UTC offset of the Apple timestamp, minutes east of UTC: it sets the
+  // local day the "one entry per day" rule uses. Absent means UTC.
+  utcOffsetMin: z
+    .number()
+    .int()
+    .min(-APPLE_HEALTH_MAX_UTC_OFFSET_MIN)
+    .max(APPLE_HEALTH_MAX_UTC_OFFSET_MIN)
+    .default(0),
 });
 
 export const appleHealthImportInputSchema = z

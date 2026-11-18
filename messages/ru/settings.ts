@@ -191,6 +191,9 @@ export const settings = {
       noExportXml:
         'В этом архиве нет файла export.xml. Выберите export.zip, созданный приложением «Здоровье».',
       unreadable: 'Не удалось прочитать этот файл.',
+      tooManyFiles: 'В этом архиве больше {limit, number} файлов, прочитать его здесь нельзя.',
+      tooLarge:
+        'Этот экспорт слишком велик, чтобы прочитать его здесь: после распаковки его данные занимают больше {limit} ГБ.',
       workouts:
         'К импорту: {count, plural, one {# кардиотренировка} few {# кардиотренировки} many {# кардиотренировок} other {# кардиотренировки}}',
       byType: '{name}: {count}',
@@ -227,6 +230,7 @@ export const settings = {
       notStrava:
         'В этом архиве нет ни файла activities.csv, ни папки activities. Выберите zip-файл, который Strava прислала по почте.',
       unreadable: 'Не удалось прочитать этот архив.',
+      tooManyFiles: 'В этом архиве больше {limit, number} файлов, прочитать его здесь нельзя.',
       activities:
         'К импорту: {count, plural, one {# тренировка} few {# тренировки} many {# тренировок} other {# тренировки}}',
       byType: '{name}: {count}',

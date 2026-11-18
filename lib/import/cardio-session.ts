@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { ApiError } from '@/lib/api';
 import { Prisma } from '@/prisma/generated/client';
 import type { TrackPoint } from '@/lib/import/track';
+import { IMPORT_DUPLICATE_WINDOW_MS, hasStartNear } from '@/lib/import/duplicate-window';
 
 // ============================================================
 // Imported cardio activity -> session (server side)
@@ -11,9 +12,9 @@ import type { TrackPoint } from '@/lib/import/track';
 // the exercise reuse rule, the cardio set convention and the duplicate window
 // cannot drift apart.
 
-// How close an existing session's start has to be to count as a likely
-// duplicate of an imported activity. Same window for every cardio import.
-export const IMPORT_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+// The duplicate window lives in a module of its own, free of the database, so
+// the browser side of an import can apply the very same rule.
+export { IMPORT_DUPLICATE_WINDOW_MS, hasStartNear };
 
 // What the importers hand over: already parsed and range-checked.
 export interface ImportedCardioActivity {
@@ -56,15 +57,6 @@ export async function findSessionStartsNear(
     orderBy: { startedAt: 'asc' },
   });
   return rows.map((r) => r.startedAt);
-}
-
-// True when one of `starts` (epoch ms, any order) lies within the duplicate
-// window of `at`.
-export function hasStartNear(starts: readonly number[], at: number): boolean {
-  for (const s of starts) {
-    if (Math.abs(s - at) <= IMPORT_DUPLICATE_WINDOW_MS) return true;
-  }
-  return false;
 }
 
 // Find the user's exercise of that name, or create it as a cardio exercise.

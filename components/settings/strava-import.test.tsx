@@ -301,6 +301,20 @@ describe('StravaImport', () => {
     expect(screen.getByRole('button', { name: 'Import 0 sessions' })).toBeDisabled();
   });
 
+  it('explains an archive with too many files', async () => {
+    const user = userEvent.setup();
+    mockRead.mockRejectedValue(new StravaArchiveError('too-many-files'));
+    render(<StravaImport />);
+
+    await user.upload(fileInput(), archiveFile());
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'This archive holds more than 50,000 files and cannot be read here.',
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('explains a zip that is not a Strava archive, without calling the API', async () => {
     const user = userEvent.setup();
     mockRead.mockRejectedValue(new StravaArchiveError('not-strava'));

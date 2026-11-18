@@ -148,9 +148,14 @@ What to expect:
   an app that synced it).
 - **Body weight is optional.** The preview has a switch to also import your
   body mass records into the bodyweight log: one entry a day (the last
-  measurement of that day, in UTC), and days that already have an entry are
-  left alone. If an imported entry is newer than everything in the log, it
-  becomes your current bodyweight.
+  measurement of that day, the day being the one on your phone's clock, taken
+  from the time zone offset the export writes with each date), and days that
+  already have an entry are left alone. If an imported entry is newer than
+  everything in the log, it becomes your current bodyweight.
+- **One export, up to 2 GB.** Only the export file of the archive is read (the
+  first one, if a zip was repacked with several), and an `export.zip` whose
+  export unpacks to more than 2 GB, or that holds more than 50 000 files
+  before it, is refused with a message.
 - **A long history takes a moment.** Imports share a limit of 10 requests a
   minute per account; past a few thousand workouts the page waits for the
   limit and continues on its own. Keep the tab open.

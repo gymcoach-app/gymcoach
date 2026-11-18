@@ -7,10 +7,11 @@ import {
   gunzipCapped,
   readStravaArchive,
   STRAVA_MAX_ACTIVITY_BYTES,
+  STRAVA_MAX_ZIP_ENTRIES,
   StravaArchiveError,
   type StravaArchiveEntry,
 } from './strava-archive';
-import { halfNoise, heldBytes, noise } from './zip-test-support';
+import { halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
 
 const CSV = 'Activity ID,Activity Date,Activity Name,Activity Type,Filename\n1,d,Run,Run,activities/1.gpx\n';
 const GPX = '<gpx><trk><name>Morning Run</name></trk></gpx>';
@@ -292,6 +293,17 @@ describe('readStravaArchive', () => {
   it('refuses a zip that is not a Strava archive', async () => {
     const zip = zipSync({ 'apple_health_export/export.xml': strToU8('<HealthData/>') });
     await expect(entriesOf(zip)).rejects.toMatchObject({ code: 'not-strava' });
+  });
+
+  it('refuses an archive with too many entries', async () => {
+    const zip = manyEntriesZip(30, zipSync({ 'activities/1.gpx': strToU8(GPX) }));
+    await expect(entriesOf(zip, { maxZipEntries: 30 })).rejects.toMatchObject({
+      name: 'StravaArchiveError',
+      code: 'too-many-files',
+    });
+    const entries = await entriesOf(zip, { maxZipEntries: 31 });
+    expect(entries.map((e) => e.kind)).toEqual(['activity']);
+    expect(STRAVA_MAX_ZIP_ENTRIES).toBe(50_000);
   });
 
   it('refuses a damaged archive', async () => {

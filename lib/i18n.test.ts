@@ -270,7 +270,7 @@ describe('new static UI messages in every locale', () => {
 
   it.each(locales)('preserves parameters and renders every new branch in %s', async (locale) => {
     const translations = Object.fromEntries(messageEntries(await loadMessages(locale)));
-    expect(entries).toHaveLength(69);
+    expect(entries).toHaveLength(72);
     for (const [key, english] of entries) {
       const message = translations[key];
       if (message === undefined) throw new Error(`Missing ${locale} message: ${key}`);

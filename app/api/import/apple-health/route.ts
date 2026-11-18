@@ -3,7 +3,11 @@ import { db } from '@/lib/db';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { rateLimit } from '@/lib/rate-limit';
 import { appleHealthImportInputSchema, type AppleHealthImportInput } from '@/lib/schemas/import';
-import { appleHealthExerciseName, utcDayKey } from '@/lib/import/apple-health';
+import {
+  appleHealthExerciseName,
+  appleHealthLocalDayKey,
+  appleHealthLocalDayStart,
+} from '@/lib/import/apple-health';
 import {
   createCardioSession,
   findSessionStartsNear,
@@ -50,7 +54,28 @@ async function planWorkouts(userId: string, workouts: Workout[]) {
 }
 
 // Split a batch of body weight entries into the ones to add and the ones on a
-// (UTC) day that already has an entry. One entry per day inside the batch too.
+// day that already has an entry. One entry per day inside the batch too.
+//
+// "Day" is the entry's own local day, read in the UTC offset its Apple
+// timestamp was written in. An entry sent without an offset is read in UTC.
+//
+// - Inside the batch, two entries are on the same day when their local
+//   calendar dates are equal, each read in its own offset
+//   (appleHealthLocalDayKey). The offset of an export can change from one
+//   entry to the next (daylight saving time, a trip east): 23:30 +0100 on
+//   March 30th and 08:00 +0200 on the 31st are two days, although the first
+//   instant falls inside the 24 hours of the second one's local day.
+// - A stored entry has no offset of its own. When this batch holds an entry
+//   at the very same instant, the stored one is that measurement, imported
+//   earlier: it sits on that entry's local date, so importing the same export
+//   twice finds every entry again and nothing else.
+// - Any other stored entry (a manual weigh-in, typically) is placed on the
+//   calendar of the entry it is compared with: it makes that entry a
+//   duplicate when its instant falls in the 24 hours from the entry's local
+//   midnight (appleHealthLocalDayStart). So a manual weigh-in of the same
+//   local evening is found. The cost of not knowing its offset: a stored
+//   entry within the hour or two of an offset change, whose own measurement
+//   is not in this batch, can still take the neighbouring day.
 async function planBodyMass(
   client: Prisma.TransactionClient | typeof db,
   userId: string,
@@ -60,22 +85,37 @@ async function planBodyMass(
   const sorted = [...entries].sort((a, b) => a.measuredAt.getTime() - b.measuredAt.getTime());
   const first = sorted[0]!.measuredAt.getTime();
   const last = sorted[sorted.length - 1]!.measuredAt.getTime();
+  // A local day starts at most 24 h before its entry and ends at most 24 h
+  // after it, whatever the offset.
   const existing = await client.bodyweightEntry.findMany({
     where: {
       userId,
-      measuredAt: {
-        gte: new Date(Math.floor(first / DAY_MS) * DAY_MS),
-        lt: new Date((Math.floor(last / DAY_MS) + 1) * DAY_MS),
-      },
+      measuredAt: { gt: new Date(first - DAY_MS), lt: new Date(last + DAY_MS) },
     },
     select: { measuredAt: true },
+    orderBy: { measuredAt: 'asc' },
   });
-  const takenDays = new Set(existing.map((e) => utcDayKey(e.measuredAt)));
+  const offsetAt = new Map<number, number>();
+  for (const entry of sorted) {
+    const at = entry.measuredAt.getTime();
+    if (!offsetAt.has(at)) offsetAt.set(at, entry.utcOffsetMin);
+  }
+  // Local dates already taken, by a stored entry of a known offset or by an
+  // entry accepted earlier in this batch; and the stored instants (ascending)
+  // whose offset is unknown.
+  const takenDays = new Set<string>();
+  const others: number[] = [];
+  for (const { measuredAt } of existing) {
+    const utcOffsetMin = offsetAt.get(measuredAt.getTime());
+    if (utcOffsetMin === undefined) others.push(measuredAt.getTime());
+    else takenDays.add(appleHealthLocalDayKey({ measuredAt, utcOffsetMin }));
+  }
   const fresh: BodyMass[] = [];
   let duplicates = 0;
   for (const entry of sorted) {
-    const day = utcDayKey(entry.measuredAt);
-    if (takenDays.has(day)) {
+    const day = appleHealthLocalDayKey(entry);
+    const dayStart = appleHealthLocalDayStart(entry.measuredAt.getTime(), entry.utcOffsetMin);
+    if (takenDays.has(day) || hasInstantIn(others, dayStart, dayStart + DAY_MS)) {
       duplicates += 1;
     } else {
       takenDays.add(day);
@@ -83,6 +123,18 @@ async function planBodyMass(
     }
   }
   return { fresh, duplicates };
+}
+
+// True when the ascending list holds an instant in [from, to).
+function hasInstantIn(sorted: readonly number[], from: number, to: number): boolean {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! < from) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo < sorted.length && sorted[lo]! < to;
 }
 
 // POST /api/import/apple-health: import the cardio workouts (and optionally
