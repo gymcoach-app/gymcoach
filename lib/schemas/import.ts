@@ -3,6 +3,20 @@ import { STRONG_CSV_MAX_BYTES } from '@/lib/import/strong-csv';
 import { TCX_MAX_BYTES } from '@/lib/import/tcx';
 import { GPX_MAX_BYTES } from '@/lib/import/gpx';
 import { FIT_MAX_BYTES } from '@/lib/import/fit';
+import {
+  APPLE_HEALTH_FUTURE_SLACK_MS,
+  APPLE_HEALTH_MIN_DATE,
+  isAppleHealthStrengthType,
+} from '@/lib/import/apple-health';
+import {
+  AVG_HR_MAX,
+  AVG_HR_MIN,
+  MAX_DISTANCE_M,
+  MAX_DURATION_SEC,
+  MAX_HR_MAX,
+  MAX_HR_MIN,
+} from '@/lib/cardio';
+import { bodyweightKgSchema } from '@/lib/schemas/bodyweight';
 
 // Strong CSV import request (issue #100). The csv field carries the raw file
 // text (untrusted): the size cap is enforced here AND on the content-length
@@ -85,3 +99,63 @@ export const fitImportInputSchema = z
   });
 
 export type FitImportInput = z.infer<typeof fitImportInputSchema>;
+
+// Apple Health import request (issue #582). The export itself (hundreds of MB)
+// never reaches the server: the browser streams it through
+// lib/import/apple-health.ts and posts only compact activity summaries, in
+// batches. Everything here is untrusted all the same, so every field is
+// re-validated with the bounds of the cardio set contract and of the
+// bodyweight log. A strength-type workout is refused: the client skips those,
+// and the route must not be a way around that rule.
+//
+// 500 workouts a request rather than fewer: every request costs one charge of
+// the shared import rate bucket (10 a minute), so the batch size is what
+// decides how long a multi-year history takes.
+export const APPLE_HEALTH_MAX_WORKOUTS_PER_REQUEST = 500;
+export const APPLE_HEALTH_MAX_BODY_MASS_PER_REQUEST = 1000;
+
+const appleHealthInstant = z
+  .string()
+  .datetime({ message: 'Invalid date.' })
+  .transform((s) => new Date(s))
+  .refine(
+    (d) =>
+      d.getTime() >= APPLE_HEALTH_MIN_DATE.getTime() &&
+      d.getTime() <= Date.now() + APPLE_HEALTH_FUTURE_SLACK_MS,
+    'Date out of range.',
+  );
+
+const appleHealthWorkoutSchema = z.object({
+  activityType: z
+    .string()
+    .regex(/^[A-Za-z0-9]{1,60}$/, 'Invalid activity type.')
+    .refine((t) => !isAppleHealthStrengthType(t), 'Strength workouts are not imported.'),
+  startedAt: appleHealthInstant,
+  durationSec: z.number().int().min(1).max(MAX_DURATION_SEC),
+  distanceM: z.number().positive().max(MAX_DISTANCE_M).nullable(),
+  avgHr: z.number().int().min(AVG_HR_MIN).max(AVG_HR_MAX).nullable(),
+  maxHr: z.number().int().min(MAX_HR_MIN).max(MAX_HR_MAX).nullable(),
+});
+
+const appleHealthBodyMassSchema = z.object({
+  measuredAt: appleHealthInstant,
+  weightKg: bodyweightKgSchema,
+});
+
+export const appleHealthImportInputSchema = z
+  .object({
+    mode: z.enum(['preview', 'confirm']),
+    workouts: z
+      .array(appleHealthWorkoutSchema)
+      .max(APPLE_HEALTH_MAX_WORKOUTS_PER_REQUEST)
+      .default([]),
+    bodyMass: z
+      .array(appleHealthBodyMassSchema)
+      .max(APPLE_HEALTH_MAX_BODY_MASS_PER_REQUEST)
+      .default([]),
+  })
+  .refine((d) => d.workouts.length > 0 || d.bodyMass.length > 0, {
+    message: 'Nothing to import.',
+  });
+
+export type AppleHealthImportInput = z.infer<typeof appleHealthImportInputSchema>;

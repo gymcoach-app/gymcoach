@@ -167,6 +167,39 @@ export const settings = {
       tcx: 'exporta la actividad como TCX desde la plataforma de tu reloj (Garmin Connect, Polar Flow, ...) para importar una sesión de cardio con duración, distancia y frecuencia cardíaca',
       gpx: 'exporta la ruta como GPX desde Strava, Komoot o Apple Fitness para importar una sesión de cardio con duración, distancia y frecuencia cardíaca',
       fit: 'exporta la actividad como FIT desde tu reloj Garmin u otro para importar una sesión de cardio con duración, distancia y frecuencia cardíaca',
+      appleHealth:
+        'en la app Salud, toca tu foto de perfil, luego Exportar todos los datos de salud, y elige el archivo export.zip que se crea (o el export.xml que contiene)',
+    },
+    appleHealth: {
+      description:
+        'Trae tus entrenamientos de cardio desde Apple Salud: {hint}. Revisa la vista previa aquí y confirma.',
+      chooseFile: 'Elegir export.zip',
+      privacy:
+        'La exportación se lee en este dispositivo, sea cual sea su tamaño: solo se envían a tu servidor GymCoach los resúmenes de los entrenamientos (tipo, fecha, duración, distancia, frecuencia cardíaca). Los entrenamientos de fuerza se omiten, y los que ya están en tu historial no se importan dos veces.',
+      reading: 'Leyendo la exportación: {read} de {total} MB',
+      sending: 'Enviando el lote {done} de {total}',
+      waiting: 'Límite de importación alcanzado, se continúa en {seconds} s',
+      nothingFound: 'No hay entrenamientos ni registros de peso corporal en este archivo.',
+      noExportXml:
+        'Este archivo comprimido no contiene export.xml. Elige el export.zip creado por la app Salud.',
+      unreadable: 'No se pudo leer este archivo.',
+      workouts:
+        '{count, plural, one {# entrenamiento de cardio} other {# entrenamientos de cardio}} para importar',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {Se omitirá # entrenamiento que ya está en tu historial} other {Se omitirán # entrenamientos que ya están en tu historial}}',
+      strengthSkipped:
+        '{count, plural, one {Se omitirá # entrenamiento de fuerza} other {Se omitirán # entrenamientos de fuerza}}',
+      invalidSkipped:
+        '{count, plural, one {Se omitirá # entrenamiento sin fecha o duración utilizable} other {Se omitirán # entrenamientos sin fecha o duración utilizable}}',
+      conflicts:
+        '{count, plural, one {# entrenamiento no se puede importar} other {# entrenamientos no se pueden importar}}: uno de tus ejercicios que no son de cardio ya tiene ese nombre',
+      bodyMass:
+        'Importar también {count, plural, one {# registro de peso corporal} other {# registros de peso corporal}}',
+      bodyMassDuplicates:
+        '{count, plural, one {Se omitirá # registro de peso corporal de un día que ya tiene uno} other {Se omitirán # registros de peso corporal de días que ya tienen uno}}',
+      done:
+        '{sessions, plural, one {# entrenamiento importado} other {# entrenamientos importados}}{weights, plural, =0 {} one {, # registro de peso corporal} other {, # registros de peso corporal}}{skipped, plural, =0 {.} one { (# omitido).} other { (# omitidos).}}',
     },
   },
   mcp: {

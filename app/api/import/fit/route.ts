@@ -4,12 +4,11 @@ import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib
 import { rateLimit } from '@/lib/rate-limit';
 import { fitImportInputSchema } from '@/lib/schemas/import';
 import { parseFit, fitExerciseName, type FitActivity } from '@/lib/import/fit';
-import { Prisma } from '@/prisma/generated/client';
-
-// How close an existing session's start has to be to count as a likely
-// duplicate of the imported activity (the preview warns; confirm still works).
-// Same window as the TCX/GPX imports.
-const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+import {
+  createCardioSession,
+  findSessionStartsNear,
+  resolveCardioExercise,
+} from '@/lib/import/cardio-session';
 
 // Streamed body cap. Generous enough for a batch of up to FIT_MAX_BATCH files
 // (real FIT activity files are tens of KB), while still bounding total work.
@@ -18,17 +17,7 @@ const MAX_BODY_BYTES = 25 * 1024 * 1024;
 // One activity's summary plus any near-duplicate sessions the user already has.
 async function summarize(userId: string, activity: FitActivity) {
   const exerciseName = fitExerciseName(activity.sport);
-  const nearDuplicates = await db.session.findMany({
-    where: {
-      userId,
-      startedAt: {
-        gte: new Date(activity.startedAt.getTime() - DUPLICATE_WINDOW_MS),
-        lte: new Date(activity.startedAt.getTime() + DUPLICATE_WINDOW_MS),
-      },
-    },
-    select: { startedAt: true },
-    orderBy: { startedAt: 'asc' },
-  });
+  const nearDuplicates = await findSessionStartsNear(userId, [activity.startedAt]);
   return {
     sport: activity.sport,
     exerciseName,
@@ -37,7 +26,7 @@ async function summarize(userId: string, activity: FitActivity) {
     distanceM: activity.distanceM,
     avgHr: activity.avgHr,
     maxHr: activity.maxHr,
-    duplicateSessions: nearDuplicates.map((s) => s.startedAt.toISOString()),
+    duplicateSessions: nearDuplicates.map((s) => s.toISOString()),
   };
 }
 
@@ -46,62 +35,20 @@ async function summarize(userId: string, activity: FitActivity) {
 async function confirmOne(userId: string, activity: FitActivity) {
   const exerciseName = fitExerciseName(activity.sport);
   return db.$transaction(async (tx) => {
-    let exercise = await tx.exercise.findFirst({
-      where: { userId, name: exerciseName },
-      select: { id: true, category: true },
-    });
-    let createdExercise = false;
-    if (exercise && exercise.category !== 'CARDIO') {
-      // The user owns a non-cardio exercise with the default name: never write
-      // cardio fields onto it.
-      throw new ApiError(
-        409,
-        `You already have a non-cardio exercise named "${exerciseName}". Rename it and retry.`,
-      );
-    }
-    if (!exercise) {
-      exercise = await tx.exercise.create({
-        data: {
-          userId,
-          name: exerciseName,
-          muscleGroup: 'OTHER',
-          category: 'CARDIO',
-          notes: 'Created by the FIT import.',
-        },
-        select: { id: true, category: true },
-      });
-      createdExercise = true;
-    }
-
-    const finishedAt = new Date(activity.startedAt.getTime() + activity.durationSec * 1000);
-    const session = await tx.session.create({
-      data: {
-        userId,
-        startedAt: activity.startedAt,
-        finishedAt,
-        notes: `Imported from a FIT file (${activity.sport}).`,
-      },
-    });
-    await tx.set.create({
-      data: {
-        sessionId: session.id,
-        exerciseId: exercise.id,
-        setNumber: 1,
-        // Cardio sets store weight = 0 / reps = 1 by convention (#133).
-        weight: 0,
-        reps: 1,
-        durationSec: activity.durationSec,
-        distanceM: activity.distanceM,
-        avgHr: activity.avgHr,
-        maxHr: activity.maxHr,
-        // The downsampled pace/HR track (issue #254), when the file carried one.
-        ...(activity.track
-          ? { track: activity.track as unknown as Prisma.InputJsonValue }
-          : {}),
-        completedAt: finishedAt,
-      },
-    });
-    return { sessionId: session.id, createdExercise };
+    const exercise = await resolveCardioExercise(
+      tx,
+      userId,
+      exerciseName,
+      'Created by the FIT import.',
+    );
+    const { sessionId } = await createCardioSession(
+      tx,
+      userId,
+      exercise.id,
+      activity,
+      `Imported from a FIT file (${activity.sport}).`,
+    );
+    return { sessionId, createdExercise: exercise.created };
   });
 }
 

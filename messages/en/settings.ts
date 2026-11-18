@@ -162,6 +162,39 @@ export const settings = {
       tcx: 'export the activity as TCX from your watch platform (Garmin Connect, Polar Flow, ...) and it becomes one cardio session with duration, distance and heart rate',
       gpx: 'export the route as GPX from Strava, Komoot or Apple Fitness and it becomes one cardio session with duration, distance and heart rate',
       fit: 'export the activity as a FIT file from your Garmin (or other) watch and it becomes one cardio session with duration, distance and heart rate',
+      appleHealth:
+        'in the Health app, tap your profile picture, then Export All Health Data, and pick the export.zip it creates (or the export.xml inside)',
+    },
+    appleHealth: {
+      description:
+        'Bring your cardio workouts from Apple Health: {hint}. Preview here, then confirm.',
+      chooseFile: 'Choose export.zip',
+      privacy:
+        'The export is read on this device, however large it is: only workout summaries (type, date, duration, distance, heart rate) are sent to your GymCoach server. Strength workouts are skipped, and workouts already in your history are not imported twice.',
+      reading: 'Reading the export: {read} of {total} MB',
+      sending: 'Sending batch {done} of {total}',
+      waiting: 'Import limit reached, continuing in {seconds} s',
+      nothingFound: 'No workout or bodyweight entry found in this file.',
+      noExportXml:
+        'This archive has no export.xml. Pick the export.zip made by the Health app.',
+      unreadable: 'This file could not be read.',
+      workouts:
+        '{count, plural, one {# cardio workout} other {# cardio workouts}} to import',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# workout} other {# workouts}} already in your history will be skipped',
+      strengthSkipped:
+        '{count, plural, one {# strength workout} other {# strength workouts}} will be skipped',
+      invalidSkipped:
+        '{count, plural, one {# workout} other {# workouts}} without a usable date or duration will be skipped',
+      conflicts:
+        '{count, plural, one {# workout} other {# workouts}} cannot be imported: one of your non-cardio exercises already has that name',
+      bodyMass:
+        'Also import {count, plural, one {# bodyweight entry} other {# bodyweight entries}}',
+      bodyMassDuplicates:
+        '{count, plural, one {# bodyweight entry} other {# bodyweight entries}} on days you already logged will be skipped',
+      done:
+        'Imported {sessions, plural, one {# workout} other {# workouts}}{weights, plural, =0 {} one {, # bodyweight entry} other {, # bodyweight entries}}{skipped, plural, =0 {.} other { (# skipped).}}',
     },
   },
   mcp: {

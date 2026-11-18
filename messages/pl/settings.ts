@@ -169,6 +169,39 @@ export const settings = {
       tcx: 'wyeksportuj aktywność jako TCX z platformy zegarka (Garmin Connect, Polar Flow, ...); zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
       gpx: 'wyeksportuj trasę jako GPX ze Strava, Komoot lub Apple Fitness; zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
       fit: 'wyeksportuj aktywność jako plik FIT z zegarka Garmin (lub innego); zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
+      appleHealth:
+        'w aplikacji Zdrowie stuknij swoje zdjęcie profilowe, potem Eksportuj wszystkie dane zdrowotne, i wybierz utworzony plik export.zip (albo znajdujący się w nim export.xml)',
+    },
+    appleHealth: {
+      description:
+        'Przenieś treningi cardio z Apple Zdrowie: {hint}. Sprawdź tutaj podgląd, a potem potwierdź.',
+      chooseFile: 'Wybierz export.zip',
+      privacy:
+        'Eksport jest odczytywany na tym urządzeniu, bez względu na rozmiar: na Twój serwer GymCoach trafiają tylko podsumowania treningów (rodzaj, data, czas, dystans, tętno). Treningi siłowe są pomijane, a treningi, które już są w Twojej historii, nie są importowane drugi raz.',
+      reading: 'Odczytywanie eksportu: {read} z {total} MB',
+      sending: 'Wysyłanie partii {done} z {total}',
+      waiting: 'Osiągnięto limit importu, ciąg dalszy za {seconds} s',
+      nothingFound: 'W tym pliku nie znaleziono treningów ani pomiarów masy ciała.',
+      noExportXml:
+        'To archiwum nie zawiera pliku export.xml. Wybierz plik export.zip utworzony przez aplikację Zdrowie.',
+      unreadable: 'Nie udało się odczytać tego pliku.',
+      workouts:
+        '{count, plural, one {# trening cardio} few {# treningi cardio} many {# treningów cardio} other {# treningu cardio}} do zaimportowania',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# trening, który już jest w Twojej historii, zostanie pominięty} few {# treningi, które już są w Twojej historii, zostaną pominięte} many {# treningów, które już są w Twojej historii, zostanie pominiętych} other {# treningu, który już jest w Twojej historii, zostanie pominięte}}',
+      strengthSkipped:
+        '{count, plural, one {# trening siłowy zostanie pominięty} few {# treningi siłowe zostaną pominięte} many {# treningów siłowych zostanie pominiętych} other {# treningu siłowego zostanie pominięte}}',
+      invalidSkipped:
+        '{count, plural, one {# trening bez użytecznej daty lub czasu trwania zostanie pominięty} few {# treningi bez użytecznej daty lub czasu trwania zostaną pominięte} many {# treningów bez użytecznej daty lub czasu trwania zostanie pominiętych} other {# treningu bez użytecznej daty lub czasu trwania zostanie pominięte}}',
+      conflicts:
+        '{count, plural, one {# treningu nie można zaimportować} few {# treningów nie można zaimportować} many {# treningów nie można zaimportować} other {# treningu nie można zaimportować}}: jedno z Twoich ćwiczeń innych niż cardio ma już taką nazwę',
+      bodyMass:
+        'Zaimportuj też {count, plural, one {# pomiar masy ciała} few {# pomiary masy ciała} many {# pomiarów masy ciała} other {# pomiaru masy ciała}}',
+      bodyMassDuplicates:
+        '{count, plural, one {# pomiar masy ciała z dnia, który ma już wpis, zostanie pominięty} few {# pomiary masy ciała z dni, które mają już wpis, zostaną pominięte} many {# pomiarów masy ciała z dni, które mają już wpis, zostanie pominiętych} other {# pomiaru masy ciała z dni, które mają już wpis, zostanie pominięte}}',
+      done:
+        'Zaimportowano: {sessions, plural, one {# trening} few {# treningi} many {# treningów} other {# treningu}}{weights, plural, =0 {} one {, # pomiar masy ciała} few {, # pomiary masy ciała} many {, # pomiarów masy ciała} other {, # pomiaru masy ciała}}{skipped, plural, =0 {.} other { (pominięto: #).}}',
     },
   },
   mcp: {

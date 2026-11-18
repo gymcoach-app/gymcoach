@@ -111,12 +111,49 @@ a replacement for the volume backup.
 ### Can I import from another app?
 
 The **Import training history** section of Settings accepts Hevy and Strong
-exports, and cardio files (FIT, GPX, TCX) in the cardio part; it parses and
-previews the file before writing anything. **Import a backup** is a different
+exports, cardio files (FIT, GPX, TCX) in the cardio part, and an Apple Health
+export (see the next question); it parses and previews the file before writing
+anything. **Import a backup** is a different
 path: it asks for confirmation, then replaces all of the signed-in account's
 data (programs, sessions, sets, goals, bodyweight history, check-ins and coach
 conversations) with the file. That cannot be undone, and there is no preview, so
 export first if you are unsure.
+
+### How do I import my workouts from Apple Health?
+
+1. On the iPhone, open the **Health** app, tap your profile picture (top right),
+   then **Export All Health Data**. The phone builds an `export.zip`; on a long
+   history this takes a few minutes and the file can weigh hundreds of MB.
+2. Save it where the browser can reach it (Files, AirDrop to a Mac, ...).
+3. In GymCoach, open **Settings**, **Import training history**, pick
+   **Apple Health** as the source and choose the `export.zip` (the `export.xml`
+   inside it works too).
+4. Check the preview, then confirm.
+
+What to expect:
+
+- **The file stays on your device.** The browser reads it as a stream and only
+  sends workout summaries (type, start, duration, distance, average and peak
+  heart rate) to your GymCoach server, a few hundred at a time. Routes, ECGs
+  and every other health record in the export are never read or sent.
+- **Cardio only.** Running, walking, hiking, cycling, swimming, rowing,
+  elliptical, stair climbing and jump rope land on an exercise of that name;
+  every other activity (interval training, yoga, a sport) goes to
+  **Cardio (imported)**. Traditional strength, functional strength and core
+  training are skipped and counted in the preview: Apple Health stores no
+  exercises, sets or loads for them, so there is nothing to log per set.
+- **No duplicates.** A workout that starts within 2 minutes of a session you
+  already have is skipped, so importing a newer export later only adds what is
+  new. The same goes for one effort saved twice in the export (the watch and
+  an app that synced it).
+- **Body weight is optional.** The preview has a switch to also import your
+  body mass records into the bodyweight log: one entry a day (the last
+  measurement of that day, in UTC), and days that already have an entry are
+  left alone. If an imported entry is newer than everything in the log, it
+  becomes your current bodyweight.
+- **A long history takes a moment.** Imports share a limit of 10 requests a
+  minute per account; past a few thousand workouts the page waits for the
+  limit and continues on its own. Keep the tab open.
 
 ### I restored the database but my progress photos are gone. Why?
 
