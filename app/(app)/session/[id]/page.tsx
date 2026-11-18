@@ -7,6 +7,8 @@ import { READINESS_RECENCY_HOURS, type ReadinessSignal } from '@/lib/progression
 import { isDeloadActive } from '@/lib/deload';
 import { getReturnToTrainingRecommendations } from '@/lib/return-to-training-history';
 import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
+import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
+import { cardioDistanceUnit } from '@/lib/cardio';
 import { SessionRunner, type SerializedLastPerformance } from '@/components/session/session-runner';
 import { liveSessionGymInclude } from '@/lib/session-gym-selection';
 import { blockIndexByRow, occurrenceCounts } from '@/lib/exercise-blocks';
@@ -75,7 +77,13 @@ export default async function SessionRunPage(props: Props) {
   });
   const userPromise = db.user.findUnique({
     where: { id: auth.userId },
-    select: { unit: true, effortScale: true, deloadUntil: true, bodyweight: true },
+    select: {
+      unit: true,
+      distanceUnit: true,
+      effortScale: true,
+      deloadUntil: true,
+      bodyweight: true,
+    },
   });
   const [lastPerformances, user, latestCheckin, returnRecommendations, catalog] = await Promise.all([
     getLastPerformances(auth.userId, exerciseIds, session.id, blocks),
@@ -129,19 +137,21 @@ export default async function SessionRunPage(props: Props) {
 
   return (
     <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
-      <SessionRunner
-        session={{ ...session, workout }}
-        freestyle={freestyle}
-        lastPerformances={lastPerfRecord}
-        lastDoneAt={lastDoneAt}
-        returnRecommendations={returnRecommendations}
-        readiness={readiness}
-        deloadActive={deloadActive}
-        unit={user?.unit ?? 'KG'}
-        initialProgramExerciseId={searchParams.programExerciseId}
-        catalog={catalog}
-        userId={auth.userId}
-      />
+      <DistanceUnitProvider unit={cardioDistanceUnit(user)}>
+        <SessionRunner
+          session={{ ...session, workout }}
+          freestyle={freestyle}
+          lastPerformances={lastPerfRecord}
+          lastDoneAt={lastDoneAt}
+          returnRecommendations={returnRecommendations}
+          readiness={readiness}
+          deloadActive={deloadActive}
+          unit={user?.unit ?? 'KG'}
+          initialProgramExerciseId={searchParams.programExerciseId}
+          catalog={catalog}
+          userId={auth.userId}
+        />
+      </DistanceUnitProvider>
     </EffortScaleProvider>
   );
 }

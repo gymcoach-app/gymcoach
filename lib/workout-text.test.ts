@@ -131,6 +131,26 @@ describe('formatWorkoutText (issue #405)', () => {
     expect(text).toContain('Running: 10:00 (warm-up), 25:30 · 5 km, -');
   });
 
+  it('writes the cardio distance in miles for a miles user (issue #582)', () => {
+    const text = formatWorkoutText(
+      {
+        title: 'Run',
+        date: 'today',
+        notes: null,
+        exercises: [
+          {
+            name: 'Running',
+            isCardio: true,
+            usesBodyweight: false,
+            sets: [set({ weight: 0, reps: 0, durationSec: 1530, distanceM: 8047 })],
+          },
+        ],
+      },
+      { ...kg, distanceUnit: 'mi' },
+    );
+    expect(text).toContain('Running: 25:30 · 5 mi');
+  });
+
   it('appends set notes under their exercise and the session notes last', () => {
     const text = formatWorkoutText(
       {

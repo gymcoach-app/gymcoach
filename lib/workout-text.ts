@@ -1,4 +1,4 @@
-import { formatCardioSet } from '@/lib/cardio';
+import { formatCardioSet, type DistanceUnit } from '@/lib/cardio';
 import type { WeightUnit } from '@/lib/prisma-client';
 import { formatWeight } from '@/lib/units';
 
@@ -42,6 +42,8 @@ export interface WorkoutTextInput {
 
 export interface WorkoutTextOptions {
   unit: WeightUnit;
+  // Unit cardio distance reads in (issue #582). Default: kilometers.
+  distanceUnit?: DistanceUnit;
   locale: string;
   labels: WorkoutTextLabels;
 }
@@ -71,7 +73,7 @@ function formatSet(
   // cardio table, rather than as a "BW x 0" strength set.
   const body = exercise.isCardio
     ? set.durationSec != null
-      ? formatCardioSet(set.durationSec, set.distanceM)
+      ? formatCardioSet(set.durationSec, set.distanceM, options.distanceUnit)
       : '-'
     : `${formatLoad(set, exercise.usesBodyweight, options)} x ${set.reps}`;
   const kind = set.isWarmup

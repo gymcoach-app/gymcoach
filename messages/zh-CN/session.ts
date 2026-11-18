@@ -113,9 +113,9 @@ export const session = {
     durationExample: '例如：12:30 或 12.30',
     durationError:
       '支持的格式：分:秒（如 12:30，数字键盘也可输入 12.30）、时:分:秒，或直接输入分钟数。',
-    distance: '距离（公里，选填）',
+    distance: '距离（{unit}，选填）',
     distanceExample: '例如：2.5',
-    distanceError: '请输入 0～1000 公里范围内的距离。',
+    distanceError: '请输入 0～{max} {unit}范围内的距离。',
     quickEntry: '快速录入',
     quickEntryExample: '例如：100x8@9（{unit} × 次数 @ RPE）',
     quickEntryError: '格式应为“重量 x 次数”，可选填 @ RPE，例如 100x8 或 62.5x8@8.5。',

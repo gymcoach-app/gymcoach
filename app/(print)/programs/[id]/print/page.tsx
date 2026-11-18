@@ -47,7 +47,7 @@ export default async function ProgramPrintPage(props: Props) {
     }),
     db.user.findUnique({
       where: { id: session.userId },
-      select: { unit: true, effortScale: true },
+      select: { unit: true, distanceUnit: true, effortScale: true },
     }),
   ]);
   if (!program || !user) notFound();
@@ -100,7 +100,7 @@ export default async function ProgramPrintPage(props: Props) {
             }}
             labels={labels}
             exerciseName={(name) => getExerciseDisplayName(name, locale)}
-            format={{ locale, distanceUnit: cardioDistanceUnit() }}
+            format={{ locale, distanceUnit: cardioDistanceUnit(user) }}
             breakAfter={index < workouts.length - 1}
           />
         ))

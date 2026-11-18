@@ -93,6 +93,12 @@ export const settings = {
     generalFitness: 'Algemene fitheid',
     kilograms: 'Kilogram (kg)',
     pounds: 'Pond (lb)',
+    distanceUnit: 'Afstandseenheid',
+    distanceUnitDescription:
+      'Bepaalt hoe afstand, tempo en snelheid bij cardio worden getoond en ingevoerd. Afstanden worden altijd in meters opgeslagen, dus wisselen verandert nooit je eerdere sessies. Automatisch volgt de gewichtseenheid: mijlen bij pond, kilometers bij kilogram.',
+    distanceAuto: 'Automatisch (volgt de gewichtseenheid)',
+    kilometers: 'Kilometers (km)',
+    miles: 'Mijlen (mi)',
   },
   backup: {
     title: 'Gegevens',

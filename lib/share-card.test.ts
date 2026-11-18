@@ -144,6 +144,23 @@ describe('buildShareCard (issue #576)', () => {
     expect(card.stats).toEqual([{ label: 'Duration', value: '62 min' }]);
   });
 
+  it('shows the cardio distance in miles for a miles user (issue #582)', () => {
+    const card = buildShareCard(
+      input({
+        exercises: [
+          exercise({
+            id: 'run',
+            name: 'Running',
+            isCardio: true,
+            sets: [set({ weight: 0, reps: 1, durationSec: 1800, distanceM: 5000 })],
+          }),
+        ],
+      }),
+      options({ distanceUnit: 'mi' }),
+    );
+    expect(card.exercises).toEqual([{ name: 'Running', detail: '30:00 · 3.11 mi' }]);
+  });
+
   it('shows a dash for a cardio exercise logged without a duration', () => {
     const card = buildShareCard(
       input({

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { EffortScale, Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
+import {
+  DistanceUnitPreference,
+  EffortScale,
+  Sex,
+  TrainingGoal,
+  WeightUnit,
+} from '@/lib/prisma-client';
 import { profileUpdateSchema, COACH_NOTE_MAX_LEN } from './profile';
 
 // Validation coverage for the self-service profile update schema (issue #199).
@@ -119,6 +125,16 @@ describe('profileUpdateSchema', () => {
 
     it('does not allow null for unit (optional but not nullable)', () => {
       expect(profileUpdateSchema.safeParse({ unit: null }).success).toBe(false);
+    });
+
+    it('accepts a distance unit, null for automatic, and rejects junk (issue #582)', () => {
+      for (const v of Object.values(DistanceUnitPreference)) {
+        expect(profileUpdateSchema.safeParse({ distanceUnit: v }).success).toBe(true);
+      }
+      expect(profileUpdateSchema.safeParse({ distanceUnit: null }).success).toBe(true);
+      for (const bad of ['km', 'mi', 'MILES', 'AUTO', '', 1]) {
+        expect(profileUpdateSchema.safeParse({ distanceUnit: bad }).success).toBe(false);
+      }
     });
   });
 

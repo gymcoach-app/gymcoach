@@ -109,6 +109,17 @@ Claude Code sessions in this project, not humans or other tools.
   The CLI only runs git when the approved head is a two-parent merge and some record is
   for another head, fetching into a ref namespace private to the run and deleting it
   after; when it runs, any git failure refuses the merge (`base-update-unverified`).
+  The same module proves the identical-diff carry-over (#582) for each record pin
+  (base, head) the hops do not carry: the record head is an ancestor of the approved
+  head; every commit added since on the first-parent chain is a two-parent merge whose
+  second parent is on `main` (at most 20); `git patch-id --stable` of the PR diff and
+  the PR's file list are the same before and after; every file of the PR has the same
+  mode and blob on both sides of both diffs (`git diff --raw`, so a whitespace-only
+  edit, a moved hunk or a binary change that patch-id does not see refuses, and so does
+  a PR file `main` changed too); the record base is on `main` and the approved head
+  contains the live tip. A stop on a head some pin carried always counts. The CLI
+  prints one line per carried record with the rule and what git proved; a refused pin
+  is named in the `review-for-other-head` detail.
   Tested against real git in a throwaway repository (`base-update.test.ts`). For a fork
   PR, `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/<n>/update-branch -f
   expected_head_sha=<head>` writes the base update when `maintainerCanModify` is set and
@@ -180,7 +191,9 @@ Claude Code sessions in this project, not humans or other tools.
   files API, to plan the reviewers before the gate runs.
 - `review/record.ts` - posts a record after validating it and checking that its head
   and base are the PR's live head and base and that `gh` is a maintainer account.
-  `--dry-run` prints the comment. Exit codes as for `merge.ts`.
+  `--dry-run` prints the comment. `--head-moved` posts a record whose head or base is
+  no longer live, unchanged (a review that finished after a branch update): the gate
+  decides with git whether it carries over. Exit codes as for `merge.ts`.
 
   ```bash
   npx tsx automation/review/record.ts 123 --file review.json

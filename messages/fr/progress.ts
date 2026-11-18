@@ -104,7 +104,7 @@ export const progress = {
     description:
       'Minutes de cardio hebdomadaires par rapport au repère de {target} min/semaine. Distance et séances apparaissent dans l’infobulle.',
     summary:
-      'Cette semaine : {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# séance} other {# séances}}}} · Total ({weeks} sem.) : {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'Cette semaine : {minutes} min{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# séance} other {# séances}}}} · Total ({weeks} sem.) : {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Semaine de décharge en cours',

@@ -120,9 +120,9 @@ export const session = {
     durationExample: 'örn. 12:30 ya da 12.30',
     durationError:
       'Beklenen biçim: dd:ss (örn. 12:30 ya da sayısal klavyede 12.30), s:dd:ss ya da yalnızca dakika.',
-    distance: 'Mesafe (km, isteğe bağlı)',
+    distance: 'Mesafe ({unit}, isteğe bağlı)',
     distanceExample: 'örn. 2.5',
-    distanceError: '0 ile 1000 km arasında bir mesafe gir.',
+    distanceError: '0 ile {max} {unit} arasında bir mesafe gir.',
     quickEntry: 'Hızlı giriş',
     quickEntryExample: 'örn. 100x8@9 ({unit} x tekrar @ RPE)',
     quickEntryError:

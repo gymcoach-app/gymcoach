@@ -93,6 +93,12 @@ export const settings = {
     generalFitness: 'Ogólna sprawność',
     kilograms: 'Kilogramy (kg)',
     pounds: 'Funty (lb)',
+    distanceUnit: 'Jednostka dystansu',
+    distanceUnitDescription:
+      'Zmienia sposób wyświetlania i wpisywania dystansu, tempa i prędkości w cardio. Dystanse są zawsze zapisywane w metrach, więc zmiana nigdy nie wpływa na wcześniejsze sesje. Tryb automatyczny podąża za jednostką ciężaru: mile przy funtach, kilometry przy kilogramach.',
+    distanceAuto: 'Automatycznie (zgodnie z jednostką ciężaru)',
+    kilometers: 'Kilometry (km)',
+    miles: 'Mile (mi)',
   },
   backup: {
     title: 'Dane',

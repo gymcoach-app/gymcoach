@@ -39,7 +39,9 @@ describe('record CLI', () => {
       pr: 7,
       file: 'r.json',
       dryRun: false,
+      headMoved: false,
     });
+    expect(parseRecordArgs(['7', '--file', 'r.json', '--head-moved']).headMoved).toBe(true);
     expect(parseRecordArgs(['7', '--dry-run', '--file', 'r.json']).dryRun).toBe(true);
     for (const bad of [
       [],
@@ -49,6 +51,7 @@ describe('record CLI', () => {
       ['7', '--file', '--dry-run'],
       ['7', '--file', 'a', '--file', 'b'],
       ['7', '--file', 'a', '--post'],
+      ['7', '--file', 'a', '--head-moved', '--head-moved'],
     ]) {
       expect(() => parseRecordArgs(bad)).toThrow(UsageError);
     }
@@ -64,6 +67,20 @@ describe('record CLI', () => {
     expect(codes({ ...review, headSha: 'c'.repeat(40) })).toEqual(['head-mismatch']);
     expect(codes({ ...review, baseSha: 'c'.repeat(40) })).toEqual(['base-mismatch']);
     expect(codes(review, 8)).toEqual(['wrong-pr']);
+  });
+
+  it('posts a record for an older head or base only with --head-moved', () => {
+    // The gate, with git, decides whether such a record carries over; the
+    // other refusals stay.
+    const older = { ...review, headSha: 'c'.repeat(40), baseSha: 'd'.repeat(40) };
+    const codes = (pr: number, account = ME) =>
+      checkRecord(older, pr, live, account, MAINTAINERS, { headMoved: true }).map((x) => x.code);
+    expect(codes(7)).toEqual([]);
+    expect(codes(8)).toEqual(['wrong-pr']);
+    expect(codes(7, { login: 'someone', id: 999 })).toEqual(['not-maintainer']);
+    expect(
+      checkRecord(older, 7, live, ME, MAINTAINERS, { headMoved: false }).map((x) => x.code),
+    ).toEqual(['head-mismatch', 'base-mismatch']);
   });
 
   it('refuses a closed PR and a non-maintainer gh account', () => {

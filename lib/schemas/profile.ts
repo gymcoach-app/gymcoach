@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { EffortScale, Sex, TrainingGoal, WeightUnit } from '@/lib/prisma-client';
+import {
+  DistanceUnitPreference,
+  EffortScale,
+  Sex,
+  TrainingGoal,
+  WeightUnit,
+} from '@/lib/prisma-client';
 
 // Max length of the free-text note to the coach (issue #188). Shared between
 // the profile API's Zod bound and the coach-page UI's character counter so the
@@ -32,6 +38,9 @@ export const profileUpdateSchema = z.object({
     .optional(),
   // Preferred weight unit (display + input only; data stays in kg).
   unit: z.nativeEnum(WeightUnit).optional(),
+  // Preferred distance unit for cardio (issue #582; display + input only,
+  // distance stays in meters). null = automatic: it follows the weight unit.
+  distanceUnit: z.nativeEnum(DistanceUnitPreference).nullable().optional(),
   // Preferred effort scale (display + input only; sets always store RIR).
   effortScale: z.nativeEnum(EffortScale).optional(),
 });

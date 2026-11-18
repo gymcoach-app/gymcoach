@@ -13,7 +13,8 @@ import { toast } from 'sonner';
 import type { PendingSet } from '@/lib/indexeddb';
 import { formatWeight } from '@/lib/units';
 import { detectPRs, type PRType } from '@/lib/records';
-import { formatCardioSet, formatPace, formatSpeed } from '@/lib/cardio';
+import { formatCardioSet, formatPace, formatSpeed, type DistanceUnit } from '@/lib/cardio';
+import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { blockIndexByRow, occurrenceCounts, rowBlockKey, setBlockKey } from '@/lib/exercise-blocks';
 
@@ -106,6 +107,7 @@ export function SessionSummary({
 }: Props) {
   const t = useTranslations('session.summary');
   const locale = useLocale();
+  const distanceUnit = useDistanceUnit();
   const exerciseName = useExerciseName();
   const [notes, setNotes] = useState(session.notes ?? '');
 
@@ -143,7 +145,7 @@ export function SessionSummary({
           ? cardioRecap(
               exoSets.reduce((acc, s) => acc + (s.durationSec ?? 0), 0),
               exoSets.reduce((acc, s) => acc + (s.distanceM ?? 0), 0),
-              unit,
+              distanceUnit,
             )
           : null,
       complete: exoSets.length >= targetSets,
@@ -287,11 +289,12 @@ export function SessionSummary({
   );
 }
 
-// Cardio recap line for a session's totals: "30:00 · 5 km · 6:00 /km · 10 km/h".
+// Cardio recap line for a session's totals: "30:00 · 5 km · 6:00 /km · 10 km/h",
+// in the user's distance unit (issue #582).
 // Pace and speed (issue #177) are appended only when the session covered a
 // distance; a duration-only cardio session shows just the duration.
-function cardioRecap(durationSec: number, distanceM: number, unit: WeightUnit): string {
-  const base = formatCardioSet(durationSec, distanceM);
+function cardioRecap(durationSec: number, distanceM: number, unit: DistanceUnit): string {
+  const base = formatCardioSet(durationSec, distanceM, unit);
   const pace = formatPace(durationSec, distanceM, unit);
   const speed = formatSpeed(durationSec, distanceM, unit);
   return [base, pace, speed].filter(Boolean).join(' · ');

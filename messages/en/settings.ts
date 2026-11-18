@@ -89,6 +89,12 @@ export const settings = {
     generalFitness: 'General fitness',
     kilograms: 'Kilograms (kg)',
     pounds: 'Pounds (lb)',
+    distanceUnit: 'Distance unit',
+    distanceUnitDescription:
+      'Changes how cardio distance, pace and speed are shown and entered. Distances are always stored in meters, so switching never alters past sessions. Automatic follows the weight unit: miles with pounds, kilometers with kilograms.',
+    distanceAuto: 'Automatic (follows the weight unit)',
+    kilometers: 'Kilometers (km)',
+    miles: 'Miles (mi)',
   },
   backup: {
     title: 'Data',

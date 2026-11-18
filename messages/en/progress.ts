@@ -100,7 +100,7 @@ export const progress = {
     description:
       'Weekly cardio minutes versus the {target} min/week guideline. Distance and sessions appear in the tooltip.',
     summary:
-      'This week: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# session} other {# sessions}}}} · {weeks}-week total: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'This week: {minutes} min{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# session} other {# sessions}}}} · {weeks}-week total: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Deload week in progress',

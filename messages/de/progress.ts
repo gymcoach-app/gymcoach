@@ -103,7 +103,7 @@ export const progress = {
     description:
       'Wöchentliche Kardio-Minuten versus {target} min/Woche-Richtlinie. Distanz und Einheiten erscheinen im Tooltip.',
     summary:
-      'Diese Woche: {minutes} Min.{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# Einheit} other {# Einheiten}}}} · Gesamt ({weeks} Wo.): {totalMinutes} Min.{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'Diese Woche: {minutes} Min.{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# Einheit} other {# Einheiten}}}} · Gesamt ({weeks} Wo.): {totalMinutes} Min.{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Deload-Woche läuft',

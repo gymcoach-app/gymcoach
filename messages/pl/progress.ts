@@ -104,7 +104,7 @@ export const progress = {
       'Minuty cardio w tygodniu na tle zalecenia {target} min/tydz. Dystans i sesje widać w podpowiedzi.',
 
     summary:
-      'W tym tygodniu: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# trening} few {# treningi} many {# treningów} other {# treningu}}}} · Łącznie przez {weeks} tyg.: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'W tym tygodniu: {minutes} min{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# trening} few {# treningi} many {# treningów} other {# treningu}}}} · Łącznie przez {weeks} tyg.: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Trwa tydzień deloadu',

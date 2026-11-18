@@ -10,6 +10,7 @@ import {
   Sex,
   TrainingGoal,
   WeightUnit,
+  DistanceUnitPreference,
   EffortScale,
 } from '@/lib/prisma-client';
 import { db } from '@/lib/db';
@@ -51,7 +52,8 @@ import {
 //
 // Exported models and fields:
 // - User: profile fields (displayName, bodyweight, bodyweightGoalKg, sex,
-//   heightCm, goal, weeklyFrequency, unit, effortScale, deloadUntil). email/createdAt ride along for
+//   heightCm, goal, weeklyFrequency, unit, distanceUnit (v14, issue #582),
+//   effortScale, deloadUntil). email/createdAt ride along for
 //   reference but are NEVER imported (they identify the importing account).
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
 //   usesBodyweight, equipmentType, isFavorite.
@@ -76,7 +78,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 13;
+const VERSION = 14;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -125,6 +127,7 @@ export async function GET() {
           goal: true,
           weeklyFrequency: true,
           unit: true,
+          distanceUnit: true,
           effortScale: true,
           deloadUntil: true,
           activeGymId: true,
@@ -206,6 +209,8 @@ export async function GET() {
         goal: user.goal,
         weeklyFrequency: user.weeklyFrequency,
         unit: user.unit,
+        // New in v14 (issue #582); absent from older backups. null = automatic.
+        distanceUnit: user.distanceUnit,
         // New in v9 (issue #390); absent from older backups.
         effortScale: user.effortScale,
         deloadUntil: user.deloadUntil?.toISOString() ?? null,
@@ -591,6 +596,9 @@ const importSchema = z.object({
       goal: z.nativeEnum(TrainingGoal).nullable().optional(),
       weeklyFrequency: z.number().int().min(1).max(14).nullable().optional(),
       unit: z.nativeEnum(WeightUnit).optional(),
+      // v14 (issue #582); absent in older backups, which keep the account's
+      // distance unit. null is a value: automatic (follows the weight unit).
+      distanceUnit: z.nativeEnum(DistanceUnitPreference).nullable().optional(),
       // v9 (issue #390); absent in older backups, which keep the account's scale.
       effortScale: z.nativeEnum(EffortScale).optional(),
       deloadUntil: dateString.nullable().optional(),
@@ -783,6 +791,7 @@ export async function POST(req: Request) {
               ...(p.goal !== undefined ? { goal: p.goal } : {}),
               ...(p.weeklyFrequency !== undefined ? { weeklyFrequency: p.weeklyFrequency } : {}),
               ...(p.unit !== undefined ? { unit: p.unit } : {}),
+              ...(p.distanceUnit !== undefined ? { distanceUnit: p.distanceUnit } : {}),
               ...(p.effortScale !== undefined ? { effortScale: p.effortScale } : {}),
               ...(p.deloadUntil !== undefined
                 ? { deloadUntil: p.deloadUntil ? new Date(p.deloadUntil) : null }

@@ -104,7 +104,7 @@ export const progress = {
       'Cardiominuten per week tegenover de richtlijn van {target} min/week. Afstand en sessies zie je in de tooltip.',
 
     summary:
-      'Deze week: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# sessie} other {# sessies}}}} · Totaal over {weeks} weken: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'Deze week: {minutes} min{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# sessie} other {# sessies}}}} · Totaal over {weeks} weken: {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Deloadweek bezig',
