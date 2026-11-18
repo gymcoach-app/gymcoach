@@ -1066,8 +1066,10 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   cause.
 - **Lesson:** the rule stays absolute: never open or update a PR for merge on a red gate. The
   implementer records `uptime` and each tier's result per run, does not push, and hands
-  back. The orchestrator re-runs the full gate once the machine is idle, or through the
-  container gate (`scripts/container-gate.sh`), before pushing. If it must push to an
+  back. The orchestrator re-runs the full `verify.sh --full` on an idle machine before
+  pushing. The container scripts (`scripts/container-gate.sh`,
+  `scripts/container-integration.sh`) may confirm the default and integration tiers early,
+  but none runs E2E, the tier that failed on #587, so they do not replace that run. If it must push to an
   already-open PR earlier, it first converts that PR to draft and marks it ready only after a
   green local run on the pinned head. A unit-tier timeout under load is investigated as L42
   says, not waved through as load. What happened on #587 is the deviation; this is the rule.

@@ -1159,8 +1159,9 @@ with their skill and playbook edits.
    Its head carries a hand-resolved merge of 14 files (delta-reviewed).
 5. **Process: #587 merged without a green local gate.** Its fix head `788d8be` had six red
    local `--full` runs under machine load and was pushed and merged on green CI and two
-   clean reviews. Lesson L61 calls that a deviation and restates the rule (re-run when
-   idle or in the container gate, or keep the PR in draft); decide whether that rule is
+   clean reviews. Lesson L61 calls that a deviation and restates the rule (re-run
+   `verify.sh --full` on an idle machine before pushing, or keep the PR in draft until a
+   green local run; the container scripts do not run E2E, so they cannot replace it); decide whether that rule is
    the one you want.
 
 **Trust the gate (lower risk):** the import UI components and their tests, the message

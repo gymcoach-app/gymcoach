@@ -3843,8 +3843,9 @@ The orchestrator then pushed the fix commit to the open PR on that red local gat
 red runs stated in the PR body, and merged on green CI (all five checks) and two clean
 reviews, without a green local run on `788d8be` and without looking into the unit-tier
 timeout (L42). That was a deviation from the green-gate rule; L61 records the rule that
-should have applied (re-run when idle or in the container gate, or draft the PR until a
-green local run).
+should have applied (re-run `verify.sh --full` on an idle machine before pushing, or draft
+the PR until a green local run; the container scripts cover the default and integration
+tiers only, not E2E).
 
 **Green gate.** Ledger `verify` lines after the #581 merge, excluding this write-up's own
 run: 24, all `--full`. 7 green, 17 failed (6 at the unit tier, 11 at E2E); 9 of the failures
@@ -3859,7 +3860,7 @@ batch.
 
 **Lessons.** L60 (the gate's carry-over in use; a hand-resolved conflict still needs a delta
 review) -> `04-ship-loop.md`. L61 (a red local gate under load is red: hand back, re-run
-when idle or in the container gate, draft the PR meanwhile; #587 deviated) ->
+`verify.sh --full` on an idle machine, draft the PR meanwhile; #587 deviated) ->
 `implement-issue` step 5. L62 (worst-case cost of a user-picked file parser, and
 the browser syntax of the fix) -> `ship-pr` review questions.
 
