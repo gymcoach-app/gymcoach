@@ -82,6 +82,13 @@ once, for the head the reviewer read (`record.ts --head-moved` when the branch w
 in the meantime), and the gate prints which rule carried each one. A hand-resolved
 conflict changes the diff and still needs a fresh review of the delta.
 
+First use, the same day (2026-11-18, lesson L60): after #584 merged, #585 and #583 were
+brought up to date with `main` and the gate carried their records itself, printing
+`carriedBy: pure-base-update`; nothing was re-posted. #586, stacked on the Apple Health
+branch, conflicted with the squash of #583 in 14 files; that hand resolution (the superset
+side kept) is not a merge the gate can prove, so it went through a delta review as the rule
+says.
+
 What it cost before the fix (2026-10-19, the #485-#489 wave, lesson L47): every PR added
 its entry to the same lines of `CHANGELOG.md`, so each merge left the next PRs with a
 conflict that GitHub's update-branch could not write. That gave 3 hand-resolved merges and

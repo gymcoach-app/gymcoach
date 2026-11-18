@@ -1032,3 +1032,52 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   scratch files in the scratchpad by absolute path instead of `cd`-ing into it.
 - **Status:** graduated -> `06-orchestration.md` ("Concurrent ticks", the confirmed
   pattern paragraph).
+
+### L60 - The gate carries records over a clean merge of `main`; a hand-resolved conflict does not
+- **Trigger:** 2026-11-18, batch #582. #584 taught the merge gate to carry a review record
+  over merges of `main` by itself. Right after it merged, #585 and #583 were updated from
+  `main` and merged on their existing records, the gate printing `carriedBy:
+  pure-base-update` for each; no record was re-posted by hand (the manual step of the
+  2026-11-17 wave). #586 was stacked on the Apple Health branch; after #583 was squashed
+  into `main`, its merge of `main` conflicted in 14 files, resolved by hand by keeping the
+  superset side. That merge is not one the gate can prove, so it needed a review of the
+  delta.
+- **Lesson:** after `update-branch`, let the gate decide: post records once, for the head
+  the reviewer read, and read the gate's `carriedBy` line instead of re-posting. A
+  hand-resolved conflict, even one that "only keeps both sides", is new code to review.
+- **Status:** graduated -> `ship-pr` step 4 and `04-ship-loop.md` (#584, "Sequential
+  merges"); first use recorded there in this PR.
+
+### L61 - A red local gate under unrelated load: do not push, hand back with the evidence
+- **Trigger:** 2026-11-18, #587 (fix round, head `788d8be`). Five local `verify.sh --full`
+  runs all exited 1 while an unrelated CPU job held the machine at load 15 to 18 on 12
+  cores: E2E failed in four runs on 5 s timeouts, a different set of specs each run (auth,
+  bodyweight, deload, signup and others), and the unit tier timed out once; unit (4051
+  tests) and integration (603) were green in four of the five. The implementer refused to
+  push on a red gate and handed the decision back. The PR body then stated the red local
+  gate as it was, CI was the deciding run, and CI was fully green (lint, typecheck, unit,
+  integration, build, Docker smoke test, E2E).
+- **Lesson:** the rule "never open a PR on a red gate" held, and it should: the implementer
+  cannot tell load from a regression on its own. It records the load and the per-tier
+  outcome of each run and stops; only the orchestrator may open the PR, saying in the body
+  that the local gate was red and why it is believed to be load, and only green CI on the
+  pinned head lets it merge. Do not raise timeouts to make such runs green (L42).
+- **Status:** graduated -> `implement-issue` step 5 ("A red gate under machine load is still
+  red").
+
+### L62 - Imports of user-picked files: review the worst-case cost, and the browser syntax of the fix
+- **Trigger:** 2026-11-18, review round of #587. The security lens found two quadratic paths
+  in the Apple Health import: the attribute regex retried from every character of a long
+  name run with no `=` (60 000 characters took 17 s for the reviewer, 8.6 s for the
+  author), and fflate 0.8.2's `Unzip` keeps one slot per entry and shifts them all on each
+  new entry (`k.unshift`), so the entry count is quadratic (100 000 entries 10.8 s). The fix
+  parses attributes in one hand-written pass and caps a zip at 50 000 entries
+  (`ZIP_MAX_ENTRIES`, a "too many files" message in the Apple Health and Strava imports).
+  The reviewer's suggested regex lookbehind was not taken: it is a syntax error on Safari
+  before 16.4, which would break the module on older iPhones.
+- **Lesson:** a parser that runs on a file the user picks gets a worst-case cost question in
+  review, with a timed test on crafted input, including the per-entry cost of a third-party
+  reader; and a fix shipped to the browser is checked against the oldest browser it must
+  run on, not only against the test runtime.
+- **Status:** graduated -> `ship-pr` step 4 (review questions, "If the change parses a file
+  or archive a user picks").

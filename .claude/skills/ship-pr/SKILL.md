@@ -119,7 +119,12 @@ changes on.
    that review through the machinery itself when it exists (lesson L44). If a doc states
    what data is sent to a provider, stored or shared, add a docs-accuracy lens that checks
    each claim against the code that builds the payload, call by call, and names the calls
-   the doc leaves out (lesson L57).
+   the doc leaves out (lesson L57). If the change parses a file or archive a user picks
+   (an import), ask the security lens for the worst-case cost on crafted input: regex
+   backtracking on tag or attribute text, per-entry work inside a third-party reader (an
+   unzip), each measured with a timed test; and check that the fix's syntax runs on the
+   oldest browser the app supports (a regex lookbehind is a syntax error on Safari before
+   16.4) (lesson L62).
    **A hardening race has a budget.** When the same security or validity control draws
    a new blocking or major bypass in three consecutive reviews, state the remaining round
    budget (at most two more) before the next fixup. When it is spent, stop hardening:

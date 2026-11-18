@@ -233,13 +233,21 @@ on your own key - all self-hosted.
 ### Cardio and wearables
 
 - **First-class cardio** - log duration and distance (not weight x reps); a
-  weekly conditioning card (minutes, km, sessions vs the 150 min/week guideline)
-  that never pollutes your lifting metrics.
+  weekly conditioning card (minutes, distance, sessions vs the 150 min/week
+  guideline) that never pollutes your lifting metrics. Distance, pace and speed
+  read in kilometers or miles, a profile setting that follows your weight unit
+  by default; storage stays in meters.
 - **Watch-file import, no cloud** - bring activities in as **TCX, GPX or Garmin
   FIT** (duration, distance, heart rate; no OAuth, no cloud account). FIT imports
   a whole batch at once, and every imported run or ride shows a
   **heart-rate-over-time chart** plus its **aerobic decoupling** (how much your
   pace per heartbeat drifted over the effort) on the session detail.
+- **Apple Health and Strava archives** - pick the Health app's `export.zip`
+  or Strava's "Download your data" zip: it is unzipped and read in the browser
+  as a stream, however large, and only workout summaries or activity files reach
+  the server. Cardio workouts become sessions, Apple Health body mass records can
+  fill the bodyweight log, and one preview comes before anything is written,
+  with duplicates left out so a newer export only adds what is new.
 - **Heart rate on a lifting session** - attach the FIT, TCX or GPX recording
   of a workout you already logged: its average heart rate, peak and curve are
   stored on that session and shown on its page, with a preview before anything
@@ -309,8 +317,8 @@ on your own key - all self-hosted.
 - **Import and export** - bring history in from a Strong (warm-up, failure
   and drop set markers kept) or Hevy CSV, or from
   GymCoach's own history CSV (a spreadsheet with the same columns works too;
-  dry-run preview, duplicate-safe, cardio included), and export everything back
-  to CSV or TCX anytime.
+  dry-run preview, duplicate-safe, cardio included), from an Apple Health
+  export or a Strava archive, and export everything back to CSV or TCX anytime.
 
 ## Stack
 
@@ -588,6 +596,8 @@ than CI reaching in to a small VPS.
 - [x] Heart rate per set from an attached watch file
 - [x] Share a finished workout as an image
 - [x] Health endpoint and container healthcheck for self-hosters
+- [x] Apple Health export and Strava archive imports
+- [x] Kilometers or miles for cardio distance
 
 ## Contributing
 

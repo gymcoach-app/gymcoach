@@ -1129,3 +1129,34 @@ and healthcheck). In this PR: changelog fold, README, lesson L59 with its playbo
 **Trust the gate (lower risk):** #572 (CSV import parsing, preview counts), #577 (client-side
 canvas, nothing uploaded, no dependency), #578 (print sheet and display text), the message
 catalogs, the docs here.
+
+## 2026-11-18 - Apple Health and Strava imports, distance unit, gate carry-over (#582)
+
+Merged: **#584** (gate carries records over merges of `main`), **#585** (distance unit
+setting), **#583** (Apple Health import), **#586** (Strava archive import), **#587** (Apple
+Health hardening, zip entry cap). In this PR: changelog fold, README, lessons L60 to L62
+with their skill and playbook edits.
+
+**Read first:**
+
+1. **#584 - the merge gate itself.** `gh pr diff 584`. `verifyIdenticalDiff` in
+   `automation/publish/base-update.ts` (ancestor, merges of `main` only, `patch-id`, file
+   list, same blobs), how `gate.ts` counts the proof (and keeps a stop), and
+   `record.ts --head-moved`, which skips the live-head check when posting. This decides
+   when a review stops being needed.
+2. **#583 + #587 - a new write route and a new dependency.** `gh pr diff 583`, `gh pr diff
+   587`. `POST /api/import/apple-health` (Zod bounds, 512 KB body cap, shared import rate
+   bucket, `userId` scoping, body mass through `mutateBodyweightHistory`), the offset-based
+   local day in `planBodyMass`, `fflate` 0.8.2 in the lockfile, and the browser scanner in
+   `lib/import/apple-health.ts` that reads untrusted XML.
+3. **#585 - schema change, backup format 14, a behavior change for pounds accounts.** `gh
+   pr diff 585`. Migration `20261118090000_add_user_distance_unit`, the single rule
+   `cardioDistanceUnit` in `lib/cardio.ts` (Automatic follows the weight unit, so pounds
+   accounts now type miles), and the no-drift rule when a prefilled distance is saved.
+4. **#586 - the archive reader and the request queue.** `gh pr diff 586`.
+   `lib/import/zip-stream.ts` (shared with #587), the per-file and gzip caps, and the 429
+   handling in `lib/import/import-queue.ts`. Its head carries a hand-resolved merge of 14
+   files (delta-reviewed).
+
+**Trust the gate (lower risk):** the import UI components and their tests, the message
+catalogs, the FAQ additions, the docs here.

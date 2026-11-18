@@ -106,6 +106,12 @@ for repo conventions; this skill assumes them.
    - Allow **at most 3** fix attempts. If still red after 3, do NOT open a normal
      PR: either open a **draft** PR describing what is blocked, or STOP and report.
    This is the hard feedback loop - never open a PR on a red gate.
+   **A red gate under machine load is still red** (lesson L61). When the failures look
+   load-induced (timeouts in specs the change does not touch, a different set each run),
+   record the load (`uptime`) and which tiers were green in each run, do not push, and
+   hand the decision back with that evidence. Only the orchestrator may then open the PR;
+   its body states the red local runs honestly, and green CI on the pinned head is the
+   deciding run (`ship-pr` never merges without it).
    **Read the gate's own exit code** (lesson L55): run it on its own line
    (`bash scripts/verify.sh > <log> 2>&1; status=$?`) and act on `$status` or on the
    `GREEN-GATE PASSED` line. Never pipe it into `tail` or `grep` in front of an `&&` that
