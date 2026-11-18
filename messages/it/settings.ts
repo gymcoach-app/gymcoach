@@ -175,6 +175,8 @@ export const settings = {
       fit: 'esporta l’attività in FIT dal tuo orologio Garmin o altro per importare una sessione cardio con durata, distanza e frequenza cardiaca',
       appleHealth:
         'nell’app Salute tocca la tua foto del profilo, poi Esporta tutti i dati sanitari, e scegli il file export.zip creato (o il file export.xml al suo interno)',
+      strava:
+        'su strava.com apri Impostazioni, Il mio account, poi Inizia sotto Scarica o elimina il tuo account, richiedi il tuo archivio e scegli lo zip che Strava ti invia per e-mail',
     },
     appleHealth: {
       description:
@@ -206,6 +208,41 @@ export const settings = {
         '{count, plural, one {# misurazione del peso corporeo in un giorno già registrato verrà saltata} other {# misurazioni del peso corporeo in giorni già registrati verranno saltate}}',
       done:
         '{sessions, plural, one {# allenamento importato} other {# allenamenti importati}}{weights, plural, =0 {} one {, # misurazione del peso corporeo} other {, # misurazioni del peso corporeo}}{skipped, plural, =0 {.} one { (# saltato).} other { (# saltati).}}',
+    },
+    strava: {
+      description:
+        'Porta qui le tue attività di Strava: {hint}. Controlla l’anteprima, poi conferma.',
+      chooseFile: 'Scegli l’archivio Strava',
+      privacy:
+        'L’archivio viene decompresso su questo dispositivo: al tuo server GymCoach vengono inviati solo i file delle attività (FIT, GPX, TCX); le foto e tutto il resto non vengono mai letti. Le importazioni sono limitate a 10 richieste al minuto, quindi una cronologia lunga richiede un po’ di tempo: tieni aperta questa scheda. Le attività già presenti nella tua cronologia non vengono importate due volte.',
+      checking:
+        'Controllo dell’archivio: {read} di {total} MB, {count, plural, one {# attività controllata} other {# attività controllate}}',
+      importing:
+        'Importazione: {read} di {total} MB, {count, plural, one {# attività inviata} other {# attività inviate}}',
+      waiting: 'Limite di importazione raggiunto, si riprende tra {seconds} s',
+      cancelled: 'Importazione annullata. Non è stato importato nulla.',
+      cancelledAfterStart:
+        'Importazione annullata. Le attività già importate restano nella tua cronologia.',
+      notZip:
+        'Questo file non è un archivio zip. Scegli lo zip che Strava ti ha inviato per e-mail.',
+      notStrava:
+        'Questo archivio non contiene activities.csv né la cartella activities. Scegli lo zip che Strava ti ha inviato per e-mail.',
+      unreadable: 'Impossibile leggere questo archivio.',
+      activities: '{count, plural, one {# attività} other {# attività}} da importare',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# attività già presente nella tua cronologia verrà saltata} other {# attività già presenti nella tua cronologia verranno saltate}}',
+      withoutFile:
+        '{count, plural, one {# attività senza file (inserita a mano su Strava) verrà saltata} other {# attività senza file (inserite a mano su Strava) verranno saltate}}',
+      unsupported:
+        '{count, plural, one {# file in un formato che GymCoach non legge verrà saltato} other {# file in un formato che GymCoach non legge verranno saltati}}',
+      tooLarge:
+        '{count, plural, one {# file oltre i 5 MB verrà saltato} other {# file oltre i 5 MB verranno saltati}}',
+      unreadableFiles:
+        '{count, plural, one {# file illeggibile verrà saltato} other {# file illeggibili verranno saltati}}',
+      skippedFiles: 'File che verranno saltati',
+      done:
+        '{sessions, plural, one {# attività importata} other {# attività importate}}{skipped, plural, =0 {.} one { (# saltata).} other { (# saltate).}}',
     },
   },
   mcp: {

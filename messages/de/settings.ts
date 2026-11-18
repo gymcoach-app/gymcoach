@@ -175,6 +175,8 @@ export const settings = {
       fit: 'exportiere die Aktivität als FIT von deiner Garmin oder anderen Uhr, um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
       appleHealth:
         'tippe in der Health-App auf dein Profilbild, dann auf Alle Gesundheitsdaten exportieren, und wähle die erstellte export.zip (oder die darin enthaltene export.xml)',
+      strava:
+        'öffne auf strava.com Einstellungen, Mein Konto, dann Erste Schritte unter Lade dein Konto herunter oder lösche es, fordere dein Archiv an und wähle die ZIP-Datei, die Strava dir per E-Mail schickt',
     },
     appleHealth: {
       description:
@@ -207,6 +209,42 @@ export const settings = {
         '{count, plural, one {# Körpergewichtseintrag an einem bereits erfassten Tag wird übersprungen} other {# Körpergewichtseinträge an bereits erfassten Tagen werden übersprungen}}',
       done:
         '{sessions, plural, one {# Einheit} other {# Einheiten}} importiert{weights, plural, =0 {} one {, # Körpergewichtseintrag} other {, # Körpergewichtseinträge}}{skipped, plural, =0 {.} other { (# übersprungen).}}',
+    },
+    strava: {
+      description:
+        'Übernimm deine Aktivitäten aus Strava: {hint}. Prüfe hier die Vorschau und bestätige dann.',
+      chooseFile: 'Strava-Archiv auswählen',
+      privacy:
+        'Das Archiv wird auf diesem Gerät entpackt: Nur die Aktivitätsdateien (FIT, GPX, TCX) werden an deinen GymCoach-Server gesendet; Fotos und alles andere werden nie gelesen. Importe sind auf 10 Anfragen pro Minute begrenzt, ein langer Verlauf dauert daher eine Weile: Lass diesen Tab geöffnet. Aktivitäten, die schon in deinem Verlauf sind, werden nicht doppelt importiert.',
+      checking:
+        'Archiv wird geprüft: {read} von {total} MB, {count, plural, one {# Aktivität} other {# Aktivitäten}} geprüft',
+      importing:
+        'Import läuft: {read} von {total} MB, {count, plural, one {# Aktivität} other {# Aktivitäten}} gesendet',
+      waiting: 'Importlimit erreicht, weiter in {seconds} s',
+      cancelled: 'Import abgebrochen. Es wurde nichts importiert.',
+      cancelledAfterStart:
+        'Import abgebrochen. Die bereits importierten Aktivitäten bleiben in deinem Verlauf.',
+      notZip:
+        'Diese Datei ist kein ZIP-Archiv. Wähle die ZIP-Datei, die Strava dir per E-Mail geschickt hat.',
+      notStrava:
+        'Dieses Archiv enthält weder activities.csv noch einen Ordner activities. Wähle die ZIP-Datei, die Strava dir per E-Mail geschickt hat.',
+      unreadable: 'Dieses Archiv konnte nicht gelesen werden.',
+      activities:
+        '{count, plural, one {# Aktivität wird importiert} other {# Aktivitäten werden importiert}}',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# Aktivität ist schon in deinem Verlauf und wird übersprungen} other {# Aktivitäten sind schon in deinem Verlauf und werden übersprungen}}',
+      withoutFile:
+        '{count, plural, one {# Aktivität ohne Datei (bei Strava von Hand eingetragen) wird übersprungen} other {# Aktivitäten ohne Datei (bei Strava von Hand eingetragen) werden übersprungen}}',
+      unsupported:
+        '{count, plural, one {# Datei in einem Format, das GymCoach nicht liest, wird übersprungen} other {# Dateien in einem Format, das GymCoach nicht liest, werden übersprungen}}',
+      tooLarge:
+        '{count, plural, one {# Datei über 5 MB wird übersprungen} other {# Dateien über 5 MB werden übersprungen}}',
+      unreadableFiles:
+        '{count, plural, one {# Datei konnte nicht gelesen werden und wird übersprungen} other {# Dateien konnten nicht gelesen werden und werden übersprungen}}',
+      skippedFiles: 'Dateien, die übersprungen werden',
+      done:
+        '{sessions, plural, one {# Aktivität importiert} other {# Aktivitäten importiert}}{skipped, plural, =0 {.} other { (# übersprungen).}}',
     },
   },
   mcp: {

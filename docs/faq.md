@@ -111,9 +111,9 @@ a replacement for the volume backup.
 ### Can I import from another app?
 
 The **Import training history** section of Settings accepts Hevy and Strong
-exports, cardio files (FIT, GPX, TCX) in the cardio part, and an Apple Health
-export (see the next question); it parses and previews the file before writing
-anything. **Import a backup** is a different
+exports, cardio files (FIT, GPX, TCX) in the cardio part, an Apple Health
+export and a Strava archive (see the next two questions); it parses and
+previews the file before writing anything. **Import a backup** is a different
 path: it asks for confirmation, then replaces all of the signed-in account's
 data (programs, sessions, sets, goals, bodyweight history, check-ins and coach
 conversations) with the file. That cannot be undone, and there is no preview, so
@@ -154,6 +154,48 @@ What to expect:
 - **A long history takes a moment.** Imports share a limit of 10 requests a
   minute per account; past a few thousand workouts the page waits for the
   limit and continues on its own. Keep the tab open.
+
+### How do I import my activities from Strava?
+
+1. On strava.com (the website, not the app), open **Settings**, **My Account**,
+   then **Get Started** under **Download or Delete Your Account**, and press
+   **Request Your Archive**. Strava emails a download link, usually within a
+   few hours.
+2. Download the zip (`export_<number>.zip`). Do not unzip it.
+3. In GymCoach, open **Settings**, **Import training history**, pick **Strava**
+   as the source and choose the zip.
+4. GymCoach checks every activity, then shows one preview: how many activities
+   will be imported, per exercise, and what is left out. Confirm to import.
+
+What to expect:
+
+- **The archive stays on your device.** The browser unzips it as a stream and
+  reads two things only: `activities.csv` and the files of the `activities`
+  folder (`.fit`, `.gpx`, `.tcx`, each possibly `.gz`). Photos, videos and the
+  rest of the archive are never decompressed. Each activity file is then sent
+  to your GymCoach server through the same FIT, GPX and TCX imports as a file
+  you would pick by hand, so the result is identical: one cardio session per
+  activity, with duration, distance, heart rate and the pace track when the
+  file has them.
+- **No duplicates.** An activity that starts within 2 minutes of a session you
+  already have is left out of the import, so a newer archive only adds what is
+  new.
+- **Activities without a file are skipped.** An activity typed in by hand on
+  Strava has a row in `activities.csv` but no file; the preview counts them.
+  Strength sessions logged on Strava carry no exercises or sets either way.
+- **Session names are not imported.** The activity name is only used to tell
+  you which files could not be read. A file over 5 MB, or in a format other
+  than FIT, GPX and TCX, is skipped and counted.
+- **A long history takes a while.** Imports share a limit of 10 requests a
+  minute per account. FIT files (what most watches upload) go 50 to a request,
+  so thousands of them take a few minutes. GPX and TCX files go one to a
+  request, once for the preview and once for the import: count about 5 a
+  minute. The page waits for the limit and continues on its own; keep the tab
+  open. **Cancel** stops at any point; what was already imported stays, and
+  running the import again skips it.
+- **Other languages.** Strava writes the header of `activities.csv` in your
+  account's language. GymCoach finds the file column by its content, so the
+  import does not depend on the language.
 
 ### I restored the database but my progress photos are gone. Why?
 

@@ -174,6 +174,8 @@ export const settings = {
       fit: 'etkinliği Garmin (veya başka bir marka) saatinden FIT dosyası olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
       appleHealth:
         'Sağlık uygulamasında profil resminize, ardından Tüm Sağlık Verilerini Dışa Aktar’a dokunun ve oluşturulan export.zip dosyasını (veya içindeki export.xml dosyasını) seçin',
+      strava:
+        'strava.com’da Ayarlar, Hesabım bölümünü açın, Hesabınızı İndirin veya Silin altında Başlayın’a tıklayın, arşivinizi isteyin ve Strava’nın e-postayla gönderdiği zip dosyasını seçin',
     },
     appleHealth: {
       description:
@@ -205,6 +207,42 @@ export const settings = {
         '{count, plural, one {Zaten kayıt bulunan bir güne ait # vücut ağırlığı kaydı atlanacak} other {Zaten kayıt bulunan günlere ait # vücut ağırlığı kaydı atlanacak}}',
       done:
         'İçe aktarıldı: {sessions, plural, one {# antrenman} other {# antrenman}}{weights, plural, =0 {} one {, # vücut ağırlığı kaydı} other {, # vücut ağırlığı kaydı}}{skipped, plural, =0 {.} other { (# atlandı).}}',
+    },
+    strava: {
+      description:
+        'Etkinliklerinizi Strava’dan getirin: {hint}. Önizlemeyi burada kontrol edin, sonra onaylayın.',
+      chooseFile: 'Strava arşivini seç',
+      privacy:
+        'Arşiv bu cihazda açılır: GymCoach sunucunuza yalnızca etkinlik dosyaları (FIT, GPX, TCX) gönderilir; fotoğraflar ve geri kalan her şey asla okunmaz. İçe aktarma dakikada 10 istekle sınırlıdır, bu yüzden uzun bir geçmiş biraz zaman alır: bu sekmeyi açık tutun. Geçmişinizde zaten bulunan etkinlikler ikinci kez içe aktarılmaz.',
+      checking:
+        'Arşiv kontrol ediliyor: {read} / {total} MB, {count, plural, one {# etkinlik kontrol edildi} other {# etkinlik kontrol edildi}}',
+      importing:
+        'İçe aktarılıyor: {read} / {total} MB, {count, plural, one {# etkinlik gönderildi} other {# etkinlik gönderildi}}',
+      waiting: 'İçe aktarma sınırına ulaşıldı, {seconds} sn sonra devam edilecek',
+      cancelled: 'İçe aktarma iptal edildi. Hiçbir şey içe aktarılmadı.',
+      cancelledAfterStart:
+        'İçe aktarma iptal edildi. Zaten içe aktarılan etkinlikler geçmişinizde kalır.',
+      notZip:
+        'Bu dosya bir zip arşivi değil. Strava’nın size e-postayla gönderdiği zip dosyasını seçin.',
+      notStrava:
+        'Bu arşivde activities.csv dosyası da activities klasörü de yok. Strava’nın size e-postayla gönderdiği zip dosyasını seçin.',
+      unreadable: 'Bu arşiv okunamadı.',
+      activities:
+        '{count, plural, one {# etkinlik içe aktarılacak} other {# etkinlik içe aktarılacak}}',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {Geçmişinizde zaten bulunan # etkinlik atlanacak} other {Geçmişinizde zaten bulunan # etkinlik atlanacak}}',
+      withoutFile:
+        '{count, plural, one {Dosyası olmayan (Strava’ya elle girilmiş) # etkinlik atlanacak} other {Dosyası olmayan (Strava’ya elle girilmiş) # etkinlik atlanacak}}',
+      unsupported:
+        '{count, plural, one {GymCoach’un okumadığı bir biçimdeki # dosya atlanacak} other {GymCoach’un okumadığı bir biçimdeki # dosya atlanacak}}',
+      tooLarge:
+        '{count, plural, one {5 MB’tan büyük # dosya atlanacak} other {5 MB’tan büyük # dosya atlanacak}}',
+      unreadableFiles:
+        '{count, plural, one {Okunamayan # dosya atlanacak} other {Okunamayan # dosya atlanacak}}',
+      skippedFiles: 'Atlanacak dosyalar',
+      done:
+        'İçe aktarıldı: {sessions, plural, one {# etkinlik} other {# etkinlik}}{skipped, plural, =0 {.} other { (# atlandı).}}',
     },
   },
   mcp: {

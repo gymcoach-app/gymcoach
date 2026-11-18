@@ -165,6 +165,7 @@ export const settings = {
       fit: '从 Garmin 或其他运动手表导出 FIT 活动文件，将导入为一次包含时长、距离和心率的有氧训练',
       appleHealth:
         '在“健康”App 中轻点头像，再轻点“导出所有健康数据”，然后选择生成的 export.zip（或其中的 export.xml）',
+      strava: '在 strava.com 打开“设置”“我的账户”，在“下载或删除您的账户”下点击“开始”，申请存档，然后选择 Strava 通过邮件发来的 zip 文件',
     },
     appleHealth: {
       description: '从 Apple 健康导入有氧训练：{hint}。先在此预览，再确认导入。',
@@ -187,6 +188,29 @@ export const settings = {
       bodyMassDuplicates: '{count, plural, other {将跳过 # 条所在日期已有记录的体重记录}}',
       done:
         '已导入 {sessions, plural, other {# 次训练}}{weights, plural, =0 {} other {，# 条体重记录}}{skipped, plural, =0 {。} other {（跳过 # 条）。}}',
+    },
+    strava: {
+      description: '从 Strava 导入活动：{hint}。先在此预览，再确认导入。',
+      chooseFile: '选择 Strava 存档',
+      privacy:
+        '存档只在本设备上解压：发送到你的 GymCoach 服务器的只有活动文件（FIT、GPX、TCX），照片和其他内容都不会被读取。导入限制为每分钟 10 次请求，历史较长时需要一些时间，请保持此标签页打开。训练历史中已有的活动不会重复导入。',
+      checking: '正在检查存档：{read} / {total} MB，{count, plural, other {已检查 # 个活动}}',
+      importing: '正在导入：{read} / {total} MB，{count, plural, other {已发送 # 个活动}}',
+      waiting: '已达到导入频率上限，{seconds} 秒后继续',
+      cancelled: '导入已取消，未导入任何内容。',
+      cancelledAfterStart: '导入已取消。已导入的活动会保留在训练历史中。',
+      notZip: '此文件不是 zip 压缩包。请选择 Strava 通过邮件发给你的 zip 文件。',
+      notStrava: '此压缩包中没有 activities.csv，也没有 activities 文件夹。请选择 Strava 通过邮件发给你的 zip 文件。',
+      unreadable: '无法读取此压缩包。',
+      activities: '{count, plural, other {将导入 # 个活动}}',
+      byType: '{name}：{count}',
+      duplicates: '{count, plural, other {# 个活动已在训练历史中，将被跳过}}',
+      withoutFile: '{count, plural, other {# 个活动没有文件（在 Strava 中手动录入），将被跳过}}',
+      unsupported: '{count, plural, other {# 个文件的格式 GymCoach 无法读取，将被跳过}}',
+      tooLarge: '{count, plural, other {# 个文件超过 5 MB，将被跳过}}',
+      unreadableFiles: '{count, plural, other {# 个文件无法读取，将被跳过}}',
+      skippedFiles: '将被跳过的文件',
+      done: '{sessions, plural, other {已导入 # 个活动}}{skipped, plural, =0 {。} other {（跳过 # 个）。}}',
     },
   },
   mcp: {

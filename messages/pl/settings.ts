@@ -177,6 +177,8 @@ export const settings = {
       fit: 'wyeksportuj aktywność jako plik FIT z zegarka Garmin (lub innego); zostanie dodana jako jeden trening cardio z czasem trwania, dystansem i tętnem',
       appleHealth:
         'w aplikacji Zdrowie stuknij swoje zdjęcie profilowe, potem Eksportuj wszystkie dane zdrowotne, i wybierz utworzony plik export.zip (albo znajdujący się w nim export.xml)',
+      strava:
+        'na strava.com otwórz Ustawienia, Moje konto, potem Rozpocznij w sekcji Pobierz lub usuń swoje konto, zamów archiwum i wybierz plik zip, który Strava wyśle Ci e-mailem',
     },
     appleHealth: {
       description:
@@ -208,6 +210,41 @@ export const settings = {
         '{count, plural, one {# pomiar masy ciała z dnia, który ma już wpis, zostanie pominięty} few {# pomiary masy ciała z dni, które mają już wpis, zostaną pominięte} many {# pomiarów masy ciała z dni, które mają już wpis, zostanie pominiętych} other {# pomiaru masy ciała z dni, które mają już wpis, zostanie pominięte}}',
       done:
         'Zaimportowano: {sessions, plural, one {# trening} few {# treningi} many {# treningów} other {# treningu}}{weights, plural, =0 {} one {, # pomiar masy ciała} few {, # pomiary masy ciała} many {, # pomiarów masy ciała} other {, # pomiaru masy ciała}}{skipped, plural, =0 {.} other { (pominięto: #).}}',
+    },
+    strava: {
+      description:
+        'Przenieś swoje aktywności ze Stravy: {hint}. Sprawdź tutaj podgląd, a potem potwierdź.',
+      chooseFile: 'Wybierz archiwum Stravy',
+      privacy:
+        'Archiwum jest rozpakowywane na tym urządzeniu: na Twój serwer GymCoach trafiają tylko pliki aktywności (FIT, GPX, TCX); zdjęcia i cała reszta nie są nigdy odczytywane. Import jest ograniczony do 10 żądań na minutę, więc długa historia trochę potrwa: nie zamykaj tej karty. Aktywności, które już są w Twojej historii, nie są importowane drugi raz.',
+      checking:
+        'Sprawdzanie archiwum: {read} z {total} MB, sprawdzono: {count, plural, one {# aktywność} few {# aktywności} many {# aktywności} other {# aktywności}}',
+      importing:
+        'Importowanie: {read} z {total} MB, wysłano: {count, plural, one {# aktywność} few {# aktywności} many {# aktywności} other {# aktywności}}',
+      waiting: 'Osiągnięto limit importu, ciąg dalszy za {seconds} s',
+      cancelled: 'Import anulowany. Nic nie zostało zaimportowane.',
+      cancelledAfterStart:
+        'Import anulowany. Aktywności już zaimportowane zostają w Twojej historii.',
+      notZip: 'Ten plik nie jest archiwum zip. Wybierz plik zip, który Strava wysłała Ci e-mailem.',
+      notStrava:
+        'To archiwum nie zawiera pliku activities.csv ani folderu activities. Wybierz plik zip, który Strava wysłała Ci e-mailem.',
+      unreadable: 'Nie udało się odczytać tego archiwum.',
+      activities:
+        '{count, plural, one {# aktywność} few {# aktywności} many {# aktywności} other {# aktywności}} do zaimportowania',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# aktywność, która już jest w Twojej historii, zostanie pominięta} few {# aktywności, które już są w Twojej historii, zostaną pominięte} many {# aktywności, które już są w Twojej historii, zostanie pominiętych} other {# aktywności, które już są w Twojej historii, zostanie pominięte}}',
+      withoutFile:
+        '{count, plural, one {# aktywność bez pliku (wpisana ręcznie w Stravie) zostanie pominięta} few {# aktywności bez pliku (wpisane ręcznie w Stravie) zostaną pominięte} many {# aktywności bez pliku (wpisanych ręcznie w Stravie) zostanie pominiętych} other {# aktywności bez pliku (wpisanej ręcznie w Stravie) zostanie pominięte}}',
+      unsupported:
+        '{count, plural, one {# plik w formacie, którego GymCoach nie odczytuje, zostanie pominięty} few {# pliki w formacie, którego GymCoach nie odczytuje, zostaną pominięte} many {# plików w formacie, którego GymCoach nie odczytuje, zostanie pominiętych} other {# pliku w formacie, którego GymCoach nie odczytuje, zostanie pominięte}}',
+      tooLarge:
+        '{count, plural, one {# plik większy niż 5 MB zostanie pominięty} few {# pliki większe niż 5 MB zostaną pominięte} many {# plików większych niż 5 MB zostanie pominiętych} other {# pliku większego niż 5 MB zostanie pominięte}}',
+      unreadableFiles:
+        '{count, plural, one {# plik, którego nie udało się odczytać, zostanie pominięty} few {# pliki, których nie udało się odczytać, zostaną pominięte} many {# plików, których nie udało się odczytać, zostanie pominiętych} other {# pliku, którego nie udało się odczytać, zostanie pominięte}}',
+      skippedFiles: 'Pliki, które zostaną pominięte',
+      done:
+        'Zaimportowano: {sessions, plural, one {# aktywność} few {# aktywności} many {# aktywności} other {# aktywności}}{skipped, plural, =0 {.} other { (pominięto: #).}}',
     },
   },
   mcp: {

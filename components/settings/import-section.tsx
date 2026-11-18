@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { AppleHealthImport } from '@/components/settings/apple-health-import';
+import { StravaImport } from '@/components/settings/strava-import';
 import { cn } from '@/lib/utils';
 
 // Client-side mirror of the server cap (the server re-enforces it).
@@ -100,7 +101,15 @@ interface FitBatchPreview {
   skipped: number;
 }
 
-type ImportFormat = 'STRONG' | 'HEVY' | 'GYMCOACH' | 'TCX' | 'GPX' | 'FIT' | 'APPLE_HEALTH';
+type ImportFormat =
+  | 'STRONG'
+  | 'HEVY'
+  | 'GYMCOACH'
+  | 'TCX'
+  | 'GPX'
+  | 'FIT'
+  | 'APPLE_HEALTH'
+  | 'STRAVA';
 
 // Copy and endpoint per supported source app. Strong keeps its unit toggle
 // (its export follows the app's unit setting); Hevy always exports kg, so the
@@ -108,14 +117,16 @@ type ImportFormat = 'STRONG' | 'HEVY' | 'GYMCOACH' | 'TCX' | 'GPX' | 'FIT' | 'AP
 // single-activity cardio files - they share the preview/confirm UI.
 // `source` names where the history comes from in the intro sentence.
 // Apple Health (issue #582) only borrows the title and the intro from here: its
-// file is streamed on the device by its own component, not posted whole.
+// file is streamed on the device by its own component, not posted whole. The
+// Strava archive (same issue) likewise: its component unzips it and feeds the
+// FIT, GPX and TCX endpoints.
 const FORMAT_META: Record<
   ImportFormat,
   {
     label: string;
     source: string;
     endpoint: string;
-    exportHint: 'strong' | 'hevy' | 'gymcoach' | 'tcx' | 'gpx' | 'fit' | 'appleHealth';
+    exportHint: 'strong' | 'hevy' | 'gymcoach' | 'tcx' | 'gpx' | 'fit' | 'appleHealth' | 'strava';
     hasUnitToggle: boolean;
     accept: string;
     fileKind: string;
@@ -184,6 +195,15 @@ const FORMAT_META: Record<
     accept: '.zip,.xml',
     fileKind: 'ZIP',
   },
+  STRAVA: {
+    label: 'Strava',
+    source: 'a Strava archive',
+    endpoint: '/api/import/fit',
+    exportHint: 'strava',
+    hasUnitToggle: false,
+    accept: '.zip',
+    fileKind: 'ZIP',
+  },
 };
 
 // CSV import from another tracker (issues #100/#113): pick the source app and
@@ -214,6 +234,9 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
   const isGpx = format === 'GPX';
   const isFit = format === 'FIT';
   const isAppleHealth = format === 'APPLE_HEALTH';
+  const isStrava = format === 'STRAVA';
+  // These two read their file on the device with their own component.
+  const hasOwnPicker = isAppleHealth || isStrava;
   // TCX, GPX and FIT are all single-activity cardio imports: same summary
   // shape, same preview/confirm UI. FIT is the only binary one (read as base64).
   const isCardioActivity = isTcx || isGpx || isFit;
@@ -410,7 +433,12 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
             ? t('cardioDescription', { hint: t(`exportHints.${meta.exportHint}`) })
             : isAppleHealth
               ? t('appleHealth.description', { hint: t('exportHints.appleHealth') })
-              : t('appDescription', { app: meta.label, hint: t(`exportHints.${meta.exportHint}`) })}
+              : isStrava
+                ? t('strava.description', { hint: t('exportHints.strava') })
+                : t('appDescription', {
+                    app: meta.label,
+                    hint: t(`exportHints.${meta.exportHint}`),
+                  })}
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -429,6 +457,7 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
                 <SelectItem value="GPX">{t('file', { format: 'GPX' })}</SelectItem>
                 <SelectItem value="FIT">{t('file', { format: 'FIT' })}</SelectItem>
                 <SelectItem value="APPLE_HEALTH">Apple Health</SelectItem>
+                <SelectItem value="STRAVA">Strava</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -446,7 +475,7 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
               </Select>
             </div>
           )}
-          {!isAppleHealth && (
+          {!hasOwnPicker && (
             <Button variant="outline" onClick={pickFile} disabled={busy} className="min-h-tap">
               {busy ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
               <span className="ml-2">
@@ -461,6 +490,8 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
         </div>
         {isAppleHealth ? (
           <AppleHealthImport />
+        ) : isStrava ? (
+          <StravaImport />
         ) : (
           <input
             ref={fileRef}

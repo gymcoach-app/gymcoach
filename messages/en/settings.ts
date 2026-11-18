@@ -170,6 +170,8 @@ export const settings = {
       fit: 'export the activity as a FIT file from your Garmin (or other) watch and it becomes one cardio session with duration, distance and heart rate',
       appleHealth:
         'in the Health app, tap your profile picture, then Export All Health Data, and pick the export.zip it creates (or the export.xml inside)',
+      strava:
+        'on strava.com open Settings, My Account, then Get Started under Download or Delete Your Account, request your archive, and pick the zip Strava emails you',
     },
     appleHealth: {
       description:
@@ -201,6 +203,38 @@ export const settings = {
         '{count, plural, one {# bodyweight entry} other {# bodyweight entries}} on days you already logged will be skipped',
       done:
         'Imported {sessions, plural, one {# workout} other {# workouts}}{weights, plural, =0 {} one {, # bodyweight entry} other {, # bodyweight entries}}{skipped, plural, =0 {.} other { (# skipped).}}',
+    },
+    strava: {
+      description: 'Bring your activities from Strava: {hint}. Preview here, then confirm.',
+      chooseFile: 'Choose the Strava archive',
+      privacy:
+        'The archive is unzipped on this device: only its activity files (FIT, GPX, TCX) are sent to your GymCoach server; photos and everything else are never read. Imports are limited to 10 requests a minute, so a long history takes a while: keep this tab open. Activities already in your history are not imported twice.',
+      checking:
+        'Checking the archive: {read} of {total} MB, {count, plural, one {# activity} other {# activities}} checked',
+      importing:
+        'Importing: {read} of {total} MB, {count, plural, one {# activity} other {# activities}} sent',
+      waiting: 'Import limit reached, continuing in {seconds} s',
+      cancelled: 'Import cancelled. Nothing was imported.',
+      cancelledAfterStart:
+        'Import cancelled. The activities already imported stay in your history.',
+      notZip: 'This file is not a zip archive. Pick the zip Strava emailed you.',
+      notStrava:
+        'This archive has no activities.csv and no activities folder. Pick the zip Strava emailed you.',
+      unreadable: 'This archive could not be read.',
+      activities: '{count, plural, one {# activity} other {# activities}} to import',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# activity} other {# activities}} already in your history will be skipped',
+      withoutFile:
+        '{count, plural, one {# activity} other {# activities}} without a file (entered by hand on Strava) will be skipped',
+      unsupported:
+        '{count, plural, one {# file} other {# files}} in a format GymCoach does not read will be skipped',
+      tooLarge: '{count, plural, one {# file} other {# files}} over 5 MB will be skipped',
+      unreadableFiles:
+        '{count, plural, one {# file} other {# files}} that could not be read will be skipped',
+      skippedFiles: 'Files that will be skipped',
+      done:
+        'Imported {sessions, plural, one {# activity} other {# activities}}{skipped, plural, =0 {.} other { (# skipped).}}',
     },
   },
   mcp: {

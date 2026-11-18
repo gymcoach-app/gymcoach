@@ -263,14 +263,14 @@ describe('Simplified Chinese message integration', () => {
 
 describe('new static UI messages in every locale', () => {
   const entries = messageEntries(englishMessages).filter(([key]) =>
-    /^(progress\.photos\.|progress\.conditioning\.summary$|settings\.imports\.(file$|exportHints\.|appleHealth\.)|session\.input\.(decreaseReps|increaseReps)$)/.test(
+    /^(progress\.photos\.|progress\.conditioning\.summary$|settings\.imports\.(file$|exportHints\.|appleHealth\.|strava\.)|session\.input\.(decreaseReps|increaseReps)$)/.test(
       key,
     ),
   );
 
   it.each(locales)('preserves parameters and renders every new branch in %s', async (locale) => {
     const translations = Object.fromEntries(messageEntries(await loadMessages(locale)));
-    expect(entries).toHaveLength(48);
+    expect(entries).toHaveLength(69);
     for (const [key, english] of entries) {
       const message = translations[key];
       if (message === undefined) throw new Error(`Missing ${locale} message: ${key}`);
