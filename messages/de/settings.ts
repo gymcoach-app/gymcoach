@@ -173,6 +173,40 @@ export const settings = {
       tcx: 'exportiere die Aktivität als TCX von deiner Uhrenplattform (Garmin Connect, Polar Flow, ...), um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
       gpx: 'exportiere die Route als GPX aus Strava, Komoot oder Apple Fitness, um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
       fit: 'exportiere die Aktivität als FIT von deiner Garmin oder anderen Uhr, um eine Cardioeinheit mit Dauer, Distanz und Herzfrequenz zu importieren',
+      appleHealth:
+        'tippe in der Health-App auf dein Profilbild, dann auf Alle Gesundheitsdaten exportieren, und wähle die erstellte export.zip (oder die darin enthaltene export.xml)',
+    },
+    appleHealth: {
+      description:
+        'Hol deine Kardio-Einheiten aus Apple Health: {hint}. Prüfe hier die Vorschau und bestätige dann.',
+      chooseFile: 'export.zip auswählen',
+      privacy:
+        'Der Export wird auf diesem Gerät gelesen, egal wie groß er ist: Nur Zusammenfassungen der Einheiten (Art, Datum, Dauer, Distanz, Herzfrequenz) werden an deinen GymCoach-Server gesendet. Krafteinheiten werden übersprungen, und Einheiten, die schon in deinem Verlauf stehen, werden nicht doppelt importiert.',
+      reading: 'Export wird gelesen: {read} von {total} MB',
+      sending: 'Paket {done} von {total} wird gesendet',
+      waiting: 'Importlimit erreicht, weiter in {seconds} s',
+      nothingFound:
+        'In dieser Datei wurde keine Einheit und kein Körpergewichtseintrag gefunden.',
+      noExportXml:
+        'Dieses Archiv enthält keine export.xml. Wähle die export.zip, die die Health-App erstellt hat.',
+      unreadable: 'Diese Datei konnte nicht gelesen werden.',
+      workouts:
+        '{count, plural, one {# Kardio-Einheit} other {# Kardio-Einheiten}} zu importieren',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# Einheit, die schon in deinem Verlauf steht, wird übersprungen} other {# Einheiten, die schon in deinem Verlauf stehen, werden übersprungen}}',
+      strengthSkipped:
+        '{count, plural, one {# Krafteinheit wird übersprungen} other {# Krafteinheiten werden übersprungen}}',
+      invalidSkipped:
+        '{count, plural, one {# Einheit ohne brauchbares Datum oder brauchbare Dauer wird übersprungen} other {# Einheiten ohne brauchbares Datum oder brauchbare Dauer werden übersprungen}}',
+      conflicts:
+        '{count, plural, one {# Einheit kann nicht importiert werden} other {# Einheiten können nicht importiert werden}}: Eine deiner Übungen, die kein Kardio ist, trägt bereits diesen Namen',
+      bodyMass:
+        'Auch {count, plural, one {# Körpergewichtseintrag} other {# Körpergewichtseinträge}} importieren',
+      bodyMassDuplicates:
+        '{count, plural, one {# Körpergewichtseintrag an einem bereits erfassten Tag wird übersprungen} other {# Körpergewichtseinträge an bereits erfassten Tagen werden übersprungen}}',
+      done:
+        '{sessions, plural, one {# Einheit} other {# Einheiten}} importiert{weights, plural, =0 {} one {, # Körpergewichtseintrag} other {, # Körpergewichtseinträge}}{skipped, plural, =0 {.} other { (# übersprungen).}}',
     },
   },
   mcp: {

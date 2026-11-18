@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { AppleHealthImport } from '@/components/settings/apple-health-import';
 import { cn } from '@/lib/utils';
 
 // Client-side mirror of the server cap (the server re-enforces it).
@@ -99,20 +100,22 @@ interface FitBatchPreview {
   skipped: number;
 }
 
-type ImportFormat = 'STRONG' | 'HEVY' | 'GYMCOACH' | 'TCX' | 'GPX' | 'FIT';
+type ImportFormat = 'STRONG' | 'HEVY' | 'GYMCOACH' | 'TCX' | 'GPX' | 'FIT' | 'APPLE_HEALTH';
 
 // Copy and endpoint per supported source app. Strong keeps its unit toggle
 // (its export follows the app's unit setting); Hevy always exports kg, so the
 // toggle is hidden for it. TCX (issue #152) and GPX (issue #204) are both
 // single-activity cardio files - they share the preview/confirm UI.
 // `source` names where the history comes from in the intro sentence.
+// Apple Health (issue #582) only borrows the title and the intro from here: its
+// file is streamed on the device by its own component, not posted whole.
 const FORMAT_META: Record<
   ImportFormat,
   {
     label: string;
     source: string;
     endpoint: string;
-    exportHint: 'strong' | 'hevy' | 'gymcoach' | 'tcx' | 'gpx' | 'fit';
+    exportHint: 'strong' | 'hevy' | 'gymcoach' | 'tcx' | 'gpx' | 'fit' | 'appleHealth';
     hasUnitToggle: boolean;
     accept: string;
     fileKind: string;
@@ -172,6 +175,15 @@ const FORMAT_META: Record<
     accept: '.fit,application/vnd.ant.fit,application/octet-stream',
     fileKind: 'FIT',
   },
+  APPLE_HEALTH: {
+    label: 'Apple Health',
+    source: 'an Apple Health export',
+    endpoint: '/api/import/apple-health',
+    exportHint: 'appleHealth',
+    hasUnitToggle: false,
+    accept: '.zip,.xml',
+    fileKind: 'ZIP',
+  },
 };
 
 // CSV import from another tracker (issues #100/#113): pick the source app and
@@ -201,6 +213,7 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
   const isTcx = format === 'TCX';
   const isGpx = format === 'GPX';
   const isFit = format === 'FIT';
+  const isAppleHealth = format === 'APPLE_HEALTH';
   // TCX, GPX and FIT are all single-activity cardio imports: same summary
   // shape, same preview/confirm UI. FIT is the only binary one (read as base64).
   const isCardioActivity = isTcx || isGpx || isFit;
@@ -395,7 +408,9 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
         <p className="text-xs text-muted-foreground">
           {isCardioActivity
             ? t('cardioDescription', { hint: t(`exportHints.${meta.exportHint}`) })
-            : t('appDescription', { app: meta.label, hint: t(`exportHints.${meta.exportHint}`) })}
+            : isAppleHealth
+              ? t('appleHealth.description', { hint: t('exportHints.appleHealth') })
+              : t('appDescription', { app: meta.label, hint: t(`exportHints.${meta.exportHint}`) })}
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -413,6 +428,7 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
                 <SelectItem value="TCX">{t('file', { format: 'TCX' })}</SelectItem>
                 <SelectItem value="GPX">{t('file', { format: 'GPX' })}</SelectItem>
                 <SelectItem value="FIT">{t('file', { format: 'FIT' })}</SelectItem>
+                <SelectItem value="APPLE_HEALTH">Apple Health</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -430,26 +446,32 @@ export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: Distance
               </Select>
             </div>
           )}
-          <Button variant="outline" onClick={pickFile} disabled={busy} className="min-h-tap">
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
-            <span className="ml-2">
-              {isFit
-                ? t('chooseFitFiles')
-                : isCardioActivity
-                  ? t('chooseFile', { kind: meta.fileKind })
-                  : t('chooseFile', { kind: `${meta.label} ${meta.fileKind}` })}
-            </span>
-          </Button>
+          {!isAppleHealth && (
+            <Button variant="outline" onClick={pickFile} disabled={busy} className="min-h-tap">
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
+              <span className="ml-2">
+                {isFit
+                  ? t('chooseFitFiles')
+                  : isCardioActivity
+                    ? t('chooseFile', { kind: meta.fileKind })
+                    : t('chooseFile', { kind: `${meta.label} ${meta.fileKind}` })}
+              </span>
+            </Button>
+          )}
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept={meta.accept}
-          // FIT supports importing a batch of activities at once (issue #253).
-          multiple={isFit}
-          className="hidden"
-          onChange={onFilePicked}
-        />
+        {isAppleHealth ? (
+          <AppleHealthImport />
+        ) : (
+          <input
+            ref={fileRef}
+            type="file"
+            accept={meta.accept}
+            // FIT supports importing a batch of activities at once (issue #253).
+            multiple={isFit}
+            className="hidden"
+            onChange={onFilePicked}
+          />
+        )}
 
         {fitBatch && (
           <div className="rounded-md border p-3 text-sm" data-testid="import-preview">

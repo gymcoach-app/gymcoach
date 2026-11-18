@@ -174,6 +174,39 @@ export const settings = {
       tcx: 'exporteer de activiteit als TCX vanuit je horlogeplatform (Garmin Connect, Polar Flow, ...); deze wordt één cardiotraining met duur, afstand en hartslag',
       gpx: 'exporteer de route als GPX vanuit Strava, Komoot of Apple Fitness; deze wordt één cardiotraining met duur, afstand en hartslag',
       fit: 'exporteer de activiteit als FIT-bestand vanaf je Garmin-horloge (of een ander horloge); deze wordt één cardiotraining met duur, afstand en hartslag',
+      appleHealth:
+        'tik in de Gezondheid-app op je profielfoto, dan op Exporteer alle gezondheidsgegevens, en kies het export.zip-bestand dat wordt gemaakt (of de export.xml daarin)',
+    },
+    appleHealth: {
+      description:
+        'Haal je cardiotrainingen uit Apple Gezondheid: {hint}. Bekijk hier het voorbeeld en bevestig daarna.',
+      chooseFile: 'Kies export.zip',
+      privacy:
+        'De export wordt op dit apparaat gelezen, hoe groot hij ook is: alleen samenvattingen van trainingen (soort, datum, duur, afstand, hartslag) gaan naar je GymCoach-server. Krachttrainingen worden overgeslagen en trainingen die al in je geschiedenis staan, worden niet dubbel geïmporteerd.',
+      reading: 'Export lezen: {read} van {total} MB',
+      sending: 'Deel {done} van {total} verzenden',
+      waiting: 'Importlimiet bereikt, verder over {seconds} s',
+      nothingFound: 'Geen training of lichaamsgewicht gevonden in dit bestand.',
+      noExportXml:
+        'Dit archief bevat geen export.xml. Kies de export.zip die de Gezondheid-app heeft gemaakt.',
+      unreadable: 'Dit bestand kon niet worden gelezen.',
+      workouts:
+        '{count, plural, one {# cardiotraining} other {# cardiotrainingen}} om te importeren',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {# training die al in je geschiedenis staat, wordt overgeslagen} other {# trainingen die al in je geschiedenis staan, worden overgeslagen}}',
+      strengthSkipped:
+        '{count, plural, one {# krachttraining wordt overgeslagen} other {# krachttrainingen worden overgeslagen}}',
+      invalidSkipped:
+        '{count, plural, one {# training zonder bruikbare datum of duur wordt overgeslagen} other {# trainingen zonder bruikbare datum of duur worden overgeslagen}}',
+      conflicts:
+        '{count, plural, one {# training kan niet worden geïmporteerd} other {# trainingen kunnen niet worden geïmporteerd}}: een van je oefeningen die geen cardio is, heeft die naam al',
+      bodyMass:
+        'Ook {count, plural, one {# meting van je lichaamsgewicht} other {# metingen van je lichaamsgewicht}} importeren',
+      bodyMassDuplicates:
+        '{count, plural, one {# meting van je lichaamsgewicht op een dag die al is ingevuld, wordt overgeslagen} other {# metingen van je lichaamsgewicht op dagen die al zijn ingevuld, worden overgeslagen}}',
+      done:
+        '{sessions, plural, one {# training} other {# trainingen}} geïmporteerd{weights, plural, =0 {} one {, # meting van je lichaamsgewicht} other {, # metingen van je lichaamsgewicht}}{skipped, plural, =0 {.} other { (# overgeslagen).}}',
     },
   },
   mcp: {

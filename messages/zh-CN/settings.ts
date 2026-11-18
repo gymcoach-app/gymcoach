@@ -163,6 +163,30 @@ export const settings = {
       tcx: '从运动手表平台（Garmin Connect、Polar Flow 等）导出 TCX 活动文件，将导入为一次包含时长、距离和心率的有氧训练',
       gpx: '从 Strava、Komoot 或 Apple Fitness 导出 GPX 路线文件，将导入为一次包含时长、距离和心率的有氧训练',
       fit: '从 Garmin 或其他运动手表导出 FIT 活动文件，将导入为一次包含时长、距离和心率的有氧训练',
+      appleHealth:
+        '在“健康”App 中轻点头像，再轻点“导出所有健康数据”，然后选择生成的 export.zip（或其中的 export.xml）',
+    },
+    appleHealth: {
+      description: '从 Apple 健康导入有氧训练：{hint}。先在此预览，再确认导入。',
+      chooseFile: '选择 export.zip',
+      privacy:
+        '无论导出文件有多大，都只在本设备上读取：发送到你的 GymCoach 服务器的只有训练摘要（类型、日期、时长、距离、心率）。力量训练会被跳过，训练历史中已有的训练不会重复导入。',
+      reading: '正在读取导出文件：{read} / {total} MB',
+      sending: '正在发送第 {done} 批，共 {total} 批',
+      waiting: '已达到导入频率上限，{seconds} 秒后继续',
+      nothingFound: '此文件中没有训练或体重记录。',
+      noExportXml: '此压缩包中没有 export.xml。请选择“健康”App 生成的 export.zip。',
+      unreadable: '无法读取此文件。',
+      workouts: '{count, plural, other {将导入 # 次有氧训练}}',
+      byType: '{name}：{count}',
+      duplicates: '{count, plural, other {将跳过 # 次训练历史中已有的训练}}',
+      strengthSkipped: '{count, plural, other {将跳过 # 次力量训练}}',
+      invalidSkipped: '{count, plural, other {将跳过 # 次缺少有效日期或时长的训练}}',
+      conflicts: '{count, plural, other {# 次训练无法导入}}：你已有同名的非有氧动作',
+      bodyMass: '{count, plural, other {同时导入 # 条体重记录}}',
+      bodyMassDuplicates: '{count, plural, other {将跳过 # 条所在日期已有记录的体重记录}}',
+      done:
+        '已导入 {sessions, plural, other {# 次训练}}{weights, plural, =0 {} other {，# 条体重记录}}{skipped, plural, =0 {。} other {（跳过 # 条）。}}',
     },
   },
   mcp: {

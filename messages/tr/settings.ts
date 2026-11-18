@@ -172,6 +172,39 @@ export const settings = {
       tcx: 'etkinliği saat platformundan (Garmin Connect, Polar Flow, ...) TCX olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
       gpx: 'rotayı Strava, Komoot veya Apple Fitness üzerinden GPX olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
       fit: 'etkinliği Garmin (veya başka bir marka) saatinden FIT dosyası olarak dışa aktar; süre, mesafe ve kalp atış hızı içeren tek bir kardiyo seansına dönüştürülür',
+      appleHealth:
+        'Sağlık uygulamasında profil resminize, ardından Tüm Sağlık Verilerini Dışa Aktar’a dokunun ve oluşturulan export.zip dosyasını (veya içindeki export.xml dosyasını) seçin',
+    },
+    appleHealth: {
+      description:
+        'Kardiyo antrenmanlarınızı Apple Sağlık’tan getirin: {hint}. Önizlemeyi burada kontrol edin, sonra onaylayın.',
+      chooseFile: 'export.zip seç',
+      privacy:
+        'Dışa aktarım, boyutu ne olursa olsun bu cihazda okunur: GymCoach sunucunuza yalnızca antrenman özetleri (tür, tarih, süre, mesafe, nabız) gönderilir. Kuvvet antrenmanları atlanır ve geçmişinizde zaten bulunan antrenmanlar ikinci kez içe aktarılmaz.',
+      reading: 'Dışa aktarım okunuyor: {read} / {total} MB',
+      sending: 'Paket gönderiliyor: {done} / {total}',
+      waiting: 'İçe aktarma sınırına ulaşıldı, {seconds} sn sonra devam edilecek',
+      nothingFound: 'Bu dosyada antrenman veya vücut ağırlığı kaydı bulunamadı.',
+      noExportXml:
+        'Bu arşivde export.xml yok. Sağlık uygulamasının oluşturduğu export.zip dosyasını seçin.',
+      unreadable: 'Bu dosya okunamadı.',
+      workouts:
+        '{count, plural, one {# kardiyo antrenmanı içe aktarılacak} other {# kardiyo antrenmanı içe aktarılacak}}',
+      byType: '{name}: {count}',
+      duplicates:
+        '{count, plural, one {Geçmişinizde zaten bulunan # antrenman atlanacak} other {Geçmişinizde zaten bulunan # antrenman atlanacak}}',
+      strengthSkipped:
+        '{count, plural, one {# kuvvet antrenmanı atlanacak} other {# kuvvet antrenmanı atlanacak}}',
+      invalidSkipped:
+        '{count, plural, one {Kullanılabilir tarihi veya süresi olmayan # antrenman atlanacak} other {Kullanılabilir tarihi veya süresi olmayan # antrenman atlanacak}}',
+      conflicts:
+        '{count, plural, one {# antrenman içe aktarılamıyor} other {# antrenman içe aktarılamıyor}}: kardiyo olmayan egzersizlerinizden biri zaten bu adı taşıyor',
+      bodyMass:
+        '{count, plural, one {# vücut ağırlığı kaydını da içe aktar} other {# vücut ağırlığı kaydını da içe aktar}}',
+      bodyMassDuplicates:
+        '{count, plural, one {Zaten kayıt bulunan bir güne ait # vücut ağırlığı kaydı atlanacak} other {Zaten kayıt bulunan günlere ait # vücut ağırlığı kaydı atlanacak}}',
+      done:
+        'İçe aktarıldı: {sessions, plural, one {# antrenman} other {# antrenman}}{weights, plural, =0 {} one {, # vücut ağırlığı kaydı} other {, # vücut ağırlığı kaydı}}{skipped, plural, =0 {.} other { (# atlandı).}}',
     },
   },
   mcp: {
