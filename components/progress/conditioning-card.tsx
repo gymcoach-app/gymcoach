@@ -55,7 +55,8 @@ export function ConditioningCard({ weeks, distanceUnit = 'km' }: Props) {
   const current = weeks[weeks.length - 1];
   const totalMinutes = weeks.reduce((acc, w) => acc + w.minutes, 0);
   // A weekly distance in the user's unit; kilometers pass through unchanged.
-  const inUnit = (km: number) => (distanceUnit === 'km' ? km : distanceInUnit(km * 1000, distanceUnit));
+  const inUnit = (km: number) =>
+    distanceUnit === 'km' ? km : distanceInUnit(km * 1000, distanceUnit);
   const unitText = distanceUnitLabel(distanceUnit, locale);
   const totalKm = +weeks.reduce((acc, w) => acc + w.distanceKm, 0).toFixed(2);
   const totalDistance = inUnit(totalKm);
@@ -97,7 +98,8 @@ export function ConditioningCard({ weeks, distanceUnit = 'km' }: Props) {
                   const p = payload?.[0]?.payload as ConditioningWeekView | undefined;
                   if (!p) return label;
                   const extras = [
-                    p.distanceKm > 0 ? `${inUnit(p.distanceKm)} ${unitText}` : null,
+                    // The unit symbol itself, as formatDistance writes it.
+                    p.distanceKm > 0 ? `${inUnit(p.distanceKm)} ${distanceUnit}` : null,
                     common('counts.sessions', { count: p.sessions }),
                   ]
                     .filter(Boolean)
