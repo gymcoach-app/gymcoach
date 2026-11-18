@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { formatCardioSet } from '@/lib/cardio';
+import { formatCardioSet, type DistanceUnit } from '@/lib/cardio';
 import { FIT_MAX_BATCH } from '@/lib/schemas/import';
 import {
   Select,
@@ -177,7 +177,8 @@ const FORMAT_META: Record<
 // CSV import from another tracker (issues #100/#113): pick the source app and
 // the export file, dry-run preview (counts + per-line errors, nothing
 // written), then explicitly confirm.
-export function ImportSection() {
+// `distanceUnit`: the unit the activity previews read in (issue #582).
+export function ImportSection({ distanceUnit = 'km' }: { distanceUnit?: DistanceUnit } = {}) {
   const locale = useLocale();
   const t = useTranslations('settings.imports');
   const common = useTranslations('common');
@@ -470,7 +471,7 @@ export function ImportSection() {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}{' '}
-                    · {formatCardioSet(a.durationSec!, a.distanceM ?? null)}
+                    · {formatCardioSet(a.durationSec!, a.distanceM ?? null, distanceUnit)}
                     {a.avgHr != null ? ` · avg HR ${a.avgHr} bpm` : ''}
                     {a.maxHr != null ? ` · max HR ${a.maxHr} bpm` : ''} logged as{' '}
                     {exerciseName(a.exerciseName ?? '')}
@@ -524,7 +525,7 @@ export function ImportSection() {
                 })}
               </li>
               <li>
-                {formatCardioSet(tcxPreview.durationSec, tcxPreview.distanceM)}
+                {formatCardioSet(tcxPreview.durationSec, tcxPreview.distanceM, distanceUnit)}
                 {tcxPreview.avgHr != null ? ` · avg HR ${tcxPreview.avgHr} bpm` : ''}
                 {tcxPreview.maxHr != null ? ` · max HR ${tcxPreview.maxHr} bpm` : ''}{' '}
                 {t('loggedAs', { name: exerciseName(tcxPreview.exerciseName) })}

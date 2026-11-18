@@ -103,7 +103,7 @@ export const progress = {
     description:
       'Minuti settimanali di cardio rispetto alla raccomandazione di {target} min/settimana. Distanza e sessioni compaiono nel tooltip.',
     summary:
-      'Questa settimana: {minutes} min{distance, select, none {} other { · {distance} km}}{current, select, none {} other { · {sessions, plural, one {# sessione} other {# sessioni}}}} · Totale ({weeks} sett.): {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} km}}.',
+      'Questa settimana: {minutes} min{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# sessione} other {# sessioni}}}} · Totale ({weeks} sett.): {totalMinutes} min{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Settimana di scarico in corso',

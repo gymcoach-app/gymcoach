@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { aiErrorMessage, type AiErrorFields } from '@/lib/ai-error-message';
 import { Check, Minus, Plus } from 'lucide-react';
 import type { Exercise, ProgramExercise, WeightUnit } from '@/lib/prisma-client';
@@ -19,8 +19,20 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { suggestNextWeight, weightIncrement, type ReadinessSignal } from '@/lib/progression';
-import { formatDuration, MAX_DISTANCE_M, parseDurationToSec } from '@/lib/cardio';
-import { cardioTargetLoggerInputs } from '@/lib/cardio-target';
+import {
+  distanceToM,
+  formatDuration,
+  MAX_DISTANCE_M,
+  parseDurationToSec,
+  type DistanceUnit,
+} from '@/lib/cardio';
+import {
+  cardioTargetLoggerInputs,
+  distanceMToInput,
+  distanceUnitLabel,
+  maxTargetDistance,
+} from '@/lib/cardio-target';
+import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 import { parseSetShorthand, rpeToRir } from '@/lib/set-shorthand';
 import type { SetParseResult } from '@/lib/schemas/set-parse';
 import { effortOptions, effortTone, effortValue, formatEffort, type EffortTone } from '@/lib/effort';
@@ -67,7 +79,8 @@ interface FormState {
   reps: number;
   rir: number | null;
   // Cardio inputs (issue #133), kept as raw strings while typing: duration as
-  // "mm:ss" (or plain minutes) and distance in km. Empty on strength exercises.
+  // "mm:ss" (or plain minutes) and distance in the user's distance unit
+  // (issue #582). Empty on strength exercises.
   durationInput: string;
   distanceInput: string;
   isWarmup: boolean;
@@ -107,6 +120,10 @@ export function SetInput({
   const autoT = useTranslations('session.autoregulation');
   const common = useTranslations('common');
   const effortScale = useEffortScale();
+  const locale = useLocale();
+  // Cardio distance is typed and shown in the user's unit (issue #582); the
+  // set is stored in meters whatever the unit.
+  const distanceUnit = useDistanceUnit();
   // Pre-fill: last set of this exercise in the current session,
   // otherwise the last performance, otherwise defaults.
   const initial = computeInitial(
@@ -118,6 +135,7 @@ export function SetInput({
     recommendation,
     returnRecommendation,
     loadConstraints,
+    distanceUnit,
   );
   const [form, setForm] = useState<FormState>(initial);
   const [submitting, setSubmitting] = useState(false);
@@ -128,6 +146,9 @@ export function SetInput({
   const [aiText, setAiText] = useState('');
   const [aiParsing, setAiParsing] = useState(false);
   const [aiHint, setAiHint] = useState<string | null>(null);
+  // Meters of the last AI-parsed cardio distance: the field shows it rounded
+  // in the user's unit, and logging it untouched stores these exact meters.
+  const [parsedDistanceM, setParsedDistanceM] = useState<number | null>(null);
   const [gymEquipmentId, setGymEquipmentId] = useState('');
 
   // Re-init when the exercise changes or a set changes. exerciseId is part of
@@ -143,11 +164,13 @@ export function SetInput({
         recommendation,
         returnRecommendation,
         loadConstraints,
+        distanceUnit,
       ),
     );
     setQuickEntry('');
     setAiText('');
     setAiHint(null);
+    setParsedDistanceM(null);
     const recentEquipmentId = existingSets.at(-1)?.gymEquipmentId ?? '';
     setGymEquipmentId(
       equipmentOptions.some((equipment) => equipment.id === recentEquipmentId)
@@ -243,11 +266,9 @@ export function SetInput({
         setForm((f) => ({
           ...f,
           durationInput: formatDuration(parsed.durationSec),
-          distanceInput:
-            parsed.distanceM != null && parsed.distanceM > 0
-              ? String(+(parsed.distanceM / 1000).toFixed(2))
-              : '',
+          distanceInput: distanceMToInput(parsed.distanceM, distanceUnit),
         }));
+        setParsedDistanceM(parsed.distanceM ?? null);
       } else {
         if (isCardio) {
           setAiHint(t('parseError'));
@@ -279,11 +300,25 @@ export function SetInput({
   const isCardio = programExercise.exercise.category === 'CARDIO';
   const durationSec = parseDurationToSec(form.durationInput);
   const durationInvalid = form.durationInput.trim() !== '' && durationSec === null;
-  const distanceKm = parseFloat(form.distanceInput);
+  const distanceValue = parseFloat(form.distanceInput);
   const hasDistance = form.distanceInput.trim() !== '';
+  // Typed distance to meters, converted once. A field still showing the value
+  // it was filled from (the previous set, the row's target, an AI parse) keeps
+  // those stored meters, so logging a prefilled distance never drifts.
+  const distanceM =
+    hasDistance && Number.isFinite(distanceValue) && distanceValue > 0
+      ? distanceToM(distanceValue, distanceUnit, [
+          ...existingSets.map((s) => s.distanceM),
+          programExercise.targetDistanceM,
+          parsedDistanceM,
+        ])
+      : null;
   const distanceInvalid =
     hasDistance &&
-    (!Number.isFinite(distanceKm) || distanceKm < 0 || distanceKm * 1000 > MAX_DISTANCE_M);
+    (!Number.isFinite(distanceValue) ||
+      distanceValue < 0 ||
+      (distanceM != null && distanceM > MAX_DISTANCE_M));
+  const distanceUnitText = distanceUnitLabel(distanceUnit, locale);
   const cardioInvalid = isCardio && (durationSec === null || distanceInvalid);
 
   async function handleValidate() {
@@ -296,7 +331,7 @@ export function SetInput({
             reps: 1,
             rir: null,
             durationSec: durationSec!,
-            distanceM: hasDistance && distanceKm > 0 ? Math.round(distanceKm * 1000) : null,
+            distanceM,
             isWarmup: false,
             isDropSet: false,
             notes: form.notes.trim() || null,
@@ -436,7 +471,7 @@ export function SetInput({
                 htmlFor="cardio-distance"
                 className="text-xs uppercase tracking-wide text-muted-foreground"
               >
-                {t('distance')}
+                {t('distance', { unit: distanceUnitText })}
               </Label>
               <Input
                 id="cardio-distance"
@@ -451,7 +486,12 @@ export function SetInput({
                 className="h-14 text-center text-2xl font-semibold"
               />
               {distanceInvalid && (
-                <p className="text-xs text-muted-foreground">{t('distanceError')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('distanceError', {
+                    max: String(maxTargetDistance(distanceUnit)),
+                    unit: distanceUnitText,
+                  })}
+                </p>
               )}
             </div>
           </>
@@ -665,6 +705,7 @@ function computeInitial(
   recommendation: IntraSetRecommendation | null = null,
   returnRecommendation: ReturnRecommendation | null = null,
   loadConstraints: GymLoadConstraints | null = null,
+  distanceUnit: DistanceUnit = 'km',
 ): FormState {
   // Cardio exercises (issue #133): prefill the duration/distance from the
   // last cardio set of this session, otherwise from the workout row's cardio
@@ -673,7 +714,7 @@ function computeInitial(
   // strength-only.
   if (pe.exercise.category === 'CARDIO') {
     const lastCardio = existingSets.filter((s) => s.durationSec != null).at(-1);
-    const fromTarget = cardioTargetLoggerInputs(pe);
+    const fromTarget = cardioTargetLoggerInputs(pe, distanceUnit);
     return {
       weight: 0,
       reps: 1,
@@ -683,9 +724,7 @@ function computeInitial(
           ? formatDuration(lastCardio.durationSec)
           : fromTarget.durationInput,
       distanceInput: lastCardio
-        ? lastCardio.distanceM != null && lastCardio.distanceM > 0
-          ? String(+(lastCardio.distanceM / 1000).toFixed(2))
-          : ''
+        ? distanceMToInput(lastCardio.distanceM, distanceUnit)
         : fromTarget.distanceInput,
       isWarmup: false,
       isDropSet: false,

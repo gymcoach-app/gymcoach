@@ -65,6 +65,8 @@ async function seedFullUser(email: string) {
       goal: 'HYPERTROPHY',
       weeklyFrequency: 4,
       unit: 'LB',
+      // An explicit choice that differs from what the weight unit would give.
+      distanceUnit: 'KM',
       effortScale: 'RPE',
       deloadUntil: new Date('2026-07-05T00:00:00.000Z'),
     },
@@ -323,7 +325,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(13);
+    expect(dump.version).toBe(14);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -333,6 +335,8 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
       goal: 'HYPERTROPHY',
       weeklyFrequency: 4,
       unit: 'LB',
+      // v14 (issue #582): the distance unit preference rides along.
+      distanceUnit: 'KM',
       // v9 (issue #390): the effort scale preference rides along.
       effortScale: 'RPE',
       deloadUntil: '2026-07-05T00:00:00.000Z',
@@ -510,6 +514,7 @@ describe('POST /api/backup - restore round trip (issue #168)', () => {
     const profileB = await db.user.findUnique({ where: { id: userB.id } });
     expect(profileB?.displayName).toBe('Julien');
     expect(profileB?.unit).toBe('LB');
+    expect(profileB?.distanceUnit).toBe('KM');
     expect(profileB?.effortScale).toBe('RPE');
     expect(profileB?.bodyweightGoalKg).toBe(78);
     expect(profileB?.deloadUntil?.toISOString()).toBe('2026-07-05T00:00:00.000Z');
@@ -774,7 +779,7 @@ describe('POST /api/backup - malformed and oversized input (issue #168)', () => 
     await db.set.update({ where: { id: set.id }, data: { watchAvgHr: 131, watchMaxHr: 152 } });
     actAs(user.id);
     const dump = await (await getBackup()).json();
-    expect(dump.version).toBe(13);
+    expect(dump.version).toBe(14);
     const exportedSets = dump.sessions.flatMap(
       (s: { sets: Array<{ watchAvgHr: number | null; watchMaxHr: number | null }> }) => s.sets,
     );
@@ -880,6 +885,64 @@ describe('POST /api/backup - malformed and oversized input (issue #168)', () => 
       expect(res.status).toBe(400);
     }
     expect(await countsFor(user.id)).toEqual(before);
+  });
+
+  it('keeps the account distance unit when a version 13 backup has none (issue #582)', async () => {
+    // seedFullUser sets KM on a pounds account, so a restore that cleared the
+    // column (automatic: miles) instead of leaving it alone would show here.
+    const user = await seedFullUser('v13-distance@test.dev');
+    actAs(user.id);
+    const dump = await (await getBackup()).json();
+
+    dump.version = 13;
+    delete dump.profile.distanceUnit;
+    dump.profile.displayName = 'Restored From V13';
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+
+    const after = await db.user.findUnique({ where: { id: user.id } });
+    expect(after?.distanceUnit).toBe('KM');
+    expect(after?.displayName).toBe('Restored From V13');
+  });
+
+  it('restores an automatic distance unit as automatic (issue #582)', async () => {
+    const source = await seedFullUser('auto-distance-a@test.dev');
+    await db.user.update({ where: { id: source.id }, data: { distanceUnit: null } });
+    actAs(source.id);
+    const dump = await (await getBackup()).json();
+    expect(dump.profile.distanceUnit).toBeNull();
+
+    // The importing account had an explicit unit: the backup's null wins.
+    const target = await db.user.create({
+      data: { email: 'auto-distance-b@test.dev', passwordHash: 'x', distanceUnit: 'MI' },
+    });
+    actAs(target.id);
+    const res = await postBackup(jsonReq({ payload: dump, confirmReplace: true }));
+    expect(res.status).toBe(200);
+    const after = await db.user.findUnique({ where: { id: target.id } });
+    expect(after?.distanceUnit).toBeNull();
+    // The source account is untouched by another account's import.
+    const sourceAfter = await db.user.findUnique({ where: { id: source.id } });
+    expect(sourceAfter?.distanceUnit).toBeNull();
+    expect(sourceAfter?.unit).toBe('LB');
+  });
+
+  it('rejects an unknown distance unit without touching existing data (issue #582)', async () => {
+    const user = await seedFullUser('victim-distance@test.dev');
+    actAs(user.id);
+    const before = await countsFor(user.id);
+    const dump = await (await getBackup()).json();
+
+    for (const bad of ['mi', 'MILES', 5]) {
+      const payload = structuredClone(dump);
+      payload.profile.distanceUnit = bad;
+      const res = await postBackup(jsonReq({ payload, confirmReplace: true }));
+      expect(res.status).toBe(400);
+    }
+
+    expect(await countsFor(user.id)).toEqual(before);
+    const after = await db.user.findUnique({ where: { id: user.id } });
+    expect(after?.distanceUnit).toBe('KM');
   });
 
   it('rejects an unknown effort scale without touching existing data (issue #390)', async () => {

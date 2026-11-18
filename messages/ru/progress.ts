@@ -104,7 +104,7 @@ export const progress = {
     description:
       'Минуты кардио в неделю относительно ориентира {target} мин/нед. Дистанция и тренировки показаны во всплывающей подсказке.',
     summary:
-      'На этой неделе: {minutes} мин{distance, select, none {} other { · {distance} км}}{current, select, none {} other { · {sessions, plural, one {# тренировка} few {# тренировки} many {# тренировок} other {# тренировки}}}} · Итого за {weeks} нед.: {totalMinutes} мин{totalDistance, select, none {} other {, {totalDistance} км}}.',
+      'На этой неделе: {minutes} мин{distance, select, none {} other { · {distance} {unit}}}{current, select, none {} other { · {sessions, plural, one {# тренировка} few {# тренировки} many {# тренировок} other {# тренировки}}}} · Итого за {weeks} нед.: {totalMinutes} мин{totalDistance, select, none {} other {, {totalDistance} {unit}}}.',
   },
   deload: {
     activeTitle: 'Идёт неделя разгрузки',

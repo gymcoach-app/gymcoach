@@ -14,7 +14,8 @@ import {
   type ReadinessSignal,
 } from '@/lib/progression';
 import { formatWeight } from '@/lib/units';
-import { formatCardioSet } from '@/lib/cardio';
+import { formatCardioSet, type DistanceUnit } from '@/lib/cardio';
+import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 import { formatEffort } from '@/lib/effort';
 import { useEffortScale } from '@/components/shared/effort-scale-provider';
 import type { SerializedLastPerformance } from './session-runner';
@@ -27,8 +28,11 @@ import { formatCardioTarget } from '@/lib/cardio-target';
 // distance via the shared cardio formatter, with average heart rate appended
 // when the previous session recorded one. Distance and bpm are simply omitted
 // when absent, so a duration-only cardio set shows just the duration.
-function cardioLastLine(cardio: NonNullable<SerializedLastPerformance['cardio']>): string {
-  const base = formatCardioSet(cardio.durationSec, cardio.distanceM);
+function cardioLastLine(
+  cardio: NonNullable<SerializedLastPerformance['cardio']>,
+  distanceUnit: DistanceUnit,
+): string {
+  const base = formatCardioSet(cardio.durationSec, cardio.distanceM, distanceUnit);
   return cardio.avgHr != null ? `${base} · ${cardio.avgHr} bpm` : base;
 }
 
@@ -86,7 +90,10 @@ export function ExerciseCard({
   const isCardio = exo.category === 'CARDIO';
   // Cardio target of the workout row (issue #558): shown instead of the set
   // count when the program prescribes a duration (and distance).
-  const cardioTarget = isCardio ? formatCardioTarget(programExercise, { locale }) : null;
+  const distanceUnit = useDistanceUnit();
+  const cardioTarget = isCardio
+    ? formatCardioTarget(programExercise, { locale, distanceUnit })
+    : null;
 
   const repsLabel =
     programExercise.targetRepsMin === programExercise.targetRepsMax
@@ -244,7 +251,7 @@ export function ExerciseCard({
             </div>
             <p className="font-medium">
               {isCardio && lastPerformance.cardio
-                ? cardioLastLine(lastPerformance.cardio)
+                ? cardioLastLine(lastPerformance.cardio, distanceUnit)
                 : lastPerformance.maxWeight === 0
                   ? t('bodyweightReps', { reps: lastPerformance.repsAtMaxWeight })
                   : t('weightedReps', {

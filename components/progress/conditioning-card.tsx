@@ -1,7 +1,7 @@
 'use client';
 
 import { HeartPulse } from 'lucide-react';
-import { useFormatter, useTranslations } from 'next-intl';
+import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import {
   Bar,
   BarChart,
@@ -13,6 +13,8 @@ import {
   YAxis,
 } from 'recharts';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { distanceInUnit, type DistanceUnit } from '@/lib/cardio';
+import { distanceUnitLabel } from '@/lib/cardio-target';
 import { WEEKLY_CONDITIONING_TARGET_MIN } from '@/lib/stats';
 
 // One weekly conditioning point, serialized at the Server Component boundary.
@@ -27,13 +29,17 @@ export interface ConditioningWeekView {
 interface Props {
   // Zero-filled window, oldest first (lib/stats weeklyConditioning).
   weeks: ConditioningWeekView[];
+  // Unit the distances read in (issue #582). The weekly totals arrive in
+  // kilometers and are converted here. Default: kilometers.
+  distanceUnit?: DistanceUnit;
 }
 
 // Conditioning card (issue #135, display-only): weekly cardio minutes as bars
 // against the WHO 150 min/week reference line, with distance and session
 // count as secondary labels. The parent hides the card entirely while the
 // user has never logged a cardio set.
-export function ConditioningCard({ weeks }: Props) {
+export function ConditioningCard({ weeks, distanceUnit = 'km' }: Props) {
+  const locale = useLocale();
   const t = useTranslations('progress.conditioning');
   const history = useTranslations('history');
   const common = useTranslations('common');
@@ -48,7 +54,11 @@ export function ConditioningCard({ weeks }: Props) {
   }));
   const current = weeks[weeks.length - 1];
   const totalMinutes = weeks.reduce((acc, w) => acc + w.minutes, 0);
+  // A weekly distance in the user's unit; kilometers pass through unchanged.
+  const inUnit = (km: number) => (distanceUnit === 'km' ? km : distanceInUnit(km * 1000, distanceUnit));
+  const unitText = distanceUnitLabel(distanceUnit, locale);
   const totalKm = +weeks.reduce((acc, w) => acc + w.distanceKm, 0).toFixed(2);
+  const totalDistance = inUnit(totalKm);
 
   return (
     <Card>
@@ -87,7 +97,7 @@ export function ConditioningCard({ weeks }: Props) {
                   const p = payload?.[0]?.payload as ConditioningWeekView | undefined;
                   if (!p) return label;
                   const extras = [
-                    p.distanceKm > 0 ? `${p.distanceKm} km` : null,
+                    p.distanceKm > 0 ? `${inUnit(p.distanceKm)} ${unitText}` : null,
                     common('counts.sessions', { count: p.sessions }),
                   ]
                     .filter(Boolean)
@@ -113,12 +123,14 @@ export function ConditioningCard({ weeks }: Props) {
         <p className="mt-2 text-xs text-muted-foreground">
           {t('summary', {
             minutes: current?.minutes ?? 0,
-            distance: current && current.distanceKm > 0 ? String(current.distanceKm) : 'none',
+            distance:
+              current && current.distanceKm > 0 ? String(inUnit(current.distanceKm)) : 'none',
+            unit: unitText,
             current: current ? 'present' : 'none',
             sessions: current?.sessions ?? 0,
             weeks: weeks.length,
             totalMinutes,
-            totalDistance: totalKm > 0 ? String(totalKm) : 'none',
+            totalDistance: totalKm > 0 ? String(totalDistance) : 'none',
           })}
         </p>
       </CardContent>
