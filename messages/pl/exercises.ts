@@ -77,14 +77,14 @@ export const exercises = {
     title: 'Filtry',
     muscles: '{count, plural, =0 {Mięśnie} other {Mięśnie (#)}}',
     muscleListLabel: 'Filtruj według grupy mięśniowej',
-    muscleHint:
-      'Dotknij mięśnia na sylwetce albo wybierz go z listy. Cardio i ćwiczenia bez kategorii są w grupie Inne.',
+    muscleHint: 'Dotknij mięśnia na sylwetce albo wybierz go z listy.',
+    otherHint: 'Cardio i ćwiczenia bez kategorii są w grupie Inne.',
     gymOnly: 'Tylko to, co ma moja siłownia',
     gymSelect: 'Siłownia',
     gymRule:
-      'Porównano ze sprzętem zapisanym dla {gym}. Ćwiczenia z masą ciała i ćwiczenia bez określonego typu sprzętu pozostają na liście.',
+      'Porównano ze sprzętem zapisanym dla {gym}. Ćwiczenia z hantlami i ze sztangą są ukrywane, gdy siłownia nie ma takich obciążeń, podobnie jak każde ćwiczenie oznaczone w tej siłowni jako niedostępne. Ćwiczenia z masą ciała, na maszynach, na wyciągu i cardio oraz ćwiczenia bez określonego typu sprzętu pozostają na liście.',
     gymEmpty:
-      'Dla {gym} nie zapisano jeszcze żadnego sprzętu, dlatego widać tylko ćwiczenia z masą ciała i ćwiczenia bez określonego typu sprzętu.',
+      'Dla {gym} nie zapisano jeszcze żadnego sprzętu, dlatego ćwiczenia z hantlami i ze sztangą są ukryte, podobnie jak każde ćwiczenie oznaczone w tej siłowni jako niedostępne. Ćwiczenia z masą ciała, na maszynach, na wyciągu i cardio oraz ćwiczenia bez określonego typu sprzętu pozostają na liście.',
     noGym: 'Zapisz siłownię i jej sprzęt, aby widzieć tylko ćwiczenia, które możesz tam wykonać.',
     manageGyms: 'Siłownie i sprzęt',
     clear: 'Wyczyść filtry',

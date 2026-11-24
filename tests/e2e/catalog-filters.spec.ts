@@ -6,7 +6,7 @@ test.use({ extraHTTPHeaders: { 'x-forwarded-for': '10.111.4.2' } });
 
 // Catalog filters (issue #402): tap a muscle on the body silhouette and keep
 // only what a saved gym has, both combined with the search. The gym and the
-// three exercises are seeded through the authenticated API; the page then
+// four exercises are seeded through the authenticated API; the page then
 // reads the real gym rows, which the component tests cannot cover.
 
 async function createExercise(
@@ -38,6 +38,11 @@ test('a lifter narrows the catalog by muscle and by gym equipment', async ({ pag
     equipmentType: 'DUMBBELL',
   });
   await createExercise(page, {
+    name: 'Filter Machine Chest',
+    muscleGroup: 'CHEST',
+    equipmentType: 'MACHINE',
+  });
+  await createExercise(page, {
     name: 'Filter Bell Legs',
     muscleGroup: 'QUADS',
     equipmentType: 'DUMBBELL',
@@ -45,6 +50,7 @@ test('a lifter narrows the catalog by muscle and by gym equipment', async ({ pag
 
   const barChest = page.getByText('Filter Bar Chest', { exact: true });
   const bellChest = page.getByText('Filter Bell Chest', { exact: true });
+  const machineChest = page.getByText('Filter Machine Chest', { exact: true });
   const bellLegs = page.getByText('Filter Bell Legs', { exact: true });
 
   // Without a saved gym the equipment filter points to the settings.
@@ -53,7 +59,8 @@ test('a lifter narrows the catalog by muscle and by gym equipment', async ({ pag
   await expect(page.getByRole('switch', { name: 'Only what my gym has' })).toHaveCount(0);
   await expect(page.getByText(/Save a gym and its equipment/)).toBeVisible();
 
-  // A home gym with dumbbells only.
+  // A home gym with dumbbells only, saved the way the settings screen does:
+  // free weights, no equipment item.
   const gymRes = await page.request.post('/api/gyms', {
     data: { name: 'Garage', dumbbellWeights: [5, 10, 15], makeActive: true },
   });
@@ -71,10 +78,12 @@ test('a lifter narrows the catalog by muscle and by gym equipment', async ({ pag
   await expect(bellChest).toBeVisible();
   await expect(bellLegs).toHaveCount(0);
 
-  // Gym: the barbell exercise goes, and the rule is stated.
+  // Gym: the barbell exercise goes, the machine one stays (a saved gym has
+  // no list of machines to be absent from), and the rule is stated.
   await page.getByRole('switch', { name: 'Only what my gym has' }).click();
   await expect(page.getByText(/Checked against the equipment saved for Garage/)).toBeVisible();
   await expect(bellChest).toBeVisible();
+  await expect(machineChest).toBeVisible();
   await expect(barChest).toHaveCount(0);
 
   // Search on top of both, down to nothing, then clear everything.

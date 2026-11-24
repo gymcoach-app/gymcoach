@@ -77,14 +77,14 @@ export const exercises = {
     title: 'Filtres',
     muscles: '{count, plural, =0 {Muscles} other {Muscles (#)}}',
     muscleListLabel: 'Filtrer par groupe musculaire',
-    muscleHint:
-      'Touchez un muscle sur la silhouette ou choisissez-le dans la liste. Le cardio et les exercices non classés sont dans Autre.',
+    muscleHint: 'Touchez un muscle sur la silhouette ou choisissez-le dans la liste.',
+    otherHint: 'Le cardio et les exercices non classés sont dans Autre.',
     gymOnly: 'Seulement ce que ma salle propose',
     gymSelect: 'Salle',
     gymRule:
-      'Comparé au matériel enregistré pour {gym}. Les exercices au poids de corps et ceux sans type de matériel précis restent dans la liste.',
+      'Comparé au matériel enregistré pour {gym}. Les exercices aux haltères et à la barre sont masqués si la salle n’a pas ces charges, tout comme un exercice marqué non disponible dans cette salle. Les exercices au poids de corps, sur machine, à la poulie et de cardio, ainsi que ceux sans type de matériel précis, restent dans la liste.',
     gymEmpty:
-      'Aucun matériel n’est encore enregistré pour {gym} : seuls les exercices au poids de corps et ceux sans type de matériel précis sont affichés.',
+      'Aucun matériel n’est encore enregistré pour {gym} : les exercices aux haltères et à la barre sont donc masqués, tout comme un exercice marqué non disponible dans cette salle. Les exercices au poids de corps, sur machine, à la poulie et de cardio, ainsi que ceux sans type de matériel précis, restent dans la liste.',
     noGym:
       'Enregistrez une salle et son matériel pour n’afficher que les exercices que vous pouvez y faire.',
     manageGyms: 'Salles et matériel',

@@ -59,6 +59,7 @@ export function ExercisesView({
   const [gymOnly, setGymOnly] = useState(false);
   const [gymId, setGymId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const musclesToggleRef = useRef<HTMLButtonElement>(null);
   // Stars toggled on this page before the refreshed list arrives (issue #404),
   // so a starred row moves to the favourites section at once.
   const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
@@ -171,6 +172,18 @@ export function ExercisesView({
     () => new Set(muscleGroups.filter((group) => muscles.has(group))),
     [muscleGroups, muscles],
   );
+  // The selection that stopped applying is also forgotten, so it does not
+  // come back on its own when the group or a gym reappears later.
+  useEffect(() => {
+    setMuscles((current) =>
+      [...current].every((group) => muscleGroups.includes(group))
+        ? current
+        : new Set(muscleGroups.filter((group) => current.has(group))),
+    );
+  }, [muscleGroups]);
+  useEffect(() => {
+    if (filterGym === null) setGymOnly(false);
+  }, [filterGym]);
   const filters = useMemo<CatalogFilters>(
     () => ({ query, muscles: activeMuscles, gym: gymFilterOn ? filterGym : null }),
     [activeMuscles, filterGym, gymFilterOn, query],
@@ -190,8 +203,11 @@ export function ExercisesView({
     setQuery('');
     setMuscles(new Set());
     setGymOnly(false);
-    // The button that was pressed is about to unmount.
-    searchRef.current?.focus();
+    // The button that was pressed is about to unmount, so focus has to land
+    // somewhere. Not in the search box, which would open the keyboard on a
+    // phone, unless that is where the user already is (a tap on a button
+    // leaves focus in the field on some mobile browsers).
+    if (document.activeElement !== searchRef.current) musclesToggleRef.current?.focus();
   }
 
   // Favourites are pinned in their own section at the top and not repeated in
@@ -233,6 +249,7 @@ export function ExercisesView({
         <section aria-label={t('filters.title')} className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Button
+              ref={musclesToggleRef}
               type="button"
               variant="outline"
               onClick={() => setMusclesOpen((open) => !open)}

@@ -76,14 +76,14 @@ export const exercises = {
     title: 'Filter',
     muscles: '{count, plural, =0 {Muskeln} other {Muskeln (#)}}',
     muscleListLabel: 'Nach Muskelgruppe filtern',
-    muscleHint:
-      'Tippe einen Muskel auf der Figur an oder wähle ihn in der Liste. Cardio und nicht zugeordnete Übungen stehen unter Sonstiges.',
+    muscleHint: 'Tippe einen Muskel auf der Figur an oder wähle ihn in der Liste.',
+    otherHint: 'Cardio und nicht zugeordnete Übungen stehen unter Sonstiges.',
     gymOnly: 'Nur was mein Gym hat',
     gymSelect: 'Gym',
     gymRule:
-      'Abgeglichen mit der für {gym} gespeicherten Ausrüstung. Bodyweight-Übungen und Übungen ohne festen Gerätetyp bleiben in der Liste.',
+      'Abgeglichen mit der für {gym} gespeicherten Ausrüstung. Kurzhantel- und Langhantelübungen werden ausgeblendet, wenn das Gym keine solchen Gewichte hat, ebenso jede Übung, die für dieses Gym als nicht verfügbar markiert ist. Bodyweight-, Maschinen-, Kabelzug- und Cardio-Übungen sowie Übungen ohne festen Gerätetyp bleiben in der Liste.',
     gymEmpty:
-      'Für {gym} ist noch keine Ausrüstung gespeichert. Deshalb erscheinen nur Bodyweight-Übungen und Übungen ohne festen Gerätetyp.',
+      'Für {gym} ist noch keine Ausrüstung gespeichert. Deshalb werden Kurzhantel- und Langhantelübungen ausgeblendet, ebenso jede Übung, die für dieses Gym als nicht verfügbar markiert ist. Bodyweight-, Maschinen-, Kabelzug- und Cardio-Übungen sowie Übungen ohne festen Gerätetyp bleiben in der Liste.',
     noGym:
       'Speichere ein Gym mit seiner Ausrüstung, um nur die Übungen zu sehen, die du dort machen kannst.',
     manageGyms: 'Gyms und Ausrüstung',

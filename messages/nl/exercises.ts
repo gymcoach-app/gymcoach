@@ -79,14 +79,14 @@ export const exercises = {
     title: 'Filters',
     muscles: '{count, plural, =0 {Spieren} other {Spieren (#)}}',
     muscleListLabel: 'Filteren op spiergroep',
-    muscleHint:
-      'Tik op een spier in de figuur of kies hem in de lijst. Cardio en niet-ingedeelde oefeningen staan onder Overig.',
+    muscleHint: 'Tik op een spier in de figuur of kies hem in de lijst.',
+    otherHint: 'Cardio en niet-ingedeelde oefeningen staan onder Overig.',
     gymOnly: 'Alleen wat mijn sportschool heeft',
     gymSelect: 'Sportschool',
     gymRule:
-      'Vergeleken met het materiaal dat voor {gym} is opgeslagen. Oefeningen met lichaamsgewicht en oefeningen zonder vast materiaaltype blijven in de lijst.',
+      'Vergeleken met het materiaal dat voor {gym} is opgeslagen. Oefeningen met dumbbells en met een barbell worden verborgen als de sportschool die gewichten niet heeft, net als elke oefening die voor deze sportschool als niet beschikbaar is gemarkeerd. Oefeningen met lichaamsgewicht, op machines, aan de kabel en cardio, en oefeningen zonder vast materiaaltype, blijven in de lijst.',
     gymEmpty:
-      'Voor {gym} is nog geen materiaal opgeslagen. Daarom staan er alleen oefeningen met lichaamsgewicht en oefeningen zonder vast materiaaltype.',
+      'Voor {gym} is nog geen materiaal opgeslagen. Daarom worden oefeningen met dumbbells en met een barbell verborgen, net als elke oefening die voor deze sportschool als niet beschikbaar is gemarkeerd. Oefeningen met lichaamsgewicht, op machines, aan de kabel en cardio, en oefeningen zonder vast materiaaltype, blijven in de lijst.',
     noGym:
       'Sla een sportschool met het materiaal op om alleen de oefeningen te zien die je daar kunt doen.',
     manageGyms: 'Sportscholen en materiaal',

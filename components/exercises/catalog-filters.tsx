@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import type { MuscleGroup } from '@/lib/prisma-client';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { BODY_OUTLINE_PATHS, BODY_VIEWBOX, REGION_PATHS } from '@/components/progress/body-paths';
 import { muscleGroupMessageKeys } from '@/i18n/enum-keys';
@@ -20,7 +27,8 @@ const VIEWS: readonly BodyView[] = ['front', 'back'];
 //   accessibility tree and take no keyboard focus;
 // - the muscle list, a group of toggle buttons with a pressed state, which is
 //   the keyboard and screen-reader path and the only way to reach a group
-//   that has no region on the figure (OTHER, where cardio lives).
+//   that has no region on the figure (OTHER, where cardio lives). The list
+//   is described by the sentence that says so.
 // Only the groups the catalog holds are offered; the regions of the others
 // are drawn but inert.
 export function MuscleFilter({
@@ -34,7 +42,9 @@ export function MuscleFilter({
 }) {
   const t = useTranslations('exercises');
   const mapT = useTranslations('progress.muscleMap');
+  const otherHintId = useId();
   const offered = new Set(groups);
+  const offersOther = offered.has('OTHER');
 
   function groupName(group: MuscleGroup): string {
     return t(`muscleGroups.${muscleGroupMessageKeys[group]}`);
@@ -88,10 +98,18 @@ export function MuscleFilter({
         ))}
       </div>
       <div className="flex min-w-0 flex-col gap-2">
-        <p className="text-xs text-muted-foreground" aria-hidden="true">
-          {t('filters.muscleHint')}
+        <p className="text-xs text-muted-foreground">
+          {/* The figure is not exposed to assistive technology, so neither is
+              the sentence about tapping it. */}
+          <span aria-hidden="true">{t('filters.muscleHint')}</span>
+          {offersOther && <span id={otherHintId}> {t('filters.otherHint')}</span>}
         </p>
-        <div role="group" aria-label={t('filters.muscleListLabel')} className="flex flex-wrap gap-2">
+        <div
+          role="group"
+          aria-label={t('filters.muscleListLabel')}
+          aria-describedby={offersOther ? otherHintId : undefined}
+          className="flex flex-wrap gap-2"
+        >
           {groups.map((group) => {
             const pressed = selected.has(group);
             return (
@@ -117,8 +135,9 @@ export function MuscleFilter({
 }
 
 // "Only what my gym has" (issue #402). The rule itself lives in
-// lib/exercise-filters.ts; this control states it in a sentence, so a short
-// list (above all with an empty inventory) never comes without its reason.
+// lib/exercise-filters.ts; this control states all of it in the note under
+// the switch (what is hidden, what always stays), so a shorter list, above
+// all with an empty inventory, never comes without its reason.
 export function GymFilter({
   gyms,
   enabled,
@@ -167,18 +186,18 @@ export function GymFilter({
           <label htmlFor={selectId} className="text-xs text-muted-foreground">
             {t('gymSelect')}
           </label>
-          <select
-            id={selectId}
-            value={gym.id}
-            onChange={(e) => onGymChange(e.target.value)}
-            className="flex h-11 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:max-w-xs"
-          >
-            {gyms.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </select>
+          <Select value={gym.id} onValueChange={onGymChange}>
+            <SelectTrigger id={selectId} className="h-11 sm:max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {gyms.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
       {enabled && (

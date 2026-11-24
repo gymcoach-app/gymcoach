@@ -77,14 +77,14 @@ export const exercises = {
     title: 'Filtros',
     muscles: '{count, plural, =0 {Músculos} other {Músculos (#)}}',
     muscleListLabel: 'Filtrar por grupo muscular',
-    muscleHint:
-      'Toque em um músculo na figura ou escolha na lista. Cardio e exercícios sem classificação ficam em Outro.',
+    muscleHint: 'Toque em um músculo na figura ou escolha na lista.',
+    otherHint: 'Cardio e exercícios sem classificação ficam em Outro.',
     gymOnly: 'Só o que minha academia tem',
     gymSelect: 'Academia',
     gymRule:
-      'Comparado com os equipamentos salvos de {gym}. Exercícios com peso corporal e exercícios sem tipo de equipamento definido continuam na lista.',
+      'Comparado com os equipamentos salvos de {gym}. Exercícios com halteres e com barra ficam ocultos quando a academia não tem esses pesos, assim como qualquer exercício marcado como indisponível nesta academia. Exercícios com peso corporal, em máquina, no cabo e de cardio, e exercícios sem tipo de equipamento definido, continuam na lista.',
     gymEmpty:
-      'Ainda não há equipamentos salvos para {gym}, por isso só aparecem exercícios com peso corporal e exercícios sem tipo de equipamento definido.',
+      'Ainda não há equipamentos salvos para {gym}, por isso os exercícios com halteres e com barra ficam ocultos, assim como qualquer exercício marcado como indisponível nesta academia. Exercícios com peso corporal, em máquina, no cabo e de cardio, e exercícios sem tipo de equipamento definido, continuam na lista.',
     noGym:
       'Salve uma academia e seus equipamentos para ver só os exercícios que você pode fazer lá.',
     manageGyms: 'Academias e equipamentos',

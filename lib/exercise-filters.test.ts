@@ -152,7 +152,12 @@ describe('buildGymInventory', () => {
     expect(gym().hasBarbell).toBe(false);
   });
 
-  it('calls an inventory empty only without free weights and items', () => {
+  it('calls an inventory empty only without free weights, items and load options', () => {
+    expect(
+      isInventoryEmpty(
+        gym({ exerciseConfigs: [{ exerciseId: 'x', isAvailable: true, weightOptions: [5, 10] }] }),
+      ),
+    ).toBe(false);
     expect(isInventoryEmpty(gym())).toBe(true);
     expect(
       isInventoryEmpty(
@@ -200,13 +205,80 @@ describe('gymAvailability', () => {
     expect(gymAvailability(bench, bar)).toBe('available');
   });
 
-  it('matches machine and cable exercises on the item type, each on its own', () => {
-    const machines = gym({ equipment: [{ equipmentType: 'MACHINE', exerciseLinks: [] }] });
-    expect(gymAvailability(pecDeck, machines)).toBe('available');
-    expect(gymAvailability(pushdown, machines)).toBe('missing');
-    const cables = gym({ equipment: [{ equipmentType: 'CABLE', exerciseLinks: [] }] });
-    expect(gymAvailability(pushdown, cables)).toBe('available');
-    expect(gymAvailability(pecDeck, cables)).toBe('missing');
+  // What the settings screen saves: free weights and per-exercise rows, never
+  // an equipment item. An exercise with no row counts as available there.
+  describe('for a gym saved through the settings screen', () => {
+    const settingsGym = gym({
+      dumbbellWeights: [5, 10],
+      barWeights: [20],
+      plateWeights: [5, 10, 20],
+      exerciseConfigs: [
+        { exerciseId: 'leg-press', isAvailable: true, weightOptions: [20, 40, 60] },
+        { exerciseId: 'hack-squat', isAvailable: false, weightOptions: [] },
+      ],
+    });
+    const legPress = ex('leg-press', 'QUADS', 'MACHINE');
+    const hackSquat = ex('hack-squat', 'QUADS', 'MACHINE');
+
+    it('keeps every machine and cable exercise that has no row', () => {
+      expect(settingsGym.itemTypes).toEqual([]);
+      expect(gymAvailability(pecDeck, settingsGym)).toBe('unknown');
+      expect(gymAvailability(pushdown, settingsGym)).toBe('unknown');
+      expect(isAvailableAtGym(pecDeck, settingsGym)).toBe(true);
+      expect(isAvailableAtGym(pushdown, settingsGym)).toBe(true);
+    });
+
+    it('keeps the machine with a saved stack and hides only the one switched off', () => {
+      expect(gymAvailability(legPress, settingsGym)).toBe('available');
+      expect(gymAvailability(hackSquat, settingsGym)).toBe('excluded');
+      expect(
+        ids(
+          filterCatalog([legPress, hackSquat, pecDeck, pushdown, bench, dbPress], {
+            ...NO_CATALOG_FILTERS,
+            gym: settingsGym,
+          }),
+        ),
+      ).toEqual(['leg-press', 'pec-deck', 'pushdown', 'bench', 'db-press']);
+    });
+  });
+
+  it('never lets evidence about one machine or cable hide another', () => {
+    // A stack on one machine, an item of each type, both, or neither: an
+    // unrelated machine or cable exercise stays listed in every case.
+    const gyms = [
+      gym(),
+      gym({ exerciseConfigs: [{ exerciseId: 'other', isAvailable: true, weightOptions: [10] }] }),
+      gym({ equipment: [{ equipmentType: 'MACHINE', exerciseLinks: [{ exerciseId: 'other' }] }] }),
+      gym({ equipment: [{ equipmentType: 'CABLE', exerciseLinks: [] }] }),
+      gym({
+        equipment: [
+          { equipmentType: 'MACHINE', exerciseLinks: [] },
+          { equipmentType: 'CABLE', exerciseLinks: [] },
+        ],
+      }),
+    ];
+    for (const inventory of gyms) {
+      expect(gymAvailability(pecDeck, inventory)).toBe('unknown');
+      expect(gymAvailability(pushdown, inventory)).toBe('unknown');
+    }
+  });
+
+  it('keeps a machine or cable exercise that also counts bodyweight', () => {
+    // Assisted dips, cable crunches: usesBodyweight is about tonnage and does
+    // not enter the rule, so they follow their equipment type.
+    const assistedDip = { ...ex('dip', 'TRICEPS', 'MACHINE'), usesBodyweight: true };
+    const cableCrunch = { ...ex('crunch', 'ABS', 'CABLE'), usesBodyweight: true };
+    for (const inventory of [gym(), gym({ dumbbellWeights: [10] })]) {
+      expect(isAvailableAtGym(assistedDip, inventory)).toBe(true);
+      expect(isAvailableAtGym(cableCrunch, inventory)).toBe(true);
+      expect(
+        filterCatalog([assistedDip, cableCrunch], { ...NO_CATALOG_FILTERS, gym: inventory }),
+      ).toEqual([assistedDip, cableCrunch]);
+    }
+    const off = gym({
+      exerciseConfigs: [{ exerciseId: 'dip', isAvailable: false, weightOptions: [] }],
+    });
+    expect(isAvailableAtGym(assistedDip, off)).toBe(false);
   });
 
   it('keeps bodyweight exercises whatever the gym holds', () => {
@@ -221,18 +293,27 @@ describe('gymAvailability', () => {
     expect(isAvailableAtGym(running, gym())).toBe(true);
   });
 
-  it('accepts an exercise linked to an item of another type', () => {
+  it('accepts an exercise linked to an item, whatever the types', () => {
     const linked = gym({
-      equipment: [{ equipmentType: 'OTHER', exerciseLinks: [{ exerciseId: pecDeck.id }] }],
+      equipment: [
+        { equipmentType: 'OTHER', exerciseLinks: [{ exerciseId: pecDeck.id }, { exerciseId: bench.id }] },
+      ],
     });
     expect(gymAvailability(pecDeck, linked)).toBe('available');
+    // The link also shows a barbell exercise in a gym with no bar saved.
+    expect(gymAvailability(bench, linked)).toBe('available');
   });
 
   it('accepts an exercise with its own saved load options at the gym', () => {
     const loaded = gym({
-      exerciseConfigs: [{ exerciseId: pecDeck.id, isAvailable: true, weightOptions: [10, 20] }],
+      exerciseConfigs: [
+        { exerciseId: pecDeck.id, isAvailable: true, weightOptions: [10, 20] },
+        { exerciseId: dbPress.id, isAvailable: true, weightOptions: [10, 20] },
+      ],
     });
     expect(gymAvailability(pecDeck, loaded)).toBe('available');
+    expect(gymAvailability(dbPress, loaded)).toBe('available');
+    expect(gymAvailability(bench, loaded)).toBe('missing');
   });
 
   it('lets the per-gym "not available" switch win over everything else', () => {
@@ -248,13 +329,12 @@ describe('gymAvailability', () => {
     }
   });
 
-  it('classifies every equipment type', () => {
+  it('hides nothing but free-weight exercises on the equipment type alone', () => {
     const empty = gym();
-    for (const equipmentType of Object.values(EquipmentType)) {
-      expect(gymAvailability({ id: 'x', equipmentType }, empty), equipmentType).toMatch(
-        /^(missing|unknown|no-equipment)$/,
-      );
-    }
+    const hidden = Object.values(EquipmentType).filter(
+      (equipmentType) => !isAvailableAtGym({ id: 'x', equipmentType }, empty),
+    );
+    expect(hidden.sort()).toEqual(['BARBELL', 'DUMBBELL']);
   });
 });
 
@@ -284,14 +364,18 @@ describe('filterCatalog', () => {
     const home = gym({ dumbbellWeights: [5, 10] });
     expect(ids(filterCatalog(all, { ...NO_CATALOG_FILTERS, gym: home }))).toEqual([
       'db-press',
+      'pec-deck',
+      'pushdown',
       'pull-up',
       'running',
       'custom',
     ]);
   });
 
-  it('never returns an empty catalog for an empty inventory when bodyweight work exists', () => {
+  it('hides only the free-weight exercises for an empty inventory', () => {
     expect(ids(filterCatalog(all, { ...NO_CATALOG_FILTERS, gym: gym() }))).toEqual([
+      'pec-deck',
+      'pushdown',
       'pull-up',
       'running',
       'custom',
@@ -314,7 +398,8 @@ describe('filterCatalog', () => {
     const home = gym({ dumbbellWeights: [5, 10] });
     const filters = { query: 'press', muscles: new Set<MuscleGroup>(['CHEST']), gym: home };
     expect(ids(filterCatalog(all, filters))).toEqual(['db-press']);
-    expect(filterCatalog(all, { ...filters, query: 'deck' })).toEqual([]);
+    expect(ids(filterCatalog(all, { ...filters, query: '' }))).toEqual(['db-press', 'pec-deck']);
+    expect(filterCatalog(all, { ...filters, query: 'bench' })).toEqual([]);
   });
 
   it('keeps the extra fields of the rows it is given', () => {

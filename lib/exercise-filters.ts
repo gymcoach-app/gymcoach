@@ -27,7 +27,9 @@ export interface GymInventory {
   // Shared free weights saved on the gym itself.
   hasDumbbells: boolean;
   hasBarbell: boolean;
-  // Types of the physical items saved in the gym (a leg press, a cable tower).
+  // Types of the physical items saved in the gym (a leg press, a dumbbell
+  // rack). Items only come from the API, the MCP tools and a backup: the
+  // settings screen saves free weights and per-exercise rows, never items.
   itemTypes: EquipmentType[];
   // Exercises linked to one of those items.
   linkedExerciseIds: string[];
@@ -68,11 +70,17 @@ export function buildGymInventory(gym: GymInventorySource): GymInventory {
   };
 }
 
-// A gym with no free weights and no items says nothing about its equipment.
-// The filter still applies (see gymAvailability), and the view explains why
-// so little is left instead of showing a bare short list.
+// A gym with no free weights, no items and no exercise load options says
+// nothing about its equipment. The filter still applies (see
+// gymAvailability), and the view explains why dumbbell and barbell work is
+// gone instead of showing a bare short list.
 export function isInventoryEmpty(gym: GymInventory): boolean {
-  return !gym.hasDumbbells && !gym.hasBarbell && gym.itemTypes.length === 0;
+  return (
+    !gym.hasDumbbells &&
+    !gym.hasBarbell &&
+    gym.itemTypes.length === 0 &&
+    gym.loadedExerciseIds.length === 0
+  );
 }
 
 // The gym the equipment filter starts on: the active gym when it is still
@@ -88,13 +96,22 @@ export function defaultFilterGym(
 // - 'excluded': the user switched it off for this gym. This wins over every
 //   other signal, bodyweight included.
 // - 'available': it is linked to an item of the gym, has its own load options
-//   there, or the gym has equipment of its type.
+//   there, or is a free-weight exercise in a gym that has those weights.
 // - 'no-equipment': a bodyweight exercise, which needs nothing from the gym.
-// - 'unknown': its equipment type cannot be checked against an inventory.
-//   OTHER is the default type of custom and imported exercises, and CARDIO
-//   covers a run outdoors as well as a rowing machine. These stay visible:
-//   hiding them would silently drop exercises nobody classified.
-// - 'missing': it needs a type of equipment the gym does not have.
+// - 'unknown': a saved gym cannot say whether the exercise can be done there,
+//   so it stays visible.
+//   MACHINE and CABLE: a gym saved in the settings holds free weights and
+//   per-exercise rows, and an exercise with no row counts as available there.
+//   It has no list of machines to be absent from, so "no machine saved" is
+//   not evidence of "no machine". A saved item or stack of the same type does
+//   not change that either: knowing one machine says nothing about another,
+//   and evidence about one must not hide the rest. The per-exercise switch
+//   is the one way to rule a machine or cable exercise out.
+//   CARDIO covers a run outdoors as well as a rowing machine, and OTHER is
+//   the default type of custom and imported exercises.
+// - 'missing': a dumbbell or barbell exercise in a gym with no such weights.
+//   Free weights are the one kind of equipment the settings screen lists per
+//   gym, so their absence is the only type-level reason to hide an exercise.
 export type GymAvailability = 'excluded' | 'available' | 'no-equipment' | 'unknown' | 'missing';
 
 export interface FilterableExercise {
@@ -114,6 +131,8 @@ export function gymAvailability(
   switch (exercise.equipmentType) {
     case 'BODYWEIGHT':
       return 'no-equipment';
+    case 'MACHINE':
+    case 'CABLE':
     case 'CARDIO':
     case 'OTHER':
       return 'unknown';
@@ -121,13 +140,6 @@ export function gymAvailability(
       return gym.hasDumbbells || gym.itemTypes.includes('DUMBBELL') ? 'available' : 'missing';
     case 'BARBELL':
       return gym.hasBarbell || gym.itemTypes.includes('BARBELL') ? 'available' : 'missing';
-    case 'MACHINE':
-    case 'CABLE':
-      // Type-level on purpose: one saved machine keeps every machine exercise
-      // visible. Asking for a link per exercise would hide most of the catalog
-      // for a gym whose items were never linked; the per-exercise switch in
-      // the gym settings is the way to rule a single exercise out.
-      return gym.itemTypes.includes(exercise.equipmentType) ? 'available' : 'missing';
   }
 }
 
