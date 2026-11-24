@@ -160,6 +160,7 @@ export const history = {
     create: 'Weiter',
     creating: 'Wird erstellt...',
     error: 'Die Einheit konnte nicht erstellt werden.',
+    noGym: 'Kein Studio',
   },
   delete: {
     button: 'Löschen',

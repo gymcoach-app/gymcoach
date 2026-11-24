@@ -99,6 +99,22 @@ describe('LogPastWorkoutButton (issue #389)', () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ gymId: CLUB.id });
   });
 
+  it('preselects no gym without an active one, and says so to the server', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'past-1' }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    open([HOME, CLUB], null);
+
+    expect(screen.getByLabelText('Gym for this session')).toHaveTextContent('No gym');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toHaveProperty('gymId', null);
+  });
+
   it('does not ask for the gym with one gym or none, and lets the server use the active one', async () => {
     const fetchMock = vi
       .fn()

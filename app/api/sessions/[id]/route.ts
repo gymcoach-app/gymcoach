@@ -8,6 +8,7 @@ import {
 } from '@/lib/schemas/session';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { resolveFinishedAt } from '@/lib/session-finish';
+import { rateLimit } from '@/lib/rate-limit';
 import { endsInFuture, resolveEditedWindow, retimeSets } from '@/lib/session-edit';
 import {
   lockExerciseGoal,
@@ -102,6 +103,10 @@ export async function PUT(req: Request, props: Params) {
 // is refused: no session logged or imported by the app comes close.
 const MAX_RETIMED_SETS = 2000;
 
+// A move rewrites every set of the session, so it gets its own budget: far
+// above what a person correcting dates needs.
+const TIMING_EDITS_PER_MINUTE = 60;
+
 // PATCH /api/sessions/[id]: corrects when a FINISHED session took place (issue
 // #389): its start (date and time) and/or its duration; the body carries only
 // what changed. A session in progress is refused, its clock is the live
@@ -119,6 +124,10 @@ export async function PATCH(req: Request, props: Params) {
   const params = await props.params;
   try {
     const userId = await requireApiUserId();
+    const rl = rateLimit(`session-timing:${userId}`, TIMING_EDITS_PER_MINUTE, 60_000);
+    if (!rl.ok) {
+      throw new ApiError(429, `Too many date changes. Retry in ${rl.retryAfterSec}s.`);
+    }
     const data = await parseJsonBody(req, sessionTimingSchema);
 
     const updated = await runSerializableSetTransaction(
@@ -175,12 +184,14 @@ export async function PATCH(req: Request, props: Params) {
         if (changes.length > 0) {
           // One statement for every set. The instants travel as epoch
           // milliseconds, so no driver or session time zone can shift them.
+          // Scoped by the owner in the statement itself (issue #317), not
+          // only by the reads above.
           const rows = changes.map(
             (change) =>
               Prisma.sql`(${change.id}::text, ${change.completedAt.getTime()}::double precision)`,
           );
           await tx.$executeRaw(
-            Prisma.sql`UPDATE "Set" AS s SET "completedAt" = to_timestamp(v.ms / 1000.0) AT TIME ZONE 'UTC' FROM (VALUES ${Prisma.join(rows)}) AS v(id, ms) WHERE s.id = v.id AND s."sessionId" = ${session.id}`,
+            Prisma.sql`UPDATE "Set" AS s SET "completedAt" = to_timestamp(v.ms / 1000.0) AT TIME ZONE 'UTC' FROM (VALUES ${Prisma.join(rows)}) AS v(id, ms) WHERE s.id = v.id AND s."sessionId" = ${session.id} AND EXISTS (SELECT 1 FROM "Session" x WHERE x.id = s."sessionId" AND x."userId" = ${userId})`,
           );
         }
         if (rescaled) {
@@ -243,17 +254,24 @@ export async function DELETE(req: Request, props: Params) {
     if (!query.success) throw new ApiError(400, 'Invalid query.');
 
     if (query.data.discardEmpty) {
-      const removed = await db.session.deleteMany({
-        where: { id: params.id, userId, sets: { none: {} } },
+      // Under the session's row lock (issue #389): a set being added at this
+      // very moment either committed before the lock was granted, and is
+      // counted here, or comes after, and finds no session. Without the lock
+      // the delete could cascade a set away between its check and its end.
+      // Read committed on purpose, so the count sees what was committed
+      // while this transaction waited for the lock.
+      await db.$transaction(async (tx) => {
+        const session = await lockOwnedSession(tx, userId, params.id);
+        if (!session) throw new ApiError(404, 'Session not found.');
+        const sets = await tx.set.count({ where: { sessionId: session.id, session: { userId } } });
+        if (sets > 0) {
+          throw new ApiError(
+            409,
+            'This session has logged sets. Finish it or delete it from the history.',
+          );
+        }
+        await tx.session.delete({ where: { id: session.id, userId } });
       });
-      if (removed.count === 0) {
-        const exists = await db.session.findFirst({
-          where: { id: params.id, userId },
-          select: { id: true },
-        });
-        if (!exists) throw new ApiError(404, 'Session not found.');
-        throw new ApiError(409, 'This session has logged sets. Finish it or delete it from the history.');
-      }
       return NextResponse.json({ ok: true });
     }
 

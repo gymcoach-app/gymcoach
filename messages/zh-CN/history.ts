@@ -155,6 +155,7 @@ export const history = {
     create: '继续',
     creating: '正在创建...',
     error: '创建训练失败。',
+    noGym: '不选健身房',
   },
   delete: {
     button: '删除',

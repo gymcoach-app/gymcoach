@@ -76,6 +76,9 @@ interface Props {
   // The trainee's exercises, for "Add an exercise".
   catalog: Exercise[];
   unit: WeightUnit;
+  // False when the session carries something besides sets (notes, the heart
+  // rate of a watch file): the editor then never offers to discard it.
+  discardable: boolean;
 }
 
 function groupKey(group: EditorGroup): string {
@@ -147,6 +150,7 @@ export function SessionEditor({
   sets: initialSets,
   catalog,
   unit,
+  discardable,
 }: Props) {
   const t = useTranslations('history.edit');
   const menu = useTranslations('session.exerciseMenu');
@@ -168,6 +172,18 @@ export function SessionEditor({
   const [query, setQuery] = useState('');
   const [emptyPrompt, setEmptyPrompt] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  // Set writes on their way to the server. Done waits for them: leaving, or
+  // discarding an "empty" workout, while a set is being added would lose it.
+  const [pendingWrites, setPendingWrites] = useState(0);
+
+  async function tracked<T>(write: () => Promise<T>): Promise<T> {
+    setPendingWrites((count) => count + 1);
+    try {
+      return await write();
+    } finally {
+      setPendingWrites((count) => count - 1);
+    }
+  }
 
   // The wall-clock values are the browser's, so they are filled after mount
   // (the server renders this component in its own zone).
@@ -257,11 +273,13 @@ export function SessionEditor({
     method: 'POST' | 'PATCH',
     body: Record<string, unknown>,
   ): Promise<EditorSet | null> {
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, amend: true }),
-    }).catch(() => null);
+    const res = await tracked(() =>
+      fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, amend: true }),
+      }).catch(() => null),
+    );
     if (!res?.ok) {
       toast.error(t('setError'));
       return null;
@@ -291,8 +309,8 @@ export function SessionEditor({
   }
 
   async function deleteSet(id: string): Promise<boolean> {
-    const res = await fetch(`/api/sets/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(
-      () => null,
+    const res = await tracked(() =>
+      fetch(`/api/sets/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null),
     );
     // 404: already gone (another tab); the row leaves this screen either way.
     if (!res || (!res.ok && res.status !== 404)) {
@@ -322,10 +340,12 @@ export function SessionEditor({
   // Done never drops what was typed in the timing form: it is saved first,
   // and a refused save keeps the lifter here with the message. A session left
   // without any set (a past workout created, then abandoned) is offered for
-  // removal instead of staying in the history unnoticed.
+  // removal instead of staying in the history unnoticed, unless it holds
+  // notes or a watch recording, which a discard would silently take along.
   async function finish() {
+    if (pendingWrites > 0) return;
     if (timingDirty && !(await saveTiming())) return;
-    if (sets.length === 0) {
+    if (sets.length === 0 && discardable) {
       setEmptyPrompt(true);
       return;
     }
@@ -359,7 +379,11 @@ export function SessionEditor({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('title')}</p>
           <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
         </div>
-        <Button type="button" onClick={() => void finish()} disabled={savingTiming}>
+        <Button
+          type="button"
+          onClick={() => void finish()}
+          disabled={savingTiming || pendingWrites > 0}
+        >
           <Check className="size-4" />
           <span className="ml-1">{t('done')}</span>
         </Button>

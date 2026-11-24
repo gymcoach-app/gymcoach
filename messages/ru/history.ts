@@ -160,6 +160,7 @@ export const history = {
     create: 'Продолжить',
     creating: 'Создание...',
     error: 'Не удалось создать тренировку.',
+    noGym: 'Без зала',
   },
   delete: {
     button: 'Удалить',

@@ -29,13 +29,15 @@ interface Props {
   // The trainee's workouts, already display-named ("Program - Workout").
   workouts: { id: string; name: string }[];
   // The trainee's gyms. With more than one, the dialog asks which one the
-  // workout took place in, the active gym first; otherwise the server uses
-  // the active gym, as for a live session.
+  // workout took place in: the active gym is preselected, and without an
+  // active gym nothing is ("No gym" stays a choice). Otherwise the server
+  // uses the active gym, as for a live session.
   gyms: { id: string; name: string }[];
   activeGymId: string | null;
 }
 
 const FREESTYLE = 'freestyle';
+const NO_GYM = 'none';
 const DEFAULT_DURATION_MIN = 60;
 
 // "Log a past workout" (issue #389): pick when it happened and which workout
@@ -57,7 +59,7 @@ export function LogPastWorkoutButton({ workouts, gyms, activeGymId }: Props) {
   const inFlight = useRef(false);
   const chooseGym = gyms.length > 1;
   const [gymId, setGymId] = useState(
-    activeGymId && gyms.some((gym) => gym.id === activeGymId) ? activeGymId : (gyms[0]?.id ?? ''),
+    activeGymId && gyms.some((gym) => gym.id === activeGymId) ? activeGymId : NO_GYM,
   );
 
   function openDialog() {
@@ -83,7 +85,7 @@ export function LogPastWorkoutButton({ workouts, gyms, activeGymId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workoutId: workoutId === FREESTYLE ? null : workoutId,
-          ...(chooseGym && gymId ? { gymId } : {}),
+          ...(chooseGym ? { gymId: gymId === NO_GYM ? null : gymId } : {}),
           startedAt: parsed.startedAt.toISOString(),
           durationMin: parsed.durationMin,
         }),
@@ -144,6 +146,7 @@ export function LogPastWorkoutButton({ workouts, gyms, activeGymId }: Props) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={NO_GYM}>{t('noGym')}</SelectItem>
                     {gyms.map((gym) => (
                       <SelectItem key={gym.id} value={gym.id}>
                         {gym.name}

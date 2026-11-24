@@ -112,6 +112,12 @@ export default async function HistorySessionEditPage(props: Params) {
               }))}
               catalog={catalog}
               unit={user?.unit ?? 'KG'}
+              discardable={
+                !session.notes &&
+                session.avgHr == null &&
+                session.maxHr == null &&
+                session.hrTrack == null
+              }
             />
           </DistanceUnitProvider>
         </EffortScaleProvider>

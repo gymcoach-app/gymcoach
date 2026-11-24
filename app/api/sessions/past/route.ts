@@ -41,12 +41,14 @@ export async function POST(req: Request) {
       throw new ApiError(404, 'Session not found.');
     }
 
-    // Same gym rule as a live start: the one given, else the active gym.
+    // The gym given; `null` says "no gym" and is kept as that. Only a body
+    // that does not mention the gym falls back on the active one, as a live
+    // start does.
     const selectedGymId =
-      data.gymId ??
-      (await db.user.findUnique({ where: { id: userId }, select: { activeGymId: true } }))
-        ?.activeGymId ??
-      null;
+      data.gymId !== undefined
+        ? data.gymId
+        : ((await db.user.findUnique({ where: { id: userId }, select: { activeGymId: true } }))
+            ?.activeGymId ?? null);
     if (selectedGymId) {
       const gym = await db.gym.findFirst({
         where: { id: selectedGymId, userId },

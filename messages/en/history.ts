@@ -155,6 +155,7 @@ export const history = {
     create: 'Continue',
     creating: 'Creating...',
     error: 'Could not create the workout.',
+    noGym: 'No gym',
   },
   delete: {
     button: 'Delete',

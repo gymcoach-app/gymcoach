@@ -158,6 +158,7 @@ export const history = {
     create: 'Doorgaan',
     creating: 'Aanmaken...',
     error: 'Kon de sessie niet aanmaken.',
+    noGym: 'Geen sportschool',
   },
   delete: {
     button: 'Verwijderen',

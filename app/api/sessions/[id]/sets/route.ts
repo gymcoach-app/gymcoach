@@ -122,14 +122,19 @@ export async function POST(req: Request, props: Params) {
         ) {
           storedBlock = data.block;
         }
-        // The number is the next free one of that block, decided here rather
-        // than by the page: stored numbers may have gaps (a deleted set) or
-        // go past what a live session logs (an import).
-        setNumber = 1;
+        // The number is decided here rather than by the page: stored numbers
+        // may have gaps (a deleted set) or repeat (an import). It is the one
+        // after the highest of that block. Past MAX_SET_NUMBER, the bound of
+        // every set this API and the imports accept, it is the lowest number
+        // still free, so the session stays exportable and re-importable; with
+        // none free the set is refused.
+        const taken = new Set<number>();
         for (const row of siblings) {
-          if ((row.block ?? 0) === (storedBlock ?? 0) && row.setNumber >= setNumber) {
-            setNumber = row.setNumber + 1;
-          }
+          if ((row.block ?? 0) === (storedBlock ?? 0)) taken.add(row.setNumber);
+        }
+        setNumber = nextSetNumber(taken);
+        if (setNumber === 0) {
+          throw new ApiError(400, `An exercise holds at most ${MAX_SET_NUMBER} sets in a session.`);
         }
       }
       const equipmentSnapshot = await resolveSetEquipmentSnapshot(tx, {
@@ -184,6 +189,18 @@ export async function POST(req: Request, props: Params) {
   } catch (err) {
     return handleApiError(err);
   }
+}
+
+// The set number of a set added to a finished session, 0 when none is left.
+const MAX_SET_NUMBER = 50;
+function nextSetNumber(taken: ReadonlySet<number>): number {
+  let highest = 0;
+  for (const value of taken) if (value > highest) highest = value;
+  if (highest < MAX_SET_NUMBER) return highest + 1;
+  for (let candidate = 1; candidate <= MAX_SET_NUMBER; candidate += 1) {
+    if (!taken.has(candidate)) return candidate;
+  }
+  return 0;
 }
 
 // The live path keeps its plain transaction (default isolation, no retry).

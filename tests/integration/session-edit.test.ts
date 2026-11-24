@@ -20,7 +20,11 @@ const mockUserId = vi.mocked(getCurrentUserId);
 
 import { POST as startSession } from '@/app/api/sessions/route';
 import { POST as logPastSession } from '@/app/api/sessions/past/route';
-import { PATCH as patchSession, PUT as putSession } from '@/app/api/sessions/[id]/route';
+import {
+  PATCH as patchSession,
+  PUT as putSession,
+  DELETE as deleteSession,
+} from '@/app/api/sessions/[id]/route';
 import { POST as addSet } from '@/app/api/sessions/[id]/sets/route';
 import { PATCH as patchSet, DELETE as deleteSet } from '@/app/api/sets/[id]/route';
 
@@ -1112,5 +1116,203 @@ describe('POST /api/sessions/past rate limit', () => {
     // The budget is per user.
     actAs(other.id);
     expect((await logPastSession(jsonReq('POST', body))).status).toBe(201);
+  });
+});
+
+describe('last review round', () => {
+  function discardReq(): Request {
+    return new Request('http://test.local/api?discardEmpty=1', { method: 'DELETE' });
+  }
+
+  it('never loses a set added while its empty session is being discarded', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    actAs(user.id);
+
+    for (let round = 0; round < 6; round += 1) {
+      const past = (await (
+        await logPastSession(jsonReq('POST', { startedAt: daysAgo(5).toISOString(), durationMin: 60 }))
+      ).json()) as { id: string };
+      const add = () => addSet(jsonReq('POST', strengthSet(bench.id)), idParams(past.id));
+      const discard = () => deleteSession(discardReq(), idParams(past.id));
+      const [added, discarded] =
+        round % 2 === 0
+          ? await Promise.all([add(), discard()])
+          : (await Promise.all([discard(), add()])).reverse();
+
+      const session = await db.session.findUnique({ where: { id: past.id } });
+      const sets = await db.set.count({ where: { sessionId: past.id } });
+      if (added!.status === 201) {
+        // The set was stored first: the session is kept, with its set.
+        expect(discarded!.status).toBe(409);
+        expect(session).not.toBeNull();
+        expect(sets).toBe(1);
+      } else {
+        // The discard came first: the add is told the session is gone.
+        expect(added!.status).toBe(404);
+        expect(discarded!.status).toBe(200);
+        expect(session).toBeNull();
+      }
+    }
+  });
+
+  it('discards an empty session, refuses one with sets and a stranger', async () => {
+    const user = await seedUser();
+    const stranger = await seedUser('stranger@test.dev');
+    const bench = await seedBench(user.id);
+    const { session: withSets } = await seedFinishedSession(user.id, bench.id, daysAgo(3));
+    const empty = await db.session.create({
+      data: { userId: user.id, startedAt: daysAgo(2), finishedAt: daysAgo(1) },
+    });
+
+    actAs(stranger.id);
+    expect((await deleteSession(discardReq(), idParams(empty.id))).status).toBe(404);
+    actAs(user.id);
+    expect((await deleteSession(discardReq(), idParams(withSets.id))).status).toBe(409);
+    expect((await deleteSession(discardReq(), idParams(empty.id))).status).toBe(200);
+    expect(await db.session.findMany({ select: { id: true } })).toEqual([{ id: withSets.id }]);
+    expect(await db.set.count()).toBe(1);
+  });
+
+  it('dates a goal by another qualifying set when the stamping set moves later than it', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const stamping = await seedFinishedSession(user.id, bench.id, daysAgo(30), {
+      weight: 110,
+      reps: 5,
+    });
+    const other = await seedFinishedSession(user.id, bench.id, daysAgo(10), { weight: 112, reps: 5 });
+    const goal = await db.exerciseGoal.create({
+      data: {
+        userId: user.id,
+        exerciseId: bench.id,
+        targetWeight: 110,
+        targetReps: 5,
+        achievedAt: stamping.set.completedAt,
+      },
+    });
+    actAs(user.id);
+
+    // The stamping session really happened two days ago: the session of ten
+    // days ago was then the first to meet the target.
+    const twoDaysAgo = daysAgo(2);
+    await patchSession(
+      jsonReq('PATCH', { startedAt: twoDaysAgo.toISOString() }),
+      idParams(stamping.session.id),
+    );
+    let row = await db.exerciseGoal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(row.achievedAt?.getTime()).toBe(other.set.completedAt.getTime());
+
+    // Moving the non-stamping session later never clears the goal nor moves
+    // its date past a set that still qualifies.
+    await patchSession(
+      jsonReq('PATCH', { startedAt: daysAgo(1).toISOString() }),
+      idParams(other.session.id),
+    );
+    row = await db.exerciseGoal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(row.achievedAt).not.toBeNull();
+    expect(row.achievedAt!.getTime()).toBe(twoDaysAgo.getTime() + 10 * MINUTE);
+  });
+
+  it('does not take a set for the stamping one just because it shares its timestamp', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    // 60 kg does not meet a 110 kg target, but was logged at the very instant
+    // the goal is dated (stamped by a set that is gone, or by an import).
+    const { session, set } = await seedFinishedSession(user.id, bench.id, daysAgo(8), {
+      weight: 60,
+      reps: 5,
+    });
+    const goal = await db.exerciseGoal.create({
+      data: {
+        userId: user.id,
+        exerciseId: bench.id,
+        targetWeight: 110,
+        targetReps: 5,
+        achievedAt: set.completedAt,
+      },
+    });
+    actAs(user.id);
+
+    await patchSession(
+      jsonReq('PATCH', { startedAt: daysAgo(3).toISOString() }),
+      idParams(session.id),
+    );
+    const row = await db.exerciseGoal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(row.achievedAt?.getTime()).toBe(set.completedAt.getTime());
+  });
+
+  it('keeps an added set number importable: the lowest free one past 50, then a clear refusal', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const startedAt = daysAgo(3);
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt, finishedAt: new Date(startedAt.getTime() + 60 * MINUTE) },
+    });
+    // 1..50 except 7 and 31.
+    await db.set.createMany({
+      data: Array.from({ length: 50 }, (_, index) => index + 1)
+        .filter((setNumber) => setNumber !== 7 && setNumber !== 31)
+        .map((setNumber) => ({
+          sessionId: session.id,
+          exerciseId: bench.id,
+          setNumber,
+          weight: 100,
+          reps: 5,
+          completedAt: new Date(startedAt.getTime() + setNumber * 1000),
+        })),
+    });
+    actAs(user.id);
+
+    const numbers = [];
+    for (let index = 0; index < 2; index += 1) {
+      const res = await addSet(jsonReq('POST', strengthSet(bench.id)), idParams(session.id));
+      expect(res.status).toBe(201);
+      numbers.push(((await res.json()) as { setNumber: number }).setNumber);
+    }
+    expect(numbers).toEqual([7, 31]);
+
+    const full = await addSet(jsonReq('POST', strengthSet(bench.id)), idParams(session.id));
+    expect(full.status).toBe(400);
+    expect(((await full.json()) as { error: string }).error).toMatch(/at most 50 sets/);
+    const stored = await db.set.findMany({ where: { sessionId: session.id }, select: { setNumber: true } });
+    expect(stored).toHaveLength(50);
+    expect(Math.max(...stored.map((row) => row.setNumber))).toBe(50);
+  });
+
+  it('logs a past workout without a gym when told so, and in the active gym when not told', async () => {
+    const user = await seedUser();
+    const gym = await db.gym.create({ data: { userId: user.id, name: 'Home' } });
+    await db.user.update({ where: { id: user.id }, data: { activeGymId: gym.id } });
+    actAs(user.id);
+    const timing = { startedAt: daysAgo(2).toISOString(), durationMin: 60 };
+
+    const none = (await (await logPastSession(jsonReq('POST', { ...timing, gymId: null }))).json()) as {
+      gymId: string | null;
+    };
+    expect(none.gymId).toBeNull();
+    const implicit = (await (await logPastSession(jsonReq('POST', timing))).json()) as {
+      gymId: string | null;
+    };
+    expect(implicit.gymId).toBe(gym.id);
+  });
+
+  it('limits timing edits to 60 a minute per user', async () => {
+    const user = await seedUser();
+    const other = await seedUser('other@test.dev');
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt: daysAgo(3), finishedAt: daysAgo(2) },
+    });
+    actAs(user.id);
+    // An empty body is refused after the budget is charged: cheap to repeat.
+    for (let index = 0; index < 60; index += 1) {
+      expect((await patchSession(jsonReq('PATCH', {}), idParams(session.id))).status).toBe(400);
+    }
+    const limited = await patchSession(jsonReq('PATCH', { durationMin: 30 }), idParams(session.id));
+    expect(limited.status).toBe(429);
+
+    actAs(other.id);
+    const stranger = await patchSession(jsonReq('PATCH', { durationMin: 30 }), idParams(session.id));
+    expect(stranger.status).toBe(404);
   });
 });

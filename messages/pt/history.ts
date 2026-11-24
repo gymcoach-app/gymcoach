@@ -159,6 +159,7 @@ export const history = {
     create: 'Continuar',
     creating: 'Criando...',
     error: 'Não foi possível criar a sessão.',
+    noGym: 'Sem academia',
   },
   delete: {
     button: 'Excluir',

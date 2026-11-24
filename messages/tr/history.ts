@@ -157,6 +157,7 @@ export const history = {
     create: 'Devam',
     creating: 'Oluşturuluyor...',
     error: 'Seans oluşturulamadı.',
+    noGym: 'Salon yok',
   },
   delete: {
     button: 'Sil',

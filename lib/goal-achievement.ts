@@ -68,9 +68,16 @@ export interface MovedSet {
 // done, not what they were. So the goal is not judged again: it is never
 // cleared, never newly achieved, and today's bodyweight plays no part.
 // Only the date follows:
-// - the set that stamped the goal moved: the date moves with it;
-// - a moved set that meets the target on its own logged weight now comes
-//   before the date: the goal was achieved then.
+// - the set that stamped the goal moved: the date moves with it, unless
+//   another working set of the exercise that meets the target on its own
+//   logged weight now comes first, in which case that one dates the goal;
+// - a moved set that meets the target on its logged weight now comes before
+//   the date: the goal was achieved then.
+//
+// The stamping set is the moved working set logged at the stamped instant
+// that could have achieved the goal: enough reps, and enough logged weight
+// unless the exercise adds the lifter's bodyweight (unknown for that day).
+// Called after the sets were updated, in the same transaction.
 export async function shiftGoalAchievementForMove(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -83,9 +90,37 @@ export async function shiftGoalAchievementForMove(
   if (!goal?.achievedAt) return;
   const stampedAt = goal.achievedAt.getTime();
 
+  const exercise = await tx.exercise.findFirst({
+    where: { id: exerciseId, userId },
+    select: { usesBodyweight: true },
+  });
+  if (!exercise) return;
+  const stamping = moved.find(
+    (set) =>
+      set.from.getTime() === stampedAt &&
+      !set.isWarmup &&
+      set.reps >= goal.targetReps &&
+      (exercise.usesBodyweight || set.weight >= goal.targetWeight),
+  );
+
   let achievedAt = stampedAt;
-  const stamping = moved.find((set) => !set.isWarmup && set.from.getTime() === stampedAt);
-  if (stamping) achievedAt = stamping.to.getTime();
+  if (stamping) {
+    achievedAt = stamping.to.getTime();
+    const earliestLogged = await tx.set.findFirst({
+      where: {
+        exerciseId,
+        isWarmup: false,
+        weight: { gte: goal.targetWeight },
+        reps: { gte: goal.targetReps },
+        session: { userId },
+      },
+      orderBy: { completedAt: 'asc' },
+      select: { completedAt: true },
+    });
+    if (earliestLogged && earliestLogged.completedAt.getTime() < achievedAt) {
+      achievedAt = earliestLogged.completedAt.getTime();
+    }
+  }
   for (const set of moved) {
     if (setAchievesGoal(set, goal) && set.to.getTime() < achievedAt) {
       achievedAt = set.to.getTime();

@@ -160,6 +160,7 @@ export const history = {
     create: 'Continuer',
     creating: 'Création...',
     error: 'Impossible de créer la séance.',
+    noGym: 'Aucune salle',
   },
   delete: {
     button: 'Supprimer',

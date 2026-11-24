@@ -142,6 +142,7 @@ function renderEditor(
   sets: EditorSet[] = twoSets,
   groups: { exercise: Exercise; block: number | null }[] = [{ exercise: bench, block: null }],
   startedAt: Date = STARTED_AT,
+  discardable = true,
 ) {
   render(
     <SessionEditor
@@ -153,6 +154,7 @@ function renderEditor(
       sets={sets}
       catalog={[bench, run, curl]}
       unit="KG"
+      discardable={discardable}
     />,
   );
 }
@@ -567,6 +569,42 @@ describe('SessionEditor (issue #389)', () => {
       method: 'DELETE',
       body: undefined,
     });
+  });
+
+  it('does not offer to discard an empty workout that has notes or a watch recording', async () => {
+    const fetchMock = stubFetch(() => new Response('{}', { status: 200 }));
+    renderEditor([], [], STARTED_AT, false);
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+
+    fireEvent.click(screen.getByText('Done'));
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/history/sess-1'));
+    expect(screen.queryByText('Keep this empty workout?')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps Done locked while a set is on its way to the server', async () => {
+    let release: (response: Response) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
+    );
+    renderEditor([], [{ exercise: bench, block: null }]);
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+    const done = screen.getByText('Done').closest('button') as HTMLButtonElement;
+    expect(done).toBeEnabled();
+
+    fireEvent.click(screen.getByText('add set'));
+    await waitFor(() => expect(done).toBeDisabled());
+    fireEvent.click(done);
+    // Nothing happened: no prompt to discard a workout that is about to have a set.
+    expect(screen.queryByText('Keep this empty workout?')).not.toBeInTheDocument();
+    expect(router.push).not.toHaveBeenCalled();
+
+    release(new Response(JSON.stringify(strengthSet('s1', 1)), { status: 201 }));
+    await waitFor(() => expect(done).toBeEnabled());
+    fireEvent.click(done);
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/history/sess-1'));
   });
 
   it('stays when the empty workout cannot be discarded', async () => {
