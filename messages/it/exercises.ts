@@ -73,6 +73,29 @@ export const exercises = {
     noHistory: 'Ancora nessuna serie completata per questo esercizio.',
     openSession: 'Apri l’allenamento',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filtri',
+    muscles: '{count, plural, =0 {Muscoli} other {Muscoli (#)}}',
+    muscleListLabel: 'Filtra per gruppo muscolare',
+    muscleHint: 'Tocca un muscolo sulla figura o sceglilo nell’elenco.',
+    otherHint: 'Il cardio e gli esercizi non classificati sono in Altro.',
+    gymOnly: 'Solo quello che ha la mia palestra',
+    gymSelect: 'Palestra',
+    gymRule:
+      'Confrontato con l’attrezzatura salvata per {gym}. Gli esercizi con manubri e con bilanciere vengono nascosti se la palestra non ha quei pesi, così come ogni esercizio segnato come non disponibile in questa palestra. Gli esercizi a corpo libero, alle macchine, ai cavi e di cardio, e quelli senza un tipo di attrezzatura definito, restano nell’elenco.',
+    gymEmpty:
+      'Per {gym} non è ancora stata salvata alcuna attrezzatura, quindi gli esercizi con manubri e con bilanciere vengono nascosti, così come ogni esercizio segnato come non disponibile in questa palestra. Gli esercizi a corpo libero, alle macchine, ai cavi e di cardio, e quelli senza un tipo di attrezzatura definito, restano nell’elenco.',
+    noGym:
+      'Salva una palestra e la sua attrezzatura per vedere solo gli esercizi che puoi fare lì.',
+    manageGyms: 'Palestre e attrezzatura',
+    clear: 'Rimuovi filtri',
+    noResultsTitle: 'Nessun esercizio corrisponde a questi filtri',
+    noResultsDescription:
+      'Niente nel catalogo corrisponde insieme alla ricerca, ai muscoli e all’attrezzatura della palestra.',
+    resultCount:
+      '{count, plural, =0 {Nessun esercizio mostrato.} one {# esercizio mostrato.} other {# esercizi mostrati.}}',
+  },
   muscleGroups: {
     chest: 'Petto',
     backWidth: 'Dorso (ampiezza)',

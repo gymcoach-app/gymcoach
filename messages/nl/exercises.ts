@@ -74,6 +74,29 @@ export const exercises = {
     noHistory: 'Nog geen voltooide sets voor deze oefening.',
     openSession: 'Training openen',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filters',
+    muscles: '{count, plural, =0 {Spieren} other {Spieren (#)}}',
+    muscleListLabel: 'Filteren op spiergroep',
+    muscleHint: 'Tik op een spier in de figuur of kies hem in de lijst.',
+    otherHint: 'Cardio en niet-ingedeelde oefeningen staan onder Overig.',
+    gymOnly: 'Alleen wat mijn sportschool heeft',
+    gymSelect: 'Sportschool',
+    gymRule:
+      'Vergeleken met het materiaal dat voor {gym} is opgeslagen. Oefeningen met dumbbells en met een barbell worden verborgen als de sportschool die gewichten niet heeft, net als elke oefening die voor deze sportschool als niet beschikbaar is gemarkeerd. Oefeningen met lichaamsgewicht, op machines, aan de kabel en cardio, en oefeningen zonder vast materiaaltype, blijven in de lijst.',
+    gymEmpty:
+      'Voor {gym} is nog geen materiaal opgeslagen. Daarom worden oefeningen met dumbbells en met een barbell verborgen, net als elke oefening die voor deze sportschool als niet beschikbaar is gemarkeerd. Oefeningen met lichaamsgewicht, op machines, aan de kabel en cardio, en oefeningen zonder vast materiaaltype, blijven in de lijst.',
+    noGym:
+      'Sla een sportschool met het materiaal op om alleen de oefeningen te zien die je daar kunt doen.',
+    manageGyms: 'Sportscholen en materiaal',
+    clear: 'Filters wissen',
+    noResultsTitle: 'Geen oefeningen voor deze filters',
+    noResultsDescription:
+      'Niets in de catalogus past tegelijk bij de zoekopdracht, de spieren en het materiaal van de sportschool.',
+    resultCount:
+      '{count, plural, =0 {Geen oefeningen getoond.} one {# oefening getoond.} other {# oefeningen getoond.}}',
+  },
   muscleGroups: {
     chest: 'Borst',
     backWidth: 'Rug (breedte)',

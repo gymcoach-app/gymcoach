@@ -67,6 +67,26 @@ export const exercises = {
     noHistory: '该动作暂无已完成的训练组记录。',
     openSession: '查看训练',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: '筛选',
+    muscles: '{count, plural, =0 {肌群} other {肌群（#）}}',
+    muscleListLabel: '按肌群筛选',
+    muscleHint: '点按人体图上的肌肉，或在列表中选择。',
+    otherHint: '有氧和未分类的动作归在“其他”中。',
+    gymOnly: '只看我的健身房有的',
+    gymSelect: '健身房',
+    gymRule:
+      '已按“{gym}”保存的器械筛选。健身房没有哑铃或杠铃重量时，会隐藏对应的动作；在该健身房标记为不可使用的动作也会隐藏。自重、固定器械、绳索和有氧动作，以及未指定器械类型的动作仍会显示。',
+    gymEmpty:
+      '“{gym}”还没有保存任何器械，因此哑铃和杠铃动作会被隐藏，在该健身房标记为不可使用的动作也会隐藏。自重、固定器械、绳索和有氧动作，以及未指定器械类型的动作仍会显示。',
+    noGym: '保存健身房及其器械后，即可只显示你能在那里做的动作。',
+    manageGyms: '健身房与器械',
+    clear: '清除筛选',
+    noResultsTitle: '没有符合这些筛选条件的动作',
+    noResultsDescription: '动作库中没有同时符合搜索、肌群和健身房器械的动作。',
+    resultCount: '{count, plural, =0 {未显示任何动作。} other {显示 # 个动作。}}',
+  },
   muscleGroups: {
     chest: '胸部',
     backWidth: '背部（宽度）',

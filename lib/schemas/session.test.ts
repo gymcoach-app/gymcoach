@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  pastSessionSchema,
   sessionDeleteQuerySchema,
   sessionExerciseInputSchema,
   sessionStartSchema,
+  sessionTimingSchema,
   sessionUpdateSchema,
 } from './session';
 
@@ -78,5 +80,62 @@ describe('sessionDeleteQuerySchema (issue #388)', () => {
     for (const value of ['0', 'true', '', 'yes']) {
       expect(sessionDeleteQuerySchema.safeParse({ discardEmpty: value }).success).toBe(false);
     }
+  });
+});
+
+describe('sessionTimingSchema and pastSessionSchema (issue #389)', () => {
+  const timing = { startedAt: '2026-11-03T17:30:00.000Z', durationMin: 60 };
+
+  it('reads the start as an instant, with or without a UTC offset', () => {
+    expect(sessionTimingSchema.parse(timing)).toEqual({
+      startedAt: new Date('2026-11-03T17:30:00.000Z'),
+      durationMin: 60,
+    });
+    expect(
+      sessionTimingSchema.parse({ ...timing, startedAt: '2026-11-03T18:30:00+01:00' }).startedAt,
+    ).toEqual(new Date('2026-11-03T17:30:00.000Z'));
+  });
+
+  it('refuses a start without a zone: the server never guesses one', () => {
+    for (const startedAt of ['2026-11-03', '2026-11-03T18:30:00', '03/11/2026', '', 1762191000000]) {
+      expect(sessionTimingSchema.safeParse({ ...timing, startedAt }).success).toBe(false);
+    }
+    // New dates start in 2000, like the imports (APPLE_HEALTH_MIN_DATE).
+    for (const startedAt of ['1969-12-31T23:00:00.000Z', '1999-12-31T23:59:59.000Z']) {
+      expect(sessionTimingSchema.safeParse({ ...timing, startedAt }).success).toBe(false);
+      expect(pastSessionSchema.safeParse({ ...timing, startedAt }).success).toBe(false);
+    }
+    expect(
+      sessionTimingSchema.safeParse({ ...timing, startedAt: '2000-01-01T00:00:00.000Z' }).success,
+    ).toBe(true);
+  });
+
+  it('takes only what changed in a timing edit, and refuses a body that changes nothing', () => {
+    expect(sessionTimingSchema.parse({ durationMin: 60 })).toEqual({ durationMin: 60 });
+    expect(sessionTimingSchema.parse({ startedAt: timing.startedAt })).toEqual({
+      startedAt: new Date(timing.startedAt),
+    });
+    expect(sessionTimingSchema.safeParse({}).success).toBe(false);
+    expect(sessionTimingSchema.safeParse({ notes: 'x' }).success).toBe(false);
+    // A past session needs both.
+    expect(pastSessionSchema.safeParse({ durationMin: 60 }).success).toBe(false);
+    expect(pastSessionSchema.safeParse({ startedAt: timing.startedAt }).success).toBe(false);
+  });
+
+  it('bounds the duration to whole minutes between 1 and 24 hours', () => {
+    for (const durationMin of [1, 60, 1440]) {
+      expect(sessionTimingSchema.safeParse({ ...timing, durationMin }).success).toBe(true);
+    }
+    for (const durationMin of [0, -5, 1441, 12.5, '60', null]) {
+      expect(sessionTimingSchema.safeParse({ ...timing, durationMin }).success).toBe(false);
+    }
+  });
+
+  it('logs a past session on a workout or as a freestyle one', () => {
+    expect(pastSessionSchema.parse({ ...timing, workoutId: 'w1' }).workoutId).toBe('w1');
+    expect(pastSessionSchema.parse({ ...timing, workoutId: null }).workoutId).toBeNull();
+    expect(pastSessionSchema.parse(timing).workoutId).toBeUndefined();
+    expect(pastSessionSchema.safeParse({ ...timing, workoutId: '' }).success).toBe(false);
+    expect(pastSessionSchema.safeParse({ workoutId: 'w1' }).success).toBe(false);
   });
 });
