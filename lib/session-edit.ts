@@ -24,8 +24,12 @@ export const MAX_SESSION_DURATION_MIN = 24 * 60;
  */
 export const FUTURE_TOLERANCE_MS = 60 * 1000;
 
-/** Earliest instant a session may start at (the history calendar starts in 1970). */
-export const MIN_SESSION_START_MS = 0;
+/**
+ * Earliest instant a session may be dated at: 2000-01-01, the floor the
+ * imports use too (APPLE_HEALTH_MIN_DATE). It bounds the dates this feature
+ * WRITES; an older imported session keeps its date and stays editable.
+ */
+export const MIN_SESSION_START_MS = Date.UTC(2000, 0, 1);
 
 const MINUTE_MS = 60 * 1000;
 
@@ -40,20 +44,24 @@ export function endsInFuture(finishedAt: Date, now: Date): boolean {
 }
 
 /**
- * The end of an edited session. The form shows the duration in whole minutes,
- * so a form saved without touching that field (the stored duration still
- * rounds to the submitted minutes) keeps the stored duration to the
- * millisecond: moving a session to another day never trims its last seconds.
+ * The window of an edited session. The request carries only what the lifter
+ * changed: without a start the session stays where it is, to the second;
+ * without a duration it keeps the stored one, to the millisecond (and
+ * whatever its length: an imported session may last longer than the editor
+ * lets one type, or not at all).
  */
-export function resolveEditedFinish(input: {
-  oldStartedAt: Date;
-  oldFinishedAt: Date;
-  newStartedAt: Date;
-  durationMin: number;
-}): Date {
-  const storedMs = input.oldFinishedAt.getTime() - input.oldStartedAt.getTime();
-  const unchanged = storedMs > 0 && Math.round(storedMs / MINUTE_MS) === input.durationMin;
-  return new Date(input.newStartedAt.getTime() + (unchanged ? storedMs : input.durationMin * MINUTE_MS));
+export function resolveEditedWindow(input: {
+  startedAt: Date;
+  finishedAt: Date;
+  newStartedAt?: Date;
+  newDurationMin?: number;
+}): { startedAt: Date; finishedAt: Date } {
+  const startedAt = input.newStartedAt ?? input.startedAt;
+  const durationMs =
+    input.newDurationMin != null
+      ? input.newDurationMin * MINUTE_MS
+      : Math.max(0, input.finishedAt.getTime() - input.startedAt.getTime());
+  return { startedAt, finishedAt: new Date(startedAt.getTime() + durationMs) };
 }
 
 export interface RetimedSets {
@@ -84,8 +92,12 @@ export function retimeSets(input: {
   const newStart = input.newStartedAt.getTime();
   const windowMs = Math.max(0, input.newFinishedAt.getTime() - newStart);
   const offsets = input.sets.map((set) => set.completedAt.getTime() - oldStart);
-  const low = Math.min(0, ...offsets);
-  const high = Math.max(windowMs, ...offsets);
+  let low = 0;
+  let high = windowMs;
+  for (const offset of offsets) {
+    if (offset < low) low = offset;
+    if (offset > high) high = offset;
+  }
   const rescaled = low < 0 || high > windowMs;
   const span = high - low;
 
@@ -191,4 +203,61 @@ export function parseTimingInputs(inputs: TimingInputs, now: Date): ParsedTiming
     return { ok: false, reason: 'future' };
   }
   return { ok: true, startedAt, durationMin };
+}
+
+/** The fields of the timing form for a stored session, in the runtime's zone. */
+export function timingInputsOf(startedAt: Date, finishedAt: Date): TimingInputs {
+  return {
+    ...toLocalInputs(startedAt),
+    duration: String(Math.max(0, durationMinutes(startedAt, finishedAt))),
+  };
+}
+
+export type TimingEdit =
+  | { ok: true; changes: { startedAt?: Date; durationMin?: number } }
+  | { ok: false; reason: 'invalid' | 'future' };
+
+/**
+ * What the lifter changed in the timing form of a stored session. Only a
+ * field that no longer reads as the stored session is a change: the fields
+ * show whole minutes, so sending them back untouched would drop the seconds
+ * of the start, and in the hour a daylight saving change repeats it would
+ * move the start by an hour. An untouched form gives no change at all.
+ */
+export function parseTimingEdit(input: {
+  startedAt: Date;
+  finishedAt: Date;
+  inputs: TimingInputs;
+  now: Date;
+}): TimingEdit {
+  const stored = timingInputsOf(input.startedAt, input.finishedAt);
+  const changes: { startedAt?: Date; durationMin?: number } = {};
+
+  if (input.inputs.date !== stored.date || input.inputs.time !== stored.time) {
+    const startedAt = fromLocalInputs(input.inputs.date, input.inputs.time);
+    if (!startedAt || startedAt.getTime() < MIN_SESSION_START_MS) {
+      return { ok: false, reason: 'invalid' };
+    }
+    changes.startedAt = startedAt;
+  }
+  const duration = input.inputs.duration.trim();
+  if (duration !== stored.duration) {
+    if (!/^\d{1,4}$/.test(duration)) return { ok: false, reason: 'invalid' };
+    const durationMin = Number(duration);
+    if (durationMin < 1 || durationMin > MAX_SESSION_DURATION_MIN) {
+      return { ok: false, reason: 'invalid' };
+    }
+    changes.durationMin = durationMin;
+  }
+  if (changes.startedAt === undefined && changes.durationMin === undefined) {
+    return { ok: true, changes };
+  }
+  const window = resolveEditedWindow({
+    startedAt: input.startedAt,
+    finishedAt: input.finishedAt,
+    newStartedAt: changes.startedAt,
+    newDurationMin: changes.durationMin,
+  });
+  if (endsInFuture(window.finishedAt, input.now)) return { ok: false, reason: 'future' };
+  return { ok: true, changes };
 }

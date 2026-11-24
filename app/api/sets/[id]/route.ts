@@ -3,6 +3,7 @@ import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib
 import { setPatchSchema } from '@/lib/schemas/set';
 import {
   lockExerciseGoal,
+  lockOwnedSession,
   rederiveGoalAchievement,
   runSerializableSetTransaction,
 } from '@/lib/goal-achievement';
@@ -25,7 +26,19 @@ export async function PATCH(req: Request, props: Params) {
     const userId = await requireApiUserId();
     const data = await parseJsonBody(req, setPatchSchema);
 
+    const amend = data.amend === true;
     const updated = await runSerializableSetTransaction(async (tx) => {
+      // An amend write takes the session's row lock first, like every write
+      // that edits a finished session (lock order: session, set, goal), so it
+      // never interleaves with a move of that session.
+      if (amend) {
+        const owned = await tx.set.findFirst({
+          where: { id: params.id, session: { userId } },
+          select: { sessionId: true },
+        });
+        if (!owned) throw new ApiError(404, 'Set not found.');
+        await lockOwnedSession(tx, userId, owned.sessionId);
+      }
       // Serialize same-set mutations first, then serialize goal re-derivation
       // for the exercise. The set values and derived achievedAt now commit or
       // roll back together instead of leaving a stale goal after a successful edit.
@@ -40,7 +53,6 @@ export async function PATCH(req: Request, props: Params) {
       if (!set) {
         throw new ApiError(404, 'Set not found.');
       }
-      const amend = data.amend === true;
       if (set.session.finishedAt && !amend) {
         throw new ApiError(400, 'Session already finished.');
       }
@@ -75,7 +87,9 @@ export async function PATCH(req: Request, props: Params) {
         throw new ApiError(400, 'Cardio sets cannot be edited during a session.');
       }
       // Stored like the create route stores a cardio set: weight 0 and reps 1
-      // stay as they are, only the cardio fields change.
+      // stay as they are, only the cardio fields change. The recorded track
+      // of an imported activity (Set.track) is left as it is: the lifter is
+      // correcting the summary, and the recording remains what the device saw.
       return tx.set.update({
         where: { id: set.id, session: { userId } },
         data: {
@@ -104,7 +118,6 @@ export async function DELETE(_req: Request, props: Params) {
       await tx.$queryRaw`SELECT "Set".id FROM "Set" JOIN "Session" ON "Session".id = "Set"."sessionId" WHERE "Set".id = ${params.id} AND "Session"."userId" = ${userId} FOR UPDATE OF "Set"`;
       const set = await tx.set.findFirst({
         where: { id: params.id, session: { userId } },
-        include: { session: { select: { finishedAt: true } } },
       });
       if (!set) {
         throw new ApiError(404, 'Set not found.');
@@ -113,26 +126,6 @@ export async function DELETE(_req: Request, props: Params) {
       await lockExerciseGoal(tx, userId, set.exerciseId);
       await tx.set.delete({ where: { id: params.id, session: { userId } } });
       await rederiveGoalAchievement(tx, userId, set.exerciseId, false);
-
-      // A set removed from a FINISHED session (issue #389) closes the gap it
-      // leaves: the sets after it in the same exercise block move up, so the
-      // history reads 1, 2, 3 and not 1, 3, 4. A session in progress is left
-      // alone: its numbers are also held by the runner and its offline queue.
-      if (set.session.finishedAt) {
-        const siblings = await tx.set.findMany({
-          where: { sessionId: set.sessionId, exerciseId: set.exerciseId, session: { userId } },
-          orderBy: [{ setNumber: 'asc' }, { completedAt: 'asc' }, { id: 'asc' }],
-          select: { id: true, setNumber: true, block: true },
-        });
-        const sameBlock = siblings.filter((row) => (row.block ?? 0) === (set.block ?? 0));
-        for (const [index, row] of sameBlock.entries()) {
-          if (row.setNumber === index + 1) continue;
-          await tx.set.updateMany({
-            where: { id: row.id, session: { userId } },
-            data: { setNumber: index + 1 },
-          });
-        }
-      }
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

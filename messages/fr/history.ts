@@ -143,6 +143,12 @@ export const history = {
     cardioAdd: 'Ajouter la série {number}',
     cardioDelete: 'Supprimer la série {number}',
     cardioInvalid: 'Saisissez une durée valide, par exemple 25:00.',
+    emptyLeaveTitle: 'Garder cette séance vide ?',
+    emptyLeaveDescription:
+      'Aucune série n’a été saisie. Une séance vide apparaît quand même dans votre historique.',
+    keepEmpty: 'La garder',
+    discardEmpty: 'La supprimer',
+    discardError: 'Impossible de supprimer la séance.',
   },
   logPast: {
     button: 'Enregistrer une séance passée',

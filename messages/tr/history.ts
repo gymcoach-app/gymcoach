@@ -142,6 +142,11 @@ export const history = {
     cardioAdd: '{number}. seti ekle',
     cardioDelete: '{number}. seti sil',
     cardioInvalid: 'Geçerli bir süre gir, örneğin 25:00.',
+    emptyLeaveTitle: 'Bu boş seans kalsın mı?',
+    emptyLeaveDescription: 'Hiç set girilmedi. Boş bir seans yine de geçmişinde görünür.',
+    keepEmpty: 'Kalsın',
+    discardEmpty: 'Sil',
+    discardError: 'Seans silinemedi.',
   },
   logPast: {
     button: 'Geçmiş bir antrenman kaydet',

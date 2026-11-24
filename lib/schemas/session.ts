@@ -30,8 +30,18 @@ const sessionTimingShape = {
   durationMin: z.number().int().min(1).max(MAX_SESSION_DURATION_MIN),
 };
 
-// PATCH /api/sessions/[id]: moves a finished session and sets its duration.
-export const sessionTimingSchema = z.object(sessionTimingShape);
+// PATCH /api/sessions/[id]: moves a finished session and/or sets its
+// duration. Each field is optional and the editor sends only what changed,
+// so an untouched start keeps its seconds and an untouched duration keeps its
+// exact length; a body that changes nothing is refused.
+export const sessionTimingSchema = z
+  .object({
+    startedAt: sessionTimingShape.startedAt.optional(),
+    durationMin: sessionTimingShape.durationMin.optional(),
+  })
+  .refine((value) => value.startedAt !== undefined || value.durationMin !== undefined, {
+    message: 'Nothing to change.',
+  });
 
 // POST /api/sessions/past: logs a workout that already happened. Without a
 // workout it is a freestyle session, as in sessionStartSchema.

@@ -140,6 +140,11 @@ export const history = {
     cardioAdd: 'Add set {number}',
     cardioDelete: 'Delete set {number}',
     cardioInvalid: 'Enter a valid duration, for example 25:00.',
+    emptyLeaveTitle: 'Keep this empty workout?',
+    emptyLeaveDescription: 'No set was entered. An empty workout still shows in your history.',
+    keepEmpty: 'Keep it',
+    discardEmpty: 'Discard it',
+    discardError: 'Could not discard the workout.',
   },
   logPast: {
     button: 'Log a past workout',

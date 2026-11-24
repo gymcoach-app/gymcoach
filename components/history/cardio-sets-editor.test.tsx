@@ -20,7 +20,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderEditor(sets: CardioEditorSet[] = [run], unit: DistanceUnit = 'km') {
+function renderEditor(
+  sets: CardioEditorSet[] = [run],
+  unit: DistanceUnit = 'km',
+  disabled = false,
+) {
   const handlers = {
     onAdd: vi.fn().mockResolvedValue(true),
     onSave: vi.fn().mockResolvedValue(true),
@@ -28,7 +32,7 @@ function renderEditor(sets: CardioEditorSet[] = [run], unit: DistanceUnit = 'km'
   };
   render(
     <DistanceUnitProvider unit={unit}>
-      <CardioSetsEditor sets={sets} {...handlers} />
+      <CardioSetsEditor sets={sets} disabled={disabled} {...handlers} />
     </DistanceUnitProvider>,
   );
   return handlers;
@@ -118,6 +122,18 @@ describe('CardioSetsEditor (issue #389)', () => {
     await waitFor(() => expect(onAdd).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add set 1' })).toBeEnabled());
     expect(screen.getByLabelText('Set 1 duration (mm:ss)')).toHaveValue('30:00');
+  });
+
+  it('changes nothing while the caller has it disabled', () => {
+    const { onAdd, onDelete } = renderEditor([run], 'km', true);
+    expect(screen.getByLabelText('Set 1 duration (mm:ss)')).toBeDisabled();
+    expect(screen.getByLabelText('Set 2 duration (mm:ss)')).toBeDisabled();
+    const remove = screen.getByRole('button', { name: 'Delete set 1' });
+    expect(remove).toBeDisabled();
+    fireEvent.click(remove);
+    expect(screen.getByRole('button', { name: 'Add set 2' })).toBeDisabled();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(onAdd).not.toHaveBeenCalled();
   });
 
   it('deletes a set', async () => {

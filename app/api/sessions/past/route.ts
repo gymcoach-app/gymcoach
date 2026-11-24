@@ -3,6 +3,9 @@ import { db } from '@/lib/db';
 import { pastSessionSchema } from '@/lib/schemas/session';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { endsInFuture } from '@/lib/session-edit';
+import { rateLimit } from '@/lib/rate-limit';
+
+const PAST_SESSIONS_PER_MINUTE = 30;
 
 // POST /api/sessions/past: logs a workout that already happened (issue #389),
 // on one of the user's workouts or as a freestyle session.
@@ -15,6 +18,12 @@ import { endsInFuture } from '@/lib/session-edit';
 export async function POST(req: Request) {
   try {
     const userId = await requireApiUserId();
+    // Generous for a person entering old workouts one by one, small enough
+    // that a script cannot fill a history with empty sessions.
+    const rl = rateLimit(`past-session:${userId}`, PAST_SESSIONS_PER_MINUTE, 60_000);
+    if (!rl.ok) {
+      throw new ApiError(429, `Too many workouts logged. Retry in ${rl.retryAfterSec}s.`);
+    }
     const data = await parseJsonBody(req, pastSessionSchema);
 
     const finishedAt = new Date(data.startedAt.getTime() + data.durationMin * 60 * 1000);

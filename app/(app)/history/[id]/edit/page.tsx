@@ -1,12 +1,9 @@
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
-import { ArrowLeft } from 'lucide-react';
 import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { cardioDistanceUnit } from '@/lib/cardio';
 import { blockIndexByRow, blockKey } from '@/lib/exercise-blocks';
-import { Button } from '@/components/ui/button';
 import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
 import { SessionEditor, type EditorGroup } from '@/components/history/session-editor';
@@ -37,7 +34,9 @@ export default async function HistorySessionEditPage(props: Params) {
           },
         },
         sets: {
-          orderBy: [{ completedAt: 'asc' }, { setNumber: 'asc' }, { id: 'asc' }],
+          // Set number first; sets that share one (an import may do that)
+          // then follow the time they were done. The editor keeps this order.
+          orderBy: [{ setNumber: 'asc' }, { completedAt: 'asc' }, { id: 'asc' }],
           include: { exercise: true },
         },
       },
@@ -84,12 +83,8 @@ export default async function HistorySessionEditPage(props: Params) {
   return (
     <main className="flex-1 px-4 py-6">
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 self-start">
-          <Link href={`/history/${session.id}`}>
-            <ArrowLeft className="size-4" />
-            <span className="ml-1">{t('title')}</span>
-          </Link>
-        </Button>
+        {/* No back link here: the editor's Done is the way out, and it saves a
+            pending date change first instead of dropping it. */}
         <EffortScaleProvider scale={user?.effortScale ?? 'RIR'}>
           <DistanceUnitProvider unit={cardioDistanceUnit(user)}>
             <SessionEditor

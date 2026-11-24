@@ -144,6 +144,12 @@ export const history = {
     cardioAdd: 'Добавить подход {number}',
     cardioDelete: 'Удалить подход {number}',
     cardioInvalid: 'Укажите корректную длительность, например 25:00.',
+    emptyLeaveTitle: 'Оставить пустую тренировку?',
+    emptyLeaveDescription:
+      'Ни один подход не внесён. Пустая тренировка всё равно будет видна в истории.',
+    keepEmpty: 'Оставить',
+    discardEmpty: 'Удалить',
+    discardError: 'Не удалось удалить тренировку.',
   },
   logPast: {
     button: 'Записать прошедшую тренировку',

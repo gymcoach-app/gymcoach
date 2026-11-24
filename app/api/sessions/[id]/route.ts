@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@/prisma/generated/client';
 import { db } from '@/lib/db';
 import {
   sessionDeleteQuerySchema,
@@ -7,11 +8,12 @@ import {
 } from '@/lib/schemas/session';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { resolveFinishedAt } from '@/lib/session-finish';
-import { endsInFuture, resolveEditedFinish, retimeSets } from '@/lib/session-edit';
+import { endsInFuture, resolveEditedWindow, retimeSets } from '@/lib/session-edit';
 import {
   lockExerciseGoal,
-  rederiveGoalAchievement,
+  lockOwnedSession,
   runSerializableSetTransaction,
+  shiftGoalAchievementForMove,
 } from '@/lib/goal-achievement';
 
 interface Params {
@@ -60,28 +62,35 @@ export async function PUT(req: Request, props: Params) {
     const data = await parseJsonBody(req, sessionUpdateSchema);
 
     // A late Finish ends the session at its last set, not at the tap (issue
-    // #571, lib/session-finish.ts). As before, every `finish: true` stamps the
-    // session again, including one sent for an already finished session.
-    let finishedAt = session.finishedAt;
-    if (data.finish) {
+    // #571, lib/session-finish.ts).
+    //
+    // Only an UNFINISHED session is finished (issue #389). `finish: true` on
+    // a session that already is one succeeds and changes nothing, so a stale
+    // tab cannot overwrite a duration corrected in the history editor; and a
+    // notes-only body never writes finishedAt at all, so it cannot undo a
+    // move that ran in between. The `finishedAt: null` in the where makes the
+    // first of two concurrent finishes the one that counts.
+    if (data.finish && !session.finishedAt) {
       const lastSet = await db.set.findFirst({
         where: { sessionId: session.id, session: { userId } },
         orderBy: { completedAt: 'desc' },
         select: { completedAt: true },
       });
-      finishedAt = resolveFinishedAt({
-        now: new Date(),
-        startedAt: session.startedAt,
-        lastSetAt: lastSet?.completedAt ?? null,
+      await db.session.updateMany({
+        where: { id: params.id, userId, finishedAt: null },
+        data: {
+          finishedAt: resolveFinishedAt({
+            now: new Date(),
+            startedAt: session.startedAt,
+            lastSetAt: lastSet?.completedAt ?? null,
+          }),
+        },
       });
     }
 
     const updated = await db.session.update({
       where: { id: params.id, userId },
-      data: {
-        notes: data.notes ?? session.notes,
-        finishedAt,
-      },
+      data: { notes: data.notes ?? session.notes },
     });
     return NextResponse.json(updated);
   } catch (err) {
@@ -89,86 +98,129 @@ export async function PUT(req: Request, props: Params) {
   }
 }
 
+// A session moves all its sets in one statement. Past this many the request
+// is refused: no session logged or imported by the app comes close.
+const MAX_RETIMED_SETS = 2000;
+
 // PATCH /api/sessions/[id]: corrects when a FINISHED session took place (issue
-// #389): its start (date and time) and its duration. A session in progress is
-// refused, its clock is the live runner's.
+// #389): its start (date and time) and/or its duration; the body carries only
+// what changed. A session in progress is refused, its clock is the live
+// runner's.
 //
 // The sets move with the session (lib/session-edit.ts), because everything
 // derived reads their timestamps: a session moved to last month must leave
 // this week's charts and stop being the "last performance" of its exercises.
-// The one stored record, a goal's achievedAt, is re-derived in the same
-// transaction.
+// The one stored record, the date a goal was achieved, follows the sets
+// (shiftGoalAchievementForMove).
+//
+// Locks, in the order every amend write uses: the session row, its sets, the
+// goals of its exercises.
 export async function PATCH(req: Request, props: Params) {
   const params = await props.params;
   try {
     const userId = await requireApiUserId();
     const data = await parseJsonBody(req, sessionTimingSchema);
 
-    const updated = await runSerializableSetTransaction(async (tx) => {
-      const session = await tx.session.findFirst({
-        where: { id: params.id, userId },
-        select: { id: true, startedAt: true, finishedAt: true },
-      });
-      if (!session) throw new ApiError(404, 'Session not found.');
-      if (!session.finishedAt) {
-        throw new ApiError(409, 'This session is still in progress.');
-      }
-
-      const finishedAt = resolveEditedFinish({
-        oldStartedAt: session.startedAt,
-        oldFinishedAt: session.finishedAt,
-        newStartedAt: data.startedAt,
-        durationMin: data.durationMin,
-      });
-      if (endsInFuture(finishedAt, new Date())) {
-        throw new ApiError(400, 'A session cannot be in the future.');
-      }
-
-      // Every set query below carries the session's userId as well.
-      const ownSets = { sessionId: session.id, session: { userId } };
-      const sets = await tx.set.findMany({
-        where: ownSets,
-        select: { id: true, exerciseId: true, completedAt: true },
-      });
-      const { changes, rescaled } = retimeSets({
-        oldStartedAt: session.startedAt,
-        newStartedAt: data.startedAt,
-        newFinishedAt: finishedAt,
-        sets,
-      });
-
-      const exerciseIds = [...new Set(sets.map((set) => set.exerciseId))].sort();
-      for (const exerciseId of exerciseIds) {
-        await lockExerciseGoal(tx, userId, exerciseId);
-      }
-      const row = await tx.session.update({
-        where: { id: session.id, userId },
-        data: { startedAt: data.startedAt, finishedAt },
-      });
-      for (const change of changes) {
-        await tx.set.updateMany({
-          where: { ...ownSets, id: change.id },
-          data: { completedAt: change.completedAt },
-        });
-      }
-      if (rescaled) {
-        // The per-set heart rate of an attached watch file was cut between
-        // the old set timestamps (issue #576). The recording's start is not
-        // stored, so it cannot be cut again: drop it rather than show numbers
-        // that no longer match the sets. The session curve and its average
-        // and peak do not depend on the sets and stay.
-        await tx.set.updateMany({
-          where: { ...ownSets, OR: [{ watchAvgHr: { not: null } }, { watchMaxHr: { not: null } }] },
-          data: { watchAvgHr: null, watchMaxHr: null },
-        });
-      }
-      if (changes.length > 0) {
-        for (const exerciseId of exerciseIds) {
-          await rederiveGoalAchievement(tx, userId, exerciseId, true);
+    const updated = await runSerializableSetTransaction(
+      async (tx) => {
+        const session = await lockOwnedSession(tx, userId, params.id);
+        if (!session) throw new ApiError(404, 'Session not found.');
+        if (!session.finishedAt) {
+          throw new ApiError(409, 'This session is still in progress.');
         }
-      }
-      return row;
-    });
+
+        const window = resolveEditedWindow({
+          startedAt: session.startedAt,
+          finishedAt: session.finishedAt,
+          newStartedAt: data.startedAt,
+          newDurationMin: data.durationMin,
+        });
+        if (endsInFuture(window.finishedAt, new Date())) {
+          throw new ApiError(400, 'A session cannot be in the future.');
+        }
+
+        await tx.$queryRaw`SELECT "Set".id FROM "Set" JOIN "Session" ON "Session".id = "Set"."sessionId" WHERE "Set"."sessionId" = ${session.id} AND "Session"."userId" = ${userId} FOR UPDATE OF "Set"`;
+        // Every set query below carries the session's userId as well.
+        const ownSets = { sessionId: session.id, session: { userId } };
+        const sets = await tx.set.findMany({
+          where: ownSets,
+          take: MAX_RETIMED_SETS + 1,
+          select: {
+            id: true,
+            exerciseId: true,
+            weight: true,
+            reps: true,
+            isWarmup: true,
+            completedAt: true,
+          },
+        });
+        if (sets.length > MAX_RETIMED_SETS) {
+          throw new ApiError(400, 'This session has too many sets to be moved.');
+        }
+        const { changes, rescaled } = retimeSets({
+          oldStartedAt: session.startedAt,
+          newStartedAt: window.startedAt,
+          newFinishedAt: window.finishedAt,
+          sets,
+        });
+
+        const exerciseIds = [...new Set(sets.map((set) => set.exerciseId))].sort();
+        for (const exerciseId of exerciseIds) {
+          await lockExerciseGoal(tx, userId, exerciseId);
+        }
+        const row = await tx.session.update({
+          where: { id: session.id, userId },
+          data: window,
+        });
+        if (changes.length > 0) {
+          // One statement for every set. The instants travel as epoch
+          // milliseconds, so no driver or session time zone can shift them.
+          const rows = changes.map(
+            (change) =>
+              Prisma.sql`(${change.id}::text, ${change.completedAt.getTime()}::double precision)`,
+          );
+          await tx.$executeRaw(
+            Prisma.sql`UPDATE "Set" AS s SET "completedAt" = to_timestamp(v.ms / 1000.0) AT TIME ZONE 'UTC' FROM (VALUES ${Prisma.join(rows)}) AS v(id, ms) WHERE s.id = v.id AND s."sessionId" = ${session.id}`,
+          );
+        }
+        if (rescaled) {
+          // The per-set heart rate of an attached watch file was cut between
+          // the old set timestamps (issue #576). The recording's start is not
+          // stored, so it cannot be cut again: drop it rather than show numbers
+          // that no longer match the sets. The session curve and its average
+          // and peak do not depend on the sets and stay.
+          await tx.set.updateMany({
+            where: {
+              ...ownSets,
+              OR: [{ watchAvgHr: { not: null } }, { watchMaxHr: { not: null } }],
+            },
+            data: { watchAvgHr: null, watchMaxHr: null },
+          });
+        }
+        if (changes.length > 0) {
+          const movedTo = new Map(changes.map((change) => [change.id, change.completedAt]));
+          for (const exerciseId of exerciseIds) {
+            const moved = sets.flatMap((set) => {
+              const to = movedTo.get(set.id);
+              return set.exerciseId === exerciseId && to
+                ? [
+                    {
+                      weight: set.weight,
+                      reps: set.reps,
+                      isWarmup: set.isWarmup,
+                      from: set.completedAt,
+                      to,
+                    },
+                  ]
+                : [];
+            });
+            await shiftGoalAchievementForMove(tx, userId, exerciseId, moved);
+          }
+        }
+        return row;
+      },
+      { timeoutMs: 15_000 },
+    );
 
     return NextResponse.json(updated);
   } catch (err) {

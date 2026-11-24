@@ -39,7 +39,7 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
   const monthRange = getMonthQueryRange(month);
   const programFilter = searchParams.programId ? { programId: searchParams.programId } : {};
 
-  const [sessions, programs, user, totalHistoryCount, workouts] = await Promise.all([
+  const [sessions, programs, user, totalHistoryCount, workouts, gyms] = await Promise.all([
     db.session.findMany({
       where: {
         userId: auth.userId,
@@ -71,7 +71,7 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
     }),
     db.user.findUnique({
       where: { id: auth.userId },
-      select: { bodyweight: true, unit: true, distanceUnit: true },
+      select: { bodyweight: true, unit: true, distanceUnit: true, activeGymId: true },
     }),
     db.session.count({
       where: { userId: auth.userId, finishedAt: { not: null } },
@@ -82,6 +82,11 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
       where: { program: { userId: auth.userId } },
       orderBy: [{ program: { isActive: 'desc' } }, { programId: 'asc' }, { order: 'asc' }],
       select: { id: true, name: true, program: { select: { name: true } } },
+    }),
+    db.gym.findMany({
+      where: { userId: auth.userId },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
     }),
   ]);
 
@@ -152,6 +157,8 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
             <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
           </div>
           <LogPastWorkoutButton
+            gyms={gyms}
+            activeGymId={user?.activeGymId ?? null}
             workouts={workouts.map((workout) => ({
               id: workout.id,
               name: `${getTrainingDisplayName(workout.program.name, locale)} - ${getTrainingDisplayName(workout.name, locale)}`,

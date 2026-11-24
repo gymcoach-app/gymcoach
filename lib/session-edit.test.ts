@@ -6,8 +6,10 @@ import {
   fromLocalInputs,
   FUTURE_TOLERANCE_MS,
   parseTimingInputs,
-  resolveEditedFinish,
+  parseTimingEdit,
+  resolveEditedWindow,
   retimeSets,
+  timingInputsOf,
   toLocalInputs,
 } from './session-edit';
 
@@ -79,6 +81,56 @@ describe('retimeSets (issue #389)', () => {
     ]);
   });
 
+  it('keeps two sets logged at the same instant together, in a move and in a squeeze', () => {
+    const tied = [
+      { id: 'a', completedAt: at('2026-11-20T18:10:00Z') },
+      { id: 'b', completedAt: at('2026-11-20T18:10:00Z') },
+      { id: 'c', completedAt: at('2026-11-20T18:40:00Z') },
+    ];
+    for (const newFinishedAt of [at('2026-11-01T11:00:00Z'), at('2026-11-01T10:20:00Z')]) {
+      const { changes } = retimeSets({
+        oldStartedAt,
+        newStartedAt: at('2026-11-01T10:00:00Z'),
+        newFinishedAt,
+        sets: tied,
+      });
+      const time = (id: string) => changes.find((c) => c.id === id)?.completedAt.getTime();
+      expect(time('a')).toBe(time('b'));
+      expect(time('a') as number).toBeLessThan(time('c') as number);
+    }
+  });
+
+  it('lets one far outlier compress the others toward the start, without reordering them', () => {
+    const newStartedAt = at('2026-11-01T10:00:00Z');
+    const { changes, rescaled } = retimeSets({
+      oldStartedAt,
+      newStartedAt,
+      newFinishedAt: at('2026-11-01T11:00:00Z'),
+      sets: [...sets, { id: 'outlier', completedAt: at('2026-12-20T18:00:00Z') }],
+    });
+    expect(rescaled).toBe(true);
+    const times = ['a', 'b', 'c', 'outlier'].map(
+      (id) => changes.find((c) => c.id === id)!.completedAt.getTime(),
+    );
+    expect([...times].sort((x, y) => x - y)).toEqual(times);
+    expect(times[0]!).toBeGreaterThanOrEqual(newStartedAt.getTime());
+    expect(times[3]!).toBe(at('2026-11-01T11:00:00Z').getTime());
+  });
+
+  it('handles thousands of sets without spreading them into a call', () => {
+    const many = Array.from({ length: 200_000 }, (_, index) => ({
+      id: `s${index}`,
+      completedAt: new Date(oldStartedAt.getTime() + index * 10),
+    }));
+    const { changes } = retimeSets({
+      oldStartedAt,
+      newStartedAt: at('2026-11-01T10:00:00Z'),
+      newFinishedAt: at('2026-11-01T11:00:00Z'),
+      sets: many,
+    });
+    expect(changes).toHaveLength(200_000);
+  });
+
   it('handles a session without sets', () => {
     expect(
       retimeSets({
@@ -119,22 +171,44 @@ describe('addedSetCompletedAt', () => {
   });
 });
 
-describe('resolveEditedFinish', () => {
-  const oldStartedAt = at('2026-11-20T18:00:00Z');
-  const oldFinishedAt = at('2026-11-20T18:47:20Z');
-  const newStartedAt = at('2026-11-18T07:00:00Z');
+describe('resolveEditedWindow', () => {
+  const startedAt = at('2026-11-20T18:00:27.450Z');
+  const finishedAt = at('2026-11-20T18:47:47.450Z');
 
-  it('keeps the stored duration, seconds included, when the minutes were not changed', () => {
-    expect(durationMinutes(oldStartedAt, oldFinishedAt)).toBe(47);
+  it('keeps the stored duration, seconds included, when only the start moves', () => {
+    expect(durationMinutes(startedAt, finishedAt)).toBe(47);
     expect(
-      resolveEditedFinish({ oldStartedAt, oldFinishedAt, newStartedAt, durationMin: 47 }),
-    ).toEqual(at('2026-11-18T07:47:20Z'));
+      resolveEditedWindow({ startedAt, finishedAt, newStartedAt: at('2026-11-18T07:00:00Z') }),
+    ).toEqual({
+      startedAt: at('2026-11-18T07:00:00Z'),
+      finishedAt: at('2026-11-18T07:47:20Z'),
+    });
   });
 
-  it('uses the typed minutes when they changed', () => {
+  it('keeps the start, seconds included, when only the duration changes', () => {
+    expect(resolveEditedWindow({ startedAt, finishedAt, newDurationMin: 90 })).toEqual({
+      startedAt,
+      finishedAt: at('2026-11-20T19:30:27.450Z'),
+    });
+  });
+
+  it('keeps a session longer than the editor lets one type, and one of no length', () => {
+    const threeDays = at('2026-11-23T18:00:27.450Z');
+    const moved = resolveEditedWindow({
+      startedAt,
+      finishedAt: threeDays,
+      newStartedAt: at('2026-10-01T00:00:00Z'),
+    });
+    expect(moved.finishedAt.getTime() - moved.startedAt.getTime()).toBe(
+      threeDays.getTime() - startedAt.getTime(),
+    );
     expect(
-      resolveEditedFinish({ oldStartedAt, oldFinishedAt, newStartedAt, durationMin: 90 }),
-    ).toEqual(at('2026-11-18T08:30:00Z'));
+      resolveEditedWindow({
+        startedAt,
+        finishedAt: startedAt,
+        newStartedAt: at('2026-10-01T00:00:00Z'),
+      }),
+    ).toEqual({ startedAt: at('2026-10-01T00:00:00Z'), finishedAt: at('2026-10-01T00:00:00Z') });
   });
 });
 
@@ -226,10 +300,112 @@ describe('parseTimingInputs', () => {
     const invalid = { ok: false, reason: 'invalid' };
     expect(parseTimingInputs({ date: '', time: '18:30', duration: '60' }, now)).toEqual(invalid);
     expect(parseTimingInputs({ date: '2026-11-20', time: '', duration: '60' }, now)).toEqual(invalid);
+    // New dates start in 2000, like the imports.
+    expect(parseTimingInputs({ date: '1999-12-30', time: '18:30', duration: '60' }, now)).toEqual(
+      invalid,
+    );
     for (const duration of ['', '0', '1441', '-5', '12.5', 'abc']) {
       expect(parseTimingInputs({ date: '2026-11-20', time: '18:30', duration }, now)).toEqual(
         invalid,
       );
     }
+  });
+});
+
+describe('parseTimingEdit: only what changed is sent', () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+  const now = new Date(2026, 10, 24, 12, 0);
+
+  it('reports no change for an untouched form, even when the start has seconds', () => {
+    const startedAt = new Date(2026, 10, 20, 18, 30, 27, 450);
+    const finishedAt = new Date(startedAt.getTime() + 47 * 60_000 + 20_000);
+    const inputs = timingInputsOf(startedAt, finishedAt);
+    expect(inputs).toEqual({ date: '2026-11-20', time: '18:30', duration: '47' });
+    expect(parseTimingEdit({ startedAt, finishedAt, inputs, now })).toEqual({ ok: true, changes: {} });
+  });
+
+  it('sends only the duration when only the duration changed, leaving the seconds of the start', () => {
+    const startedAt = new Date(2026, 10, 20, 18, 30, 27);
+    const finishedAt = new Date(startedAt.getTime() + 47 * 60_000);
+    const inputs = { ...timingInputsOf(startedAt, finishedAt), duration: '60' };
+    expect(parseTimingEdit({ startedAt, finishedAt, inputs, now })).toEqual({
+      ok: true,
+      changes: { durationMin: 60 },
+    });
+  });
+
+  it('sends only the start when only the date changed', () => {
+    const startedAt = new Date(2026, 10, 20, 18, 30, 27);
+    const finishedAt = new Date(startedAt.getTime() + 47 * 60_000 + 20_000);
+    const inputs = { ...timingInputsOf(startedAt, finishedAt), date: '2026-11-18' };
+    expect(parseTimingEdit({ startedAt, finishedAt, inputs, now })).toEqual({
+      ok: true,
+      changes: { startedAt: new Date(2026, 10, 18, 18, 30) },
+    });
+  });
+
+  it('does not move a start that lies in the hour a daylight saving change repeats', () => {
+    process.env.TZ = 'Europe/Paris';
+    // 2026-10-25 02:30 happens twice in Paris. This is the second one (CET);
+    // read back from the fields it would be the first (CEST), an hour earlier.
+    const startedAt = new Date('2026-10-25T01:30:00.000Z');
+    const finishedAt = new Date('2026-10-25T02:15:00.000Z');
+    const inputs = timingInputsOf(startedAt, finishedAt);
+    expect(inputs).toEqual({ date: '2026-10-25', time: '02:30', duration: '45' });
+    expect(fromLocalInputs(inputs.date, inputs.time)?.toISOString()).not.toBe(
+      startedAt.toISOString(),
+    );
+    const later = new Date('2026-11-24T11:00:00.000Z');
+    expect(parseTimingEdit({ startedAt, finishedAt, inputs, now: later })).toEqual({
+      ok: true,
+      changes: {},
+    });
+    expect(
+      parseTimingEdit({ startedAt, finishedAt, inputs: { ...inputs, duration: '50' }, now: later }),
+    ).toEqual({ ok: true, changes: { durationMin: 50 } });
+  });
+
+  it('re-dates a session longer than 24 hours, and one of no length, without touching the duration', () => {
+    const startedAt = new Date(2026, 10, 10, 8, 0);
+    const long = new Date(startedAt.getTime() + 3 * 24 * 60 * 60_000);
+    const longInputs = timingInputsOf(startedAt, long);
+    expect(longInputs.duration).toBe('4320');
+    expect(
+      parseTimingEdit({
+        startedAt,
+        finishedAt: long,
+        inputs: { ...longInputs, date: '2026-11-08' },
+        now,
+      }),
+    ).toEqual({ ok: true, changes: { startedAt: new Date(2026, 10, 8, 8, 0) } });
+
+    const zeroInputs = timingInputsOf(startedAt, startedAt);
+    expect(zeroInputs.duration).toBe('0');
+    expect(
+      parseTimingEdit({
+        startedAt,
+        finishedAt: startedAt,
+        inputs: { ...zeroInputs, time: '09:15' },
+        now,
+      }),
+    ).toEqual({ ok: true, changes: { startedAt: new Date(2026, 10, 10, 9, 15) } });
+  });
+
+  it('rejects a changed field that is invalid, in the future or before 2000', () => {
+    const startedAt = new Date(2026, 10, 20, 18, 30);
+    const finishedAt = new Date(startedAt.getTime() + 47 * 60_000);
+    const base = timingInputsOf(startedAt, finishedAt);
+    const edit = (inputs: Partial<typeof base>) =>
+      parseTimingEdit({ startedAt, finishedAt, inputs: { ...base, ...inputs }, now });
+    expect(edit({ duration: '0' })).toEqual({ ok: false, reason: 'invalid' });
+    expect(edit({ duration: '1441' })).toEqual({ ok: false, reason: 'invalid' });
+    expect(edit({ date: '' })).toEqual({ ok: false, reason: 'invalid' });
+    expect(edit({ date: '1999-12-30' })).toEqual({ ok: false, reason: 'invalid' });
+    expect(edit({ date: '2026-11-25' })).toEqual({ ok: false, reason: 'future' });
+    expect(edit({ date: '2026-11-24', time: '11:30' })).toEqual({ ok: false, reason: 'future' });
   });
 });

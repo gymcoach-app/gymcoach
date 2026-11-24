@@ -143,6 +143,12 @@ export const history = {
     cardioAdd: 'Añadir la serie {number}',
     cardioDelete: 'Eliminar la serie {number}',
     cardioInvalid: 'Introduce una duración válida, por ejemplo 25:00.',
+    emptyLeaveTitle: '¿Conservar esta sesión vacía?',
+    emptyLeaveDescription:
+      'No se ha introducido ninguna serie. Una sesión vacía aparece igualmente en tu historial.',
+    keepEmpty: 'Conservarla',
+    discardEmpty: 'Descartarla',
+    discardError: 'No se pudo descartar la sesión.',
   },
   logPast: {
     button: 'Registrar una sesión pasada',

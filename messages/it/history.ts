@@ -142,6 +142,12 @@ export const history = {
     cardioAdd: 'Aggiungi la serie {number}',
     cardioDelete: 'Elimina la serie {number}',
     cardioInvalid: 'Inserisci una durata valida, ad esempio 25:00.',
+    emptyLeaveTitle: 'Mantenere questa sessione vuota?',
+    emptyLeaveDescription:
+      'Non è stata inserita nessuna serie. Una sessione vuota compare comunque nel tuo storico.',
+    keepEmpty: 'Mantienila',
+    discardEmpty: 'Scartala',
+    discardError: 'Impossibile scartare la sessione.',
   },
   logPast: {
     button: 'Registra una sessione passata',

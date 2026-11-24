@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { getCurrentUserId } from '@/lib/auth';
 import { getLastPerformances } from '@/lib/last-performance';
 import { best1RM } from '@/lib/stats';
+import { resetRateLimits } from '@/lib/rate-limit';
+import { isTransactionWriteConflict } from '@/lib/tx-conflict';
 
 // Editing a finished session and logging a past one (issue #389). Pinned here:
 // - ownership: a stranger gets 404 on every new write, and nothing changes;
@@ -18,7 +20,7 @@ const mockUserId = vi.mocked(getCurrentUserId);
 
 import { POST as startSession } from '@/app/api/sessions/route';
 import { POST as logPastSession } from '@/app/api/sessions/past/route';
-import { PATCH as patchSession } from '@/app/api/sessions/[id]/route';
+import { PATCH as patchSession, PUT as putSession } from '@/app/api/sessions/[id]/route';
 import { POST as addSet } from '@/app/api/sessions/[id]/sets/route';
 import { PATCH as patchSet, DELETE as deleteSet } from '@/app/api/sets/[id]/route';
 
@@ -84,6 +86,7 @@ function strengthSet(exerciseId: string, overrides: Record<string, unknown> = {}
 
 beforeEach(() => {
   mockUserId.mockReset();
+  resetRateLimits();
 });
 
 describe('ownership: a stranger gets 404 and changes nothing', () => {
@@ -278,6 +281,8 @@ describe('POST /api/sessions/past', () => {
       { startedAt: daysAgo(1).toISOString(), durationMin: 1441 },
       { startedAt: daysAgo(1).toISOString() },
       { durationMin: 60 },
+      // New dates start in 2000, like the imports.
+      { startedAt: '1999-12-31T10:00:00.000Z', durationMin: 60 },
     ];
     for (const body of cases) {
       const res = await logPastSession(jsonReq('POST', body));
@@ -422,7 +427,7 @@ describe('derived data follows a corrected history', () => {
 
     const target = daysAgo(6);
     const sameDuration = await patchSession(
-      jsonReq('PATCH', { startedAt: target.toISOString(), durationMin: 47 }),
+      jsonReq('PATCH', { startedAt: target.toISOString() }),
       idParams(session.id),
     );
     expect(sameDuration.status).toBe(200);
@@ -435,10 +440,7 @@ describe('derived data follows a corrected history', () => {
     // A plain move keeps the per-set heart rate of the watch file.
     expect(rows.every((s) => s.watchAvgHr === 120 && s.watchMaxHr === 150)).toBe(true);
 
-    const shorter = await patchSession(
-      jsonReq('PATCH', { startedAt: target.toISOString(), durationMin: 30 }),
-      idParams(session.id),
-    );
+    const shorter = await patchSession(jsonReq('PATCH', { durationMin: 30 }), idParams(session.id));
     expect(shorter.status).toBe(200);
     row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
     expect(row.finishedAt!.getTime() - row.startedAt.getTime()).toBe(30 * MINUTE);
@@ -533,7 +535,7 @@ describe('derived data follows a corrected history', () => {
 });
 
 describe('editing the sets of a finished session', () => {
-  it('changes the set type, and closes the gap a removed set leaves', async () => {
+  it('changes the set type, and never renumbers: a removed set leaves its gap, an added one goes after', async () => {
     const user = await seedUser();
     const bench = await seedBench(user.id);
     const { session, set } = await seedFinishedSession(user.id, bench.id, daysAgo(3));
@@ -566,10 +568,89 @@ describe('editing the sets of a finished session', () => {
       where: { sessionId: session.id },
       orderBy: { setNumber: 'asc' },
     });
+    // The stored numbers are what a re-import matches on: they stay.
     expect(rows.map((r) => [r.id, r.setNumber])).toEqual([
       [ids[0], 1],
-      [ids[2], 2],
+      [ids[2], 3],
     ]);
+
+    // The server numbers an added set after the last one, whatever is sent.
+    const again = await addSet(
+      jsonReq('POST', strengthSet(bench.id, { setNumber: 2 })),
+      idParams(session.id),
+    );
+    expect(((await again.json()) as { setNumber: number }).setNumber).toBe(4);
+  });
+
+  it('keeps the block asked for when the session already has sets in it', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    // No workout behind the session anymore, but its sets still carry blocks.
+    const { session } = await seedFinishedSession(user.id, bench.id, daysAgo(3));
+    await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: bench.id,
+        setNumber: 1,
+        weight: 60,
+        reps: 10,
+        block: 1,
+        completedAt: new Date(session.startedAt.getTime() + 30 * MINUTE),
+      },
+    });
+    actAs(user.id);
+
+    const second = await addSet(
+      jsonReq('POST', strengthSet(bench.id, { weight: 60, reps: 10, block: 1 })),
+      idParams(session.id),
+    );
+    expect(second.status).toBe(201);
+    expect(await second.json()).toMatchObject({ block: 1, setNumber: 2 });
+
+    // A block no set of the session uses is not invented.
+    const unknown = await addSet(
+      jsonReq('POST', strengthSet(bench.id, { block: 2 })),
+      idParams(session.id),
+    );
+    expect(await unknown.json()).toMatchObject({ block: null, setNumber: 2 });
+  });
+
+  it('keeps the recorded track of an imported activity when its values are corrected', async () => {
+    const user = await seedUser();
+    const running = await db.exercise.create({
+      data: { userId: user.id, name: 'Running', muscleGroup: 'OTHER', category: 'CARDIO' },
+    });
+    const startedAt = daysAgo(4);
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt, finishedAt: new Date(startedAt.getTime() + 30 * MINUTE) },
+    });
+    const track = [
+      { t: 0, d: 0, hr: 120 },
+      { t: 900, d: 2500, hr: 150 },
+    ];
+    const set = await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: running.id,
+        setNumber: 1,
+        weight: 0,
+        reps: 1,
+        durationSec: 1800,
+        distanceM: 5000,
+        track,
+        completedAt: new Date(startedAt.getTime() + 30 * MINUTE),
+      },
+    });
+    actAs(user.id);
+
+    const res = await patchSet(
+      jsonReq('PATCH', { durationSec: 1750, distanceM: 5100, amend: true }),
+      idParams(set.id),
+    );
+    expect(res.status).toBe(200);
+    const row = await db.set.findUniqueOrThrow({ where: { id: set.id } });
+    expect(row).toMatchObject({ durationSec: 1750, distanceM: 5100 });
+    expect(row.track).toEqual(track);
   });
 
   it('leaves the set numbers of a session in progress alone on delete', async () => {
@@ -649,5 +730,387 @@ describe('editing the sets of a finished session', () => {
       reps: 5,
       durationSec: null,
     });
+  });
+});
+
+describe('timing edits send only what changed', () => {
+  it('keeps the seconds of the start when only the duration changes, and moves no set', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const startedAt = new Date(daysAgo(5).getTime() + 27_450);
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt, finishedAt: new Date(startedAt.getTime() + 47 * MINUTE) },
+    });
+    const set = await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: bench.id,
+        setNumber: 1,
+        weight: 100,
+        reps: 5,
+        completedAt: new Date(startedAt.getTime() + 10 * MINUTE),
+      },
+    });
+    actAs(user.id);
+
+    const res = await patchSession(jsonReq('PATCH', { durationMin: 60 }), idParams(session.id));
+    expect(res.status).toBe(200);
+    const row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
+    expect(row.startedAt.getTime()).toBe(startedAt.getTime());
+    expect(row.finishedAt!.getTime()).toBe(startedAt.getTime() + 60 * MINUTE);
+    const setRow = await db.set.findUniqueOrThrow({ where: { id: set.id } });
+    expect(setRow.completedAt.getTime()).toBe(set.completedAt.getTime());
+  });
+
+  it('re-dates a session longer than 24 hours and keeps its length', async () => {
+    const user = await seedUser();
+    const startedAt = daysAgo(20);
+    const length = 3 * DAY + 12_345;
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt, finishedAt: new Date(startedAt.getTime() + length) },
+    });
+    actAs(user.id);
+
+    const target = daysAgo(40);
+    const res = await patchSession(
+      jsonReq('PATCH', { startedAt: target.toISOString() }),
+      idParams(session.id),
+    );
+    expect(res.status).toBe(200);
+    const row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
+    expect(row.startedAt.getTime()).toBe(target.getTime());
+    expect(row.finishedAt!.getTime()).toBe(target.getTime() + length);
+  });
+
+  it('refuses an empty edit and a date before 2000, but still edits an older imported session', async () => {
+    const user = await seedUser();
+    const old = new Date('1998-05-04T10:00:00.000Z');
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt: old, finishedAt: new Date(old.getTime() + 30 * MINUTE) },
+    });
+    actAs(user.id);
+
+    expect((await patchSession(jsonReq('PATCH', {}), idParams(session.id))).status).toBe(400);
+    const before2000 = await patchSession(
+      jsonReq('PATCH', { startedAt: '1999-06-01T10:00:00.000Z' }),
+      idParams(session.id),
+    );
+    expect(before2000.status).toBe(400);
+
+    const duration = await patchSession(jsonReq('PATCH', { durationMin: 45 }), idParams(session.id));
+    expect(duration.status).toBe(200);
+    const row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
+    expect(row.startedAt.getTime()).toBe(old.getTime());
+    expect(row.finishedAt!.getTime()).toBe(old.getTime() + 45 * MINUTE);
+  });
+
+  it('moves several hundred sets in one statement, to the millisecond', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const startedAt = new Date(daysAgo(6).getTime() + 123);
+    const session = await db.session.create({
+      data: { userId: user.id, startedAt, finishedAt: new Date(startedAt.getTime() + 90 * MINUTE) },
+    });
+    await db.set.createMany({
+      data: Array.from({ length: 400 }, (_, index) => ({
+        sessionId: session.id,
+        exerciseId: bench.id,
+        setNumber: index + 1,
+        weight: 100,
+        reps: 5,
+        completedAt: new Date(startedAt.getTime() + index * 13_007),
+      })),
+    });
+    actAs(user.id);
+
+    const target = daysAgo(70);
+    const res = await patchSession(
+      jsonReq('PATCH', { startedAt: target.toISOString() }),
+      idParams(session.id),
+    );
+    expect(res.status).toBe(200);
+    const rows = await db.set.findMany({
+      where: { sessionId: session.id },
+      orderBy: { setNumber: 'asc' },
+      select: { completedAt: true },
+    });
+    expect(rows.map((row) => row.completedAt.getTime() - target.getTime())).toEqual(
+      Array.from({ length: 400 }, (_, index) => index * 13_007),
+    );
+  });
+});
+
+describe('a move does not judge a goal again', () => {
+  it('moves the date with the set that stamped it, whatever the bodyweight is today', async () => {
+    const user = await db.user.create({
+      data: { email: 'owner@test.dev', passwordHash: 'x', bodyweight: 80 },
+    });
+    const pullup = await db.exercise.create({
+      data: {
+        userId: user.id,
+        name: 'Pull-up',
+        muscleGroup: 'BACK_WIDTH',
+        category: 'COMPOUND',
+        usesBodyweight: true,
+      },
+    });
+    // 80 kg of bodyweight + 20 kg met the 100 kg target that day.
+    const { session, set } = await seedFinishedSession(user.id, pullup.id, daysAgo(3), {
+      weight: 20,
+      reps: 5,
+    });
+    const goal = await db.exerciseGoal.create({
+      data: {
+        userId: user.id,
+        exerciseId: pullup.id,
+        targetWeight: 100,
+        targetReps: 5,
+        achievedAt: set.completedAt,
+      },
+    });
+    // The lifter is lighter today: judged again, the set would no longer count.
+    await db.user.update({ where: { id: user.id }, data: { bodyweight: 70 } });
+    actAs(user.id);
+
+    const target = daysAgo(9);
+    const res = await patchSession(
+      jsonReq('PATCH', { startedAt: target.toISOString() }),
+      idParams(session.id),
+    );
+    expect(res.status).toBe(200);
+    const row = await db.exerciseGoal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(row.achievedAt?.getTime()).toBe(target.getTime() + 10 * MINUTE);
+  });
+
+  it('never stamps an unachieved goal, and leaves a date stamped by another session alone', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const squat = await db.exercise.create({
+      data: { userId: user.id, name: 'Squat', muscleGroup: 'QUADS', category: 'COMPOUND' },
+    });
+    const startedAt = daysAgo(3);
+    const { session, set: benchSet } = await seedFinishedSession(user.id, bench.id, startedAt, {
+      weight: 120,
+      reps: 5,
+    });
+    await db.set.create({
+      data: {
+        sessionId: session.id,
+        exerciseId: squat.id,
+        setNumber: 1,
+        weight: 90,
+        reps: 5,
+        completedAt: new Date(startedAt.getTime() + 20 * MINUTE),
+      },
+    });
+    // Bench: the set meets the target but the goal was never stamped.
+    const unachieved = await db.exerciseGoal.create({
+      data: { userId: user.id, exerciseId: bench.id, targetWeight: 110, targetReps: 5 },
+    });
+    // Squat: achieved a month ago by another session; this one does not qualify.
+    const elsewhere = daysAgo(30);
+    const stamped = await db.exerciseGoal.create({
+      data: {
+        userId: user.id,
+        exerciseId: squat.id,
+        targetWeight: 100,
+        targetReps: 5,
+        achievedAt: elsewhere,
+      },
+    });
+    actAs(user.id);
+
+    const res = await patchSession(
+      jsonReq('PATCH', { startedAt: daysAgo(50).toISOString() }),
+      idParams(session.id),
+    );
+    expect(res.status).toBe(200);
+    expect(benchSet.weight).toBe(120);
+    expect(
+      (await db.exerciseGoal.findUniqueOrThrow({ where: { id: unachieved.id } })).achievedAt,
+    ).toBeNull();
+    expect(
+      (await db.exerciseGoal.findUniqueOrThrow({ where: { id: stamped.id } })).achievedAt?.getTime(),
+    ).toBe(elsewhere.getTime());
+  });
+
+  it('brings the date earlier when a qualifying set lands before it', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const stamping = await seedFinishedSession(user.id, bench.id, daysAgo(10), {
+      weight: 110,
+      reps: 5,
+    });
+    const later = await seedFinishedSession(user.id, bench.id, daysAgo(2), { weight: 115, reps: 5 });
+    const goal = await db.exerciseGoal.create({
+      data: {
+        userId: user.id,
+        exerciseId: bench.id,
+        targetWeight: 110,
+        targetReps: 5,
+        achievedAt: stamping.set.completedAt,
+      },
+    });
+    actAs(user.id);
+
+    // The "later" session actually happened three weeks ago.
+    const target = daysAgo(21);
+    await patchSession(
+      jsonReq('PATCH', { startedAt: target.toISOString() }),
+      idParams(later.session.id),
+    );
+    const row = await db.exerciseGoal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(row.achievedAt?.getTime()).toBe(target.getTime() + 10 * MINUTE);
+  });
+});
+
+describe('PUT /api/sessions/[id] on a finished session', () => {
+  it('finish is a no-op success, so a stale tab cannot undo an edited duration', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const startedAt = daysAgo(3);
+    const { session } = await seedFinishedSession(user.id, bench.id, startedAt);
+    actAs(user.id);
+    await patchSession(jsonReq('PATCH', { durationMin: 90 }), idParams(session.id));
+
+    const res = await putSession(jsonReq('PUT', { finish: true }), idParams(session.id));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { finishedAt: string };
+    expect(new Date(body.finishedAt).getTime()).toBe(startedAt.getTime() + 90 * MINUTE);
+
+    const notes = await putSession(jsonReq('PUT', { notes: 'felt good' }), idParams(session.id));
+    expect(notes.status).toBe(200);
+    const row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
+    expect(row.notes).toBe('felt good');
+    expect(row.finishedAt!.getTime()).toBe(startedAt.getTime() + 90 * MINUTE);
+  });
+
+  it('still finishes a session in progress', async () => {
+    const user = await seedUser();
+    const session = await db.session.create({ data: { userId: user.id } });
+    actAs(user.id);
+    const res = await putSession(jsonReq('PUT', { finish: true }), idParams(session.id));
+    expect(res.status).toBe(200);
+    const row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
+    expect(row.finishedAt).not.toBeNull();
+  });
+});
+
+describe('concurrent edits of a finished session', () => {
+  it('dates a set added during a move inside the window the session ends up in', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const { session } = await seedFinishedSession(user.id, bench.id, daysAgo(3));
+    actAs(user.id);
+
+    for (let round = 0; round < 6; round += 1) {
+      const target = daysAgo(20 + round * 10);
+      const move = () =>
+        patchSession(jsonReq('PATCH', { startedAt: target.toISOString() }), idParams(session.id));
+      const add = () =>
+        addSet(jsonReq('POST', strengthSet(bench.id, { weight: 50 + round })), idParams(session.id));
+      const [moved, added] =
+        round % 2 === 0 ? await Promise.all([move(), add()]) : (await Promise.all([add(), move()])).reverse();
+      expect(moved!.status).toBe(200);
+      expect(added!.status).toBe(201);
+
+      const row = await db.session.findUniqueOrThrow({ where: { id: session.id } });
+      expect(row.startedAt.getTime()).toBe(target.getTime());
+      const sets = await db.set.findMany({ where: { sessionId: session.id } });
+      expect(sets).toHaveLength(round + 2);
+      for (const set of sets) {
+        expect(set.completedAt.getTime()).toBeGreaterThanOrEqual(row.startedAt.getTime());
+        expect(set.completedAt.getTime()).toBeLessThanOrEqual(row.finishedAt!.getTime());
+      }
+    }
+  });
+
+  it('lets a move, set edits and a set delete of the same session run together', async () => {
+    const user = await seedUser();
+    const bench = await seedBench(user.id);
+    const startedAt = daysAgo(3);
+    const { session, set } = await seedFinishedSession(user.id, bench.id, startedAt);
+    await db.exerciseGoal.create({
+      data: { userId: user.id, exerciseId: bench.id, targetWeight: 100, targetReps: 5 },
+    });
+    const others = [];
+    for (const setNumber of [2, 3, 4]) {
+      others.push(
+        await db.set.create({
+          data: {
+            sessionId: session.id,
+            exerciseId: bench.id,
+            setNumber,
+            weight: 100,
+            reps: 5,
+            completedAt: new Date(startedAt.getTime() + (10 + setNumber) * MINUTE),
+          },
+        }),
+      );
+    }
+    actAs(user.id);
+
+    const responses = await Promise.all([
+      patchSession(jsonReq('PATCH', { startedAt: daysAgo(15).toISOString() }), idParams(session.id)),
+      patchSet(jsonReq('PATCH', { weight: 105, reps: 5, rir: 1, amend: true }), idParams(set.id)),
+      patchSet(
+        jsonReq('PATCH', { weight: 95, reps: 6, rir: 2, isWarmup: true, amend: true }),
+        idParams(others[0]!.id),
+      ),
+      deleteSet(jsonReq('DELETE', {}), idParams(others[1]!.id)),
+      patchSession(jsonReq('PATCH', { durationMin: 75 }), idParams(session.id)),
+    ]);
+    expect(responses.map((res) => res.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(await db.set.count({ where: { sessionId: session.id } })).toBe(3);
+  });
+
+  it('gets the retryable error of a raw query in the shape the retry loop looks for', async () => {
+    const user = await seedUser();
+    let releaseSecond: () => void = () => undefined;
+    const firstCommitted = new Promise<void>((resolve) => (releaseSecond = resolve));
+    let snapshotTaken: () => void = () => undefined;
+    const secondStarted = new Promise<void>((resolve) => (snapshotTaken = resolve));
+
+    const second = db
+      .$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id}`;
+          snapshotTaken();
+          await firstCommitted;
+          // The row changed after this transaction's snapshot: SQLSTATE 40001.
+          await tx.$executeRaw`UPDATE "User" SET "passwordHash" = 'second' WHERE id = ${user.id}`;
+        },
+        { isolationLevel: 'Serializable' },
+      )
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    await secondStarted;
+    await db.user.update({ where: { id: user.id }, data: { passwordHash: 'first' } });
+    releaseSecond();
+
+    const err = await second;
+    expect(err).not.toBeNull();
+    expect((err as { code?: string }).code).toBe('P2010');
+    expect(isTransactionWriteConflict(err)).toBe(true);
+  });
+});
+
+describe('POST /api/sessions/past rate limit', () => {
+  it('allows 30 workouts a minute per user, then answers 429', async () => {
+    const user = await seedUser();
+    const other = await seedUser('other@test.dev');
+    actAs(user.id);
+    const body = { startedAt: daysAgo(2).toISOString(), durationMin: 30 };
+    for (let index = 0; index < 30; index += 1) {
+      expect((await logPastSession(jsonReq('POST', body))).status).toBe(201);
+    }
+    expect((await logPastSession(jsonReq('POST', body))).status).toBe(429);
+    expect(await db.session.count({ where: { userId: user.id } })).toBe(30);
+
+    // The budget is per user.
+    actAs(other.id);
+    expect((await logPastSession(jsonReq('POST', body))).status).toBe(201);
   });
 });

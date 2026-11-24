@@ -10,6 +10,7 @@ import { effectiveSetBlock } from '@/lib/exercise-blocks';
 import { addedSetCompletedAt } from '@/lib/session-edit';
 import {
   lockExerciseGoal,
+  lockOwnedSession,
   rederiveGoalAchievement,
   runSerializableSetTransaction,
 } from '@/lib/goal-achievement';
@@ -78,25 +79,58 @@ export async function POST(req: Request, props: Params) {
       : 0;
     const block = occurrences > 1 ? effectiveSetBlock(data.block, occurrences) : null;
 
-    const finishedAt = session.finishedAt;
-    const created = await (finishedAt ? runSerializableSetTransaction : runLiveTransaction)(async (tx) => {
+    const created = await (amend ? runSerializableSetTransaction : runLiveTransaction)(async (tx) => {
       const canonicalWeight = isCardio ? 0 : data.weight;
-      // Amending a finished session: date the set inside the session and
-      // re-derive the goal in the same transaction, since a set dated in the
-      // past may achieve a goal earlier than the set that stamped it.
+      // Amending a finished session. The session read above is only a first
+      // answer: the window the set is dated in is read again here, under the
+      // session's row lock (shared with PATCH /api/sessions/[id]), so a move
+      // that runs at the same moment cannot leave the set dated in the window
+      // the session just left, and a retried transaction reads it afresh.
       let completedAt: Date | undefined;
-      if (finishedAt) {
+      let storedBlock = block;
+      let setNumber = data.setNumber;
+      if (amend) {
+        const locked = await lockOwnedSession(tx, userId, session.id);
+        if (!locked) throw new ApiError(404, 'Session not found.');
+        if (!locked.finishedAt) {
+          throw new ApiError(409, 'This session is still in progress.');
+        }
         await lockExerciseGoal(tx, userId, data.exerciseId);
+        const ownSets = { sessionId: session.id, session: { userId } };
         const lastSet = await tx.set.findFirst({
-          where: { sessionId: session.id, session: { userId } },
+          where: ownSets,
           orderBy: { completedAt: 'desc' },
           select: { completedAt: true },
         });
         completedAt = addedSetCompletedAt({
-          startedAt: session.startedAt,
-          finishedAt,
+          startedAt: locked.startedAt,
+          finishedAt: locked.finishedAt,
           lastSetAt: lastSet?.completedAt ?? null,
         });
+
+        const siblings = await tx.set.findMany({
+          where: { ...ownSets, exerciseId: data.exerciseId },
+          select: { setNumber: true, block: true },
+        });
+        // A block the session's sets already use is kept as asked, even when
+        // the workout no longer repeats the exercise (or is gone): the new
+        // set belongs with the ones the editor shows it next to.
+        if (
+          data.block != null &&
+          storedBlock !== data.block &&
+          siblings.some((row) => row.block === data.block)
+        ) {
+          storedBlock = data.block;
+        }
+        // The number is the next free one of that block, decided here rather
+        // than by the page: stored numbers may have gaps (a deleted set) or
+        // go past what a live session logs (an import).
+        setNumber = 1;
+        for (const row of siblings) {
+          if ((row.block ?? 0) === (storedBlock ?? 0) && row.setNumber >= setNumber) {
+            setNumber = row.setNumber + 1;
+          }
+        }
       }
       const equipmentSnapshot = await resolveSetEquipmentSnapshot(tx, {
         userId,
@@ -110,7 +144,7 @@ export async function POST(req: Request, props: Params) {
           sessionId: params.id,
           exerciseId: data.exerciseId,
           ...equipmentSnapshot,
-          setNumber: data.setNumber,
+          setNumber,
           // Cardio sets store weight = 0 / reps = 1 by convention (the columns
           // are NOT NULL); the UI never shows them for CARDIO exercises.
           weight: canonicalWeight,
@@ -123,15 +157,17 @@ export async function POST(req: Request, props: Params) {
           notes: data.notes ?? null,
           isWarmup: data.isWarmup ?? false,
           isDropSet: data.isDropSet ?? false,
-          block,
+          block: storedBlock,
         },
       });
-      if (finishedAt) {
+      if (amend) {
+        // A set dated in the past may achieve a goal earlier than the set
+        // that stamped it.
         await rederiveGoalAchievement(tx, userId, data.exerciseId, true);
       }
       return row;
     });
-    if (finishedAt) {
+    if (amend) {
       return NextResponse.json(created, { status: 201 });
     }
     // Best-effort: the set is already committed, so a failure here must never

@@ -142,6 +142,12 @@ export const history = {
     cardioAdd: 'Set {number} toevoegen',
     cardioDelete: 'Set {number} verwijderen',
     cardioInvalid: 'Vul een geldige duur in, bijvoorbeeld 25:00.',
+    emptyLeaveTitle: 'Deze lege sessie bewaren?',
+    emptyLeaveDescription:
+      'Er is geen set ingevuld. Een lege sessie staat toch in je geschiedenis.',
+    keepEmpty: 'Bewaren',
+    discardEmpty: 'Weggooien',
+    discardError: 'Kon de sessie niet weggooien.',
   },
   logPast: {
     button: 'Eerdere training loggen',

@@ -23,11 +23,13 @@ vi.mock('@/components/session/editable-sets-table', () => ({
     onDeleteSet,
     onUpdateSet,
     amend,
+    disabled,
   }: TableProps) => (
     <div
       data-testid="sets-table"
       data-exercise={programExercise.exerciseId}
       data-amend={amend ? 'yes' : 'no'}
+      data-disabled={disabled ? 'yes' : 'no'}
     >
       {sets.map((set) => (
         <div key={set.localId} data-testid={`amend-set-row-${set.setNumber}`}>
@@ -117,7 +119,6 @@ function strengthSet(id: string, setNumber: number, overrides: Partial<EditorSet
 
 // 18:30 on 2026-11-20 in the zone the test runs in, for 47 minutes.
 const STARTED_AT = new Date(2026, 10, 20, 18, 30);
-const FINISHED_AT = new Date(STARTED_AT.getTime() + 47 * 60 * 1000);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -126,16 +127,28 @@ afterEach(() => {
 
 const twoSets = [strengthSet('s1', 1), strengthSet('s2', 2)];
 
+// The answer of PATCH /api/sessions/[id]: the session as stored.
+function movedTo(startedAt: Date, minutes: number): Response {
+  return new Response(
+    JSON.stringify({
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date(startedAt.getTime() + minutes * 60 * 1000).toISOString(),
+    }),
+    { status: 200 },
+  );
+}
+
 function renderEditor(
   sets: EditorSet[] = twoSets,
   groups: { exercise: Exercise; block: number | null }[] = [{ exercise: bench, block: null }],
+  startedAt: Date = STARTED_AT,
 ) {
   render(
     <SessionEditor
       sessionId="sess-1"
       title="Push day"
-      startedAt={STARTED_AT.toISOString()}
-      finishedAt={FINISHED_AT.toISOString()}
+      startedAt={startedAt.toISOString()}
+      finishedAt={new Date(startedAt.getTime() + 47 * 60 * 1000).toISOString()}
       groups={groups}
       sets={sets}
       catalog={[bench, run, curl]}
@@ -162,7 +175,7 @@ function requestOf(call: unknown[] | undefined) {
 
 describe('SessionEditor (issue #389)', () => {
   it('shows the date, start time and duration in the local zone and saves them as an instant', async () => {
-    const fetchMock = stubFetch(() => new Response('{}', { status: 200 }));
+    const fetchMock = stubFetch(() => movedTo(new Date(2026, 10, 18, 7, 15), 47));
     renderEditor([], []);
     expect(screen.getByText('No exercise yet. Add one to enter its sets.')).toBeInTheDocument();
 
@@ -175,11 +188,64 @@ describe('SessionEditor (issue #389)', () => {
     fireEvent.click(screen.getByText('Save'));
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Date and duration saved.'));
+    // Only the start changed, so only the start is sent.
     expect(requestOf(fetchMock.mock.calls[0])).toEqual({
       url: '/api/sessions/sess-1',
       method: 'PATCH',
-      body: { startedAt: new Date(2026, 10, 18, 7, 15).toISOString(), durationMin: 47 },
+      body: { startedAt: new Date(2026, 10, 18, 7, 15).toISOString() },
     });
+    // The form now shows what the server stored, and has nothing left to save.
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-18'));
+    expect(screen.getByText('Save').closest('button')).toBeDisabled();
+  });
+
+  it('writes nothing when Save is pressed on an untouched form, seconds in the start included', async () => {
+    const fetchMock = stubFetch(() => new Response('{}', { status: 200 }));
+    renderEditor([], [], new Date(STARTED_AT.getTime() + 27_450));
+    await waitFor(() => expect(screen.getByLabelText('Start time')).toHaveValue('18:30'));
+
+    const save = screen.getByText('Save').closest('button') as HTMLButtonElement;
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    // Retyping the same values is not a change either.
+    fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '18:31' } });
+    fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '18:30' } });
+    expect(save).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends only the duration when only the duration changed', async () => {
+    const fetchMock = stubFetch(() => movedTo(STARTED_AT, 60));
+    renderEditor([], [], new Date(STARTED_AT.getTime() + 27_000));
+    await waitFor(() => expect(screen.getByLabelText('Duration (min)')).toHaveValue(47));
+
+    fireEvent.change(screen.getByLabelText('Duration (min)'), { target: { value: '60' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Date and duration saved.'));
+    expect(requestOf(fetchMock.mock.calls[0]).body).toEqual({ durationMin: 60 });
+  });
+
+  it('locks the set tables while the date is being saved', async () => {
+    let release: (response: Response) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
+    );
+    renderEditor();
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+    expect(screen.getByTestId('sets-table')).toHaveAttribute('data-disabled', 'no');
+
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-18' } });
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() =>
+      expect(screen.getByTestId('sets-table')).toHaveAttribute('data-disabled', 'yes'),
+    );
+
+    release(movedTo(new Date(2026, 10, 18, 18, 30), 47));
+    await waitFor(() =>
+      expect(screen.getByTestId('sets-table')).toHaveAttribute('data-disabled', 'no'),
+    );
   });
 
   it('refuses a future date without calling the server', async () => {
@@ -199,12 +265,15 @@ describe('SessionEditor (issue #389)', () => {
     renderEditor([], []);
     await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
 
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-19' } });
     fireEvent.click(screen.getByText('Save'));
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith('Could not save the date and duration.'),
     );
-    expect(router.refresh).not.toHaveBeenCalled();
+    // What was typed stays, still unsaved.
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-11-19');
+    expect(screen.getByText('Save').closest('button')).toBeEnabled();
   });
 
   it('hands the table its sets in amend mode, in set order', () => {
@@ -316,7 +385,7 @@ describe('SessionEditor (issue #389)', () => {
     });
   });
 
-  it('deletes a set and closes the gap in the numbers, like the server', async () => {
+  it('deletes a set, leaves the stored numbers alone and counts the rows that remain', async () => {
     const fetchMock = stubFetch(() => new Response('{"ok":true}', { status: 200 }));
     renderEditor([
       strengthSet('s1', 1),
@@ -332,9 +401,31 @@ describe('SessionEditor (issue #389)', () => {
       method: 'DELETE',
       body: undefined,
     });
-    // The 120 kg set moved up to number 2.
+    // Only the delete was sent: no set is renumbered. The 120 kg set keeps
+    // its stored number 3 and is simply the second row now.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('amend-set-row-2')).toHaveTextContent('120 x 5');
     expect(toast.success).toHaveBeenCalledWith('Set deleted.');
+  });
+
+  it('shows rows by position when stored numbers have gaps or repeat, and lets the server number a new set', async () => {
+    const fetchMock = stubFetch(
+      () => new Response(JSON.stringify(strengthSet('new', 8, { weight: 90 })), { status: 201 }),
+    );
+    renderEditor([
+      strengthSet('a', 3, { weight: 60 }),
+      strengthSet('b', 3, { weight: 70 }),
+      strengthSet('c', 7, { weight: 80 }),
+    ]);
+    expect(screen.getByTestId('amend-set-row-1')).toHaveTextContent('60 x 5');
+    expect(screen.getByTestId('amend-set-row-2')).toHaveTextContent('70 x 5');
+    expect(screen.getByTestId('amend-set-row-3')).toHaveTextContent('80 x 5');
+
+    fireEvent.click(screen.getByText('add set'));
+
+    // The set the server stored as number 8 is the fourth row.
+    await waitFor(() => expect(screen.getByTestId('amend-set-row-4')).toHaveTextContent('90 x 5'));
+    expect(requestOf(fetchMock.mock.calls[0]).body).toMatchObject({ setNumber: 4, amend: true });
   });
 
   it('keeps the set when the delete fails', async () => {
@@ -407,10 +498,88 @@ describe('SessionEditor (issue #389)', () => {
     );
   });
 
-  it('goes back to the session and refreshes it when done', () => {
-    renderEditor([], []);
+  it('goes back to the session and refreshes it when done', async () => {
+    const fetchMock = stubFetch(() => new Response('{}', { status: 200 }));
+    renderEditor();
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
     fireEvent.click(screen.getByText('Done'));
-    expect(router.push).toHaveBeenCalledWith('/history/sess-1');
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/history/sess-1'));
     expect(router.refresh).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('saves a pending date change on Done instead of dropping it', async () => {
+    const fetchMock = stubFetch(() => movedTo(new Date(2026, 10, 18, 18, 30), 47));
+    renderEditor();
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-18' } });
+    fireEvent.click(screen.getByText('Done'));
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/history/sess-1'));
+    expect(requestOf(fetchMock.mock.calls[0])).toEqual({
+      url: '/api/sessions/sess-1',
+      method: 'PATCH',
+      body: { startedAt: new Date(2026, 10, 18, 18, 30).toISOString() },
+    });
+  });
+
+  it('stays in the editor when the pending date change cannot be saved', async () => {
+    stubFetch(() => new Response('{"error":"nope"}', { status: 400 }));
+    renderEditor();
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-11-18' } });
+    fireEvent.click(screen.getByText('Done'));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not save the date and duration.'),
+    );
+    expect(router.push).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-11-18');
+  });
+
+  it('asks before leaving a workout without any set, and can keep it', async () => {
+    const fetchMock = stubFetch(() => new Response('{}', { status: 200 }));
+    renderEditor([], []);
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+
+    fireEvent.click(screen.getByText('Done'));
+    expect(await screen.findByText('Keep this empty workout?')).toBeInTheDocument();
+    expect(router.push).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Keep it'));
+    expect(router.push).toHaveBeenCalledWith('/history/sess-1');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('discards an empty workout through the route that refuses a session with sets', async () => {
+    const fetchMock = stubFetch(() => new Response('{"ok":true}', { status: 200 }));
+    renderEditor([], []);
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+
+    fireEvent.click(screen.getByText('Done'));
+    fireEvent.click(await screen.findByText('Discard it'));
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/history'));
+    expect(requestOf(fetchMock.mock.calls[0])).toEqual({
+      url: '/api/sessions/sess-1?discardEmpty=1',
+      method: 'DELETE',
+      body: undefined,
+    });
+  });
+
+  it('stays when the empty workout cannot be discarded', async () => {
+    stubFetch(() => new Response('{"error":"has sets"}', { status: 409 }));
+    renderEditor([], []);
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-11-20'));
+
+    fireEvent.click(screen.getByText('Done'));
+    fireEvent.click(await screen.findByText('Discard it'));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not discard the workout.'),
+    );
+    expect(router.push).not.toHaveBeenCalled();
   });
 });

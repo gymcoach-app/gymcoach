@@ -31,6 +31,8 @@ export interface CardioEditorSet extends CardioSetValues {
 
 interface Props {
   sets: CardioEditorSet[];
+  // True while the session itself is being saved: nothing can be changed.
+  disabled?: boolean;
   // Each resolves to true once the server accepted the change.
   onAdd: (values: CardioSetValues) => Promise<boolean>;
   onSave: (set: CardioEditorSet, values: CardioSetValues) => Promise<boolean>;
@@ -60,7 +62,7 @@ function parseHeartRate(input: string, min: number, max: number): number | null 
 // The cardio sets of one exercise in the history editor (issue #389): the
 // fields a cardio set is logged with (duration, distance, heart rate), edited
 // in place, with a row to add a set. Strength sets use EditableSetsTable.
-export function CardioSetsEditor({ sets, onAdd, onSave, onDelete }: Props) {
+export function CardioSetsEditor({ sets, disabled = false, onAdd, onSave, onDelete }: Props) {
   const t = useTranslations('history.edit');
   const detail = useTranslations('history.detail');
   const locale = useLocale();
@@ -70,7 +72,9 @@ export function CardioSetsEditor({ sets, onAdd, onSave, onDelete }: Props) {
   // what is stored.
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [newDraft, setNewDraft] = useState<Draft>(EMPTY_DRAFT);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [activeId, setBusyId] = useState<string | null>(null);
+  // One write at a time, and none while the caller says so.
+  const busyId = activeId ?? (disabled ? 'disabled' : null);
   const nextNumber = Math.max(0, ...sets.map((set) => set.setNumber)) + 1;
 
   function storedDraft(set: CardioEditorSet): Draft {

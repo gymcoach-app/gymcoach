@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check, Plus, Search } from 'lucide-react';
@@ -11,16 +11,21 @@ import { blockKey } from '@/lib/exercise-blocks';
 import { favoritesFirst } from '@/lib/exercise-favorites';
 import { addedExerciseTargets, toRunnerExercises, type RunnerExercise } from '@/lib/freestyle';
 import { matchesSearch } from '@/lib/search-fold';
-import {
-  durationMinutes,
-  parseTimingInputs,
-  toLocalInputs,
-  type TimingInputs,
-} from '@/lib/session-edit';
+import { parseTimingEdit, timingInputsOf, type TimingInputs } from '@/lib/session-edit';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { EditableSetsTable, type SetType } from '@/components/session/editable-sets-table';
 import {
   CardioSetsEditor,
@@ -65,6 +70,8 @@ interface Props {
   // The exercises of the session's workout (in workout order), then the ones
   // that only have sets.
   groups: EditorGroup[];
+  // In the order the page read them: set number, then time. Sets that share
+  // a number (an import may do that) keep that order here.
   sets: EditorSet[];
   // The trainee's exercises, for "Add an exercise".
   catalog: Exercise[];
@@ -96,14 +103,16 @@ function tableRow(sessionId: string, group: EditorGroup, order: number): RunnerE
 }
 
 // The table lists the rows of the live offline queue; a stored set is one
-// that is already synced.
-function toTableSet(sessionId: string, set: EditorSet): PendingSet {
+// that is already synced. `position` is what the row shows as its number:
+// stored numbers are never rewritten (a set deleted from the middle leaves a
+// gap, an import may repeat one), so the editor counts the rows instead.
+function toTableSet(sessionId: string, set: EditorSet, position: number): PendingSet {
   return {
     localId: set.id,
     sessionId,
     exerciseId: set.exerciseId,
     gymEquipmentId: set.gymEquipmentId,
-    setNumber: set.setNumber,
+    setNumber: position,
     weight: set.weight,
     reps: set.reps,
     rir: set.rir,
@@ -122,9 +131,9 @@ function toTableSet(sessionId: string, set: EditorSet): PendingSet {
   };
 }
 
-function bySetNumber(a: EditorSet, b: EditorSet): number {
-  return a.setNumber - b.setNumber;
-}
+// The set routes bound a set number at 50. The server picks the stored number
+// of an added set itself; this is only a valid value to send along.
+const MAX_SENT_SET_NUMBER = 50;
 
 // Editor of a FINISHED session (issue #389): when it took place, and every
 // set of it. Each change is saved as it is made, through the set routes with
@@ -141,25 +150,42 @@ export function SessionEditor({
 }: Props) {
   const t = useTranslations('history.edit');
   const menu = useTranslations('session.exerciseMenu');
+  const common = useTranslations('common');
   const exerciseName = useExerciseName();
   const locale = useLocale();
   const router = useRouter();
   const [groups, setGroups] = useState(initialGroups);
   const [sets, setSets] = useState(initialSets);
+  // The session's window as stored: what the timing form is compared with.
+  const [stored, setStored] = useState(() => ({
+    startedAt: new Date(startedAt),
+    finishedAt: new Date(finishedAt),
+  }));
   const [timing, setTiming] = useState<TimingInputs>({ date: '', time: '', duration: '' });
   const [savingTiming, setSavingTiming] = useState(false);
+  const timingInFlight = useRef(false);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
+  const [emptyPrompt, setEmptyPrompt] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
 
   // The wall-clock values are the browser's, so they are filled after mount
   // (the server renders this component in its own zone).
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    const start = new Date(startedAt);
-    setTiming({
-      ...toLocalInputs(start),
-      duration: String(Math.max(1, durationMinutes(start, new Date(finishedAt)))),
-    });
-  }, [startedAt, finishedAt]);
+    setTiming(timingInputsOf(stored.startedAt, stored.finishedAt));
+    setMounted(true);
+  }, [stored]);
+
+  const timingDirty = useMemo(() => {
+    if (!mounted) return false;
+    const base = timingInputsOf(stored.startedAt, stored.finishedAt);
+    return (
+      timing.date !== base.date ||
+      timing.time !== base.time ||
+      timing.duration.trim() !== base.duration
+    );
+  }, [mounted, stored, timing]);
 
   const setsByGroup = useMemo(() => {
     const map = new Map<string, EditorSet[]>();
@@ -169,7 +195,8 @@ export function SessionEditor({
       if (list) list.push(set);
       else map.set(key, [set]);
     }
-    for (const list of map.values()) list.sort(bySetNumber);
+    // Stable: sets that share a number keep the order they came in.
+    for (const list of map.values()) list.sort((a, b) => a.setNumber - b.setNumber);
     return map;
   }, [sets]);
 
@@ -187,30 +214,39 @@ export function SessionEditor({
     );
   }, [catalog, exerciseName, groups, locale, query]);
 
-  async function saveTiming() {
-    if (savingTiming) return;
-    const parsed = parseTimingInputs(timing, new Date());
-    if (!parsed.ok) {
-      toast.error(t(parsed.reason === 'future' ? 'future' : 'invalidTiming'));
-      return;
+  // Saves what changed in the timing form. Resolves to false when the form
+  // is invalid or the server refused, true when there is nothing left unsaved.
+  async function saveTiming(): Promise<boolean> {
+    if (timingInFlight.current) return false;
+    const edit = parseTimingEdit({ ...stored, inputs: timing, now: new Date() });
+    if (!edit.ok) {
+      toast.error(t(edit.reason === 'future' ? 'future' : 'invalidTiming'));
+      return false;
     }
+    const body: { startedAt?: string; durationMin?: number } = {};
+    if (edit.changes.startedAt) body.startedAt = edit.changes.startedAt.toISOString();
+    if (edit.changes.durationMin != null) body.durationMin = edit.changes.durationMin;
+    // Only what the lifter changed is sent; an untouched form writes nothing.
+    if (body.startedAt === undefined && body.durationMin === undefined) return true;
+
+    timingInFlight.current = true;
     setSavingTiming(true);
     try {
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startedAt: parsed.startedAt.toISOString(),
-          durationMin: parsed.durationMin,
-        }),
+        body: JSON.stringify(body),
       }).catch(() => null);
       if (!res?.ok) {
         toast.error(t('timingError'));
-        return;
+        return false;
       }
+      const saved = (await res.json()) as { startedAt: string; finishedAt: string };
+      setStored({ startedAt: new Date(saved.startedAt), finishedAt: new Date(saved.finishedAt) });
       toast.success(t('timingSaved'));
-      router.refresh();
+      return true;
     } finally {
+      timingInFlight.current = false;
       setSavingTiming(false);
     }
   }
@@ -238,7 +274,7 @@ export function SessionEditor({
     const existing = setsByGroup.get(groupKey(group)) ?? [];
     const created = await writeSet(`/api/sessions/${encodeURIComponent(sessionId)}/sets`, 'POST', {
       exerciseId: group.exercise.id,
-      setNumber: Math.max(0, ...existing.map((set) => set.setNumber)) + 1,
+      setNumber: Math.min(MAX_SENT_SET_NUMBER, existing.length + 1),
       block: group.block,
       ...values,
     });
@@ -264,21 +300,7 @@ export function SessionEditor({
       return false;
     }
     toast.success(t('setDeleted'));
-    setSets((current) => {
-      const removed = current.find((set) => set.id === id);
-      if (!removed) return current;
-      // The server closes the gap in the set numbers; mirror it here.
-      const key = setGroupKey(removed);
-      const siblings = current
-        .filter((set) => set.id !== id && setGroupKey(set) === key)
-        .sort(bySetNumber);
-      const renumbered = new Map(siblings.map((set, index) => [set.id, index + 1]));
-      return current
-        .filter((set) => set.id !== id)
-        .map((set) =>
-          renumbered.has(set.id) ? { ...set, setNumber: renumbered.get(set.id) as number } : set,
-        );
-    });
+    setSets((current) => current.filter((set) => set.id !== id));
     return true;
   }
 
@@ -292,9 +314,42 @@ export function SessionEditor({
     setQuery('');
   }
 
-  function finish() {
+  function leave() {
     router.push(`/history/${encodeURIComponent(sessionId)}`);
     router.refresh();
+  }
+
+  // Done never drops what was typed in the timing form: it is saved first,
+  // and a refused save keeps the lifter here with the message. A session left
+  // without any set (a past workout created, then abandoned) is offered for
+  // removal instead of staying in the history unnoticed.
+  async function finish() {
+    if (timingDirty && !(await saveTiming())) return;
+    if (sets.length === 0) {
+      setEmptyPrompt(true);
+      return;
+    }
+    leave();
+  }
+
+  async function discardEmpty() {
+    setDiscarding(true);
+    try {
+      // `discardEmpty` makes the server refuse a session that holds sets,
+      // whatever this screen believes.
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}?discardEmpty=1`, {
+        method: 'DELETE',
+      }).catch(() => null);
+      if (!res || (!res.ok && res.status !== 404)) {
+        toast.error(t('discardError'));
+        return;
+      }
+      setEmptyPrompt(false);
+      router.push('/history');
+      router.refresh();
+    } finally {
+      setDiscarding(false);
+    }
   }
 
   return (
@@ -304,7 +359,7 @@ export function SessionEditor({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('title')}</p>
           <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
         </div>
-        <Button type="button" onClick={finish}>
+        <Button type="button" onClick={() => void finish()} disabled={savingTiming}>
           <Check className="size-4" />
           <span className="ml-1">{t('done')}</span>
         </Button>
@@ -326,7 +381,7 @@ export function SessionEditor({
             variant="outline"
             className="self-start"
             onClick={() => void saveTiming()}
-            disabled={savingTiming || timing.date === ''}
+            disabled={savingTiming || !timingDirty}
           >
             {savingTiming ? t('saving') : t('save')}
           </Button>
@@ -353,12 +408,15 @@ export function SessionEditor({
                   <h2 className="text-base font-semibold">{exerciseName(group.exercise.name)}</h2>
                 </CardHeader>
                 <CardContent className="pt-0">
+                  {/* No set write while the session is being moved: a set
+                      added then would be dated in the window it is leaving. */}
                   {isCardio ? (
                     <CardioSetsEditor
+                      disabled={savingTiming}
                       sets={groupSets.map(
-                        (set): CardioEditorSet => ({
+                        (set, position): CardioEditorSet => ({
                           id: set.id,
-                          setNumber: set.setNumber,
+                          setNumber: position + 1,
                           durationSec: set.durationSec ?? 0,
                           distanceM: set.distanceM,
                           avgHr: set.avgHr,
@@ -373,8 +431,11 @@ export function SessionEditor({
                     />
                   ) : (
                     <EditableSetsTable
+                      disabled={savingTiming}
                       programExercise={tableRow(sessionId, group, index + 1)}
-                      sets={groupSets.map((set) => toTableSet(sessionId, set))}
+                      sets={groupSets.map((set, position) =>
+                        toTableSet(sessionId, set, position + 1),
+                      )}
                       lastPerformance={undefined}
                       readiness={null}
                       deloadActive={false}
@@ -462,6 +523,32 @@ export function SessionEditor({
           <span className="ml-1">{t('addExercise')}</span>
         </Button>
       )}
+
+      <AlertDialog open={emptyPrompt} onOpenChange={setEmptyPrompt}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('emptyLeaveTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('emptyLeaveDescription')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={discarding}>{common('actions.cancel')}</AlertDialogCancel>
+            <Button type="button" variant="outline" disabled={discarding} onClick={leave}>
+              {t('keepEmpty')}
+            </Button>
+            <AlertDialogAction
+              disabled={discarding}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+              onClick={(event) => {
+                // Stay open until the server answered.
+                event.preventDefault();
+                void discardEmpty();
+              }}
+            >
+              {t('discardEmpty')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

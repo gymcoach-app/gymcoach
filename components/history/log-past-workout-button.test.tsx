@@ -21,8 +21,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function open() {
-  render(<LogPastWorkoutButton workouts={[{ id: 'w1', name: 'PPL - Push' }]} />);
+const HOME = { id: 'g-home', name: 'Home' };
+const CLUB = { id: 'g-club', name: 'Club' };
+
+function open(gyms: { id: string; name: string }[] = [], activeGymId: string | null = null) {
+  render(
+    <LogPastWorkoutButton
+      workouts={[{ id: 'w1', name: 'PPL - Push' }]}
+      gyms={gyms}
+      activeGymId={activeGymId}
+    />,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Log a past workout' }));
 }
 
@@ -57,6 +66,52 @@ describe('LogPastWorkoutButton (issue #389)', () => {
       startedAt: new Date(2026, 10, 20, 18, 30).toISOString(),
       durationMin: 75,
     });
+  });
+
+  it('creates the workout once when Continue is pressed twice in a row', async () => {
+    let release: (response: Response) => void = () => undefined;
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => (release = resolve)));
+    vi.stubGlobal('fetch', fetchMock);
+    open();
+
+    const submit = screen.getByRole('button', { name: 'Continue' });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    release(new Response(JSON.stringify({ id: 'past-1' }), { status: 201 }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/history/past-1/edit'));
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for the gym only with more than one, the active gym preselected, and sends it', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'past-1' }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    open([HOME, CLUB], CLUB.id);
+
+    expect(screen.getByLabelText('Gym for this session')).toHaveTextContent('Club');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ gymId: CLUB.id });
+  });
+
+  it('does not ask for the gym with one gym or none, and lets the server use the active one', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'past-1' }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    open([HOME], HOME.id);
+
+    expect(screen.queryByLabelText('Gym for this session')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('gymId');
   });
 
   it('refuses a future date before sending anything', () => {

@@ -143,6 +143,12 @@ export const history = {
     cardioAdd: 'Satz {number} hinzufügen',
     cardioDelete: 'Satz {number} löschen',
     cardioInvalid: 'Gib eine gültige Dauer ein, zum Beispiel 25:00.',
+    emptyLeaveTitle: 'Diese leere Einheit behalten?',
+    emptyLeaveDescription:
+      'Es wurde kein Satz eingetragen. Eine leere Einheit erscheint trotzdem in deinem Verlauf.',
+    keepEmpty: 'Behalten',
+    discardEmpty: 'Verwerfen',
+    discardError: 'Die Einheit konnte nicht verworfen werden.',
   },
   logPast: {
     button: 'Vergangene Einheit eintragen',

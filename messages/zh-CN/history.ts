@@ -140,6 +140,11 @@ export const history = {
     cardioAdd: '添加第 {number} 组',
     cardioDelete: '删除第 {number} 组',
     cardioInvalid: '请输入有效的时长，例如 25:00。',
+    emptyLeaveTitle: '保留这次空训练吗？',
+    emptyLeaveDescription: '尚未录入任何训练组。空训练仍会显示在训练历史中。',
+    keepEmpty: '保留',
+    discardEmpty: '丢弃',
+    discardError: '丢弃训练失败。',
   },
   logPast: {
     button: '补记过去的训练',

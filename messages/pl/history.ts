@@ -144,6 +144,11 @@ export const history = {
     cardioAdd: 'Dodaj serię {number}',
     cardioDelete: 'Usuń serię {number}',
     cardioInvalid: 'Podaj poprawny czas trwania, na przykład 25:00.',
+    emptyLeaveTitle: 'Zachować tę pustą sesję?',
+    emptyLeaveDescription: 'Nie wpisano żadnej serii. Pusta sesja i tak pojawi się w historii.',
+    keepEmpty: 'Zachowaj',
+    discardEmpty: 'Odrzuć',
+    discardError: 'Nie udało się odrzucić sesji.',
   },
   logPast: {
     button: 'Dodaj wcześniejszy trening',
