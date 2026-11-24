@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditableSetsTable } from './editable-sets-table';
@@ -906,5 +906,125 @@ describe('EditableSetsTable effort scale (issue #390)', () => {
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ reps: 8, rir: 1 })),
     );
+  });
+});
+
+// Editing a finished session (issue #389): the same table, in the history
+// editor, with `amend`.
+describe('EditableSetsTable amend mode (issue #389)', () => {
+  function storedSet(overrides: Partial<PendingSet>): PendingSet {
+    return {
+      localId: 'set-1',
+      sessionId: 'session-1',
+      exerciseId: 'exercise-1',
+      setNumber: 1,
+      weight: 100,
+      reps: 5,
+      rir: 2,
+      notes: null,
+      isWarmup: false,
+      isDropSet: false,
+      status: 'synced',
+      serverId: 'set-1',
+      syncedAt: 1,
+      attempts: 0,
+      lastError: null,
+      createdAt: 1,
+      ...overrides,
+    } as PendingSet;
+  }
+
+  const sets = [
+    storedSet({ localId: 'warmup', setNumber: 1, weight: 40, reps: 10, isWarmup: true }),
+    storedSet({ localId: 'work', setNumber: 2, weight: 100, reps: 5 }),
+    storedSet({ localId: 'drop', setNumber: 3, weight: 70, reps: 8, isDropSet: true }),
+  ];
+
+  // Found by label and driven with plain events, like applyValueButton above:
+  // a role and name query walks the accessibility tree of the whole table.
+  function openRowMenu(setNumber: number): HTMLElement {
+    fireEvent.keyDown(screen.getByLabelText(`Actions for set ${setNumber}`), { key: 'Enter' });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    if (!menu) throw new Error('the row menu did not open');
+    return menu;
+  }
+
+  function renderAmend(amend: boolean) {
+    const handlers = {
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      onDeleteSet: vi.fn().mockResolvedValue(true),
+      onUpdateSet: vi.fn().mockResolvedValue(undefined),
+      onSetTypeChange: vi.fn().mockResolvedValue(undefined),
+    };
+    render(
+      <EditableSetsTable
+        programExercise={programExercise}
+        sets={sets}
+        lastPerformance={undefined}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+        onSubmit={handlers.onSubmit}
+        onDeleteSet={handlers.onDeleteSet}
+        onUpdateSet={handlers.onUpdateSet}
+        amend={amend ? { onSetTypeChange: handlers.onSetTypeChange } : undefined}
+      />,
+    );
+    return handlers;
+  }
+
+  it('lists every set with its type, warm-ups included, and no PR badge', () => {
+    renderAmend(true);
+    expect(screen.getByTestId('amend-set-row-1')).toHaveTextContent('Warmup');
+    expect(screen.getByTestId('amend-set-row-2')).not.toHaveTextContent(/Warmup|Drop set/);
+    expect(screen.getByTestId('amend-set-row-3')).toHaveTextContent('Drop set');
+    expect(screen.queryByText(/PR/)).not.toBeInTheDocument();
+    // The next set takes the number after the last one, and no row is planned
+    // beyond it.
+    expect(screen.getByLabelText('Confirm set 4')).toHaveRole('button');
+    expect(screen.queryByLabelText('Confirm set 3')).not.toBeInTheDocument();
+  });
+
+  it('keeps the live table as it was without amend: working sets only, undo on the last', () => {
+    renderAmend(false);
+    expect(screen.queryByTestId('amend-set-row-1')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Actions for set 2')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Set 2 weight in KG')).toHaveRole('button');
+    expect(screen.queryByLabelText('Set 1 weight in KG')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Undo set 3')).toHaveRole('button');
+    expect(screen.getByLabelText('Confirm set 3')).toHaveRole('button');
+  });
+
+  it('changes the type of a set from its row menu', async () => {
+    const { onSetTypeChange } = renderAmend(true);
+
+    const menu = within(openRowMenu(2));
+    expect(menu.getByText('Working').closest('[role="menuitemradio"]')).toBeChecked();
+    expect(menu.getByText('Warmup').closest('[role="menuitemradio"]')).not.toBeChecked();
+    fireEvent.click(menu.getByText('Warmup'));
+
+    await waitFor(() =>
+      expect(onSetTypeChange).toHaveBeenCalledWith(
+        expect.objectContaining({ localId: 'work' }),
+        'warmup',
+      ),
+    );
+  });
+
+  it('does not send a type that is already the stored one', async () => {
+    const { onSetTypeChange } = renderAmend(true);
+
+    fireEvent.click(within(openRowMenu(3)).getByText('Drop set'));
+    // The menu closed on the choice, and nothing was sent.
+    await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+    expect(onSetTypeChange).not.toHaveBeenCalled();
+  });
+
+  it('deletes a set from its row menu', async () => {
+    const { onDeleteSet } = renderAmend(true);
+
+    fireEvent.click(within(openRowMenu(1)).getByText('Delete set 1'));
+
+    expect(onDeleteSet).toHaveBeenCalledWith(expect.objectContaining({ localId: 'warmup' }));
   });
 });

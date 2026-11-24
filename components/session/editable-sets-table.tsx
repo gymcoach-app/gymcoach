@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2, Pencil, RotateCcw, Trash2, Trophy } from 'lucide-react';
+import { Check, Loader2, MoreVertical, Pencil, RotateCcw, Trash2, Trophy } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { Exercise, ProgramExercise, WeightUnit } from '@/lib/prisma-client';
 import type { PendingSet } from '@/lib/indexeddb';
@@ -40,9 +40,20 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+// What a strength set is: a working set, a warm-up or a drop set.
+export type SetType = 'working' | 'warmup' | 'drop';
+
+export function setTypeOf(set: { isWarmup: boolean; isDropSet: boolean }): SetType {
+  return set.isWarmup ? 'warmup' : set.isDropSet ? 'drop' : 'working';
+}
 
 interface Props {
   programExercise: ProgramExercise & { exercise: Exercise };
@@ -74,6 +85,15 @@ interface Props {
   ) => void;
   onDeleteSet: (set: PendingSet) => Promise<boolean | void> | boolean | void;
   onUpdateSet: (set: PendingSet, values: DraftSet) => Promise<void>;
+  // Editing a FINISHED session (issue #389) instead of logging a live one.
+  // The table then lists every set of the exercise, warm-ups included, each
+  // row gets a menu to change its type or delete it, and the next set takes
+  // the number after the last one. It shows no PR badge: the badge compares
+  // with the previous session, which the history editor does not load.
+  // Absent, nothing changes for the live runner.
+  amend?: {
+    onSetTypeChange: (set: PendingSet, type: SetType) => Promise<void>;
+  };
 }
 
 interface DraftSet {
@@ -169,8 +189,11 @@ export function EditableSetsTable({
   onEquipmentWeightsUpdated,
   onDeleteSet,
   onUpdateSet,
+  amend,
 }: Props) {
   const t = useTranslations('session.editableSets');
+  const amendT = useTranslations('history.edit');
+  const detailT = useTranslations('history.detail');
   const inputT = useTranslations('session.input');
   const locale = useLocale();
   // Effort scale (issue #390): the selects keep the stored RIR as their
@@ -189,6 +212,7 @@ export function EditableSetsTable({
   const [gymEquipmentId, setGymEquipmentId] = useState('');
   const [weightEditorOpen, setWeightEditorOpen] = useState(false);
   const workingSets = useMemo(() => sets.filter((set) => !set.isWarmup), [sets]);
+  const listedSets = amend ? sets : workingSets;
   const latestWorkingSetId = workingSets.at(-1)?.localId ?? null;
   // The exercise strip lets the lifter jump between exercises mid-entry. An
   // unconfirmed draft is parked per program row when they leave and restored
@@ -315,8 +339,10 @@ export function EditableSetsTable({
   );
   const pickerReferenceWeight = editingSet?.draft.weight ?? draft.weight;
 
-  const currentNumber = workingSets.length + 1;
-  const totalRows = Math.max(programExercise.targetSets, currentNumber);
+  const currentNumber = amend
+    ? Math.max(0, ...sets.map((set) => set.setNumber)) + 1
+    : workingSets.length + 1;
+  const totalRows = amend ? currentNumber : Math.max(programExercise.targetSets, currentNumber);
   // Same formatting as the confirmed rows, so a picked value reads identically
   // before and after logging.
   const displayWeight = formatWeight(draft.weight, unit, {
@@ -410,6 +436,19 @@ export function EditableSetsTable({
       setEditingSet(null);
     } catch {
       setEditingSet(null);
+    } finally {
+      setUpdatingSetId(null);
+    }
+  }
+
+  async function changeSetType(set: PendingSet, type: SetType) {
+    if (!amend || disabled || updatingSetId === set.localId || setTypeOf(set) === type) return;
+    setEditingSet(null);
+    setUpdatingSetId(set.localId);
+    try {
+      await amend.onSetTypeChange(set, type);
+    } catch {
+      // The caller reports the failure; the row keeps its stored type.
     } finally {
       setUpdatingSetId(null);
     }
@@ -546,16 +585,20 @@ export function EditableSetsTable({
             </span>
           </div>
 
-          {workingSets.map((set, setIndex) => {
+          {listedSets.map((set, setIndex) => {
             const isEditing = editingSet?.set.localId === set.localId;
             const rowDraft = isEditing
               ? editingSet.draft
               : { weight: set.weight, reps: set.reps, rir: set.rir };
             const isUpdating = updatingSetId === set.localId;
+            const setType = setTypeOf(set);
             return (
               <div
                 key={set.localId}
-                className={`grid ${gridColumns} items-center gap-1 border-b border-border px-2 py-2 text-center text-sm tabular-nums`}
+                data-testid={amend ? `amend-set-row-${set.setNumber}` : undefined}
+                className={`grid ${gridColumns} items-center gap-1 border-b border-border px-2 py-2 text-center text-sm tabular-nums${
+                  amend && set.isWarmup ? ' text-muted-foreground' : ''
+                }`}
               >
                 <span className="text-muted-foreground">{set.setNumber}</span>
                 <div className="flex min-w-0 flex-col items-center gap-1">
@@ -573,7 +616,12 @@ export function EditableSetsTable({
                       withUnit: false,
                     })}
                   </button>
-                  {prsFor(set, setIndex).map((pr) => (
+                  {amend && setType !== 'working' && (
+                    <Badge variant="outline" className="px-1.5 text-[0.625rem]">
+                      {detailT(setType === 'warmup' ? 'warmup' : 'dropSet')}
+                    </Badge>
+                  )}
+                  {(amend ? [] : prsFor(set, setIndex)).map((pr) => (
                     <Badge
                       key={pr}
                       className="gap-1 px-1.5 text-[0.625rem]"
@@ -627,6 +675,46 @@ export function EditableSetsTable({
                 <span className="flex items-center justify-center">
                   {isUpdating ? (
                     <Loader2 className="size-4 animate-spin" />
+                  ) : amend ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={disabled}
+                          aria-label={amendT('setActions', { number: set.setNumber })}
+                          className="size-9 text-muted-foreground"
+                        >
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>{amendT('typeLabel')}</DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                          value={setType}
+                          onValueChange={(value) => void changeSetType(set, value as SetType)}
+                        >
+                          <DropdownMenuRadioItem value="working">
+                            {detailT('working')}
+                          </DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="warmup">
+                            {detailT('warmup')}
+                          </DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="drop">
+                            {detailT('dropSet')}
+                          </DropdownMenuRadioItem>
+                        </DropdownMenuRadioGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onSelect={() => void onDeleteSet(set)}
+                        >
+                          <Trash2 className="size-4" />
+                          {t('delete', { number: set.setNumber })}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ) : (
                     <Button
                       type="button"

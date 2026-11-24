@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getFormatter, getLocale, getTimeZone, getTranslations } from 'next-intl/server';
-import { ArrowLeft, Calendar, Clock, Download, Dumbbell } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Download, Dumbbell, Pencil } from 'lucide-react';
 import { db } from '@/lib/db';
 import { requireSession } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -297,6 +297,15 @@ export default async function HistorySessionPage(props: Params) {
                 defaultName={sessionTitle}
                 effortScale={effortScale}
               />
+            )}
+            {/* Edit (issue #389): date, duration and sets of a FINISHED session. */}
+            {session.finishedAt != null && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/history/${session.id}/edit`}>
+                  <Pencil className="size-4" />
+                  <span className="ml-1">{t('edit.button')}</span>
+                </Link>
+              </Button>
             )}
             <AttachWatchFileButton sessionId={session.id} timeZone={timeZone} />
             {hasCardio && (

@@ -1,18 +1,32 @@
 import { NextResponse } from 'next/server';
-import type { Exercise, Set } from '@/lib/prisma-client';
+import type { Exercise, Prisma, Set } from '@/lib/prisma-client';
 import { db } from '@/lib/db';
-import { setInputSchema, validateSetForCategory } from '@/lib/schemas/set';
+import { setCreateSchema, validateSetForCategory } from '@/lib/schemas/set';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { setAchievesGoal } from '@/lib/goals';
 import { effectiveWeight } from '@/lib/stats';
 import { resolveSetEquipmentSnapshot } from '@/lib/set-equipment';
 import { effectiveSetBlock } from '@/lib/exercise-blocks';
+import { addedSetCompletedAt } from '@/lib/session-edit';
+import {
+  lockExerciseGoal,
+  lockOwnedSession,
+  rederiveGoalAchievement,
+  runSerializableSetTransaction,
+} from '@/lib/goal-achievement';
 
 interface Params {
   params: Promise<{ id: string }>;
 }
 
 // POST /api/sessions/[id]/sets: records a set in a session.
+//
+// A finished session only takes a set from a request that says `amend: true`
+// (the history editor, issue #389). The live logger and its offline queue
+// never send it, so a set queued offline is still refused once its session
+// was finished. An amended set is not stamped "now": it is dated inside the
+// session (lib/session-edit.ts), or it would become the latest performance of
+// its exercise whatever the date of the session.
 export async function POST(req: Request, props: Params) {
   const params = await props.params;
   try {
@@ -24,11 +38,14 @@ export async function POST(req: Request, props: Params) {
     if (!session) {
       throw new ApiError(404, 'Session not found.');
     }
-    if (session.finishedAt) {
+    const data = await parseJsonBody(req, setCreateSchema);
+    const amend = data.amend === true;
+    if (session.finishedAt && !amend) {
       throw new ApiError(400, 'Session already finished.');
     }
-
-    const data = await parseJsonBody(req, setInputSchema);
+    if (!session.finishedAt && amend) {
+      throw new ApiError(409, 'This session is still in progress.');
+    }
 
     // Validation: the exercise must belong to the user.
     const exercise = await db.exercise.findFirst({
@@ -62,20 +79,77 @@ export async function POST(req: Request, props: Params) {
       : 0;
     const block = occurrences > 1 ? effectiveSetBlock(data.block, occurrences) : null;
 
-    const created = await db.$transaction(async (tx) => {
+    const created = await (amend ? runSerializableSetTransaction : runLiveTransaction)(async (tx) => {
       const canonicalWeight = isCardio ? 0 : data.weight;
+      // Amending a finished session. The session read above is only a first
+      // answer: the window the set is dated in is read again here, under the
+      // session's row lock (shared with PATCH /api/sessions/[id]), so a move
+      // that runs at the same moment cannot leave the set dated in the window
+      // the session just left, and a retried transaction reads it afresh.
+      let completedAt: Date | undefined;
+      let storedBlock = block;
+      let setNumber = data.setNumber;
+      if (amend) {
+        const locked = await lockOwnedSession(tx, userId, session.id);
+        if (!locked) throw new ApiError(404, 'Session not found.');
+        if (!locked.finishedAt) {
+          throw new ApiError(409, 'This session is still in progress.');
+        }
+        await lockExerciseGoal(tx, userId, data.exerciseId);
+        const ownSets = { sessionId: session.id, session: { userId } };
+        const lastSet = await tx.set.findFirst({
+          where: ownSets,
+          orderBy: { completedAt: 'desc' },
+          select: { completedAt: true },
+        });
+        completedAt = addedSetCompletedAt({
+          startedAt: locked.startedAt,
+          finishedAt: locked.finishedAt,
+          lastSetAt: lastSet?.completedAt ?? null,
+        });
+
+        const siblings = await tx.set.findMany({
+          where: { ...ownSets, exerciseId: data.exerciseId },
+          select: { setNumber: true, block: true },
+        });
+        // A block the session's sets already use is kept as asked, even when
+        // the workout no longer repeats the exercise (or is gone): the new
+        // set belongs with the ones the editor shows it next to.
+        if (
+          data.block != null &&
+          storedBlock !== data.block &&
+          siblings.some((row) => row.block === data.block)
+        ) {
+          storedBlock = data.block;
+        }
+        // The number is decided here rather than by the page: stored numbers
+        // may have gaps (a deleted set) or repeat (an import). It is the one
+        // after the highest of that block. Past MAX_SET_NUMBER, the bound of
+        // every set this API and the imports accept, it is the lowest number
+        // still free, so the session stays exportable and re-importable; with
+        // none free the set is refused.
+        const taken = new Set<number>();
+        for (const row of siblings) {
+          if ((row.block ?? 0) === (storedBlock ?? 0)) taken.add(row.setNumber);
+        }
+        setNumber = nextSetNumber(taken);
+        if (setNumber === 0) {
+          throw new ApiError(400, `An exercise holds at most ${MAX_SET_NUMBER} sets in a session.`);
+        }
+      }
       const equipmentSnapshot = await resolveSetEquipmentSnapshot(tx, {
         userId,
         sessionGymId: session.gymId,
         exerciseId: data.exerciseId,
         gymEquipmentId: data.gymEquipmentId,
       });
-      return tx.set.create({
+      const row = await tx.set.create({
         data: {
+          ...(completedAt ? { completedAt } : {}),
           sessionId: params.id,
           exerciseId: data.exerciseId,
           ...equipmentSnapshot,
-          setNumber: data.setNumber,
+          setNumber,
           // Cardio sets store weight = 0 / reps = 1 by convention (the columns
           // are NOT NULL); the UI never shows them for CARDIO exercises.
           weight: canonicalWeight,
@@ -88,10 +162,19 @@ export async function POST(req: Request, props: Params) {
           notes: data.notes ?? null,
           isWarmup: data.isWarmup ?? false,
           isDropSet: data.isDropSet ?? false,
-          block,
+          block: storedBlock,
         },
       });
+      if (amend) {
+        // A set dated in the past may achieve a goal earlier than the set
+        // that stamped it.
+        await rederiveGoalAchievement(tx, userId, data.exerciseId, true);
+      }
+      return row;
     });
+    if (amend) {
+      return NextResponse.json(created, { status: 201 });
+    }
     // Best-effort: the set is already committed, so a failure here must never
     // fail the request (a 500 would make the offline sync retry the POST and
     // duplicate the set). An unstamped goal self-heals on the next achieving
@@ -106,6 +189,23 @@ export async function POST(req: Request, props: Params) {
   } catch (err) {
     return handleApiError(err);
   }
+}
+
+// The set number of a set added to a finished session, 0 when none is left.
+const MAX_SET_NUMBER = 50;
+function nextSetNumber(taken: ReadonlySet<number>): number {
+  let highest = 0;
+  for (const value of taken) if (value > highest) highest = value;
+  if (highest < MAX_SET_NUMBER) return highest + 1;
+  for (let candidate = 1; candidate <= MAX_SET_NUMBER; candidate += 1) {
+    if (!taken.has(candidate)) return candidate;
+  }
+  return 0;
+}
+
+// The live path keeps its plain transaction (default isolation, no retry).
+function runLiveTransaction<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return db.$transaction(operation);
 }
 
 // Per-exercise goal (issue #90): when a freshly logged working set meets an
