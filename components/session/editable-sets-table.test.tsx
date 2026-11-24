@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditableSetsTable } from './editable-sets-table';
@@ -940,6 +940,15 @@ describe('EditableSetsTable amend mode (issue #389)', () => {
     storedSet({ localId: 'drop', setNumber: 3, weight: 70, reps: 8, isDropSet: true }),
   ];
 
+  // Found by label and driven with plain events, like applyValueButton above:
+  // a role and name query walks the accessibility tree of the whole table.
+  function openRowMenu(setNumber: number): HTMLElement {
+    fireEvent.keyDown(screen.getByLabelText(`Actions for set ${setNumber}`), { key: 'Enter' });
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    if (!menu) throw new Error('the row menu did not open');
+    return menu;
+  }
+
   function renderAmend(amend: boolean) {
     const handlers = {
       onSubmit: vi.fn().mockResolvedValue(undefined),
@@ -972,27 +981,27 @@ describe('EditableSetsTable amend mode (issue #389)', () => {
     expect(screen.queryByText(/PR/)).not.toBeInTheDocument();
     // The next set takes the number after the last one, and no row is planned
     // beyond it.
-    expect(screen.getByRole('button', { name: 'Confirm set 4' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Confirm set 3' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Confirm set 4')).toHaveRole('button');
+    expect(screen.queryByLabelText('Confirm set 3')).not.toBeInTheDocument();
   });
 
   it('keeps the live table as it was without amend: working sets only, undo on the last', () => {
     renderAmend(false);
     expect(screen.queryByTestId('amend-set-row-1')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Actions for set 2' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Set 2 weight in KG' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Set 1 weight in KG' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Undo set 3' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Confirm set 3' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Actions for set 2')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Set 2 weight in KG')).toHaveRole('button');
+    expect(screen.queryByLabelText('Set 1 weight in KG')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Undo set 3')).toHaveRole('button');
+    expect(screen.getByLabelText('Confirm set 3')).toHaveRole('button');
   });
 
   it('changes the type of a set from its row menu', async () => {
-    const user = userEvent.setup();
     const { onSetTypeChange } = renderAmend(true);
 
-    await user.click(screen.getByRole('button', { name: 'Actions for set 2' }));
-    expect(screen.getByRole('menuitemradio', { name: 'Working' })).toBeChecked();
-    await user.click(screen.getByRole('menuitemradio', { name: 'Warmup' }));
+    const menu = within(openRowMenu(2));
+    expect(menu.getByText('Working').closest('[role="menuitemradio"]')).toBeChecked();
+    expect(menu.getByText('Warmup').closest('[role="menuitemradio"]')).not.toBeChecked();
+    fireEvent.click(menu.getByText('Warmup'));
 
     await waitFor(() =>
       expect(onSetTypeChange).toHaveBeenCalledWith(
@@ -1003,20 +1012,18 @@ describe('EditableSetsTable amend mode (issue #389)', () => {
   });
 
   it('does not send a type that is already the stored one', async () => {
-    const user = userEvent.setup();
     const { onSetTypeChange } = renderAmend(true);
 
-    await user.click(screen.getByRole('button', { name: 'Actions for set 3' }));
-    await user.click(screen.getByRole('menuitemradio', { name: 'Drop set' }));
+    fireEvent.click(within(openRowMenu(3)).getByText('Drop set'));
+    // The menu closed on the choice, and nothing was sent.
+    await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
     expect(onSetTypeChange).not.toHaveBeenCalled();
   });
 
   it('deletes a set from its row menu', async () => {
-    const user = userEvent.setup();
     const { onDeleteSet } = renderAmend(true);
 
-    await user.click(screen.getByRole('button', { name: 'Actions for set 1' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Delete set 1' }));
+    fireEvent.click(within(openRowMenu(1)).getByText('Delete set 1'));
 
     expect(onDeleteSet).toHaveBeenCalledWith(expect.objectContaining({ localId: 'warmup' }));
   });
