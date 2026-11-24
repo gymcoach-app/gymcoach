@@ -117,7 +117,9 @@ export const AUTO_SCROLL_LIST_MARGIN_PX = 16;
 // while the top of the list is above the visible area, down only while its
 // bottom is below it, and never further than what is left to reveal. `view`
 // is the visible part of the viewport (below a sticky header, for instance),
-// in the same coordinates as `list`.
+// in the same coordinates as `list`. What is left is counted in whole pixels,
+// rounded up: a last step of a fraction of a pixel may not move the page at
+// all, and would then be asked for again on every frame.
 export function limitAutoScroll(
   speed: number,
   list: BlockSpan,
@@ -125,11 +127,11 @@ export function limitAutoScroll(
   margin: number = AUTO_SCROLL_LIST_MARGIN_PX,
 ): number {
   if (speed < 0) {
-    const hidden = view.top + margin - list.top;
+    const hidden = Math.ceil(view.top + margin - list.top);
     return hidden > 0 ? Math.max(speed, -hidden) : 0;
   }
   if (speed > 0) {
-    const hidden = list.bottom - (view.bottom - margin);
+    const hidden = Math.ceil(list.bottom - (view.bottom - margin));
     return hidden > 0 ? Math.min(speed, hidden) : 0;
   }
   return 0;

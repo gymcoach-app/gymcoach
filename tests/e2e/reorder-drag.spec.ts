@@ -135,6 +135,35 @@ async function centerList(page: Page) {
     .evaluate((el) => el.scrollIntoView({ block: 'center' }));
 }
 
+// Scrolls so that the top of the exercise list is 40px below the sticky app
+// header, and returns where things are. With the whole list in view, clear
+// of the header and of the bottom edge, a drag has no reason to autoscroll
+// (the page only scrolls to reveal a hidden end of the list), so the scroll
+// position can be compared exactly before and after one.
+async function placeListBelowHeader(page: Page) {
+  return page.evaluate(() => {
+    const headerBottom = () => {
+      let bottom = 0;
+      document.querySelectorAll('header').forEach((header) => {
+        const position = window.getComputedStyle(header).position;
+        if (position === 'sticky' || position === 'fixed') {
+          bottom = Math.max(bottom, header.getBoundingClientRect().bottom);
+        }
+      });
+      return bottom;
+    };
+    const list = document.querySelector('li[data-reorder-id]')!.parentElement!;
+    window.scrollBy(0, Math.round(list.getBoundingClientRect().top - (headerBottom() + 40)));
+    const rect = list.getBoundingClientRect();
+    return {
+      headerBottom: headerBottom(),
+      listTop: rect.top,
+      listBottom: rect.bottom,
+      viewportHeight: window.innerHeight,
+    };
+  });
+}
+
 // Resolves once the page has stopped scrolling (a touch swipe ends in a fling).
 async function scrollSettled(page: Page) {
   let last = Number.NaN;
@@ -246,7 +275,7 @@ test('a superset is dragged as one block and cannot be dropped into', async ({ p
 });
 
 test.describe('on a touch screen', () => {
-  test.use({ hasTouch: true, viewport: { width: 390, height: 640 } });
+  test.use({ hasTouch: true, viewport: { width: 390, height: 740 } });
 
   test('the grip drags and the rest of the row scrolls the page', async ({ page }) => {
     await register(page, '10.111.3.4');
@@ -296,7 +325,13 @@ test.describe('on a touch screen', () => {
 
     // A finger on the grip drags the row and leaves the page where it is.
     await expect(grip(page, 'Drag Running')).not.toHaveAttribute('aria-disabled', 'true');
-    await centerList(page);
+    // The list is placed fully in view first: nothing of it is hidden, so
+    // any change of the scroll position during the drag would be the page
+    // panning under the finger.
+    const placed = await placeListBelowHeader(page);
+    expect(placed.listTop).toBeGreaterThanOrEqual(placed.headerBottom + 16);
+    expect(placed.listBottom).toBeLessThanOrEqual(placed.viewportHeight - 16);
+    await scrollSettled(page);
     const scrollBefore = await page.evaluate(() => window.scrollY);
     const from = await centerOf(grip(page, 'Drag Running'));
     await swipe(from, await rowY(page, 0, 0.2));

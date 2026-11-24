@@ -348,6 +348,23 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
       expect(sentOrder().ids).toEqual(['pe-squat', 'pe-bench', 'pe-running']);
     });
 
+    it('saves once when the capture is released right after the drop', async () => {
+      // What a browser does at the end of every drag: pointerup, then
+      // lostpointercapture for the same pointer.
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Running');
+      moveTo(middleOf(0) - 10);
+      const handle = grip('Running');
+      release(middleOf(0) - 10);
+      fireEvent(handle, new FakePointerEvent('lostpointercapture', { pointerId: 1 }));
+
+      expect(shown()).toEqual(['Running', 'Bench', 'Squat']);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sentOrder().ids).toEqual(['pe-running', 'pe-bench', 'pe-squat']);
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
     it('saves nothing when the row is dropped where it was', () => {
       render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       press('Squat');

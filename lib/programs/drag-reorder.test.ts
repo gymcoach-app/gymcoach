@@ -275,6 +275,17 @@ describe('limitAutoScroll', () => {
     expect(limitAutoScroll(14, { top: 0, bottom: 300 }, view)).toBe(0);
   });
 
+  it('finishes on a whole pixel when a fraction of one is left', () => {
+    // Rectangles are fractional on a zoomed or high-density screen.
+    expect(limitAutoScroll(-14, { top: 115.6, bottom: 900 }, view)).toBe(-1);
+    expect(limitAutoScroll(-14, { top: 112.5, bottom: 900 }, view)).toBe(-4);
+    expect(limitAutoScroll(14, { top: 0, bottom: 784.3 }, view)).toBe(1);
+    expect(limitAutoScroll(14, { top: 0, bottom: 786.5 }, view)).toBe(3);
+    // One step of that size ends it: nothing is left to ask for again.
+    expect(limitAutoScroll(-14, { top: 116.6, bottom: 900 }, view)).toBe(0);
+    expect(limitAutoScroll(14, { top: 0, bottom: 783.3 }, view)).toBe(0);
+  });
+
   it('measures against the visible area, not the viewport', () => {
     // The top of the list is inside the viewport but under a 100px header.
     expect(limitAutoScroll(-14, { top: 40, bottom: 900 }, view)).toBe(-14);
