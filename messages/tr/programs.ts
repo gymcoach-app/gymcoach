@@ -71,6 +71,7 @@ export const programs = {
     catalogEmpty: 'Katalog boş. Önce Katalog bölümünden bir egzersiz ekle.',
     supersetUpdateError: 'Süperset güncellenemedi.',
     reorderError: 'Yeni sıra kaydedilemedi.',
+    reorderAnnouncement: '{name}, {position}/{total} sırasına taşındı.',
     supersetLimit: 'Bu seans için süperset sınırına ulaşıldı.',
     supersetPaired: 'Egzersizler süperset olarak eşlendi.',
     supersetRemoved: 'Süperset kaldırıldı.',
@@ -110,6 +111,9 @@ export const programs = {
     notes: 'Notlar (isteğe bağlı)',
     moveUp: 'Yukarı taşı',
     moveDown: 'Aşağı taşı',
+    dragHandle: '{name} sırasını değiştir',
+    dragHint:
+      'Bu egzersizi taşımak için sürükleyin veya yukarı ve aşağı ok tuşlarına basın. Escape sürüklemeyi iptal eder.',
     pairPrevious: 'Öncekiyle eşle',
     unpair: 'Süperseti ayır',
     superset: 'Süperset {label}',

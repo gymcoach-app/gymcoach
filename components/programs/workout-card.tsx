@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Copy, MoreHorizontal, Plus, Pencil, Printer, Trash2 } from 'lucide-react';
@@ -27,9 +27,12 @@ import {
   supersetBlocks,
   type MoveDirection,
 } from '@/lib/supersets';
+import { dropExerciseBlock } from '@/lib/programs/drag-reorder';
 import { workoutExerciseChoices } from '@/lib/programs/exercise-choices';
 import { copyName } from '@/lib/programs/copy';
 import { useTrainingName } from '@/components/shared/use-training-name';
+import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { useDragReorder, usePointerEventsSupported } from '@/components/programs/use-drag-reorder';
 
 const DAY_KEYS = [
   'monday',
@@ -55,6 +58,7 @@ export function WorkoutCard({ workout, catalog }: Props) {
   const printT = useTranslations('programs.print');
   const common = useTranslations('common');
   const trainingName = useTrainingName();
+  const exerciseName = useExerciseName();
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [addExoOpen, setAddExoOpen] = useState(false);
@@ -70,6 +74,10 @@ export function WorkoutCard({ workout, catalog }: Props) {
   } | null>(null);
   const [savingOrder, setSavingOrder] = useState(false);
   const savingOrderRef = useRef(false);
+  // What a screen reader hears after a move, by menu, arrow key or drag.
+  const [orderAnnouncement, setOrderAnnouncement] = useState('');
+  const dragHintId = useId();
+  const dragSupported = usePointerEventsSupported();
 
   async function handleDelete() {
     if (!confirm(t('deleteConfirm', { name: trainingName(workout.name) }))) return;
@@ -188,18 +196,28 @@ export function WorkoutCard({ workout, catalog }: Props) {
     router.refresh();
   }
 
-  // Moves a row (with its whole superset, if any) one block up or down. The
-  // new order shows at once; if the save fails the previous order comes back
-  // with an error toast. One save at a time: the next move is computed from
-  // the order the previous one produced.
-  async function handleMove(pe: ProgramExerciseWithExercise, direction: MoveDirection) {
+  // Saves a new order of the whole workout (issue #557). The new order shows
+  // at once; if the save fails the previous order comes back with an error
+  // toast. One save at a time, whatever started it (menu, arrow key, drop):
+  // moves are refused while one is in flight, so the next one is always
+  // computed from the order the previous one produced and two saves can never
+  // reach the server out of order.
+  async function saveOrder(ids: string[], movedId: string) {
     if (savingOrderRef.current) return;
-    const ids = moveExerciseBlock(exercises, pe.id, direction);
-    if (!ids) return;
     const previousOverride = orderOverride;
     savingOrderRef.current = true;
     setSavingOrder(true);
     setOrderOverride({ source: workout.exercises, ids });
+    const moved = workout.exercises.find((pe) => pe.id === movedId);
+    setOrderAnnouncement(
+      moved
+        ? t('reorderAnnouncement', {
+            name: exerciseName(moved.exercise.name),
+            position: ids.indexOf(movedId) + 1,
+            total: ids.length,
+          })
+        : '',
+    );
     try {
       const res = await fetch(`/api/workouts/${workout.id}/order`, {
         method: 'PUT',
@@ -208,6 +226,7 @@ export function WorkoutCard({ workout, catalog }: Props) {
       }).catch(() => null);
       if (!res?.ok) {
         setOrderOverride(previousOverride);
+        setOrderAnnouncement('');
         toast.error(t('reorderError'));
         return;
       }
@@ -217,6 +236,29 @@ export function WorkoutCard({ workout, catalog }: Props) {
       setSavingOrder(false);
     }
   }
+
+  // Moves a row (with its whole superset, if any) one block up or down.
+  function handleMove(pe: ProgramExerciseWithExercise, direction: MoveDirection) {
+    if (savingOrderRef.current) return;
+    const ids = moveExerciseBlock(exercises, pe.id, direction);
+    if (ids) void saveOrder(ids, pe.id);
+  }
+
+  // Drag-and-drop (issue #557, step 2): the block holding the grabbed row
+  // lands among the other blocks, in one save. Same rules as the menu moves.
+  function handleDrop(id: string, dropIndex: number) {
+    if (savingOrderRef.current) return;
+    const ids = dropExerciseBlock(exercises, id, dropIndex);
+    if (ids) void saveOrder(ids, id);
+  }
+
+  const { containerRef, drag, startDrag } = useDragReorder({
+    blocks: blocks.map((block) => block.map((pe) => pe.id)),
+    disabled: savingOrder,
+    onDrop: handleDrop,
+  });
+  // A grip needs Pointer Events and something to reorder against.
+  const showGrips = dragSupported && blocks.length > 1;
 
   return (
     <Card>
@@ -275,42 +317,78 @@ export function WorkoutCard({ workout, catalog }: Props) {
         {workout.exercises.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t('empty')}</p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {supersetView.ordered.map((pe, index) => {
-              const previous = supersetView.ordered[index - 1];
-              const alreadyPairedWithPrevious =
-                pe.supersetGroup != null &&
-                previous != null &&
-                previous.supersetGroup === pe.supersetGroup;
-              const blockIndex = blockIndexById.get(pe.id) ?? 0;
-              return (
-                <li key={pe.id}>
-                  <ProgramExerciseRow
-                    programExercise={pe}
-                    catalog={workoutExerciseChoices(catalog, workoutExerciseIds, pe.exerciseId)}
-                    supersetLabel={supersetView.labels.get(pe.id) ?? null}
-                    // Pairing reads the neighbours on screen, so it waits
-                    // while a new order is being saved: a failed save puts
-                    // the old order back.
-                    onPairWithPrevious={
-                      !savingOrder && index > 0 && !alreadyPairedWithPrevious
-                        ? () => handlePairWithPrevious(index)
-                        : null
-                    }
-                    onUnpair={
-                      !savingOrder && pe.supersetGroup != null ? () => handleUnpair(pe) : null
-                    }
-                    onMoveUp={!savingOrder && blockIndex > 0 ? () => handleMove(pe, 'up') : null}
-                    onMoveDown={
-                      !savingOrder && blockIndex < blocks.length - 1
-                        ? () => handleMove(pe, 'down')
-                        : null
-                    }
-                  />
-                </li>
-              );
-            })}
-          </ul>
+          <div ref={containerRef} className="relative">
+            <ul className="flex flex-col gap-2">
+              {supersetView.ordered.map((pe, index) => {
+                const previous = supersetView.ordered[index - 1];
+                const alreadyPairedWithPrevious =
+                  pe.supersetGroup != null &&
+                  previous != null &&
+                  previous.supersetGroup === pe.supersetGroup;
+                const blockIndex = blockIndexById.get(pe.id) ?? 0;
+                const isDragged = drag != null && drag.ids.indexOf(pe.id) !== -1;
+                return (
+                  <li
+                    key={pe.id}
+                    // The drag hook finds the rows of a block by this id.
+                    data-reorder-id={pe.id}
+                    // Above its neighbours while it is dragged over them.
+                    className={isDragged ? 'relative z-10' : undefined}
+                  >
+                    <ProgramExerciseRow
+                      programExercise={pe}
+                      catalog={workoutExerciseChoices(catalog, workoutExerciseIds, pe.exerciseId)}
+                      supersetLabel={supersetView.labels.get(pe.id) ?? null}
+                      // Pairing reads the neighbours on screen, so it waits
+                      // while a new order is being saved: a failed save puts
+                      // the old order back.
+                      onPairWithPrevious={
+                        !savingOrder && index > 0 && !alreadyPairedWithPrevious
+                          ? () => handlePairWithPrevious(index)
+                          : null
+                      }
+                      onUnpair={
+                        !savingOrder && pe.supersetGroup != null ? () => handleUnpair(pe) : null
+                      }
+                      onMoveUp={!savingOrder && blockIndex > 0 ? () => handleMove(pe, 'up') : null}
+                      onMoveDown={
+                        !savingOrder && blockIndex < blocks.length - 1
+                          ? () => handleMove(pe, 'down')
+                          : null
+                      }
+                      dragHandle={
+                        showGrips
+                          ? {
+                              onPointerDown: (event) => startDrag(pe.id, event),
+                              describedBy: dragHintId,
+                              disabled: savingOrder,
+                            }
+                          : null
+                      }
+                      dragging={isDragged}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+            {drag?.indicatorTop != null && (
+              // Where the dragged block lands if it is released now.
+              <div
+                aria-hidden="true"
+                data-drop-indicator=""
+                className="pointer-events-none absolute inset-x-0 z-20 h-0.5 -translate-y-1/2 rounded-full bg-primary"
+                style={{ top: drag.indicatorTop }}
+              />
+            )}
+            {showGrips && (
+              <span id={dragHintId} className="sr-only">
+                {exerciseT('dragHint')}
+              </span>
+            )}
+            <span className="sr-only" role="status" aria-live="polite">
+              {orderAnnouncement}
+            </span>
+          </div>
         )}
 
         <Button

@@ -66,6 +66,7 @@ export const programs = {
     catalogEmpty: 'The catalog is empty. Add an exercise in Catalog first.',
     supersetUpdateError: 'Could not update the superset.',
     reorderError: 'Could not save the new order.',
+    reorderAnnouncement: '{name} moved to position {position} of {total}.',
     supersetLimit: 'Superset limit reached for this session.',
     supersetPaired: 'Exercises paired as a superset.',
     supersetRemoved: 'Superset removed.',
@@ -105,6 +106,9 @@ export const programs = {
     notes: 'Notes (optional)',
     moveUp: 'Move up',
     moveDown: 'Move down',
+    dragHandle: 'Reorder {name}',
+    dragHint:
+      'Drag to move this exercise, or press the up and down arrow keys. Escape cancels a drag.',
     pairPrevious: 'Pair with previous',
     unpair: 'Unpair superset',
     superset: 'Superset {label}',
