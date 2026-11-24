@@ -72,6 +72,28 @@ export const exercises = {
     noHistory: 'Brak ukończonych serii tego ćwiczenia.',
     openSession: 'Otwórz trening',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filtry',
+    muscles: '{count, plural, =0 {Mięśnie} other {Mięśnie (#)}}',
+    muscleListLabel: 'Filtruj według grupy mięśniowej',
+    muscleHint:
+      'Dotknij mięśnia na sylwetce albo wybierz go z listy. Cardio i ćwiczenia bez kategorii są w grupie Inne.',
+    gymOnly: 'Tylko to, co ma moja siłownia',
+    gymSelect: 'Siłownia',
+    gymRule:
+      'Porównano ze sprzętem zapisanym dla {gym}. Ćwiczenia z masą ciała i ćwiczenia bez określonego typu sprzętu pozostają na liście.',
+    gymEmpty:
+      'Dla {gym} nie zapisano jeszcze żadnego sprzętu, dlatego widać tylko ćwiczenia z masą ciała i ćwiczenia bez określonego typu sprzętu.',
+    noGym: 'Zapisz siłownię i jej sprzęt, aby widzieć tylko ćwiczenia, które możesz tam wykonać.',
+    manageGyms: 'Siłownie i sprzęt',
+    clear: 'Wyczyść filtry',
+    noResultsTitle: 'Żadne ćwiczenie nie pasuje do tych filtrów',
+    noResultsDescription:
+      'Nic w katalogu nie pasuje jednocześnie do wyszukiwania, mięśni i sprzętu siłowni.',
+    resultCount:
+      '{count, plural, =0 {Brak wyświetlanych ćwiczeń.} one {Wyświetlono # ćwiczenie.} few {Wyświetlono # ćwiczenia.} many {Wyświetlono # ćwiczeń.} other {Wyświetlono # ćwiczenia.}}',
+  },
   muscleGroups: {
     chest: 'Klatka piersiowa',
     backWidth: 'Plecy (szerokość)',

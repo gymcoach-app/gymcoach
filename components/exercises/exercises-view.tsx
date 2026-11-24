@@ -3,18 +3,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus, Pencil, Search, Star } from 'lucide-react';
+import { ChevronDown, Plus, Pencil, Search, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Exercise, MuscleGroup } from '@/lib/prisma-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { GymFilter, MuscleFilter } from '@/components/exercises/catalog-filters';
 import { ExerciseFormDialog } from '@/components/exercises/exercise-form-dialog';
 import { ExerciseMediaDialog } from '@/components/exercises/exercise-media-dialog';
 import { DeleteExerciseButton } from '@/components/exercises/delete-exercise-button';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
-import { matchesSearch } from '@/lib/search-fold';
+import {
+  catalogMuscleGroups,
+  defaultFilterGym,
+  filterCatalog,
+  hasActiveFilters,
+  toggleMuscle,
+  type CatalogFilters,
+  type GymInventory,
+} from '@/lib/exercise-filters';
 import { cn } from '@/lib/utils';
 import {
   equipmentTypeMessageKeys,
@@ -24,9 +33,18 @@ import {
 
 interface ExercisesViewProps {
   exercises: Exercise[];
+  // Saved gyms, reduced to what the equipment filter reads (issue #402).
+  gyms?: GymInventory[];
+  activeGymId?: string | null;
 }
 
-export function ExercisesView({ exercises }: ExercisesViewProps) {
+const NO_GYMS: GymInventory[] = [];
+
+export function ExercisesView({
+  exercises,
+  gyms = NO_GYMS,
+  activeGymId = null,
+}: ExercisesViewProps) {
   const t = useTranslations('exercises');
   const common = useTranslations('common');
   const exerciseName = useExerciseName();
@@ -34,6 +52,13 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Exercise | null>(null);
   const [query, setQuery] = useState('');
+  // Catalog filters (issue #402). They live for the page visit only, like the
+  // search box they combine with.
+  const [muscles, setMuscles] = useState<ReadonlySet<MuscleGroup>>(new Set());
+  const [musclesOpen, setMusclesOpen] = useState(false);
+  const [gymOnly, setGymOnly] = useState(false);
+  const [gymId, setGymId] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   // Stars toggled on this page before the refreshed list arrives (issue #404),
   // so a starred row moves to the favourites section at once.
   const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
@@ -131,18 +156,43 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
     };
   }
 
-  // Case- and accent-insensitive substring match on the exercise name, folded
-  // with the active locale (lib/search-fold.ts). The query only narrows the
-  // already-loaded list (no API call); an empty query shows everything,
-  // preserving the original behaviour.
-  const filtered = useMemo(() => {
-    const q = query.trim();
-    if (!q) return withFavorites;
-    return withFavorites.filter(
-      (ex) =>
-        matchesSearch(ex.name, q, locale) || matchesSearch(exerciseName(ex.name), q, locale),
-    );
-  }, [exerciseName, locale, withFavorites, query]);
+  // The gym the equipment filter reads: the one picked here while it is still
+  // saved, otherwise the active gym, otherwise the first one.
+  const filterGym = useMemo(
+    () => gyms.find((gym) => gym.id === gymId) ?? defaultFilterGym(gyms, activeGymId),
+    [gyms, gymId, activeGymId],
+  );
+  const gymFilterOn = gymOnly && filterGym !== null;
+  const muscleGroups = useMemo(() => catalogMuscleGroups(exercises), [exercises]);
+  // A selected group can leave the catalog (its last exercise deleted or
+  // re-categorized); it then stops filtering instead of emptying the list
+  // with no control left to unselect it.
+  const activeMuscles = useMemo(
+    () => new Set(muscleGroups.filter((group) => muscles.has(group))),
+    [muscleGroups, muscles],
+  );
+  const filters = useMemo<CatalogFilters>(
+    () => ({ query, muscles: activeMuscles, gym: gymFilterOn ? filterGym : null }),
+    [activeMuscles, filterGym, gymFilterOn, query],
+  );
+  const filtersActive = hasActiveFilters(filters);
+
+  // Search is a case- and accent-insensitive substring match on the exercise
+  // name, folded with the active locale (lib/search-fold.ts). Search, muscles
+  // and gym equipment intersect (lib/exercise-filters.ts) and only narrow the
+  // already-loaded list (no API call); with nothing set, everything shows.
+  const filtered = useMemo(
+    () => filterCatalog(withFavorites, filters, { locale, displayName: exerciseName }),
+    [exerciseName, filters, locale, withFavorites],
+  );
+
+  function clearFilters() {
+    setQuery('');
+    setMuscles(new Set());
+    setGymOnly(false);
+    // The button that was pressed is about to unmount.
+    searchRef.current?.focus();
+  }
 
   // Favourites are pinned in their own section at the top and not repeated in
   // their muscle group below.
@@ -168,6 +218,7 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={searchRef}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -176,6 +227,53 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
             className="pl-9"
           />
         </div>
+      )}
+
+      {exercises.length > 0 && (
+        <section aria-label={t('filters.title')} className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMusclesOpen((open) => !open)}
+              aria-expanded={musclesOpen}
+              aria-controls="exercise-muscle-filter"
+              className="min-h-11"
+            >
+              {t('filters.muscles', { count: activeMuscles.size })}
+              <ChevronDown
+                className={cn('transition-transform', musclesOpen && 'rotate-180')}
+                aria-hidden
+              />
+            </Button>
+            {/* With no result, the empty state below carries this action. */}
+            {filtersActive && filtered.length > 0 && (
+              <Button type="button" variant="ghost" onClick={clearFilters} className="min-h-11">
+                {t('filters.clear')}
+              </Button>
+            )}
+          </div>
+          <div id="exercise-muscle-filter" hidden={!musclesOpen}>
+            {musclesOpen && (
+              <MuscleFilter
+                groups={muscleGroups}
+                selected={activeMuscles}
+                onToggle={(group) => setMuscles((current) => toggleMuscle(current, group))}
+              />
+            )}
+          </div>
+          <GymFilter
+            gyms={gyms}
+            enabled={gymFilterOn}
+            onEnabledChange={setGymOnly}
+            gym={filterGym}
+            onGymChange={setGymId}
+          />
+          {/* Announces the effect of a filter that was just toggled. */}
+          <p role="status" className="sr-only">
+            {filtersActive ? t('filters.resultCount', { count: filtered.length }) : ''}
+          </p>
+        </section>
       )}
 
       {exercises.length === 0 ? (
@@ -188,9 +286,25 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
       ) : filtered.length === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>{t('noMatchTitle')}</CardTitle>
-            <CardDescription>{t('noMatchDescription', { query: query.trim() })}</CardDescription>
+            {activeMuscles.size > 0 || gymFilterOn ? (
+              <>
+                <CardTitle>{t('filters.noResultsTitle')}</CardTitle>
+                <CardDescription>{t('filters.noResultsDescription')}</CardDescription>
+              </>
+            ) : (
+              <>
+                <CardTitle>{t('noMatchTitle')}</CardTitle>
+                <CardDescription>
+                  {t('noMatchDescription', { query: query.trim() })}
+                </CardDescription>
+              </>
+            )}
           </CardHeader>
+          <CardContent>
+            <Button type="button" variant="outline" onClick={clearFilters} className="min-h-11">
+              {t('filters.clear')}
+            </Button>
+          </CardContent>
         </Card>
       ) : (
         <div className="flex flex-col gap-6">

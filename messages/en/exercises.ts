@@ -68,6 +68,28 @@ export const exercises = {
     noHistory: 'No completed sets for this exercise yet.',
     openSession: 'Open workout',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filters',
+    muscles: '{count, plural, =0 {Muscles} other {Muscles (#)}}',
+    muscleListLabel: 'Filter by muscle group',
+    muscleHint:
+      'Tap a muscle on the figure or pick it in the list. Cardio and unclassified exercises are under Other.',
+    gymOnly: 'Only what my gym has',
+    gymSelect: 'Gym',
+    gymRule:
+      'Checked against the equipment saved for {gym}. Bodyweight exercises and exercises with no set equipment type stay in the list.',
+    gymEmpty:
+      'No equipment is saved for {gym} yet, so only bodyweight exercises and exercises with no set equipment type are listed.',
+    noGym: 'Save a gym and its equipment to list only the exercises you can do there.',
+    manageGyms: 'Gyms and equipment',
+    clear: 'Clear filters',
+    noResultsTitle: 'No exercises match these filters',
+    noResultsDescription:
+      'Nothing in the catalog matches the search, the muscles and the gym equipment together.',
+    resultCount:
+      '{count, plural, =0 {No exercises shown.} one {# exercise shown.} other {# exercises shown.}}',
+  },
   muscleGroups: {
     chest: 'Chest',
     backWidth: 'Back (width)',

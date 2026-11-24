@@ -72,6 +72,29 @@ export const exercises = {
     noHistory: 'Ainda não há séries concluídas neste exercício.',
     openSession: 'Abrir treino',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filtros',
+    muscles: '{count, plural, =0 {Músculos} other {Músculos (#)}}',
+    muscleListLabel: 'Filtrar por grupo muscular',
+    muscleHint:
+      'Toque em um músculo na figura ou escolha na lista. Cardio e exercícios sem classificação ficam em Outro.',
+    gymOnly: 'Só o que minha academia tem',
+    gymSelect: 'Academia',
+    gymRule:
+      'Comparado com os equipamentos salvos de {gym}. Exercícios com peso corporal e exercícios sem tipo de equipamento definido continuam na lista.',
+    gymEmpty:
+      'Ainda não há equipamentos salvos para {gym}, por isso só aparecem exercícios com peso corporal e exercícios sem tipo de equipamento definido.',
+    noGym:
+      'Salve uma academia e seus equipamentos para ver só os exercícios que você pode fazer lá.',
+    manageGyms: 'Academias e equipamentos',
+    clear: 'Limpar filtros',
+    noResultsTitle: 'Nenhum exercício corresponde a estes filtros',
+    noResultsDescription:
+      'Nada no catálogo corresponde ao mesmo tempo à busca, aos músculos e aos equipamentos da academia.',
+    resultCount:
+      '{count, plural, =0 {Nenhum exercício exibido.} one {# exercício exibido.} other {# exercícios exibidos.}}',
+  },
   muscleGroups: {
     chest: 'Peito',
     backWidth: 'Costas (largura)',

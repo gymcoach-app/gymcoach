@@ -71,6 +71,28 @@ export const exercises = {
     noHistory: 'Bu egzersiz için henüz tamamlanan set yok.',
     openSession: 'Antrenmanı aç',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filtreler',
+    muscles: '{count, plural, =0 {Kaslar} other {Kaslar (#)}}',
+    muscleListLabel: 'Kas grubuna göre filtrele',
+    muscleHint:
+      'Figürdeki bir kasa dokun ya da listeden seç. Kardiyo ve sınıflandırılmamış egzersizler Diğer altında.',
+    gymOnly: 'Yalnızca salonumda olanlar',
+    gymSelect: 'Salon',
+    gymRule:
+      '{gym} için kayıtlı ekipmanla karşılaştırıldı. Vücut ağırlığı egzersizleri ve belirli bir ekipman türü olmayan egzersizler listede kalır.',
+    gymEmpty:
+      '{gym} için henüz ekipman kaydedilmedi; bu yüzden yalnızca vücut ağırlığı egzersizleri ve belirli bir ekipman türü olmayan egzersizler gösteriliyor.',
+    noGym: 'Yalnızca orada yapabileceğin egzersizleri görmek için bir salonu ve ekipmanını kaydet.',
+    manageGyms: 'Salonlar ve ekipman',
+    clear: 'Filtreleri temizle',
+    noResultsTitle: 'Bu filtrelere uyan egzersiz yok',
+    noResultsDescription:
+      'Katalogda aramaya, kaslara ve salon ekipmanına aynı anda uyan bir şey yok.',
+    resultCount:
+      '{count, plural, =0 {Gösterilen egzersiz yok.} one {# egzersiz gösteriliyor.} other {# egzersiz gösteriliyor.}}',
+  },
   muscleGroups: {
     chest: 'Göğüs',
     backWidth: 'Sırt (genişlik)',

@@ -74,6 +74,29 @@ export const exercises = {
     noHistory: 'Nog geen voltooide sets voor deze oefening.',
     openSession: 'Training openen',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filters',
+    muscles: '{count, plural, =0 {Spieren} other {Spieren (#)}}',
+    muscleListLabel: 'Filteren op spiergroep',
+    muscleHint:
+      'Tik op een spier in de figuur of kies hem in de lijst. Cardio en niet-ingedeelde oefeningen staan onder Overig.',
+    gymOnly: 'Alleen wat mijn sportschool heeft',
+    gymSelect: 'Sportschool',
+    gymRule:
+      'Vergeleken met het materiaal dat voor {gym} is opgeslagen. Oefeningen met lichaamsgewicht en oefeningen zonder vast materiaaltype blijven in de lijst.',
+    gymEmpty:
+      'Voor {gym} is nog geen materiaal opgeslagen. Daarom staan er alleen oefeningen met lichaamsgewicht en oefeningen zonder vast materiaaltype.',
+    noGym:
+      'Sla een sportschool met het materiaal op om alleen de oefeningen te zien die je daar kunt doen.',
+    manageGyms: 'Sportscholen en materiaal',
+    clear: 'Filters wissen',
+    noResultsTitle: 'Geen oefeningen voor deze filters',
+    noResultsDescription:
+      'Niets in de catalogus past tegelijk bij de zoekopdracht, de spieren en het materiaal van de sportschool.',
+    resultCount:
+      '{count, plural, =0 {Geen oefeningen getoond.} one {# oefening getoond.} other {# oefeningen getoond.}}',
+  },
   muscleGroups: {
     chest: 'Borst',
     backWidth: 'Rug (breedte)',
