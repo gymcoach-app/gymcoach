@@ -7,6 +7,7 @@ import { applyBodyweight, totalVolume } from '@/lib/stats';
 import { formatWeight } from '@/lib/units';
 import { cardioDistanceUnit, formatDistance, formatDuration } from '@/lib/cardio';
 import { HistoryFilters } from '@/components/history/history-filters';
+import { LogPastWorkoutButton } from '@/components/history/log-past-workout-button';
 import {
   HistoryCalendar,
   type HistoryCalendarSession,
@@ -38,7 +39,7 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
   const monthRange = getMonthQueryRange(month);
   const programFilter = searchParams.programId ? { programId: searchParams.programId } : {};
 
-  const [sessions, programs, user, totalHistoryCount] = await Promise.all([
+  const [sessions, programs, user, totalHistoryCount, workouts] = await Promise.all([
     db.session.findMany({
       where: {
         userId: auth.userId,
@@ -74,6 +75,13 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
     }),
     db.session.count({
       where: { userId: auth.userId, finishedAt: { not: null } },
+    }),
+    // The workouts "Log a past workout" offers (issue #389): the active
+    // program's first.
+    db.workout.findMany({
+      where: { program: { userId: auth.userId } },
+      orderBy: [{ program: { isActive: 'desc' } }, { programId: 'asc' }, { order: 'asc' }],
+      select: { id: true, name: true, program: { select: { name: true } } },
     }),
   ]);
 
@@ -138,9 +146,17 @@ export default async function HistoryPage(props: { searchParams: Promise<SearchP
   return (
     <main className="flex-1 px-4 py-6">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <div className="flex items-center gap-3">
-          <CalendarDays className="size-6" />
-          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <CalendarDays className="size-6" />
+            <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+          </div>
+          <LogPastWorkoutButton
+            workouts={workouts.map((workout) => ({
+              id: workout.id,
+              name: `${getTrainingDisplayName(workout.program.name, locale)} - ${getTrainingDisplayName(workout.name, locale)}`,
+            }))}
+          />
         </div>
 
         <HistoryFilters

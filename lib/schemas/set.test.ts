@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { setInputSchema, setUpdateSchema, validateSetForCategory } from './set';
+import {
+  setCreateSchema,
+  setInputSchema,
+  setPatchSchema,
+  setUpdateSchema,
+  validateSetForCategory,
+} from './set';
 
 describe('setInputSchema', () => {
   const valid = { exerciseId: 'ex1', setNumber: 1, weight: 60, reps: 10 };
@@ -114,5 +120,56 @@ describe('validateSetForCategory', () => {
   it('accepts a cardio set with a duration (distance optional)', () => {
     expect(validateSetForCategory('CARDIO', { durationSec: 750 })).toBeNull();
     expect(validateSetForCategory('CARDIO', { durationSec: 750, distanceM: 2500 })).toBeNull();
+  });
+});
+
+describe('amend schemas (issue #389)', () => {
+  const strength = { weight: 100, reps: 5, rir: 2 };
+
+  it('takes amend only as the literal true', () => {
+    const created = { exerciseId: 'ex1', setNumber: 1, ...strength };
+    expect(setCreateSchema.parse(created).amend).toBeUndefined();
+    expect(setCreateSchema.parse({ ...created, amend: true }).amend).toBe(true);
+    for (const amend of [false, 'true', 1, null]) {
+      expect(setCreateSchema.safeParse({ ...created, amend }).success).toBe(false);
+      expect(setPatchSchema.safeParse({ ...strength, amend }).success).toBe(false);
+    }
+  });
+
+  it('reads a body with a weight and reps as a strength edit, with an optional set type', () => {
+    expect(setPatchSchema.parse(strength)).toEqual(strength);
+    expect(
+      setPatchSchema.parse({ ...strength, isWarmup: true, isDropSet: false, amend: true }),
+    ).toEqual({ ...strength, isWarmup: true, isDropSet: false, amend: true });
+    expect(setPatchSchema.safeParse({ ...strength, isWarmup: 'yes' }).success).toBe(false);
+  });
+
+  it('reads a body without them as a cardio edit, under the cardio bounds', () => {
+    const parsed = setPatchSchema.parse({
+      durationSec: 1500,
+      distanceM: 5000,
+      avgHr: 150,
+      maxHr: null,
+      amend: true,
+    });
+    expect(parsed).toEqual({
+      durationSec: 1500,
+      distanceM: 5000,
+      avgHr: 150,
+      maxHr: null,
+      amend: true,
+    });
+    expect('weight' in parsed).toBe(false);
+    for (const body of [
+      { durationSec: 0 },
+      { durationSec: 86401 },
+      { durationSec: 600, distanceM: -1 },
+      { durationSec: 600, avgHr: 20 },
+      { durationSec: 600, maxHr: 300 },
+      { distanceM: 5000 },
+      {},
+    ]) {
+      expect(setPatchSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
   });
 });

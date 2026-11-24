@@ -62,6 +62,39 @@ export const setUpdateSchema = setInputSchema.pick({
 
 export type SetUpdateInput = z.infer<typeof setUpdateSchema>;
 
+// Editing a finished session (issue #389). The live logger and its offline
+// queue keep being refused once a session is finished: only a request that
+// says `amend: true` may add to or change a finished session, so a set queued
+// offline never slips into a session that was closed in the meantime.
+const amendFlag = z.literal(true).optional();
+
+// POST /api/sessions/[id]/sets.
+export const setCreateSchema = setInputSchema.extend({ amend: amendFlag });
+
+// PATCH /api/sets/[id] on a strength set. The set type is only applied to a
+// finished session; the live table sends none.
+export const strengthSetPatchSchema = setUpdateSchema.extend({
+  isWarmup: z.boolean().optional(),
+  isDropSet: z.boolean().optional(),
+  amend: amendFlag,
+});
+
+// PATCH /api/sets/[id] on a cardio set of a finished session: the fields a
+// cardio set is logged with, under the bounds of setInputSchema.
+export const cardioSetPatchSchema = setInputSchema
+  .pick({ distanceM: true, avgHr: true, maxHr: true })
+  .extend({
+    durationSec: z.coerce.number().int().min(1).max(MAX_DURATION_SEC),
+    isWarmup: z.boolean().optional(),
+    amend: amendFlag,
+  });
+
+// A body with a weight and reps is a strength edit; one without is read as a
+// cardio edit. The route then checks the shape against the exercise.
+export const setPatchSchema = z.union([strengthSetPatchSchema, cardioSetPatchSchema]);
+
+export type SetPatchInput = z.infer<typeof setPatchSchema>;
+
 // Cross-field rule the schema alone cannot express: duration/distance are
 // accepted only on CARDIO exercises (so strength data stays clean), and a
 // cardio set requires a duration. Returns an error message or null when valid.

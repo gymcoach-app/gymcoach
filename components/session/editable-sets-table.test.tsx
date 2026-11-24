@@ -908,3 +908,116 @@ describe('EditableSetsTable effort scale (issue #390)', () => {
     );
   });
 });
+
+// Editing a finished session (issue #389): the same table, in the history
+// editor, with `amend`.
+describe('EditableSetsTable amend mode (issue #389)', () => {
+  function storedSet(overrides: Partial<PendingSet>): PendingSet {
+    return {
+      localId: 'set-1',
+      sessionId: 'session-1',
+      exerciseId: 'exercise-1',
+      setNumber: 1,
+      weight: 100,
+      reps: 5,
+      rir: 2,
+      notes: null,
+      isWarmup: false,
+      isDropSet: false,
+      status: 'synced',
+      serverId: 'set-1',
+      syncedAt: 1,
+      attempts: 0,
+      lastError: null,
+      createdAt: 1,
+      ...overrides,
+    } as PendingSet;
+  }
+
+  const sets = [
+    storedSet({ localId: 'warmup', setNumber: 1, weight: 40, reps: 10, isWarmup: true }),
+    storedSet({ localId: 'work', setNumber: 2, weight: 100, reps: 5 }),
+    storedSet({ localId: 'drop', setNumber: 3, weight: 70, reps: 8, isDropSet: true }),
+  ];
+
+  function renderAmend(amend: boolean) {
+    const handlers = {
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      onDeleteSet: vi.fn().mockResolvedValue(true),
+      onUpdateSet: vi.fn().mockResolvedValue(undefined),
+      onSetTypeChange: vi.fn().mockResolvedValue(undefined),
+    };
+    render(
+      <EditableSetsTable
+        programExercise={programExercise}
+        sets={sets}
+        lastPerformance={undefined}
+        readiness={null}
+        deloadActive={false}
+        unit="KG"
+        onSubmit={handlers.onSubmit}
+        onDeleteSet={handlers.onDeleteSet}
+        onUpdateSet={handlers.onUpdateSet}
+        amend={amend ? { onSetTypeChange: handlers.onSetTypeChange } : undefined}
+      />,
+    );
+    return handlers;
+  }
+
+  it('lists every set with its type, warm-ups included, and no PR badge', () => {
+    renderAmend(true);
+    expect(screen.getByTestId('amend-set-row-1')).toHaveTextContent('Warmup');
+    expect(screen.getByTestId('amend-set-row-2')).not.toHaveTextContent(/Warmup|Drop set/);
+    expect(screen.getByTestId('amend-set-row-3')).toHaveTextContent('Drop set');
+    expect(screen.queryByText(/PR/)).not.toBeInTheDocument();
+    // The next set takes the number after the last one, and no row is planned
+    // beyond it.
+    expect(screen.getByRole('button', { name: 'Confirm set 4' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm set 3' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the live table as it was without amend: working sets only, undo on the last', () => {
+    renderAmend(false);
+    expect(screen.queryByTestId('amend-set-row-1')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Actions for set 2' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Set 2 weight in KG' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Set 1 weight in KG' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo set 3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm set 3' })).toBeInTheDocument();
+  });
+
+  it('changes the type of a set from its row menu', async () => {
+    const user = userEvent.setup();
+    const { onSetTypeChange } = renderAmend(true);
+
+    await user.click(screen.getByRole('button', { name: 'Actions for set 2' }));
+    expect(screen.getByRole('menuitemradio', { name: 'Working' })).toBeChecked();
+    await user.click(screen.getByRole('menuitemradio', { name: 'Warmup' }));
+
+    await waitFor(() =>
+      expect(onSetTypeChange).toHaveBeenCalledWith(
+        expect.objectContaining({ localId: 'work' }),
+        'warmup',
+      ),
+    );
+  });
+
+  it('does not send a type that is already the stored one', async () => {
+    const user = userEvent.setup();
+    const { onSetTypeChange } = renderAmend(true);
+
+    await user.click(screen.getByRole('button', { name: 'Actions for set 3' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Drop set' }));
+    expect(onSetTypeChange).not.toHaveBeenCalled();
+  });
+
+  it('deletes a set from its row menu', async () => {
+    const user = userEvent.setup();
+    const { onDeleteSet } = renderAmend(true);
+
+    await user.click(screen.getByRole('button', { name: 'Actions for set 1' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete set 1' }));
+
+    expect(onDeleteSet).toHaveBeenCalledWith(expect.objectContaining({ localId: 'warmup' }));
+  });
+});

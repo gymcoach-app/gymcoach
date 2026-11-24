@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_SESSION_DURATION_MIN, MIN_SESSION_START_MS } from '@/lib/session-edit';
 
 export const sessionStartSchema = z.object({
   // Absent (or null) starts a freestyle session (issue #388): no workout, no
@@ -12,6 +13,32 @@ export const sessionUpdateSchema = z.object({
   // If true, finishes the session: finishedAt is now, or the time of the last
   // set when that set is more than 30 minutes old (lib/session-finish.ts).
   finish: z.boolean().optional(),
+});
+
+// When a finished session took place (issue #389). `startedAt` is an instant:
+// the browser converts the date and time the lifter picked, in its own zone,
+// so the server never guesses a zone. The route refuses a session that would
+// end in the future (lib/session-edit.ts).
+const sessionTimingShape = {
+  startedAt: z
+    .string()
+    .datetime({ offset: true })
+    .transform((value) => new Date(value))
+    .refine((date) => date.getTime() >= MIN_SESSION_START_MS, {
+      message: 'Invalid start date.',
+    }),
+  durationMin: z.number().int().min(1).max(MAX_SESSION_DURATION_MIN),
+};
+
+// PATCH /api/sessions/[id]: moves a finished session and sets its duration.
+export const sessionTimingSchema = z.object(sessionTimingShape);
+
+// POST /api/sessions/past: logs a workout that already happened. Without a
+// workout it is a freestyle session, as in sessionStartSchema.
+export const pastSessionSchema = z.object({
+  workoutId: z.string().min(1).optional().nullable(),
+  gymId: z.string().min(1).optional().nullable(),
+  ...sessionTimingShape,
 });
 
 // One exercise of a freestyle session (issue #388): the targets the live
@@ -40,3 +67,5 @@ export const sessionDeleteQuerySchema = z.object({
 export type SessionExerciseInput = z.infer<typeof sessionExerciseInputSchema>;
 export type SessionStart = z.infer<typeof sessionStartSchema>;
 export type SessionUpdate = z.infer<typeof sessionUpdateSchema>;
+export type SessionTiming = z.infer<typeof sessionTimingSchema>;
+export type PastSession = z.infer<typeof pastSessionSchema>;

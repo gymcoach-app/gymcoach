@@ -45,6 +45,8 @@ const COVERED_ELSEWHERE: Record<string, string> = {
     'tests/integration/freestyle-session.test.ts',
   // Attach a watch file (issue #562): stranger and unknown ids are 404 there.
   'app/api/sessions/[id]/watch-file/route.ts': 'tests/integration/session-watch-file.test.ts',
+  // Log a past workout (issue #389): a stranger's workoutId is 404 there.
+  'app/api/sessions/past/route.ts': 'tests/integration/session-edit.test.ts',
 };
 
 // Routes that take a resource id in the request body AND are not already
@@ -55,6 +57,7 @@ const COVERED_ELSEWHERE: Record<string, string> = {
 // in its payload; the ratchet cannot infer these.
 const BODY_ADDRESSED_ROUTES: string[] = [
   'app/api/sessions/route.ts', // workoutId
+  'app/api/sessions/past/route.ts', // workoutId, gymId
   'app/api/goals/route.ts', // exerciseId
   'app/api/sets/parse/route.ts', // exerciseId
   'app/api/coach/chat/route.ts', // conversationId

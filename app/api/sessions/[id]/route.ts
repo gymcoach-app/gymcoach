@@ -1,8 +1,18 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { sessionDeleteQuerySchema, sessionUpdateSchema } from '@/lib/schemas/session';
+import {
+  sessionDeleteQuerySchema,
+  sessionTimingSchema,
+  sessionUpdateSchema,
+} from '@/lib/schemas/session';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 import { resolveFinishedAt } from '@/lib/session-finish';
+import { endsInFuture, resolveEditedFinish, retimeSets } from '@/lib/session-edit';
+import {
+  lockExerciseGoal,
+  rederiveGoalAchievement,
+  runSerializableSetTransaction,
+} from '@/lib/goal-achievement';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -73,6 +83,93 @@ export async function PUT(req: Request, props: Params) {
         finishedAt,
       },
     });
+    return NextResponse.json(updated);
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+// PATCH /api/sessions/[id]: corrects when a FINISHED session took place (issue
+// #389): its start (date and time) and its duration. A session in progress is
+// refused, its clock is the live runner's.
+//
+// The sets move with the session (lib/session-edit.ts), because everything
+// derived reads their timestamps: a session moved to last month must leave
+// this week's charts and stop being the "last performance" of its exercises.
+// The one stored record, a goal's achievedAt, is re-derived in the same
+// transaction.
+export async function PATCH(req: Request, props: Params) {
+  const params = await props.params;
+  try {
+    const userId = await requireApiUserId();
+    const data = await parseJsonBody(req, sessionTimingSchema);
+
+    const updated = await runSerializableSetTransaction(async (tx) => {
+      const session = await tx.session.findFirst({
+        where: { id: params.id, userId },
+        select: { id: true, startedAt: true, finishedAt: true },
+      });
+      if (!session) throw new ApiError(404, 'Session not found.');
+      if (!session.finishedAt) {
+        throw new ApiError(409, 'This session is still in progress.');
+      }
+
+      const finishedAt = resolveEditedFinish({
+        oldStartedAt: session.startedAt,
+        oldFinishedAt: session.finishedAt,
+        newStartedAt: data.startedAt,
+        durationMin: data.durationMin,
+      });
+      if (endsInFuture(finishedAt, new Date())) {
+        throw new ApiError(400, 'A session cannot be in the future.');
+      }
+
+      // Every set query below carries the session's userId as well.
+      const ownSets = { sessionId: session.id, session: { userId } };
+      const sets = await tx.set.findMany({
+        where: ownSets,
+        select: { id: true, exerciseId: true, completedAt: true },
+      });
+      const { changes, rescaled } = retimeSets({
+        oldStartedAt: session.startedAt,
+        newStartedAt: data.startedAt,
+        newFinishedAt: finishedAt,
+        sets,
+      });
+
+      const exerciseIds = [...new Set(sets.map((set) => set.exerciseId))].sort();
+      for (const exerciseId of exerciseIds) {
+        await lockExerciseGoal(tx, userId, exerciseId);
+      }
+      const row = await tx.session.update({
+        where: { id: session.id, userId },
+        data: { startedAt: data.startedAt, finishedAt },
+      });
+      for (const change of changes) {
+        await tx.set.updateMany({
+          where: { ...ownSets, id: change.id },
+          data: { completedAt: change.completedAt },
+        });
+      }
+      if (rescaled) {
+        // The per-set heart rate of an attached watch file was cut between
+        // the old set timestamps (issue #576). The recording's start is not
+        // stored, so it cannot be cut again: drop it rather than show numbers
+        // that no longer match the sets. The session curve and its average
+        // and peak do not depend on the sets and stay.
+        await tx.set.updateMany({
+          where: { ...ownSets, OR: [{ watchAvgHr: { not: null } }, { watchMaxHr: { not: null } }] },
+          data: { watchAvgHr: null, watchMaxHr: null },
+        });
+      }
+      if (changes.length > 0) {
+        for (const exerciseId of exerciseIds) {
+          await rederiveGoalAchievement(tx, userId, exerciseId, true);
+        }
+      }
+      return row;
+    });
+
     return NextResponse.json(updated);
   } catch (err) {
     return handleApiError(err);
