@@ -71,6 +71,29 @@ export const exercises = {
     noHistory: 'Noch keine abgeschlossenen Sätze für diese Übung.',
     openSession: 'Workout öffnen',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filter',
+    muscles: '{count, plural, =0 {Muskeln} other {Muskeln (#)}}',
+    muscleListLabel: 'Nach Muskelgruppe filtern',
+    muscleHint: 'Tippe einen Muskel auf der Figur an oder wähle ihn in der Liste.',
+    otherHint: 'Cardio und nicht zugeordnete Übungen stehen unter Sonstiges.',
+    gymOnly: 'Nur was mein Gym hat',
+    gymSelect: 'Gym',
+    gymRule:
+      'Abgeglichen mit der für {gym} gespeicherten Ausrüstung. Kurzhantel- und Langhantelübungen werden ausgeblendet, wenn das Gym keine solchen Gewichte hat, ebenso jede Übung, die für dieses Gym als nicht verfügbar markiert ist. Bodyweight-, Maschinen-, Kabelzug- und Cardio-Übungen sowie Übungen ohne festen Gerätetyp bleiben in der Liste.',
+    gymEmpty:
+      'Für {gym} ist noch keine Ausrüstung gespeichert. Deshalb werden Kurzhantel- und Langhantelübungen ausgeblendet, ebenso jede Übung, die für dieses Gym als nicht verfügbar markiert ist. Bodyweight-, Maschinen-, Kabelzug- und Cardio-Übungen sowie Übungen ohne festen Gerätetyp bleiben in der Liste.',
+    noGym:
+      'Speichere ein Gym mit seiner Ausrüstung, um nur die Übungen zu sehen, die du dort machen kannst.',
+    manageGyms: 'Gyms und Ausrüstung',
+    clear: 'Filter zurücksetzen',
+    noResultsTitle: 'Keine Übung passt zu diesen Filtern',
+    noResultsDescription:
+      'Nichts im Katalog passt gleichzeitig zur Suche, zu den Muskeln und zur Ausrüstung des Gyms.',
+    resultCount:
+      '{count, plural, =0 {Keine Übung angezeigt.} one {# Übung angezeigt.} other {# Übungen angezeigt.}}',
+  },
   muscleGroups: {
     chest: 'Brust',
     backWidth: 'Rücken (Breite)',

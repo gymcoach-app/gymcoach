@@ -68,6 +68,28 @@ export const exercises = {
     noHistory: 'No completed sets for this exercise yet.',
     openSession: 'Open workout',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filters',
+    muscles: '{count, plural, =0 {Muscles} other {Muscles (#)}}',
+    muscleListLabel: 'Filter by muscle group',
+    muscleHint: 'Tap a muscle on the figure or pick it in the list.',
+    otherHint: 'Cardio and unclassified exercises are under Other.',
+    gymOnly: 'Only what my gym has',
+    gymSelect: 'Gym',
+    gymRule:
+      'Checked against the equipment saved for {gym}. Dumbbell and barbell exercises are hidden when the gym has no such weights, and so is any exercise switched off for this gym. Bodyweight, machine, cable and cardio exercises, and exercises with no set equipment type, stay listed.',
+    gymEmpty:
+      'No equipment is saved for {gym} yet, so dumbbell and barbell exercises are hidden, like any exercise switched off for this gym. Bodyweight, machine, cable and cardio exercises, and exercises with no set equipment type, stay listed.',
+    noGym: 'Save a gym and its equipment to list only the exercises you can do there.',
+    manageGyms: 'Gyms and equipment',
+    clear: 'Clear filters',
+    noResultsTitle: 'No exercises match these filters',
+    noResultsDescription:
+      'Nothing in the catalog matches the search, the muscles and the gym equipment together.',
+    resultCount:
+      '{count, plural, =0 {No exercises shown.} one {# exercise shown.} other {# exercises shown.}}',
+  },
   muscleGroups: {
     chest: 'Chest',
     backWidth: 'Back (width)',

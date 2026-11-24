@@ -72,6 +72,28 @@ export const exercises = {
     noHistory: 'Aún no hay series completadas para este ejercicio.',
     openSession: 'Abrir entrenamiento',
   },
+  // Catalog filters (issue #402).
+  filters: {
+    title: 'Filtros',
+    muscles: '{count, plural, =0 {Músculos} other {Músculos (#)}}',
+    muscleListLabel: 'Filtrar por grupo muscular',
+    muscleHint: 'Toca un músculo en la figura o elígelo en la lista.',
+    otherHint: 'El cardio y los ejercicios sin clasificar están en Otro.',
+    gymOnly: 'Solo lo que tiene mi gimnasio',
+    gymSelect: 'Gimnasio',
+    gymRule:
+      'Se compara con el equipo guardado de {gym}. Los ejercicios con mancuernas y con barra se ocultan si el gimnasio no tiene esos pesos, igual que cualquier ejercicio marcado como no disponible en este gimnasio. Los ejercicios de peso corporal, de máquina, de polea y de cardio, y los que no tienen un tipo de equipo definido, siguen en la lista.',
+    gymEmpty:
+      'Todavía no hay equipo guardado para {gym}, así que se ocultan los ejercicios con mancuernas y con barra, igual que cualquier ejercicio marcado como no disponible en este gimnasio. Los ejercicios de peso corporal, de máquina, de polea y de cardio, y los que no tienen un tipo de equipo definido, siguen en la lista.',
+    noGym: 'Guarda un gimnasio y su equipo para ver solo los ejercicios que puedes hacer allí.',
+    manageGyms: 'Gimnasios y equipo',
+    clear: 'Quitar filtros',
+    noResultsTitle: 'Ningún ejercicio coincide con estos filtros',
+    noResultsDescription:
+      'Nada en el catálogo coincide a la vez con la búsqueda, los músculos y el equipo del gimnasio.',
+    resultCount:
+      '{count, plural, =0 {Ningún ejercicio mostrado.} one {# ejercicio mostrado.} other {# ejercicios mostrados.}}',
+  },
   muscleGroups: {
     chest: 'Pecho',
     backWidth: 'Espalda (amplitud)',
