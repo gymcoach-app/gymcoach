@@ -71,7 +71,7 @@ export const programs = {
     catalogEmpty: 'Il catalogo è vuoto. Aggiungi prima un esercizio in Catalogo.',
     supersetUpdateError: 'Impossibile aggiornare la superserie.',
     reorderError: 'Impossibile salvare il nuovo ordine.',
-    reorderAnnouncement: '{name} spostato in posizione {position} di {total}.',
+    reorderAnnouncement: '{name}: posizione {position} di {total}.',
     supersetLimit: 'Limite di superserie raggiunto per questa sessione.',
     supersetPaired: 'Esercizi abbinati in superserie.',
     supersetRemoved: 'Superserie rimossa.',

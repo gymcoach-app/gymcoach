@@ -3,6 +3,10 @@ import { applyExerciseOrder, supersetBlocks, type SupersetItem } from '@/lib/sup
 import {
   AUTO_SCROLL_MAX_SPEED_PX,
   autoScrollSpeed,
+  blocksSignature,
+  frameScale,
+  isDropLineVisible,
+  limitAutoScroll,
   clampOffset,
   dragOffsetBounds,
   dropExerciseBlock,
@@ -250,5 +254,80 @@ describe('autoScrollSpeed', () => {
     expect(autoScrollSpeed(10, 0)).toBe(0);
     expect(autoScrollSpeed(10, Number.NaN)).toBe(0);
     expect(autoScrollSpeed(10, 800, 0)).toBe(0);
+  });
+});
+
+describe('limitAutoScroll', () => {
+  const view: BlockSpan = { top: 100, bottom: 800 };
+
+  it('scrolls up only while the top of the list is hidden', () => {
+    expect(limitAutoScroll(-14, { top: -300, bottom: 400 }, view)).toBe(-14);
+    // 16px of margin are kept above the list: 10px left to reveal.
+    expect(limitAutoScroll(-14, { top: 106, bottom: 900 }, view)).toBe(-10);
+    expect(limitAutoScroll(-14, { top: 116, bottom: 900 }, view)).toBe(0);
+    expect(limitAutoScroll(-14, { top: 300, bottom: 900 }, view)).toBe(0);
+  });
+
+  it('scrolls down only while the bottom of the list is hidden', () => {
+    expect(limitAutoScroll(14, { top: 0, bottom: 1500 }, view)).toBe(14);
+    expect(limitAutoScroll(14, { top: 0, bottom: 790 }, view)).toBe(6);
+    expect(limitAutoScroll(14, { top: 0, bottom: 784 }, view)).toBe(0);
+    expect(limitAutoScroll(14, { top: 0, bottom: 300 }, view)).toBe(0);
+  });
+
+  it('measures against the visible area, not the viewport', () => {
+    // The top of the list is inside the viewport but under a 100px header.
+    expect(limitAutoScroll(-14, { top: 40, bottom: 900 }, view)).toBe(-14);
+    expect(limitAutoScroll(-14, { top: 40, bottom: 900 }, { top: 0, bottom: 800 })).toBe(0);
+  });
+
+  it('is zero for no speed and never returns -0', () => {
+    expect(Object.is(limitAutoScroll(0, { top: -300, bottom: 2000 }, view), 0)).toBe(true);
+    expect(Object.is(limitAutoScroll(-14, { top: 300, bottom: 900 }, view), 0)).toBe(true);
+  });
+});
+
+describe('frameScale', () => {
+  it('is 1 for a 60 Hz frame and a half for a 120 Hz frame', () => {
+    expect(frameScale(1000 / 60)).toBeCloseTo(1);
+    expect(frameScale(1000 / 120)).toBeCloseTo(0.5);
+  });
+
+  it('counts a long pause for three frames at most', () => {
+    expect(frameScale(2000)).toBeCloseTo(3);
+  });
+
+  it('is 1 when the duration is unknown', () => {
+    expect(frameScale(0)).toBe(1);
+    expect(frameScale(-5)).toBe(1);
+    expect(frameScale(Number.NaN)).toBe(1);
+  });
+});
+
+describe('isDropLineVisible', () => {
+  it('accepts a line inside the visible area, edges included', () => {
+    const view: BlockSpan = { top: 97, bottom: 700 };
+    expect(isDropLineVisible(97, view)).toBe(true);
+    expect(isDropLineVisible(400, view)).toBe(true);
+    expect(isDropLineVisible(700, view)).toBe(true);
+  });
+
+  it('refuses a line under a header or outside the viewport', () => {
+    const view: BlockSpan = { top: 97, bottom: 700 };
+    expect(isDropLineVisible(96, view)).toBe(false);
+    expect(isDropLineVisible(-20, view)).toBe(false);
+    expect(isDropLineVisible(701, view)).toBe(false);
+  });
+});
+
+describe('blocksSignature', () => {
+  it('changes when rows are reordered, added, removed, paired or unpaired', () => {
+    const base = blocksSignature([['a'], ['b', 'c'], ['d']]);
+    expect(blocksSignature([['a'], ['b', 'c'], ['d']])).toBe(base);
+    expect(blocksSignature([['b', 'c'], ['a'], ['d']])).not.toBe(base);
+    expect(blocksSignature([['a'], ['b', 'c'], ['d'], ['e']])).not.toBe(base);
+    expect(blocksSignature([['a'], ['b', 'c']])).not.toBe(base);
+    expect(blocksSignature([['a'], ['b'], ['c'], ['d']])).not.toBe(base);
+    expect(blocksSignature([['a', 'b', 'c'], ['d']])).not.toBe(base);
   });
 });

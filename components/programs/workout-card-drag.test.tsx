@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import { WorkoutCard } from './workout-card';
@@ -62,12 +62,24 @@ function workout(exercises: Row[]): CardProps['workout'] {
 
 const ROW_HEIGHT = 60;
 const ROW_GAP = 8;
-const LIST_TOP = 100;
-// The vertical middle of the row at `index`.
-const middleOf = (index: number) => LIST_TOP + index * (ROW_HEIGHT + ROW_GAP) + ROW_HEIGHT / 2;
 
-// How far the page is scrolled (moves every rectangle up).
+// The fake page. Each test may move the list, give rows their own heights,
+// scroll, or put a sticky header at the top of the viewport.
+let listTop = 100;
+let rowHeights: number[] = [];
+// How far the page is scrolled (moves every rectangle of the list up).
 let scrolled = 0;
+let headerHeight = 0;
+
+const heightOf = (index: number) => rowHeights[index] ?? ROW_HEIGHT;
+// Top of the row at `index`, in the unscrolled page.
+function topOf(index: number): number {
+  let top = listTop;
+  for (let i = 0; i < index; i += 1) top += heightOf(i) + ROW_GAP;
+  return top;
+}
+// The vertical middle of the row at `index`, in the unscrolled page.
+const middleOf = (index: number) => topOf(index) + heightOf(index) / 2;
 
 function rect(top: number, height: number): DOMRect {
   return {
@@ -84,14 +96,15 @@ function rect(top: number, height: number): DOMRect {
 }
 
 function fakeLayout(this: HTMLElement): DOMRect {
+  if (this.tagName === 'HEADER') return rect(0, headerHeight);
   if (this.tagName === 'LI' && this.parentElement) {
     const index = Array.prototype.indexOf.call(this.parentElement.children, this);
-    return rect(LIST_TOP - scrolled + index * (ROW_HEIGHT + ROW_GAP), ROW_HEIGHT);
+    return rect(topOf(index) - scrolled, heightOf(index));
   }
   const list = this.tagName === 'UL' ? this : this.querySelector(':scope > ul');
   if (list) {
     const count = list.children.length;
-    return rect(LIST_TOP - scrolled, count * (ROW_HEIGHT + ROW_GAP) - ROW_GAP);
+    return rect(listTop - scrolled, topOf(count) - ROW_GAP - listTop);
   }
   return rect(0, 0);
 }
@@ -109,11 +122,42 @@ class FakePointerEvent extends MouseEvent {
 const fetchMock = vi.fn();
 const scrollBy = vi.fn();
 
+// Animation frames run by hand, with the timestamps the test chooses.
+let frameCallbacks = new Map<number, FrameRequestCallback>();
+let nextFrameId = 1;
+let frameTime = 0;
+const cancelFrame = vi.fn((id: number) => {
+  frameCallbacks.delete(id);
+});
+// Runs the pending frame, `elapsedMs` after the previous one.
+function frame(elapsedMs = 1000 / 60) {
+  frameTime += elapsedMs;
+  const pending = Array.from(frameCallbacks.values());
+  frameCallbacks.clear();
+  act(() => {
+    for (const callback of pending) callback(frameTime);
+  });
+}
+
 beforeEach(() => {
+  listTop = 100;
+  rowHeights = [];
   scrolled = 0;
+  headerHeight = 0;
+  frameCallbacks = new Map();
+  nextFrameId = 1;
+  frameTime = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = nextFrameId;
+    nextFrameId += 1;
+    frameCallbacks.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal('cancelAnimationFrame', cancelFrame);
   fetchMock.mockResolvedValue(Response.json({ ok: true }));
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('PointerEvent', FakePointerEvent);
+  scrollBy.mockReset();
   vi.stubGlobal('scrollBy', scrollBy);
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(fakeLayout);
 });
@@ -159,24 +203,35 @@ interface PressOptions {
   button?: number;
 }
 
-// Presses the grip of `name` in its vertical middle.
+// The kind of pointer of the last press: its moves are of the same kind.
+let pressedWith = 'touch';
+
+// Presses the grip of `name` in the vertical middle of its row.
 function press(name: string, options: PressOptions = {}) {
-  const index = rows().indexOf(listItem(name));
+  const box = listItem(name).getBoundingClientRect();
+  pressedWith = options.pointerType ?? 'touch';
   fireEvent.pointerDown(grip(name), {
     pointerId: 1,
-    pointerType: 'touch',
+    pointerType: pressedWith,
     button: 0,
-    clientY: middleOf(index),
+    buttons: 1,
+    clientY: (box.top + box.bottom) / 2,
     ...options,
   });
 }
 
-function moveTo(clientY: number, pointerId = 1) {
-  fireEvent.pointerMove(document.body, { pointerId, clientY });
+function moveTo(clientY: number, pointerId = 1, init: PointerEventInit = {}) {
+  fireEvent.pointerMove(document.body, {
+    pointerId,
+    pointerType: pressedWith,
+    buttons: 1,
+    clientY,
+    ...init,
+  });
 }
 
 function release(clientY: number, pointerId = 1) {
-  fireEvent.pointerUp(document.body, { pointerId, clientY });
+  fireEvent.pointerUp(document.body, { pointerId, pointerType: pressedWith, clientY });
 }
 
 function dragTo(name: string, clientY: number) {
@@ -208,6 +263,26 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
       const { container } = render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       expect(grips()).toHaveLength(3);
       expect(Array.from(container.querySelectorAll('.touch-none'))).toEqual(grips());
+    });
+
+    it('numbers the grips of an exercise that is in the workout twice', () => {
+      // 5/3/1 Boring But Big repeats the main lift in one workout.
+      const again = { ...row('Squat', 3), id: 'pe-squat-again' };
+      render(
+        <WorkoutCard workout={workout([row('Squat', 1), row('Bench', 2), again])} catalog={[]} />,
+      );
+      expect(grips().map((el) => el.getAttribute('aria-label'))).toEqual([
+        'Reorder Squat (1)',
+        'Reorder Bench',
+        'Reorder Squat (2)',
+      ]);
+    });
+
+    it('keeps a dragged row below the sticky app header', () => {
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      // The list is a stacking context of its own (z-index 0); the header is
+      // above it whatever z-index a row gets inside.
+      expect(listItem('Bench').closest('ul')!.parentElement).toHaveClass('relative', 'z-0');
     });
 
     it('is not rendered when the workout has a single block', () => {
@@ -302,11 +377,50 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
       expect(shown()).toEqual(['Running', 'Bench', 'Squat']);
 
+      // A pen's barrel button does not drag either; its tip does.
+      await waitFor(() => expect(grip('Squat')).not.toHaveAttribute('aria-disabled'));
+      press('Squat', { pointerType: 'pen', button: 2 });
+      moveTo(middleOf(0) - 10);
+      expect(listItem('Squat').style.transform).toBe('');
+      release(middleOf(0) - 10);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
       press('Squat', { pointerType: 'pen' });
       moveTo(middleOf(0) - 10);
       release(middleOf(0) - 10);
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
       expect(shown()).toEqual(['Squat', 'Running', 'Bench']);
+    });
+
+    it('uses the real height of every row', async () => {
+      // A long note makes the first row much taller than the others:
+      // Bench 100-300, Squat 308-368, Running 376-436.
+      rowHeights = [200, 60, 60];
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+
+      // Above the middle of the tall row (200): before it, by its full height.
+      press('Running');
+      moveTo(190);
+      expect(listItem('Running').style.transform).toBe('translate3d(0, -216px, 0)');
+      expect(indicator()).toHaveStyle({ top: '-4px' });
+      // Below its middle, although still over it: after it.
+      moveTo(210);
+      expect(indicator()).toHaveStyle({ top: '204px' });
+      release(210);
+      expect(shown()).toEqual(['Bench', 'Running', 'Squat']);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      expect(sentOrder().ids).toEqual(['pe-bench', 'pe-running', 'pe-squat']);
+
+      // The tall row itself: it may travel down by the two short rows only.
+      await waitFor(() => expect(grip('Bench')).not.toHaveAttribute('aria-disabled'));
+      press('Bench');
+      moveTo(5000);
+      expect(listItem('Bench').style.transform).toBe('translate3d(0, 136px, 0)');
+      // Just past the middle of the first short row (338): after it.
+      moveTo(345);
+      release(345);
+      expect(shown()).toEqual(['Running', 'Bench', 'Squat']);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     });
 
     it('ignores other pointers while one is dragging', () => {
@@ -406,25 +520,178 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('drops nothing when the dragged row disappears under the pointer', () => {
-      const { rerender } = render(<WorkoutCard workout={workout(three())} catalog={[]} />);
-      press('Running');
+    it('drops nothing when a mouse comes back with no button held', () => {
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Running', { pointerType: 'mouse' });
       moveTo(middleOf(0) - 10);
-      // Another tab removed the exercise and the refreshed rows arrived.
-      rerender(<WorkoutCard workout={workout([row('Bench', 1), row('Squat', 2)])} catalog={[]} />);
-      release(middleOf(0) - 10);
-      expect(shown()).toEqual(['Bench', 'Squat']);
+      expect(indicator()).not.toBeNull();
+
+      // The button was released outside the window: no pointerup reached the
+      // page, and the next move reports that nothing is pressed.
+      moveTo(middleOf(0) - 12, 1, { buttons: 0 });
       expect(indicator()).toBeNull();
+      expect(listItem('Running').style.transform).toBe('');
+
+      // Moving on does not carry the row, and a late release drops nothing.
+      moveTo(middleOf(0) - 20, 1, { buttons: 0 });
+      expect(listItem('Running').style.transform).toBe('');
+      release(middleOf(0) - 20);
+      expect(shown()).toEqual(['Bench', 'Squat', 'Running']);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('stops listening when the card goes away mid-drag', () => {
-      const { unmount } = render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+    it('drops nothing when the pointer capture is lost', () => {
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       press('Running');
       moveTo(middleOf(0) - 10);
-      unmount();
+      // Another pointer's capture is not this drag's business.
+      fireEvent(grip('Running'), new FakePointerEvent('lostpointercapture', { pointerId: 2 }));
+      expect(indicator()).not.toBeNull();
+
+      fireEvent(grip('Running'), new FakePointerEvent('lostpointercapture', { pointerId: 1 }));
+      expect(indicator()).toBeNull();
+      expect(listItem('Running').style.transform).toBe('');
       release(middleOf(0) - 10);
+      expect(shown()).toEqual(['Bench', 'Squat', 'Running']);
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    // Another tab changed the workout and the refreshed rows arrive while a
+    // row is held: the rectangles the drag measured are no longer true.
+    it.each([
+      ['the dragged row is removed', () => [row('Bench', 1), row('Squat', 2)], ['Bench', 'Squat']],
+      ['another row is removed', () => [row('Squat', 1), row('Running', 2)], ['Squat', 'Running']],
+      [
+        'a row is added',
+        () => [row('Bench', 1), row('Squat', 2), row('Running', 3), row('Curl', 4)],
+        ['Bench', 'Squat', 'Running', 'Curl'],
+      ],
+      [
+        'the rows are reordered',
+        () => [row('Squat', 1), row('Bench', 2), row('Running', 3)],
+        ['Squat', 'Bench', 'Running'],
+      ],
+      [
+        'two rows are paired',
+        () => [row('Bench', 1, 1), row('Squat', 2, 1), row('Running', 3)],
+        ['Bench (A1)', 'Squat (A2)', 'Running'],
+      ],
+    ])('aborts the drag when %s under it', (_label, next, expected) => {
+      const { rerender } = render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Running');
+      moveTo(middleOf(0) - 10);
+      expect(indicator()).not.toBeNull();
+
+      rerender(<WorkoutCard workout={workout(next())} catalog={[]} />);
+      // Aborted at once, not at the next pointer event.
+      expect(indicator()).toBeNull();
+      for (const li of rows()) expect(li.style.transform).toBe('');
+      expect(shown()).toEqual(expected);
+
+      moveTo(middleOf(0) - 20);
+      for (const li of rows()) expect(li.style.transform).toBe('');
+      release(middleOf(0) - 20);
+      expect(shown()).toEqual(expected);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the drag when the same rows come back unchanged', async () => {
+      const { rerender } = render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Running');
+      moveTo(middleOf(0) - 10);
+      // A refresh that changes nothing in the order (a new array, same rows).
+      rerender(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      expect(indicator()).not.toBeNull();
+      release(middleOf(0) - 10);
+      expect(shown()).toEqual(['Running', 'Bench', 'Squat']);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    });
+
+    it('removes every listener and its animation frame when the card goes away', () => {
+      const added: Array<[string, unknown, unknown]> = [];
+      const removed: Array<[string, unknown, unknown]> = [];
+      const { unmount } = render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      const handle = grip('Running');
+      for (const target of [window, handle] as EventTarget[]) {
+        const add = target.addEventListener.bind(target);
+        const remove = target.removeEventListener.bind(target);
+        vi.spyOn(target, 'addEventListener').mockImplementation(
+          (type: string, listener: unknown, options?: unknown) => {
+            if (/^pointer|^lostpointer|^keydown$|^blur$|^scroll$/.test(type)) {
+              added.push([type, listener, options]);
+            }
+            add(type, listener as EventListener, options as AddEventListenerOptions);
+          },
+        );
+        vi.spyOn(target, 'removeEventListener').mockImplementation(
+          (type: string, listener: unknown, options?: unknown) => {
+            removed.push([type, listener, options]);
+            remove(type, listener as EventListener, options as EventListenerOptions);
+          },
+        );
+      }
+
+      // A drag resting in the bottom edge zone of a list that goes on below.
+      listTop = 650;
+      press('Running');
+      moveTo(window.innerHeight - 4);
+      frame();
+      expect(scrollBy).toHaveBeenCalled();
+      expect(added.map(([type]) => type).sort()).toEqual([
+        'blur',
+        'keydown',
+        'lostpointercapture',
+        'pointercancel',
+        'pointermove',
+        'pointerup',
+        'scroll',
+      ]);
+      expect(frameCallbacks.size).toBe(1);
+      const pendingFrame = Array.from(frameCallbacks.keys())[0];
+
+      unmount();
+      // Each listener is removed with the function and the capture flag it
+      // was added with: anything else would leave it in place.
+      for (const [type, listener, options] of added) {
+        expect(
+          removed.some(
+            ([t, l, o]) => t === type && l === listener && Boolean(o) === Boolean(options),
+          ),
+        ).toBe(true);
+      }
+      expect(cancelFrame).toHaveBeenCalledWith(pendingFrame);
+      expect(frameCallbacks.size).toBe(0);
+
+      // Nothing reacts any more.
+      scrollBy.mockClear();
+      frame();
+      moveTo(window.innerHeight - 2);
+      release(window.innerHeight - 2);
+      frame();
+      expect(scrollBy).not.toHaveBeenCalled();
+      expect(frameCallbacks.size).toBe(0);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('removes every listener after a drop and after an abort', () => {
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      const add = vi.spyOn(window, 'addEventListener');
+      const remove = vi.spyOn(window, 'removeEventListener');
+      const dragTypes = (calls: unknown[][]) =>
+        calls.map(([type]) => String(type)).filter((type) => /^pointer|^scroll$|^blur$/.test(type));
+
+      press('Squat');
+      moveTo(middleOf(1) + 5);
+      release(middleOf(1) + 5);
+      expect(dragTypes(remove.mock.calls).sort()).toEqual(dragTypes(add.mock.calls).sort());
+      expect(frameCallbacks.size).toBe(0);
+
+      press('Squat');
+      moveTo(middleOf(0) - 10);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(dragTypes(remove.mock.calls).sort()).toEqual(dragTypes(add.mock.calls).sort());
+      expect(dragTypes(add.mock.calls)).toHaveLength(10);
+      expect(frameCallbacks.size).toBe(0);
     });
   });
 
@@ -558,8 +825,11 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
       expect(shown()).toEqual(['Squat', 'Bench', 'Running']);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // The drop arrives while that save is in flight: it is not applied,
-      // so the screen still shows exactly what was sent.
+      // The list changed under the finger, so the drag is over: the row is
+      // back in the list and its release is not a drop. The screen still
+      // shows exactly what was sent.
+      expect(indicator()).toBeNull();
+      expect(listItem('Running').style.transform).toBe('');
       release(middleOf(0) - 10);
       expect(shown()).toEqual(['Squat', 'Bench', 'Running']);
       expect(listItem('Running').style.transform).toBe('');
@@ -602,12 +872,36 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
       expect(status()).toBeEmptyDOMElement();
     });
 
+    it('makes a second identical announcement a new message', async () => {
+      // Two rows of the same exercise: both moves read the same.
+      const again = { ...row('Squat', 3), id: 'pe-squat-again' };
+      render(
+        <WorkoutCard workout={workout([row('Bench', 1), row('Squat', 2), again])} catalog={[]} />,
+      );
+
+      dragTo('Squat (2)', middleOf(0) - 10);
+      expect(status()).toHaveTextContent('Squat moved to position 1 of 3.');
+      const first = status().textContent;
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(grip('Squat (2)')).not.toHaveAttribute('aria-disabled'));
+
+      // The other Squat, now third, goes to the top in turn.
+      dragTo('Squat (2)', middleOf(0) - 10);
+      expect(sentOrder(1).ids).toEqual(['pe-squat', 'pe-squat-again', 'pe-bench']);
+      expect(status()).toHaveTextContent('Squat moved to position 1 of 3.');
+      // Same words, different text node content: a live region speaks it.
+      expect(status().textContent).not.toBe(first);
+    });
+
     it('moves the row with the arrow keys on the grip and keeps the focus on it', async () => {
       render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       grip('Running').focus();
 
       fireEvent.keyDown(grip('Running'), { key: 'ArrowUp' });
       expect(shown()).toEqual(['Bench', 'Running', 'Squat']);
+      // The focus is put back on the next frame.
+      grip('Running').blur();
+      frame();
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
       expect(sentOrder().ids).toEqual(['pe-bench', 'pe-running', 'pe-squat']);
       expect(grip('Running')).toHaveFocus();
@@ -638,32 +932,110 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
   });
 
   describe('autoscroll', () => {
-    it('scrolls the page while the pointer rests near the bottom edge', async () => {
+    const steps = () => scrollBy.mock.calls.map((call) => (call as [number, number])[1]);
+
+    it('scrolls down while the pointer rests near the bottom edge of a list that goes on', () => {
+      // Rows at 650-710, 718-778, 786-846 in a 768px viewport.
+      listTop = 650;
       render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       press('Bench');
       moveTo(window.innerHeight - 4);
-      await waitFor(() => expect(scrollBy).toHaveBeenCalled());
-      const [x, y] = scrollBy.mock.calls[0] as [number, number];
-      expect(x).toBe(0);
-      expect(y).toBeGreaterThan(0);
+      frame();
+      frame();
+      expect(scrollBy.mock.calls.map((call) => (call as [number, number])[0])).toEqual([0, 0]);
+      expect(steps()[0]).toBeGreaterThan(0);
 
       // It stops with the drag.
       fireEvent.keyDown(document.body, { key: 'Escape' });
       scrollBy.mockClear();
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      frame();
       expect(scrollBy).not.toHaveBeenCalled();
+      expect(frameCallbacks.size).toBe(0);
     });
 
-    it('scrolls up near the top edge', async () => {
+    it('scrolls up near the top edge while the top of the list is hidden', () => {
+      // Rows at -100 to -40, -32 to 28, 36 to 96.
+      listTop = -100;
       render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       press('Running');
       moveTo(3);
-      await waitFor(() => expect(scrollBy).toHaveBeenCalled());
-      expect((scrollBy.mock.calls[0] as [number, number])[1]).toBeLessThan(0);
+      frame();
+      expect(steps()[0]).toBeLessThan(0);
       fireEvent.keyDown(document.body, { key: 'Escape' });
     });
 
-    it('does not scroll for a grip that is only pressed, or held mid-screen', async () => {
+    it('stops at the ends of the list', () => {
+      // The whole list (100-296) is on screen: there is nothing to reveal,
+      // however close to an edge the pointer is.
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Bench');
+      moveTo(window.innerHeight - 2);
+      frame();
+      frame();
+      moveTo(1);
+      frame();
+      frame();
+      expect(scrollBy).not.toHaveBeenCalled();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('scrolls no further than what is left of the list', () => {
+      // The last row ends at 846; the viewport is 768 high. With 16px kept
+      // below the list, 94px are left to reveal.
+      listTop = 650;
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      scrollBy.mockImplementation((_x: number, y: number) => {
+        scrolled += y;
+      });
+      press('Bench');
+      moveTo(window.innerHeight);
+      for (let i = 0; i < 20; i += 1) frame();
+      expect(scrolled).toBe(94);
+      // Full speed, then the last step is cut to what remains.
+      expect(steps().slice(0, 6)).toEqual([14, 14, 14, 14, 14, 14]);
+      expect(steps()[steps().length - 1]).toBe(94 - 6 * 14);
+      expect(steps()).toHaveLength(7);
+      // The row stayed under the pointer all the way.
+      expect(listItem('Bench').style.transform).toBe(
+        `translate3d(0, ${2 * (ROW_HEIGHT + ROW_GAP)}px, 0)`,
+      );
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('scrolls at the same speed on a 120 Hz screen', () => {
+      listTop = 650;
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Bench');
+      // At the very edge: 14px per 60 Hz frame.
+      moveTo(window.innerHeight);
+      frame(1000 / 120);
+      scrollBy.mockClear();
+      for (let i = 0; i < 4; i += 1) frame(1000 / 120);
+      expect(steps()).toEqual([7, 7, 7, 7]);
+
+      // A long pause counts for three frames at most, not for a jump.
+      scrollBy.mockClear();
+      frame(2000);
+      expect(steps()).toEqual([42]);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('keeps the slowest speed moving at 120 Hz, in whole pixels', () => {
+      listTop = 650;
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Bench');
+      // Just inside the 64px zone: 1px per 60 Hz frame.
+      moveTo(window.innerHeight - 62);
+      frame(1000 / 120);
+      scrollBy.mockClear();
+      for (let i = 0; i < 6; i += 1) frame(1000 / 120);
+      expect(steps().every((step) => Number.isInteger(step) && step > 0)).toBe(true);
+      expect(steps().reduce((sum, step) => sum + step, 0)).toBe(3);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('does not scroll for a grip that is only pressed, or held mid-screen', () => {
+      listTop = 650;
       render(<WorkoutCard workout={workout(three())} catalog={[]} />);
       fireEvent.pointerDown(grip('Bench'), {
         pointerId: 1,
@@ -671,15 +1043,112 @@ describe('WorkoutCard drag-and-drop (issue #557)', () => {
         button: 0,
         clientY: window.innerHeight - 2,
       });
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      frame();
+      frame();
       expect(scrollBy).not.toHaveBeenCalled();
       fireEvent.pointerCancel(document.body, { pointerId: 1 });
 
       press('Bench');
       moveTo(window.innerHeight / 2);
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      frame();
+      frame();
       expect(scrollBy).not.toHaveBeenCalled();
       fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+  });
+
+  describe('under a sticky header', () => {
+    // The app header is sticky and about 97px tall.
+    function renderUnderHeader() {
+      headerHeight = 97;
+      return render(
+        <>
+          <header style={{ position: 'sticky', top: 0 }} />
+          <WorkoutCard workout={workout(three())} catalog={[]} />
+        </>,
+      );
+    }
+
+    it('starts the top autoscroll zone at the bottom of the header', () => {
+      // The top of the list is hidden: rows at -100 to -40, -32 to 28, 36 to 96.
+      listTop = -100;
+      renderUnderHeader();
+      press('Running');
+      // 23px below the header: inside its 64px zone.
+      moveTo(120);
+      frame();
+      expect(scrollBy).toHaveBeenCalledTimes(1);
+      expect((scrollBy.mock.calls[0] as [number, number])[1]).toBeLessThan(0);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('does not scroll at that height without a header', () => {
+      listTop = -100;
+      render(<WorkoutCard workout={workout(three())} catalog={[]} />);
+      press('Running');
+      moveTo(120);
+      frame();
+      frame();
+      expect(scrollBy).not.toHaveBeenCalled();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('keeps scrolling until the top of the list is clear of the header', () => {
+      listTop = 60;
+      renderUnderHeader();
+      scrollBy.mockImplementation((_x: number, y: number) => {
+        scrolled += y;
+      });
+      press('Running');
+      moveTo(98);
+      for (let i = 0; i < 20; i += 1) frame();
+      // The list top went from 60 to 16px below the header (113).
+      expect(listTop - scrolled).toBe(headerHeight + 16);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+    });
+
+    it('does not offer a place whose line is hidden behind the header', () => {
+      // Bench is half under the header (80-140): the gap above it is at 76.
+      listTop = 80;
+      renderUnderHeader();
+      press('Running');
+      // The pointer is over the header: it counts as its bottom edge, which
+      // is above the middle of Bench, so the only candidate is that gap.
+      moveTo(70);
+      expect(listItem('Running').style.transform).not.toBe('');
+      expect(indicator()).toBeNull();
+      release(70);
+      expect(shown()).toEqual(['Bench', 'Squat', 'Running']);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('offers the same place once its line can be seen', async () => {
+      // Bench starts 23px below the header: the gap above it is at 116.
+      listTop = 120;
+      renderUnderHeader();
+      press('Running');
+      moveTo(70);
+      expect(indicator()).toHaveStyle({ top: '-4px' });
+      release(70);
+      expect(shown()).toEqual(['Running', 'Bench', 'Squat']);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    });
+
+    it('ignores a header that is not stuck to the top of the screen', async () => {
+      listTop = 80;
+      headerHeight = 97;
+      render(
+        <>
+          <header />
+          <WorkoutCard workout={workout(three())} catalog={[]} />
+        </>,
+      );
+      press('Running');
+      moveTo(70);
+      expect(indicator()).toHaveStyle({ top: '-4px' });
+      release(70);
+      expect(shown()).toEqual(['Running', 'Bench', 'Squat']);
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     });
   });
 });

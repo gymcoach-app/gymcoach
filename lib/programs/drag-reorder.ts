@@ -107,3 +107,55 @@ export function autoScrollSpeed(
   }
   return 0;
 }
+
+// Space kept between the end of the list and the edge of the visible area
+// when autoscroll stops, so the drop line before the first block (or after
+// the last) is never flush against, or under, that edge.
+export const AUTO_SCROLL_LIST_MARGIN_PX = 16;
+
+// Stops an autoscroll step at the list's own ends: the page scrolls up only
+// while the top of the list is above the visible area, down only while its
+// bottom is below it, and never further than what is left to reveal. `view`
+// is the visible part of the viewport (below a sticky header, for instance),
+// in the same coordinates as `list`.
+export function limitAutoScroll(
+  speed: number,
+  list: BlockSpan,
+  view: BlockSpan,
+  margin: number = AUTO_SCROLL_LIST_MARGIN_PX,
+): number {
+  if (speed < 0) {
+    const hidden = view.top + margin - list.top;
+    return hidden > 0 ? Math.max(speed, -hidden) : 0;
+  }
+  if (speed > 0) {
+    const hidden = list.bottom - (view.bottom - margin);
+    return hidden > 0 ? Math.min(speed, hidden) : 0;
+  }
+  return 0;
+}
+
+// Speeds above are pixels per frame at 60 Hz. This is the factor for a frame
+// that took `elapsedMs`, so a 120 Hz screen does not scroll twice as fast. A
+// long pause (a background tab, a slow frame) counts for three frames at
+// most, and an unknown duration for one.
+const FRAME_MS = 1000 / 60;
+const MAX_FRAME_MS = 3 * FRAME_MS;
+
+export function frameScale(elapsedMs: number): number {
+  if (!(elapsedMs > 0)) return 1;
+  return Math.min(elapsedMs, MAX_FRAME_MS) / FRAME_MS;
+}
+
+// Whether a drop line at `y` can be seen in the visible area. A drop is only
+// offered where its line shows: a position hidden under a sticky header or
+// outside the viewport is not one the user chose.
+export function isDropLineVisible(y: number, view: BlockSpan): boolean {
+  return y >= view.top && y <= view.bottom;
+}
+
+// A stable description of the blocks, to notice that the list changed under
+// a drag (rows reordered, added, removed, paired or unpaired).
+export function blocksSignature(blocks: string[][]): string {
+  return blocks.map((block) => block.join(',')).join('|');
+}

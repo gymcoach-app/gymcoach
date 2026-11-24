@@ -1,13 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   autoScrollSpeed,
+  blocksSignature,
   clampOffset,
   dragOffsetBounds,
   dropIndexForPointer,
   dropIndicatorY,
+  frameScale,
+  isDropLineVisible,
+  limitAutoScroll,
   type BlockSpan,
 } from '@/lib/programs/drag-reorder';
 
@@ -25,10 +36,14 @@ import {
 //   the other rows stay put, which also keeps the grabbed handle in the DOM
 //   (a touch stream ends when its target is removed).
 // - A line shows the gap the block would land in. Gaps exist only between
-//   blocks, so a superset cannot be split or dropped into.
-// - pointerup drops; Escape, pointercancel and a window blur abort and leave
-//   the order untouched. Near the top or bottom of the viewport the page
-//   scrolls by itself.
+//   blocks, so a superset cannot be split or dropped into. A gap whose line
+//   cannot be seen (under the sticky app header, outside the viewport) is
+//   not offered.
+// - pointerup drops. Escape, pointercancel, a lost pointer capture, a mouse
+//   that comes back with no button held, a window blur and any change of the
+//   list under the drag abort it and leave the order untouched.
+// - Near the top or bottom of the visible area the page scrolls by itself,
+//   until that end of the list is in view.
 //
 // The geometry is pure and lives in lib/programs/drag-reorder.ts.
 
@@ -57,6 +72,24 @@ export function usePointerEventsSupported(): boolean {
   );
 }
 
+// The part of the viewport a row can be seen in: below any header stuck to
+// the top of the screen (the app header is sticky and about 97px tall), down
+// to the bottom edge. Measured, not assumed, so a taller header, a wrapped
+// navigation or a page without one all work.
+function visibleArea(): BlockSpan {
+  let top = 0;
+  document.querySelectorAll<HTMLElement>('header').forEach((header) => {
+    const position = window.getComputedStyle(header).position;
+    if (position !== 'sticky' && position !== 'fixed') return;
+    const rect = header.getBoundingClientRect();
+    // Stuck to the top edge, and a bar rather than a full-screen overlay.
+    if (rect.top <= 0 && rect.bottom > top && rect.bottom < window.innerHeight / 2) {
+      top = rect.bottom;
+    }
+  });
+  return { top, bottom: window.innerHeight };
+}
+
 interface Options {
   // Row ids per block, top to bottom, as shown.
   blocks: string[][];
@@ -71,7 +104,7 @@ export interface DragView {
   // Ids of the rows being dragged (one block).
   ids: string[];
   // Where to draw the drop line, in pixels from the top of the container;
-  // null while the block is over its own place.
+  // null while the block is over its own place or the line would be hidden.
   indicatorTop: number | null;
 }
 
@@ -79,6 +112,8 @@ interface Session {
   id: string;
   pointerId: number;
   handle: HTMLElement;
+  // The blocks as they were when the drag started (blocksSignature).
+  signature: string;
   startY: number;
   lastY: number;
   listTopAtStart: number;
@@ -86,6 +121,9 @@ interface Session {
   rows: HTMLElement[];
   moved: boolean;
   frame: number | null;
+  lastFrameAt: number | null;
+  // Fraction of a pixel of autoscroll not yet applied.
+  scrollCarry: number;
   removeListeners: () => void;
 }
 
@@ -105,15 +143,14 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
   // The window listeners outlive the render that started the drag, so they
   // read the current props from here.
   const latestRef = useRef({ blocks, disabled, onDrop });
-  useEffect(() => {
-    latestRef.current = { blocks, disabled, onDrop };
-  });
 
   // Rows of every block as they are on screen now, plus the dragged block's
-  // index. Null when the grabbed row is gone (removed by a refresh).
+  // index. Null when the list is no longer the one the drag started on.
   const measure = useCallback((session: Session) => {
     const container = containerRef.current;
     if (!container) return null;
+    const current = latestRef.current.blocks;
+    if (blocksSignature(current) !== session.signature) return null;
     const rowById = new Map<string, HTMLElement>();
     container.querySelectorAll<HTMLElement>(`[${REORDER_ROW_ATTRIBUTE}]`).forEach((row) => {
       const id = row.getAttribute(REORDER_ROW_ATTRIBUTE);
@@ -121,7 +158,6 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
     });
     const rowsOf = (block: string[]) =>
       block.map((id) => rowById.get(id)).filter((row): row is HTMLElement => row != null);
-    const current = latestRef.current.blocks;
     const from = current.findIndex((block) => block.indexOf(session.id) !== -1);
     if (from === -1) return null;
     const others: BlockSpan[] = [];
@@ -136,6 +172,7 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
   const teardown = useCallback((session: Session) => {
     session.removeListeners();
     if (session.frame != null) window.cancelAnimationFrame(session.frame);
+    session.frame = null;
     for (const row of session.rows) row.style.transform = '';
     try {
       session.handle.releasePointerCapture?.(session.pointerId);
@@ -146,12 +183,12 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
   }, []);
 
   // Moves the block under the pointer and works out where it would land.
-  // Returns the drop index, null when a drop here changes nothing, or
-  // 'gone' when the grabbed row no longer exists.
+  // Returns the drop index, null when a drop here changes nothing (or its
+  // line could not be seen), or 'stale' when the list changed under the drag.
   const update = useCallback(
-    (session: Session): number | null | 'gone' => {
+    (session: Session): number | null | 'stale' => {
       const measured = measure(session);
-      if (!measured) return 'gone';
+      if (!measured) return 'stale';
       const { container, from, ids, rows, others } = measured;
       const containerTop = container.getBoundingClientRect().top;
       // The pointer's travel plus how far the list scrolled under it.
@@ -159,21 +196,25 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         session.lastY - session.startY + (session.listTopAtStart - containerTop),
         session.bounds,
       );
-      for (const row of session.rows) {
-        if (rows.indexOf(row) === -1) row.style.transform = '';
-      }
       session.rows = rows;
       for (const row of rows) row.style.transform = `translate3d(0, ${offset}px, 0)`;
 
-      const dropIndex = dropIndexForPointer(others, session.lastY);
-      const changes = dropIndex !== from;
+      // A pointer over the header, or outside the window, points at the
+      // nearest place that can be seen.
+      const view = visibleArea();
+      const pointerY = Math.min(Math.max(session.lastY, view.top), view.bottom);
+      const dropIndex = dropIndexForPointer(others, pointerY);
+      let target: number | null = null;
       let indicatorTop: number | null = null;
-      if (changes) {
+      if (dropIndex !== from) {
         const list = container.querySelector('ul');
         const gap =
           (list ? parseFloat(window.getComputedStyle(list).rowGap) : NaN) || DEFAULT_ROW_GAP_PX;
         const y = dropIndicatorY(others, dropIndex, gap);
-        indicatorTop = y == null ? null : y - containerTop;
+        if (y != null && isDropLineVisible(y, view)) {
+          target = dropIndex;
+          indicatorTop = y - containerTop;
+        }
       }
       setDrag((previous) =>
         previous &&
@@ -183,7 +224,7 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
           ? previous
           : { ids, indicatorTop },
       );
-      return changes ? dropIndex : null;
+      return target;
     },
     [measure],
   );
@@ -202,11 +243,24 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
     [teardown, update],
   );
 
+  // Before paint, so a listener never reads the props of an older render.
+  // The geometry of a drag belongs to the list it started on: when the rows
+  // are reordered, added, removed, paired or unpaired under it (another move
+  // was saved, a refresh brought another tab's change), the drag is aborted
+  // rather than continued on rows that are not where it measured them.
+  useLayoutEffect(() => {
+    latestRef.current = { blocks, disabled, onDrop };
+    const session = sessionRef.current;
+    if (session && blocksSignature(blocks) !== session.signature) finish(false);
+  });
+
   const startDrag = useCallback(
     (id: string, event: ReactPointerEvent<HTMLElement>) => {
       if (sessionRef.current || latestRef.current.disabled) return;
-      // Main mouse button only; touch and pen report button 0 on contact.
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      // The main button only: the left mouse button, a finger or a pen tip in
+      // contact (all report 0). A right click, a middle click or a pen barrel
+      // button does not drag.
+      if (event.button !== 0) return;
       const container = containerRef.current;
       if (!container) return;
 
@@ -215,6 +269,7 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         id,
         pointerId: event.pointerId,
         handle,
+        signature: blocksSignature(latestRef.current.blocks),
         startY: event.clientY,
         lastY: event.clientY,
         listTopAtStart: container.getBoundingClientRect().top,
@@ -222,6 +277,8 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         rows: [],
         moved: false,
         frame: null,
+        lastFrameAt: null,
+        scrollCarry: 0,
         removeListeners: () => {},
       };
       const measured = measure(session);
@@ -234,7 +291,7 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         bottom: containerRect.bottom,
       });
 
-      // No text selection and no focus change while dragging with a mouse.
+      // Keeps a mouse press from starting a text selection or a native drag.
       event.preventDefault();
       try {
         // Keeps the events coming when a mouse leaves the window.
@@ -243,11 +300,21 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         // Not capturable (already released): the window listeners still work.
       }
 
+      const refresh = () => {
+        if (update(session) === 'stale') finish(false);
+      };
       const onMove = (ev: PointerEvent) => {
         if (ev.pointerId !== session.pointerId) return;
+        // The button was released where no pointerup could be delivered
+        // (outside the window without capture, over a native dialog): the
+        // mouse comes back with nothing held. That is not a drop.
+        if (ev.pointerType === 'mouse' && ev.buttons === 0) {
+          finish(false);
+          return;
+        }
         session.lastY = ev.clientY;
         if (Math.abs(session.lastY - session.startY) >= AUTO_SCROLL_AFTER_PX) session.moved = true;
-        if (update(session) === 'gone') finish(false);
+        refresh();
       };
       const onUp = (ev: PointerEvent) => {
         if (ev.pointerId !== session.pointerId) return;
@@ -255,6 +322,12 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         finish(true);
       };
       const onCancel = (ev: PointerEvent) => {
+        if (ev.pointerId !== session.pointerId) return;
+        finish(false);
+      };
+      // The capture ends after pointerup in a normal drop, when this listener
+      // is already gone. Reaching it means the pointer was taken away.
+      const onLostCapture = (ev: PointerEvent) => {
         if (ev.pointerId !== session.pointerId) return;
         finish(false);
       };
@@ -266,33 +339,53 @@ export function useDragReorder({ blocks, disabled, onDrop }: Options) {
         finish(false);
       };
       const onBlur = () => finish(false);
-      const onScroll = () => {
-        if (update(session) === 'gone') finish(false);
-      };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointercancel', onCancel);
       window.addEventListener('keydown', onKeyDown, true);
       window.addEventListener('blur', onBlur);
-      window.addEventListener('scroll', onScroll, true);
+      window.addEventListener('scroll', refresh, true);
+      handle.addEventListener('lostpointercapture', onLostCapture);
       session.removeListeners = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onCancel);
         window.removeEventListener('keydown', onKeyDown, true);
         window.removeEventListener('blur', onBlur);
-        window.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('scroll', refresh, true);
+        handle.removeEventListener('lostpointercapture', onLostCapture);
       };
 
       // Autoscroll: one check per frame, since a pointer resting in the edge
       // zone sends no events.
-      const tick = () => {
+      const tick = (now: number) => {
         session.frame = window.requestAnimationFrame(tick);
+        const elapsed = session.lastFrameAt == null ? 0 : now - session.lastFrameAt;
+        session.lastFrameAt = now;
         if (!session.moved) return;
-        const speed = autoScrollSpeed(session.lastY, window.innerHeight);
-        if (speed === 0) return;
-        window.scrollBy(0, speed);
-        if (update(session) === 'gone') finish(false);
+        const list = containerRef.current?.getBoundingClientRect();
+        if (!list) return;
+        // The edge zones start at the edges of what can be seen, so the top
+        // one is below the sticky header, not under it.
+        const view = visibleArea();
+        const listSpan = { top: list.top, bottom: list.bottom };
+        const speed = autoScrollSpeed(session.lastY - view.top, view.bottom - view.top);
+        // Nothing left to reveal at that end of the list: the page stays.
+        if (limitAutoScroll(speed, listSpan, view) === 0) {
+          session.scrollCarry = 0;
+          return;
+        }
+        // Whole pixels only: some browsers drop a fractional scroll, which
+        // at 120 Hz would stall the slowest speeds. The remainder is carried
+        // to the next frame (rounded, so 0.5 + 0.5 is 1 and not 0.999).
+        const exact = Math.round((speed * frameScale(elapsed) + session.scrollCarry) * 1000) / 1000;
+        const whole = exact < 0 ? Math.ceil(exact) : Math.floor(exact);
+        session.scrollCarry = exact - whole;
+        // Cut after scaling, so a long frame cannot overshoot the end either.
+        const step = limitAutoScroll(whole, listSpan, view);
+        if (step === 0) return;
+        window.scrollBy(0, step);
+        refresh();
       };
       session.frame = window.requestAnimationFrame(tick);
 

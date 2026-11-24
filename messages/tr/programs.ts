@@ -113,7 +113,7 @@ export const programs = {
     moveDown: 'Aşağı taşı',
     dragHandle: '{name} sırasını değiştir',
     dragHint:
-      'Bu egzersizi taşımak için sürükleyin veya yukarı ve aşağı ok tuşlarına basın. Escape sürüklemeyi iptal eder.',
+      'Bu egzersizi taşımak için sürükle veya yukarı ve aşağı ok tuşlarına bas. Escape sürüklemeyi iptal eder.',
     pairPrevious: 'Öncekiyle eşle',
     unpair: 'Süperseti ayır',
     superset: 'Süperset {label}',

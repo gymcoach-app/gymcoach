@@ -45,6 +45,9 @@ export interface DragHandleProps {
   // True while a new order is being saved: the grip stays focusable but
   // starts nothing.
   disabled: boolean;
+  // 1, 2, ... when the same exercise is in the workout more than once, so
+  // each of its grips has a distinct name; null otherwise.
+  occurrence?: number | null;
 }
 
 interface Props {
@@ -149,7 +152,11 @@ export function ProgramExerciseRow({
               type="button"
               variant="ghost"
               data-drag-handle=""
-              aria-label={t('dragHandle', { name: exerciseName(programExercise.exercise.name) })}
+              aria-label={t('dragHandle', {
+                name: dragHandle.occurrence
+                  ? `${exerciseName(programExercise.exercise.name)} (${dragHandle.occurrence})`
+                  : exerciseName(programExercise.exercise.name),
+              })}
               aria-describedby={dragHandle.describedBy}
               aria-disabled={dragHandle.disabled || undefined}
               onPointerDown={dragHandle.onPointerDown}

@@ -71,7 +71,7 @@ export const programs = {
     catalogEmpty: 'Le catalogue est vide. Ajoutez d’abord un exercice dans Catalogue.',
     supersetUpdateError: 'Impossible de mettre à jour le superset.',
     reorderError: 'Impossible de sauvegarder le nouvel ordre.',
-    reorderAnnouncement: '{name} déplacé en position {position} sur {total}.',
+    reorderAnnouncement: '{name} : position {position} sur {total}.',
     supersetLimit: 'Limite de supersets atteinte pour cette séance.',
     supersetPaired: 'Exercices associés en superset.',
     supersetRemoved: 'Superset supprimé.',

@@ -104,6 +104,29 @@ async function saved(page: Page, action: () => Promise<void>) {
   expect((await response).ok()).toBeTruthy();
 }
 
+// Resolves once React has hydrated the exercise rows. The grips are in the
+// server-rendered HTML, so they are visible, and can be pressed, before their
+// handlers exist; a press that early would start nothing. React marks the
+// DOM nodes it has taken over with a `__reactProps$...` key.
+async function hydrated(page: Page) {
+  await expect
+    .poll(() =>
+      page
+        .locator('[data-drag-handle]')
+        .first()
+        .evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactProps'))),
+    )
+    .toBe(true);
+}
+
+// Opens the program editor, or reloads it, and waits until it can be used.
+async function openEditor(page: Page, programId: string | null) {
+  if (programId) await page.goto(`/programs/${programId}`);
+  else await page.reload();
+  await expect(exerciseNames(page)).toHaveCount(NAMES.length);
+  await hydrated(page);
+}
+
 // Puts the whole exercise list in the middle of the viewport, so every row
 // can be reached by the pointer and the page has no reason to autoscroll.
 async function centerList(page: Page) {
@@ -146,7 +169,7 @@ test('a lifter can drag an exercise to a new place with the mouse', async ({ pag
   const { programId } = await seedWorkout(page);
   const saves = orderSaves(page);
 
-  await page.goto(`/programs/${programId}`);
+  await openEditor(page, programId);
   await expect(exerciseNames(page)).toHaveText([...NAMES]);
   for (const name of NAMES) await expect(grip(page, name)).toBeVisible();
 
@@ -177,7 +200,7 @@ test('a lifter can drag an exercise to a new place with the mouse', async ({ pag
 
   // The order is saved: it is still there after a reload, and the menu
   // still offers the moves.
-  await page.reload();
+  await openEditor(page, null);
   await expect(exerciseNames(page)).toHaveText(['Drag Running', 'Drag Bench', 'Drag Squat']);
   await page.getByRole('button', { name: 'Exercise actions' }).nth(0).click();
   await expect(page.getByRole('menuitem', { name: 'Move down' })).toBeEnabled();
@@ -188,7 +211,7 @@ test('a superset is dragged as one block and cannot be dropped into', async ({ p
   const { programId } = await seedWorkout(page, true);
   const saves = orderSaves(page);
 
-  await page.goto(`/programs/${programId}`);
+  await openEditor(page, programId);
   await expect(exerciseNames(page)).toHaveText([...NAMES]);
   await expect(rows(page).nth(1)).toContainText('Superset A1');
   await expect(rows(page).nth(2)).toContainText('Superset A2');
@@ -216,7 +239,7 @@ test('a superset is dragged as one block and cannot be dropped into', async ({ p
   await expect(exerciseNames(page)).toHaveText([...NAMES]);
   expect(saves.count()).toBe(2);
 
-  await page.reload();
+  await openEditor(page, null);
   await expect(exerciseNames(page)).toHaveText([...NAMES]);
   await expect(rows(page).nth(1)).toContainText('Superset A1');
   await expect(rows(page).nth(2)).toContainText('Superset A2');
@@ -230,7 +253,7 @@ test.describe('on a touch screen', () => {
     const { programId } = await seedWorkout(page);
     const saves = orderSaves(page);
 
-    await page.goto(`/programs/${programId}`);
+    await openEditor(page, programId);
     await expect(exerciseNames(page)).toHaveText([...NAMES]);
 
     // Only the grip opts out of touch scrolling.
@@ -256,14 +279,16 @@ test.describe('on a touch screen', () => {
     }
 
     // A finger on the exercise name scrolls the page and drags nothing. The
-    // swipe goes whichever way the page has room to scroll.
+    // page is given room below the list, so the swipe can scroll it however
+    // short the editor happens to be on this screen.
+    await page.addStyleTag({ content: 'main { padding-bottom: 100vh !important; }' });
     await centerList(page);
+    await scrollSettled(page);
     const before = await page.evaluate(() => window.scrollY);
     const name = await centerOf(exerciseNames(page).nth(1));
-    const fingerTravel = before > 150 ? 120 : -120;
-    await swipe(name, name.y + fingerTravel);
+    await swipe(name, name.y - 120);
     await touch('touchEnd');
-    await expect.poll(() => page.evaluate(() => window.scrollY)).not.toBe(before);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
     await scrollSettled(page);
     await expect(page.locator('[data-drop-indicator]')).toHaveCount(0);
     await expect(exerciseNames(page)).toHaveText([...NAMES]);
@@ -280,7 +305,7 @@ test.describe('on a touch screen', () => {
     await saved(page, () => touch('touchEnd').then(() => undefined));
     await expect(exerciseNames(page)).toHaveText(['Drag Running', 'Drag Bench', 'Drag Squat']);
 
-    await page.reload();
+    await openEditor(page, null);
     await expect(exerciseNames(page)).toHaveText(['Drag Running', 'Drag Bench', 'Drag Squat']);
     expect(saves.count()).toBe(1);
   });
