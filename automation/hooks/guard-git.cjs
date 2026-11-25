@@ -165,7 +165,8 @@ function heredocHeader(input, at) {
     else delim += input[i];
     i++;
   }
-  return delim ? { delim: delim, strip: strip, quoted: quoted, end: i } : null;
+  // `<<''` is a here-document that ends at the first empty line.
+  return delim || quoted ? { delim: delim, strip: strip, quoted: quoted, end: i } : null;
 }
 
 // The body of a here-document that starts at `pos` (the start of a line):
@@ -414,9 +415,13 @@ function tokenize(input, lenient, scan) {
   var has = false; // a word is in progress (even an empty quoted one)
   var dynamic = false; // the word contains $ or ` (expansion we cannot resolve)
   var subs = []; // command substitutions inside the word in progress
+  var hereString = false; // the word in progress is the text of a `<<<`
   var i = 0;
   function push() {
-    if (has) {
+    if (has && hereString) {
+      // Text for stdin, not an argument: only its substitutions count.
+      if (subs.length) tokens.push({ t: 'subs', subs: subs });
+    } else if (has) {
       var word = { t: 'w', v: cur, dyn: dynamic };
       if (subs.length) word.subs = subs;
       tokens.push(word);
@@ -425,6 +430,7 @@ function tokenize(input, lenient, scan) {
     has = false;
     dynamic = false;
     subs = [];
+    hereString = false;
   }
   while (i < input.length) {
     var c = input[i];
@@ -486,6 +492,19 @@ function tokenize(input, lenient, scan) {
       has = true;
       i = j + 1;
       continue;
+    }
+    if (c === '$' && input[i + 1] === '(' && input[i + 2] === '(') {
+      // $((...)) on one line that reads as arithmetic (no two words in a
+      // row, no quote, no `;`): one word part. Its `<<` is a shift, not a
+      // here-document. Anything else stays a substitution with a subshell.
+      var arith = /^\$\(\(([^\n;'"`]*?)\)\)/.exec(input.slice(i, i + 400));
+      if (arith && !/[A-Za-z_]\w*[ \t]+[A-Za-z_-]/.test(arith[1])) {
+        cur += arith[0];
+        dynamic = true;
+        has = true;
+        i += arith[0].length;
+        continue;
+      }
     }
     if (c === '$' && input[i + 1] === '(') {
       push();
@@ -554,25 +573,54 @@ function tokenize(input, lenient, scan) {
       var doc = heredocHeader(input, i);
       if (!doc) return null;
       i = doc.end;
-      // The rest of this line is still commands; the body starts after it.
+      // The rest of this line is still commands; the bodies start after it.
       var nl = input.indexOf('\n', i);
       var lineRest = nl < 0 ? input.slice(i) : input.slice(i, nl);
       var restTokens = tokenize(lineRest, lenient, scan);
       if (restTokens === null) return null;
       for (var r = 0; r < restTokens.length; r++) tokens.push(restTokens[r]);
-      if (nl < 0) return tokens;
-      var docBody = heredocBody(input, nl + 1, doc);
-      if (!docBody) {
-        if (!lenient) return null;
+      // Every here-document announced on this line, in order: this one, then
+      // those the rest of the line announced (`cat <<A; cat <<B`).
+      var docs = [doc].concat(restTokens.docs || []);
+      if (nl < 0) {
+        tokens.docs = docs;
         return tokens;
       }
-      if (!doc.quoted) {
-        // Unquoted delimiter: the shell expands the body, so the commands of
-        // its substitutions run. The rest of the body stays data.
-        var docSubs = heredocSubs(input.slice(nl + 1, docBody.bodyEnd), scan);
-        if (docSubs.length) tokens.push({ t: 'subs', subs: docSubs });
+      var lineEnd = nl;
+      for (var dn = 0; dn < docs.length; dn++) {
+        var docBody = heredocBody(input, lineEnd + 1, docs[dn]);
+        if (!docBody) {
+          if (!lenient) return null;
+          return tokens;
+        }
+        if (!docs[dn].quoted) {
+          // Unquoted delimiter: the shell expands the body, so the commands of
+          // its substitutions run. The rest of the body stays data.
+          var docSubs = heredocSubs(input.slice(lineEnd + 1, docBody.bodyEnd), scan);
+          if (docSubs.length) tokens.push({ t: 'subs', subs: docSubs });
+        }
+        lineEnd = docBody.next;
       }
-      i = docBody.next;
+      i = lineEnd;
+      continue;
+    }
+    if (c === '<' && input[i + 1] === '<' && input[i + 2] === '<') {
+      // Here-string: drop the operator and its fd number; the word after it
+      // is read like any word, so the substitutions in it are checked.
+      if (/^[0-9]+$/.test(cur)) {
+        cur = '';
+        has = false;
+      }
+      push();
+      i += 3;
+      while (input[i] === ' ' || input[i] === '\t') i++;
+      if (input[i] === '$' && input[i + 1] === '(' && input[i + 2] !== '(') {
+        // A bare `$(...)`: its commands follow as a group of their own.
+        tokens.push({ t: 'op', v: '(' });
+        i += 2;
+      } else {
+        hereString = true;
+      }
       continue;
     }
     if (c === '>' || c === '<') {

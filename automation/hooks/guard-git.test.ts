@@ -966,11 +966,10 @@ describe('git guard: gh pr checkout and read-only commands (issue #593)', () => 
 
 // Review of #595. Reading "$(...)" inside double quotes must not cost the two
 // things the plain reading had: prose in a message body is never refused, and
-// a command next to such a body is never hidden. The guard as it was before
-// #593 is kept as a fixture (automation/hooks/fixtures, the file at bbf7f1d)
-// so both can be checked against it.
+// a command next to such a body is never hidden. Where a comment says "as
+// before #593", the expectation was checked against the guard at bbf7f1d
+// during the review (7175 commands replayed through both).
 describe('git guard: message bodies and substitutions (issue #593, review of #595)', () => {
-  const before = require('./fixtures/guard-git.before-593.cjs') as Pick<typeof guard, 'decide'>;
   const ask = (
     g: Pick<typeof guard, 'decide'>,
     command: string,
@@ -1059,7 +1058,6 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
 
   it('never hides a guarded command behind a body: before, after, or between two', () => {
     const hidden: string[] = [];
-    let refusedBefore = 0;
     let checked = 0;
     for (const [name, form] of Object.entries(QUOTED)) {
       // A here-document at the top level ends the line: the next command
@@ -1075,21 +1073,14 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
             `${one}${sep}${cmd} && ${other}`,
           ]) {
             checked++;
-            const was = ask(before, command, cwd, who).deny;
-            const now = ask(guard, command, cwd, who).deny;
-            if (was) refusedBefore++;
-            // The property: nothing the old guard refused is allowed now. And
-            // more than that: every one of these is refused now.
-            if (!now) hidden.push(`${was ? 'REGRESSION' : 'missed'} | ${name} | ${command}`);
+            // Every one of these is refused: nothing next to a body is hidden.
+            if (!ask(guard, command, cwd, who).deny) hidden.push(`${name} | ${command}`);
           }
         }
       }
     }
     expect(hidden).toEqual([]);
     expect(checked).toBe(9 * 20 * 5 * 3);
-    // The old guard missed some itself (an apostrophe in a top-level body
-    // line never did; a quote inside "$(...)" did): the new one misses none.
-    expect(refusedBefore).toBeGreaterThan(checked * 0.8);
   });
 
   it('reads the inputs of the review both ways', () => {
@@ -1108,14 +1099,12 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
       ]) {
         allowed(cmd, MAIN, 'main');
         allowed(cmd, MAIN);
-        expect(ask(before, cmd, MAIN, 'main'), cmd).toEqual({ allow: true });
       }
     }
     // Hidden by the first version of #595, refused by the guard before it.
     const hiding =
       `git commit -q -m "$(cat <<'EOF'\ndon't\nEOF\n)" && git stash pop && ` +
       `git commit -q -m "$(cat <<'EOF'\ncan't\nEOF\n)"`;
-    expect(ask(before, hiding, MAIN, 'main').deny).toContain('stash stack');
     expect(denied(hiding, MAIN, 'main')).toContain('stash stack');
     expect(denied(hiding, WT_A)).toContain('stash stack');
   });
@@ -1165,7 +1154,7 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
     allowed("cat <<EOF\nit's `not shell'` code\nEOF", MAIN);
   });
 
-  it('falls back to the plain reading of a string it cannot read, like the old guard', () => {
+  it('falls back to the plain reading of a string it cannot read, as before #593', () => {
     for (const cmd of [
       // No closing parenthesis, no closing backtick, a body that is not shell.
       'git commit -q -m "an open $( paren"',
@@ -1179,12 +1168,57 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
       'git commit -q -m "an open $( paren and `git stash pop`"',
     ]) {
       for (const [cwd, who] of WHO) {
-        expect(ask(guard, cmd, cwd, who), cmd).toEqual(ask(before, cmd, cwd, who));
         expect(ask(guard, cmd, cwd, who), cmd).toEqual({ allow: true });
         const then = `${cmd} && git stash pop`;
         expect(ask(guard, then, cwd, who).deny, then).toBeTruthy();
       }
     }
+  });
+
+  it('skips the body of every here-document announced on one line', () => {
+    // Two on one line: both bodies are data, and what follows them is not.
+    const two = `cat <<A; cat <<'B'\ngit switch main\nA\ngit stash pop\nB`;
+    allowed(two, MAIN);
+    allowed(`cat <<'A' <<'B' && git status\ngit switch main\nA\ngit stash pop\nB`, MAIN);
+    expect(denied(`${two}\ngit switch main`, MAIN)).toContain('primary checkout');
+    // The second body is only expanded when its own delimiter is unquoted.
+    allowed("cat <<A; cat <<'B'\nplain\nA\n$(git switch main)\nB", MAIN);
+    expect(denied("cat <<'A'; cat <<B\nplain\nA\n$(git switch main)\nB", MAIN)).toContain(
+      'primary checkout',
+    );
+    // A second body that never ends: the command cannot be read as a whole.
+    expect(denied('git switch main && cat <<A; cat <<B\none\nA\ntwo', MAIN)).toContain(
+      'unbalanced quotes',
+    );
+    // An empty quoted delimiter ends at the first empty line.
+    allowed("cat <<''\ngit switch main\n\ngit status", MAIN);
+    expect(denied("cat <<''\ngit stash pop\n\ngit switch main", MAIN)).toContain('primary');
+    expect(denied('cat <<""\ntext\n\ngit stash pop', WT_A)).toContain('stash stack');
+    allowed(`echo "$(cat <<''\na ) paren\n\n)" && git status`, MAIN);
+  });
+
+  it('reads a here-string and arithmetic as what they are', () => {
+    // `<<<` is a here-string: its substitution runs.
+    expect(denied('cat <<<$(git switch main)', MAIN)).toContain('primary checkout');
+    expect(denied('cat <<< "$(git switch main)"', MAIN)).toContain('primary checkout');
+    expect(denied('cat <<<"$(git switch main)"', MAIN)).toContain('primary checkout');
+    expect(denied('cat <<< $(git switch main)', MAIN)).toContain('primary checkout');
+    expect(denied('cat <<<`git switch main`', MAIN)).toContain('primary checkout');
+    expect(denied('cat 0<<<"x `git switch main`" | wc -c', MAIN)).toContain('primary checkout');
+    allowed('cat <<<"$(git status -sb)"', MAIN);
+    // The text is not an argument of the command it feeds.
+    expect(denied('git stash <<<"x"', WT_A)).toContain('stash stack');
+    expect(denied('git stash <<<$(echo x)', WT_A)).toContain('stash stack');
+    expect(denied("cat <<<'x' && git switch main", MAIN)).toContain('primary checkout');
+    allowed("cat <<<'git switch main'", MAIN);
+    // `<<` inside $((...)) is a shift, not a here-document that would swallow
+    // the next lines.
+    expect(denied('echo $((1<<2))\ngit switch main', MAIN)).toContain('primary checkout');
+    expect(denied('n=$(( (x << 2) + 1 )); git switch main', MAIN)).toContain('primary checkout');
+    allowed('echo $((1<<2))\ngit status', MAIN);
+    // Two words in a row are commands, not arithmetic.
+    expect(denied('echo $((git switch main))', MAIN)).toContain('primary checkout');
+    expect(denied('echo $(( $(git switch main) ))', MAIN)).toContain('primary checkout');
   });
 
   it('reads a nested script with unbalanced quotes leniently, like the top level', () => {
