@@ -95,26 +95,45 @@ request, `/login?email=...&password=...` or
 `/signup?displayName=...&email=...&password=...`, and the page came back
 empty. The person usually typed again and got in, without noticing.
 
-Nobody else could trigger this for them, and nothing was sent to a third
-party. What may hold the password as it was typed:
+Nobody else could trigger this for them. The password is readable in such a
+URL (URL-encoded, not hashed), and the URL went wherever page requests go.
+What may hold it:
 
-- **The access log of your reverse proxy** (Nginx, Caddy, Traefik), in the
-  request line, and in the referer field of the requests that page made next
-  if your log format records it. GymCoach itself does not log requests.
-  Search the logs you keep for `/login?` and `/signup?` followed by
-  `password=`, for example
+- **The access log of whatever handles the requests in front of GymCoach**:
+  your reverse proxy (Nginx, Caddy, Traefik), and any service that terminates
+  TLS before it, such as a CDN or a tunnel provider, whose logs you may not
+  control. It is in the request line, and in the referer field of the
+  requests that page made next if the log format records it. GymCoach itself
+  does not log requests. Search the logs you keep for `/login?` and
+  `/signup?` followed by `password=`, for example
   `grep -E '/(login|signup)\?[^ "]*password=' access.log`, and delete or
   redact the matching lines, in rotated and archived files too.
-- **The history of the browser that was used**, on that device only.
+- **The history of the browser that was used**, and of the other devices that
+  browser syncs its history to.
 - **The offline cache of the app in that browser** (the service worker's
   `pages` cache). GymCoach removes these entries by itself the next time the
   app is opened in that browser after the upgrade.
 
 If you find such a line, or cannot rule it out for logs someone else can
-read, have the people concerned change their password (as the admin, see the
-reset steps above). Since the fix, the forms are sent as a POST, the server
-answers a `/login` or `/signup` URL that carries a query string with a
-redirect to the bare page, and neither page is kept in the offline cache.
+read:
+
+1. **Change the password of the account.** There is no self-service password
+   change in the app: it is the admin procedure above ("I forgot my
+   password"), and the temporary account it creates must be deleted
+   afterwards, with the second command given there.
+2. **Sign everyone out.** A new password does not end a session that was
+   opened with the old one: sessions are signed tokens valid for 30 days and
+   are not stored on the server. Set a new `JWT_SECRET` and restart the app;
+   every session on the instance ends and everyone signs in again.
+3. **Review the account's MCP tokens** (Settings). A token is not tied to the
+   password or to `JWT_SECRET`: it has no expiry and works until it is
+   revoked. Someone who signed in with the leaked password could have created
+   one. Revoke any token the account's owner does not recognise.
+4. **Change the password wherever else it was used.**
+
+Since the fix, the forms are sent as a POST, the server answers a `/login` or
+`/signup` URL that carries a query string with a redirect to the bare page,
+and neither page is kept in the offline cache.
 
 ## Data
 

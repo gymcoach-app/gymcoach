@@ -108,7 +108,9 @@ describe('POST /api/auth/register', () => {
   });
 
   it('answers 409 for an email that already has an account and adds nothing', async () => {
-    expect((await register(registerReq({ email: 'dup@test.dev', password: 'supersecret' }))).status).toBe(200);
+    expect(
+      (await register(registerReq({ email: 'dup@test.dev', password: 'supersecret' }))).status,
+    ).toBe(200);
     const res = await register(registerReq({ email: 'dup@test.dev', password: 'othersecret' }));
     expect(res.status).toBe(409);
     expect(await db.user.count()).toBe(1);
@@ -138,10 +140,15 @@ describe('POST /api/auth/register', () => {
     EXERCISE_CATALOG.push({ ...EXERCISE_CATALOG[0]! });
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const res = await register(registerReq({ email: 'catalog@test.dev', password: 'supersecret' }));
+      const res = await register(
+        registerReq({ email: 'catalog@test.dev', password: 'supersecret' }),
+      );
       expect(res.status).toBe(500);
       expect(await res.json()).toEqual({ error: 'Server error.' });
-      expect(logged).toHaveBeenCalledWith('[register] error:', expect.objectContaining({ code: 'P2002' }));
+      expect(logged).toHaveBeenCalledWith(
+        '[register] error:',
+        expect.objectContaining({ code: 'P2002' }),
+      );
     } finally {
       EXERCISE_CATALOG.pop();
       logged.mockRestore();

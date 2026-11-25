@@ -1658,7 +1658,11 @@ describe('the canary', () => {
     );
     // Apart from that line and the guard's import path, the copies are the root test.
     const body = (file: string) =>
-      files.get(file)!.toString().replace(pragma, '').replace(/from '[^']*xabc\.guard\.ts'/, 'from GUARD');
+      files
+        .get(file)!
+        .toString()
+        .replace(pragma, '')
+        .replace(/from '[^']*xabc\.guard\.ts'/, 'from GUARD');
     expect(body('lib/xabc.test.ts')).toBe(body(p.test));
     expect(body('tests/integration/xabc.test.ts')).toBe(body(p.test));
   });

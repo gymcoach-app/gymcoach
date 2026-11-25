@@ -99,10 +99,11 @@ function purgeAuthPagesFromWorkboxExpiration(): Promise<void> {
 }
 
 // Best-effort, like purgeUserCaches: resolves without throwing whatever the
-// browser supports or refuses.
+// browser supports or refuses. The two stores are cleaned apart, so a failure
+// of one does not skip the other.
 export async function purgeAuthPageCacheEntries(): Promise<void> {
+  if (typeof window === 'undefined') return;
   try {
-    if (typeof window === 'undefined') return;
     if ('caches' in window) {
       for (const name of await window.caches.keys()) {
         const cache = await window.caches.open(name);
@@ -111,8 +112,12 @@ export async function purgeAuthPageCacheEntries(): Promise<void> {
         }
       }
     }
-    await purgeAuthPagesFromWorkboxExpiration();
   } catch {
     // What cannot be removed here expires on Workbox's own schedule.
+  }
+  try {
+    await purgeAuthPagesFromWorkboxExpiration();
+  } catch {
+    // Same: the records go when Workbox expires their entries.
   }
 }

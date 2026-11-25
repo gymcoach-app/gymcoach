@@ -47,14 +47,25 @@ describe('middleware, query strings on the login and signup pages', () => {
     expect(res.headers.get('x-middleware-next')).toBe('1');
   });
 
-  it('removes any parameter that is not in the allowlist, and keeps the ones that are', async () => {
-    expect([...AUTH_PAGE_QUERY_ALLOWLIST]).toEqual(['_rsc']);
+  it('removes every parameter: neither page accepts one', async () => {
+    expect([...AUTH_PAGE_QUERY_ALLOWLIST]).toEqual([]);
     expect(target(await middleware(get('/login?next=%2Fhistory')))).toBe('/login');
-    expect(target(await middleware(get('/login?_rsc=abc123&password=hunter22')))).toBe(
-      '/login?_rsc=abc123',
-    );
-    // Next.js's own page request is not redirected.
-    expect(target(await middleware(get('/login?_rsc=abc123')))).toBeNull();
+    expect(target(await middleware(get('/signup?lang=fr&password=hunter22')))).toBe('/signup');
+  });
+
+  it('answers 303 to a redirected form POST, so its body is not sent again', async () => {
+    // A form POST sent by the browser itself, by someone already signed in...
+    const signedIn = await middleware(get('/signup', session, 'POST'));
+    expect(signedIn.status).toBe(303);
+    expect(target(signedIn)).toBe('/');
+    // ...or to a page that needs a session, by someone who is not.
+    const signedOut = await middleware(get(`/settings?${LEAK}`, undefined, 'POST'));
+    expect(signedOut.status).toBe(303);
+    expect(target(signedOut)).toBe('/login');
+    // Page reads keep the temporary redirect.
+    expect((await middleware(get('/login', session))).status).toBe(307);
+    expect((await middleware(get('/settings'))).status).toBe(307);
+    expect((await middleware(get('/settings', undefined, 'HEAD'))).status).toBe(307);
   });
 
   it('does not redirect a form POST, which carries nothing in the URL', async () => {

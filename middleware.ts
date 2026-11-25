@@ -18,10 +18,20 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/logout',
 ]);
 
-// Query parameters the login and signup pages accept. Neither page reads any;
-// `_rsc` is the cache key Next.js adds to its own client-side page requests.
-// A parameter added to these pages later must be listed here.
-export const AUTH_PAGE_QUERY_ALLOWLIST: ReadonlySet<string> = new Set(['_rsc']);
+// Query parameters the login and signup pages accept: none, neither page reads
+// any. A parameter added to these pages later must be listed here. Next.js's
+// own `_rsc` key (on its client-side page requests) needs no entry: it is
+// removed from the URL before the middleware sees it (checked on a production
+// server: `/login?_rsc=...` is served, not redirected).
+export const AUTH_PAGE_QUERY_ALLOWLIST: ReadonlySet<string> = new Set();
+
+// An auth redirect of a request that is not a page read (a form POST sent by
+// the browser itself) answers 303: the browser then fetches the target with a
+// GET and no body. The default 307 would make it send the body, the password
+// included, again to the new URL.
+function redirectStatus(req: NextRequest): 303 | 307 {
+  return req.method === 'GET' || req.method === 'HEAD' ? 307 : 303;
+}
 
 // The same URL without the parameters that are not in the allowlist, or null
 // when there is nothing to remove (or the request is not a page read).
@@ -50,7 +60,7 @@ export async function middleware(req: NextRequest) {
         const url = req.nextUrl.clone();
         url.pathname = '/';
         url.search = '';
-        return NextResponse.redirect(url);
+        return NextResponse.redirect(url, redirectStatus(req));
       }
       // A query string on these pages is never ours. Before #593 a form
       // submitted before the page was interactive went out as a GET, with the
@@ -73,7 +83,7 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.search = '';
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(url, redirectStatus(req));
   }
 
   return NextResponse.next();

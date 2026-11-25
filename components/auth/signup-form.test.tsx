@@ -112,7 +112,8 @@ describe('SignupForm (#357)', () => {
     });
 
     it('takes form fields out of the address bar when it mounts', () => {
-      window.history.replaceState(null, '', '/signup?displayName=A&email=a%40b.c&password=hunter22');
+      const leaked = '/signup?displayName=A&email=a%40b.c&password=hunter22';
+      window.history.replaceState(null, '', leaked);
       try {
         render(<SignupForm />);
         expect(window.location.pathname + window.location.search).toBe('/signup');

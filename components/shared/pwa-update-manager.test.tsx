@@ -277,4 +277,3 @@ describe('PwaUpdateManager, login and signup pages cached by an earlier version 
     await waitFor(() => expect(pages).toEqual(['https://gym.example/']));
   });
 });
-

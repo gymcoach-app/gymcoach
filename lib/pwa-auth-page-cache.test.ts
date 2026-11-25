@@ -25,7 +25,9 @@ const navigate = (href: string) => ({ request: { mode: 'navigate' }, url: new UR
 describe('isCacheablePage (service worker `pages` cache)', () => {
   // Workbox writes the matcher into sw.js from its source text, so the checks
   // run on the function rebuilt from that text, as the service worker has it.
-  const rebuilt = new Function(`return (${isCacheablePage.toString()});`)() as typeof isCacheablePage;
+  const rebuilt = new Function(
+    `return (${isCacheablePage.toString()});`,
+  )() as typeof isCacheablePage;
 
   it.each([isCacheablePage, rebuilt])('never keeps the login and signup pages (%#)', (matches) => {
     expect(matches(navigate('/login'))).toBe(false);
@@ -34,20 +36,25 @@ describe('isCacheablePage (service worker `pages` cache)', () => {
     expect(matches(navigate('/signup?displayName=A&email=a%40b.c&password=hunter22'))).toBe(false);
   });
 
-  it.each([isCacheablePage, rebuilt])('still keeps the app pages, and not the API (%#)', (matches) => {
-    expect(matches(navigate('/'))).toBe(true);
-    expect(matches(navigate('/history?month=2026-03'))).toBe(true);
-    expect(matches(navigate('/session/abc'))).toBe(true);
-    // A page whose name merely starts like one of the two.
-    expect(matches(navigate('/login-help'))).toBe(true);
-    expect(matches(navigate('/api/profile'))).toBe(false);
-    expect(matches({ request: { mode: 'cors' }, url: new URL(ORIGIN + '/history') })).toBe(false);
-  });
+  it.each([isCacheablePage, rebuilt])(
+    'still keeps the app pages, and not the API (%#)',
+    (matches) => {
+      expect(matches(navigate('/'))).toBe(true);
+      expect(matches(navigate('/history?month=2026-03'))).toBe(true);
+      expect(matches(navigate('/session/abc'))).toBe(true);
+      // A page whose name merely starts like one of the two.
+      expect(matches(navigate('/login-help'))).toBe(true);
+      expect(matches(navigate('/api/profile'))).toBe(false);
+      expect(matches({ request: { mode: 'cors' }, url: new URL(ORIGIN + '/history') })).toBe(false);
+    },
+  );
 
   it('is the matcher next.config.js gives the `pages` cache', () => {
     const config = readFileSync(path.join(__dirname, '..', 'next.config.js'), 'utf8');
     expect(config).toContain("require('./lib/pwa-runtime-caching.cjs')");
-    expect(config).toMatch(/urlPattern: isCacheablePage,\s+handler: 'NetworkFirst',\s+options: \{\s+cacheName: 'pages'/);
+    expect(config).toMatch(
+      /urlPattern: isCacheablePage,\s+handler: 'NetworkFirst',\s+options: \{\s+cacheName: 'pages'/,
+    );
   });
 });
 
@@ -102,7 +109,9 @@ function stubExpirationDb(records: { id: string; url: string }[], { exists = tru
           state.createdEmpty = true;
         }
         request.result = {
-          objectStoreNames: { contains: (store: string) => exists && store === WORKBOX_EXPIRATION_STORE },
+          objectStoreNames: {
+            contains: (store: string) => exists && store === WORKBOX_EXPIRATION_STORE,
+          },
           close: () => (state.closed += 1),
           transaction: () => {
             const transaction: Record<string, unknown> = {};
@@ -197,6 +206,29 @@ describe('purgeAuthPageCacheEntries', () => {
 
     // An empty database left behind would keep Workbox from creating its store.
     expect(state.createdEmpty).toBe(false);
+  });
+
+  it('still cleans the expiration records when CacheStorage fails, and the caches when IndexedDB fails', async () => {
+    vi.stubGlobal('caches', {
+      keys: async () => {
+        throw new Error('SecurityError');
+      },
+    });
+    const { rows } = stubExpirationDb([
+      { id: 'a', url: `${ORIGIN}/login?password=hunter22` },
+      { id: 'b', url: `${ORIGIN}/` },
+    ]);
+    await expect(purgeAuthPageCacheEntries()).resolves.toBeUndefined();
+    expect(rows.map((row) => row.url)).toEqual([`${ORIGIN}/`]);
+
+    const store = stubCaches({ pages: [`${ORIGIN}/login?password=hunter22`, `${ORIGIN}/`] });
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        throw new Error('SecurityError');
+      },
+    });
+    await expect(purgeAuthPageCacheEntries()).resolves.toBeUndefined();
+    expect(store.get('pages')).toEqual([`${ORIGIN}/`]);
   });
 
   it('resolves without throwing when the browser refuses', async () => {

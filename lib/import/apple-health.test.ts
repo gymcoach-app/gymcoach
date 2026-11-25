@@ -120,8 +120,8 @@ describe('scanAppleHealthExport', () => {
   // Ranges alone would loosen the limit on the scanner: the same work would
   // get one 5 s limit per range. So the last test sums the CPU time of all
   // positions and holds it to ONE budget, half the old limit. CPU time does
-  // not grow when other processes take the cores the way the wall clock does: measured for the whole property, 0.4
-  // to 0.65 s on an idle machine and 1.1 to 1.5 s with 24 busy loops on 12
+  // not grow the way the wall clock does when other processes take the cores:
+  // measured for the whole property, 0.4 to 0.65 s on an idle machine and 1.1 to 1.5 s with 24 busy loops on 12
   // cores (it is not constant: sharing a core costs speed). With 1.6 ms of
   // CPU added to every end(), a scanner about ten times slower, the total is
   // 6.6 s: the budget test fails, while each range still passes its own.
