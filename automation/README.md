@@ -27,9 +27,16 @@ the app never imports this directory and the Docker image does not ship it
     (`git $x`, `git $(...)`);
   - a **subagent** is refused those in a **primary checkout** (its `.git` is a directory,
     such as the main checkout) and in a **linked worktree other than the one containing its
-    cwd**; it is also refused `git worktree remove|move` of another worktree,
-    `git branch -D|-d|-f|-M|-m|-C` (the orchestrator cleans up), and `git pull`, `git merge`
-    and `git commit --amend` in a primary checkout;
+    cwd**; it is also refused, wherever it runs, `git worktree remove|move|prune` (its own
+    worktree included: the orchestrator removes worktrees), `git branch -D|-d|-f|-M|-m|-C`
+    (the orchestrator cleans up) and `git update-ref` on a branch ref, on `--stdin` or on a
+    ref named by a variable (a branch belongs to every worktree; `HEAD`, `ORIG_HEAD` and
+    non-branch refs keep the "moves HEAD" rule); in its own worktree, `checkout -B`,
+    `switch -C` and `worktree add -B` of a branch that another worktree has checked out
+    (read from the git directory); and `git pull`, `git merge` and `git commit --amend` in
+    a primary checkout. `gh pr checkout` counts as a `git checkout <ref>`, for the main
+    session too: `cd <another session's worktree> && gh pr checkout <n>` is refused to it
+    like `git checkout` there, which it was not before #593;
   - the **main session** (operator or orchestrator) may do them in a primary checkout, but
     not in another session's linked worktree;
   - refused for everyone, because the stash stack is shared by every worktree: `git stash`,
@@ -40,15 +47,33 @@ the app never imports this directory and the Docker image does not ship it
     restoring a single file (`git checkout -- <file>`, `git restore <file>`),
     `git reset [HEAD] [--] <paths>`, tagged stash pushes, `git stash apply <sha>`.
   The parser follows shell keywords and groups (`if`/`then`, `do`/`done`, `{ }`, `!`),
-  wrappers (`env`, `command`, `time`, `timeout`, `nice`, `xargs`, `sudo`, `stdbuf`; the
+  `function f { }`, wrappers (`env`, `command`, `time`, `timeout`, `nice`, `xargs`, `sudo`,
+  `stdbuf`, `taskset`, `setsid`; the
   chdir of `env -C`/`--chdir` and `sudo -D` is applied), `cd` options (`cd -P`, `cd --`),
   an absolute `git -C /path` even after `cd -`, git spelled with quotes or a backslash, any
-  `-c` flag cluster of a shell (`bash -lc`, `sh -ec`), and treats `GIT_DIR=`/`GIT_WORK_TREE=`
-  (also exported) as an unknown target. Unbalanced quotes alone (an apostrophe in prose) are
-  not refused; a guarded git command next to them is. A guarded command whose target it
+  `-c` flag cluster of a shell (`bash -lc`, `sh -ec`), the commands of `eval` and of
+  `trap '<commands>' <signal>`, command substitutions inside a word (`"$(...)"` in double
+  quotes, backticks in or out of them; a `cd` inside one stays inside it) and in the body
+  of a here-document whose delimiter is unquoted (the shell expands that body; with
+  `<<'EOF'`, `<<"EOF"` or `<<\EOF` the body is text; every here-document announced on a
+  line has its body skipped), and treats
+  `GIT_DIR=`/`GIT_WORK_TREE=`
+  (also exported) as an unknown target. `-h`/`--help` right after a stash or worktree
+  action, or among the options of `git branch`, is read as the usage request it is (git
+  prints the usage and changes nothing), and the value of `git branch --sort`/`--format`
+  is not read as flags. A message body is prose, not commands: the close of a `"$(...)"`
+  is looked for as a shell would (not inside quotes, a comment, a `case` pattern or the
+  body of a here-document), and a string that does not read that way (no close, a
+  substitution that is not shell code) is read the plain way, as before #593: nothing is
+  refused because of it and none of its backticks is taken for a command. That look-ahead
+  is bounded (16 characters per character of the command, 40 levels of nesting; past a
+  bound, the plain reading again), and the same script from the same directory is read
+  once. Unbalanced quotes alone (an apostrophe in prose) are
+  not refused, at the top level or inside `bash -c`, `eval` and `trap`; a guarded git
+  command next to them is. A guarded command whose target it
   cannot resolve (`cd "$DIR"`, `cd -` followed by a relative path, `--work-tree`,
-  `xargs git checkout`) is refused; a main session's `git worktree remove|move` is allowed
-  wherever its shell is (the merge-gate cleanup). Session-start canary:
+  `xargs git checkout`) is refused; a main session's `git worktree remove|move|prune` is
+  allowed wherever its shell is (the merge-gate cleanup). Session-start canary:
   `node automation/hooks/guard-git.cjs --self-test` checks the decision logic, and the
   subagent probe in `docs/loops/06-orchestration.md` checks that Claude Code still sends
   `agent_id`. A bug in
@@ -66,11 +91,38 @@ the app never imports this directory and the Docker image does not ship it
 
 Limits: "own" means the worktree containing the session's current directory, so a session
 that `cd`s into another worktree in one call and runs a checkout in the next is treated as
-its owner; a git call hidden in a variable, `eval`, an alias (`git co`), a script file, a
-here-document fed to a shell, backticks or `"$(...)"` inside double quotes is not
-inspected; `merge` and `pull` are not guarded; `git branch -D` by the main session is
+its owner; a git call hidden in a variable (`$GIT`, `eval "$cmd"`), an alias (`git co`), a
+shell function defined elsewhere, a script file, a here-document fed to a shell or a
+wrapper the parser does not know (`flock`, `watch`, `strace`) is not
+inspected; a `$'...'` string is read as a plain quoted one, so an escaped quote in it
+(`$'it\'s'`) can hide the commands up to the next quote; a `<<` that is a shift inside
+`$((...))`, bare or inside a quoted `$(...)`, is read as a here-document, so
+`echo $((1<<2))` can hide the lines after it; the target of a here-string (`<<<word`) is
+skipped like a redirection target, so a substitution in it is read for some spellings
+only (`<<<$(...)` is, backticks are not); `merge` and `pull` are not guarded; `git branch -D` by the main session is
 allowed (git itself refuses to delete a branch checked out in a worktree); the hook guards
 Claude Code sessions in this project, not humans or other tools.
+
+It is a guard against accidents, not a sandbox, and issue #593 drew the line there. The
+incident: a subagent's `git worktree remove` went through while similar commands were
+refused. Cause: the guard allowed a removal whose path, resolved against the shell's
+directory, lay inside the worktree holding the subagent's cwd, and two readings of that
+path were wrong. Git also takes a worktree by the last component of its path (checked on
+git 2.34.1 in a throwaway repository: from `agent-a`, `git worktree remove agent-b` removed
+the sibling), and a path in a variable (`"$WT"`, `$(pwd)`) is not a path yet; both resolved
+to "inside its own worktree" and passed. Since no reading of the command can tell a
+subagent's own worktree from somebody else's, a subagent is now refused every
+`worktree remove|move|prune`, its own worktree included, which is also what the
+orchestration rules say (the orchestrator removes worktrees). The same check of command
+forms (58 forms of 4 destructive commands, in `guard-git.test.ts`) found the forms listed
+above that were not read (`"$(...)"`, backticks, `eval`, `trap`, `taskset`, `setsid`,
+`function f { }`), and three ways to reach a branch from the subagent's own worktree that
+git 2.34.1 does not stop: `update-ref` on `refs/heads/*`, and `checkout -B` / `switch -C`
+of a branch checked out elsewhere. Not covered, on purpose: deleting a remote branch
+(`git push --delete`, `git push origin :branch`), `git tag -d`, `git symbolic-ref` on a
+shared ref, a branch a subagent force-creates while another worktree is in the middle of
+a rebase on it (its `HEAD` is detached then), a branch name only known at run time, and
+anything that takes deliberate effort to hide.
 
 ## Merge gate (milestone 2)
 
@@ -487,7 +539,8 @@ plus Docker pushed the load average to ~20: Playwright pages crashed with
   the hook says so once on stderr and does not enforce it. The ledger read is cached
   by the ledger's size and mtime. Subagents already running finish: the in-flight
   overrun is bounded by the concurrency limit. Only the Agent tool is ever refused;
-  the hook fails open on any error. State lives in
+  the hook fails open on any error, and says so (see "When the check cannot run" below).
+  State lives in
   `${XDG_STATE_HOME:-~/.local/state}/gymcoach-runs/agents/<session key>/`.
   `SubagentStop` does not always fire: a background subagent stopped with
   TaskStop produced none on Claude Code 2.1.296 (probe in a throwaway repo), and
@@ -501,11 +554,38 @@ plus Docker pushed the load average to ~20: Playwright pages crashed with
   be loose, never stuck. The long default has a cost: a subagent that crashed or was
   stopped without a `SubagentStop` keeps its place until its transcript has been silent
   for 60 minutes, so the session can run one subagent fewer for up to an hour (lower
-  `GYMCOACH_SUBAGENT_IDLE_MINUTES` for that session, or wait). A `SubagentStart` that hits the 3 s state-lock timeout fails
-  open and writes no running entry, so that subagent is never counted (fails loose). `SubagentStop`
+  `GYMCOACH_SUBAGENT_IDLE_MINUTES` for that session, or wait). `SubagentStop`
   removes its own entry without the lock, so a busy lock never leaves a finished
   subagent counted. The refusal names these recovery paths.
   `GYMCOACH_MAX_SUBAGENTS=off` disables the concurrency limit.
+  **When the check cannot run** (issue #593: the hook's own test exited 0 instead of 2
+  once at load ~30). Two rules, in this order. An error is never turned into a refusal: a
+  refusal only comes from a count or a spend that was read, so a broken hook or a broken
+  state directory cannot lock the operator out. And a check that was skipped or weakened
+  is never silent. Before #593 three paths lifted the limit without a refusal: a state
+  lock still held after the 3 s wait (the call went through uncounted, no reservation; a
+  `SubagentStart` wrote no running entry, so that subagent was never counted), a state
+  directory that could not be listed (counted as zero subagents, nothing printed), and an
+  entry cut short (read as started in 1970, so expired). Now a busy lock is not an error:
+  the hook waits 3 s (sleeping, not spinning), then does its work without the lock. It
+  still counts, still refuses at the limit, still leaves its reservation or its running
+  entry; every state file is written whole (temp file, then rename), so what is lost is
+  only exactness between calls that race (N calls deciding at the same instant can
+  overshoot by N-1, where the old path lifted the limit for all of them). A lock that
+  can never be taken therefore blocks nobody. A directory that cannot be listed is an
+  error again (the call goes through, visibly), and an unreadable entry is not counted,
+  visibly. "Visibly" means three places: a `dispatch-limit: ...` line on stderr, the
+  same text as a hook `systemMessage` on stdout when the call is let through (stderr of
+  a passing hook only reaches the debug log), and one line per event in
+  `<state root>/skipped.log` (time, event, reason code such as `lock-busy` or
+  `skipped-EACCES`, session key; capped at 1 MB, no path and no text). What was tried
+  for the original failure: the test's two calls replayed 360 times on 4 cores under
+  100 busy loops (load average 36 to 93, slowest hook 1.3 s) never exited 0, and in
+  that test nothing else holds the lock, so the lock deadline cannot be what fired
+  there; the cause of that one run stays unknown. The test now asserts that its first
+  call printed nothing and puts the hook's stderr in the failure message, so a repeat
+  names its reason. Not covered: a hook that Claude Code kills at its own 10 s hook
+  timeout says nothing, and the call goes through.
 
 Checked live on Claude Code 2.1.296 in a throwaway repository (trivial "reply ok"
 subagents on Haiku): with a limit of 3, four parallel Agent calls in one message
