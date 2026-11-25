@@ -85,6 +85,37 @@ user without a cascade, and Postgres refuses the delete while they exist.
 
 If you have a database backup, restoring it is the alternative.
 
+### Could a password have ended up in a URL or a log?
+
+Yes, in one case, on every version before the one that fixed it (see the
+changelog entry for #593): someone pressed "Sign in" or "Create account"
+before the page had finished loading, which happens on a slow phone or a slow
+connection. The form was then sent by the browser itself as a plain page
+request, `/login?email=...&password=...` or
+`/signup?displayName=...&email=...&password=...`, and the page came back
+empty. The person usually typed again and got in, without noticing.
+
+Nobody else could trigger this for them, and nothing was sent to a third
+party. What may hold the password as it was typed:
+
+- **The access log of your reverse proxy** (Nginx, Caddy, Traefik), in the
+  request line, and in the referer field of the requests that page made next
+  if your log format records it. GymCoach itself does not log requests.
+  Search the logs you keep for `/login?` and `/signup?` followed by
+  `password=`, for example
+  `grep -E '/(login|signup)\?[^ "]*password=' access.log`, and delete or
+  redact the matching lines, in rotated and archived files too.
+- **The history of the browser that was used**, on that device only.
+- **The offline cache of the app in that browser** (the service worker's
+  `pages` cache). GymCoach removes these entries by itself the next time the
+  app is opened in that browser after the upgrade.
+
+If you find such a line, or cannot rule it out for logs someone else can
+read, have the people concerned change their password (as the admin, see the
+reset steps above). Since the fix, the forms are sent as a POST, the server
+answers a `/login` or `/signup` URL that carries a query string with a
+redirect to the bare page, and neither page is kept in the offline cache.
+
 ## Data
 
 ### Where does my data live?

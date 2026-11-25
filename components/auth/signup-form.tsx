@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { purgeUserCaches } from '@/lib/pwa-cache';
+import { scrubCredentialsFromAddressBar } from '@/lib/credential-url';
 
 type FormValues = { displayName: string; email: string; password: string };
 
@@ -26,6 +27,11 @@ export function SignupForm() {
   const common = useTranslations('common');
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
+  // An old copy of this page could submit as a GET and land here with the
+  // form fields in the URL: take them out of the address bar (#593).
+  useEffect(() => {
+    scrubCredentialsFromAddressBar();
+  }, []);
   const schema = useMemo(
     () =>
       z.object({

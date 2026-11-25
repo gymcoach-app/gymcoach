@@ -39,10 +39,26 @@ vi.mock('next-intl', async (importOriginal) => {
 // running. A user-event instance it created then goes on typing, and since a
 // keystroke goes to whatever element has the focus, the rest of its text lands
 // in the form the next test just rendered: one timeout under load became two
-// or three failures (issue #593, live-equipment-weight-editor). So every
-// instance belongs to the test that created it and refuses to act once that
-// test is over. An instance created outside a test (shared by a whole file)
-// is left alone.
+// or three failures (issue #593, live-equipment-weight-editor). So an instance
+// made by userEvent.setup() inside a test belongs to that test: once the test
+// is over, each of its methods rejects before dispatching anything, and an
+// action already in progress stops at its next pause between two steps.
+//
+// What this does not cover:
+// - The direct calls (userEvent.type(...), userEvent.keyboard(...)) are bound
+//   only while they run: started inside a test, they stop at the next pause
+//   after it ends. The other direct calls (click, clear, ...) are short and
+//   are not bound.
+// - A call made late, after the test ended: a direct call, or a new
+//   userEvent.setup(), issued by an abandoned test while the next test runs
+//   cannot be told from that test's own and is treated as its own.
+// - `delay: null` has no pause, so an action in progress runs to its end; it
+//   cannot outlive its test by more than the microtasks it has left.
+// - An instance created outside a test (shared by a whole file) is left alone.
+// - it.concurrent: the binding assumes the tests of a file run one after the
+//   other. With overlapping tests, the first to finish would end the
+//   instances of the others, which then fail on the message below. No test
+//   here is concurrent; one that is must share an instance created outside.
 const USER_EVENT_TEST_OVER =
   'user-event: the test that created this instance is over (it timed out or returned ' +
   'without awaiting an action). The action was dropped so it cannot reach the next test.';
@@ -102,10 +118,14 @@ vi.mock('@testing-library/user-event', async (importOriginal) => {
       const over = ownerCheck();
       return over ? guard(real.setup(bound(options, over)), over) : real.setup(options);
     },
-    // The one direct call that loops over several keystrokes.
+    // The two direct calls that loop over several keystrokes.
     type: (...[element, text, options]: Parameters<typeof real.type>) => {
       const over = ownerCheck();
       return real.type(element, text, over ? bound(options, over) : options);
+    },
+    keyboard: (...[text, options]: Parameters<typeof real.keyboard>) => {
+      const over = ownerCheck();
+      return real.keyboard(text, over ? bound(options, over) : options);
     },
   };
   return { ...actual, default: userEvent, userEvent };

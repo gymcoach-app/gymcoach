@@ -65,21 +65,20 @@ describe('POST /api/auth/register', () => {
     }
   });
 
-  it('spends a bounded number of transactions, whatever the catalog size', async () => {
-    // Postgres hands out one transaction id per writing transaction, server
-    // wide, so the ids used around the call count the route's writes without
-    // depending on timing. Each probe below takes one id itself.
-    const xid = async () =>
-      (await db.$queryRaw<{ n: bigint }[]>`SELECT pg_current_xact_id()::text::bigint AS n`)[0]!.n;
-    const before = await xid();
+  it('writes the account and every exercise of its catalog in one transaction', async () => {
     const res = await register(registerReq({ email: 'one@test.dev', password: 'supersecret' }));
     expect(res.status).toBe(200);
-    const used = Number((await xid()) - before);
-    // Expected: 2 (the registration and the second probe). The margin up to 10
-    // absorbs a stray autovacuum on the shared test server; the per-exercise
-    // upserts used one id per catalog entry, about 50.
+    // xmin is the id of the transaction that inserted a row. One id shared by
+    // the user and all of its exercises means one transaction wrote them; the
+    // per-exercise upserts gave every row its own.
+    const user = await db.$queryRaw<{ id: string; xmin: string }[]>`
+      SELECT id, xmin::text AS xmin FROM "User" WHERE email = 'one@test.dev'`;
+    expect(user).toHaveLength(1);
+    const exercises = await db.$queryRaw<{ xmin: string; n: bigint }[]>`
+      SELECT xmin::text AS xmin, count(*) AS n FROM "Exercise"
+      WHERE "userId" = ${user[0]!.id} GROUP BY xmin`;
     expect(EXERCISE_CATALOG.length).toBeGreaterThan(20);
-    expect(used).toBeLessThanOrEqual(10);
+    expect(exercises).toEqual([{ xmin: user[0]!.xmin, n: BigInt(EXERCISE_CATALOG.length) }]);
   });
 
   it('leaves no account behind when the catalog cannot be written', async () => {
@@ -131,5 +130,23 @@ describe('POST /api/auth/register', () => {
     expect(await db.user.count()).toBe(1);
     expect(await db.exercise.count()).toBe(EXERCISE_CATALOG.length);
     expect(cookieSet).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 500, not 409, to a unique violation that is not the email', async () => {
+    // The same exercise name twice breaks the (userId, name) index: a defect
+    // in the catalog, which must not be reported as "this email is taken".
+    EXERCISE_CATALOG.push({ ...EXERCISE_CATALOG[0]! });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await register(registerReq({ email: 'catalog@test.dev', password: 'supersecret' }));
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'Server error.' });
+      expect(logged).toHaveBeenCalledWith('[register] error:', expect.objectContaining({ code: 'P2002' }));
+    } finally {
+      EXERCISE_CATALOG.pop();
+      logged.mockRestore();
+    }
+    expect(await db.user.count()).toBe(0);
+    expect(cookieSet).not.toHaveBeenCalled();
   });
 });

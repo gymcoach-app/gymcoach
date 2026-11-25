@@ -50,6 +50,30 @@ describe('a user-event instance left running by a finished test', () => {
   });
 });
 
+let abandonedDirect: { typing: Promise<unknown>; keys: Promise<unknown> } | null = null;
+
+describe('a direct userEvent call left running by a finished test', () => {
+  it('(first half) starts userEvent.type and userEvent.keyboard and returns', () => {
+    render(<input aria-label="first" />);
+    const first = screen.getByLabelText('first');
+    const typing = userEvent.type(first, 'abcdefghijklmnopqrst');
+    const keys = userEvent.keyboard('uvwxyzuvwxyzuvwxyz');
+    typing.catch(() => {});
+    keys.catch(() => {});
+    abandonedDirect = { typing, keys };
+  });
+
+  it('stops at its next pause and never reaches the next test', async () => {
+    render(<input aria-label="second" />);
+    const second = screen.getByLabelText('second');
+    second.focus();
+
+    await expect(abandonedDirect!.typing).rejects.toThrow(TEST_OVER);
+    await expect(abandonedDirect!.keys).rejects.toThrow(TEST_OVER);
+    expect(second).toHaveValue('');
+  });
+});
+
 describe('what the binding leaves alone', () => {
   it('an instance created outside a test keeps working in every test (1)', async () => {
     render(<input aria-label="field" />);
@@ -80,7 +104,7 @@ describe('what the binding leaves alone', () => {
     expect(screen.getByLabelText('field')).toHaveValue('no pause');
   });
 
-  it('the direct userEvent.type and userEvent.click still work', async () => {
+  it('the direct userEvent.type, keyboard and click still work', async () => {
     const onClick = vi.fn();
     render(
       <>
@@ -89,8 +113,9 @@ describe('what the binding leaves alone', () => {
       </>,
     );
     await userEvent.type(screen.getByLabelText('field'), 'direct');
+    await userEvent.keyboard(' keys');
     await userEvent.click(screen.getByRole('button', { name: 'Go' }));
-    expect(screen.getByLabelText('field')).toHaveValue('direct');
+    expect(screen.getByLabelText('field')).toHaveValue('direct keys');
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

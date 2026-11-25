@@ -147,6 +147,16 @@ describe('LoginForm before hydration (#593)', () => {
     await act(async () => root?.unmount());
   });
 
+  it('takes form fields out of the address bar when it mounts', async () => {
+    window.history.replaceState(null, '', '/login?email=a%40b.c&password=hunter22');
+    try {
+      await renderForm();
+      expect(window.location.pathname + window.location.search).toBe('/login');
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
   it('still validates an untouched form after hydration', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

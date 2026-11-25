@@ -111,6 +111,16 @@ describe('SignupForm (#357)', () => {
       await act(async () => root?.unmount());
     });
 
+    it('takes form fields out of the address bar when it mounts', () => {
+      window.history.replaceState(null, '', '/signup?displayName=A&email=a%40b.c&password=hunter22');
+      try {
+        render(<SignupForm />);
+        expect(window.location.pathname + window.location.search).toBe('/signup');
+      } finally {
+        window.history.replaceState(null, '', '/');
+      }
+    });
+
     it('still validates an untouched form after hydration', async () => {
       const fetchMock = vi.fn();
       vi.stubGlobal('fetch', fetchMock);

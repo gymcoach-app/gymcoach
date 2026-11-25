@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
+import { purgeAuthPageCacheEntries } from '@/lib/pwa-cache';
 
 interface Props {
   // Test seam only: production renders the manager with no props and reloads
@@ -58,6 +59,12 @@ export function PwaUpdateManager({ reloadPage = reloadCurrentPage }: Props = {})
   // reloaded at that moment (hidden tab, or a live session on screen).
   const reloadPendingRef = useRef(false);
   const reloadRef = useRef<() => void>(() => {});
+
+  // Once per page load: drop what an earlier service worker cached for the
+  // login and signup pages (#593).
+  useEffect(() => {
+    void purgeAuthPageCacheEntries();
+  }, []);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
