@@ -1178,6 +1178,12 @@ and a narrow extension of the external-issue policy.
    `CLAUDE.md`, `docs/loops/07-autonomy.md` and `.claude/skills/`. Check that the text says
    what "oui messages" meant: adopted external issues, `messages/**` as the only hard-block
    path, all passes and both security lenses clean, rollback tag first, nothing else widened.
+   Then read the table of earlier merges there (a search, maybe not exhaustive, none called
+   compliant): misses #346, #565 and #568, unclear #534, #536, #538, #548, #578 and #585.
+   **#568 is the most serious** (`gh pr diff 568`: schema, migration, coach prompt, backup
+   route; still human-only under the new rule): read that diff.
+   Decide whether your session messages of 2026-11-16 and 2026-11-18 covered #565, #568
+   and #585.
 2. **#589 - writes to finished history.** `gh pr diff 589`. `lib/session-edit.ts` (moving and
    squeezing set timestamps), the row lock in `lib/goal-achievement.ts` and the 8-attempt
    retry that set writes now share, the `amend: true` gate in

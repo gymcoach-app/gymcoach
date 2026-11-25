@@ -56,10 +56,12 @@ changes on.
      `CLAUDE.md`, `docs/loops/**`, container, ignore and env files, `middleware.ts`, dependency
      manifests and lockfiles, executable configs, `.coderabbit.yaml`): verdict only, a
      human merges. The lists in the policy file are authoritative.
-   - **A PR of ours for an adopted external issue:** check its full file list against the
-     hard-block list before merging. Any hit is a human merge, except `messages/**` as the
-     only hit, under the conditions of rule 2 of "External issues" in the policy file
-     (lesson L66).
+   - **A PR of ours that implements an external author's request:** check its full file list
+     against the hard-block list before merging. This holds whether or not the issue is
+     labelled `adopted`, for `Closes` and `Refs` alike, and for a loop-authored issue derived
+     from an external one (a batch issue, a leftover): read the issue the request started
+     from. Any hit is a human merge, except `messages/**` as the only hit on an adopted
+     issue, under the conditions of rule 2 of "External issues" in the policy file (L66).
    Also skip if: draft, `state != OPEN`, `reviewDecision == CHANGES_REQUESTED`, or not
    targeting `main`. Report why it was skipped.
 

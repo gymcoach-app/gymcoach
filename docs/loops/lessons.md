@@ -1142,16 +1142,22 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 ### L66 - Check the blast radius of an adopted issue before assigning it
 - **Trigger:** 2026-11-24, #557 step 2 (#591). `docs/loops/10` makes an adopted external
   issue human-only when its implementation touches a hard-block path. The orchestrator
-  assigned the work without that check; the change touched `messages/**`. Looking back, step
-  1 (#565, merged by the loop on 2026-11-16) had touched `messages/**` too and nobody noticed.
+  assigned the work without that check; the change touched `messages/**`. Looking back, the
+  rule had been missed before: a search (which may not be exhaustive; table in
+  `docs/loops/10`) found three misses, #346 (#333, `messages/**`), #565 (#557 step 1,
+  `messages/**`) and #568 (#558 slice 1: `messages/**`, schema, a migration, the coach prompt,
+  the backup route), and six unclear ones, #534, #536, #538, #548, #578 and #585. None is
+  called compliant. #568 is the most serious and is still human-only under the new rule; #558
+  carried no `adopted` label, so a check keyed on the label would not have fired.
   The implementer flagged the author and the path in its report; the orchestrator held the
   merge and asked. The operator's answer on 2026-11-25 ("oui messages") created a narrow
   exception; the rollback tag `autonomy-baseline-2026-11-25` was pushed at the pre-merge
   `main` (`4e061fb`) before #591 merged.
 - **Lesson:** almost any user-facing feature adds strings, so it touches `messages/**`.
-  Check the expected file list of an adopted issue against the hard-block list when assigning
-  it, check the real one again before the merge, and say so when an earlier merge missed it.
+  Check the expected file list of any external author's request (label or not, `Closes` or
+  `Refs`, direct or through a derived issue) against the hard-block list when assigning it,
+  check the real one again before the merge, and say so when an earlier merge missed it.
 - **Status:** graduated -> `docs/loops/10-external-contributions.md` (extension of
   2026-11-25, rule 2 of "External issues"), `implement-issue` step 1, `triage`, `ship-pr`
-  step 1, pointers in `CLAUDE.md` and `07-autonomy.md`. The #565 merge stays recorded as a
-  miss.
+  step 1, pointers in `CLAUDE.md` and `07-autonomy.md`. The earlier merges stay
+  recorded as misses or unclear.

@@ -3904,11 +3904,21 @@ changed, the exact assertion kept, and the reviewer checked that change.
 **A trust-policy question (L66).** #557 is an adopted external issue (label `adopted`, worked
 from the issue itself, not from a separate loop-authored one as `implement-issue` says) and
 step 2 touched `messages/**`, which rule 2 of "External issues" made human-only. The loop
-started it before checking, and step 1 (#565) had been merged with the same property
-unnoticed. #591 was held, with clean reviews (egress/backdoor and threat-model included) and
+started it before checking. #591 was held, with clean reviews (egress/backdoor and threat-model included) and
 green CI, until the operator answered "oui messages" on 2026-11-25; the tag
 `autonomy-baseline-2026-11-25` was pushed at `4e061fb` first. The exception is codified in
 this PR, for `messages/**` alone.
+
+**Earlier merges against that rule.** A read-only search on 2026-11-25 (it may not be
+exhaustive; table and evidence in `10-external-contributions.md`) found: misses **#346**
+(#333, `messages/**`), **#565** (#557 step 1, `messages/**`) and **#568** (#558 slice 1,
+`messages/**`, `prisma/schema.prisma`, a migration, `lib/prompts/coach-system-prompt.ts`,
+`app/api/backup/route.ts`); unclear **#534**, **#536**, **#538**, **#548**, **#578**,
+**#585**; authorized **#321** and **#591**. None is called compliant. #568 is the most
+serious: it is still human-only under the new rule, it had no egress/backdoor lens and no
+rollback tag of its own, and #558 was never labelled `adopted`. Two operator messages in the
+session transcript (2026-11-16 and 2026-11-18) bear on #565, #568 and #585 but mention
+neither rule 2 nor those paths; the operator decides what they covered.
 
 **Green gate.** Ledger `verify` lines from the #588 merge to the #591 merge: 14 (13 `--full`,
 1 default). 3 green, one per PR. 11 red: 9 at the unit tier, 2 at E2E.

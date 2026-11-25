@@ -57,18 +57,52 @@ Extension 2026-11-25 (operator, in session; adopted external **issues** only).
 The occasion was #591, the second step of #557 by @mattordev, an adopted external
 issue whose implementation touched `messages/**` (three strings in each of the 11
 locales) and no other hard-block path. Rule 2 of "External issues" made it
-human-only. The loop asked, offering "oui #591" (that PR only) or "oui messages"
+human-only. The loop asked, offering "oui #591" ("yes #591", that PR only) or "oui messages"
 (all adopted external issues whose only hard-block path is `messages/**`). The
 operator answered, quoted verbatim: "oui messages" ("yes messages"). The rule as
 extended is rule 2 of "External issues" below. It widens nothing else: every
 other hard-block path, `i18n/**` included, still makes an adopted issue human-only.
 
-Recorded with it: the loop started #557's second step before checking rule 2, and
-the first step, #565 (merged 2026-11-16), had also touched `messages/**` (and no
-other hard-block path) and was merged by the loop without anyone noticing that
-rule 2 made it human-only. #591 was held after its review and green CI until the
-operator's answer. The extension does not make the #565 merge compliant after the
-fact.
+Recorded with it: the loop started #557's second step before checking rule 2. #591
+was held after its review and green CI until the operator's answer. Rule 2 had been
+in force since #315 (2026-08-27) and had been missed before. A read-only search on
+2026-11-25 listed the merged PRs of our accounts that name an external issue, an
+issue adopted from one, or a batch issue carrying their leftovers (#576, #582). It
+matched issue numbers, branch names, GitHub cross-references and contributor names,
+so **it may not be exhaustive**, and it does not cover maintainer polish on
+contributors' PRs that names no such issue. None of the merges below is called
+compliant here, and the extension makes none of them compliant after the fact.
+
+| PR (merged) | Request | Hard-block paths | Class |
+| --- | --- | --- | --- |
+| #321 (2026-08-27) | #310, `needs-maintainer` | `.github/workflows/publish-image.yml` | authorized: its body says the operator green-lit it in session that day |
+| #346 (2026-09-11) | #333, adopted from #331 | `messages/**` | miss: #333 says "no hard-block path" while asking for strings in the catalogs; no authorization found |
+| #565 (2026-11-16) | #557, `adopted` | `messages/**` | miss: rule 2 not checked; see the session note |
+| #568 (2026-11-17) | #558, never labelled `adopted` | `messages/**`, `prisma/schema.prisma`, a migration, `lib/prompts/coach-system-prompt.ts`, `app/api/backup/route.ts` | miss, the most serious: see below and the session note |
+| #578 (2026-11-17) | #576 part 4, leftovers of #558 | `messages/**`, `lib/llm/reasoning-call-sites.test.ts` | unclear: a loop-authored batch issue, but the cardio part fixes #568 and comes from #558 (the `lib/llm` test comes from #575, our own work) |
+| #585 (2026-11-18) | #582 part 3 | `messages/**`, `prisma/schema.prisma`, a migration, `app/api/backup/route.ts` | unclear: #582 says "decided by the maintainer" and does not name #558, but #558 asked for kilometers or miles and our reply there announced this setting |
+| #534 (2026-10-28) | follow-up to @sapatmohit's #532, part of #527 | `messages/**`, `i18n/exercise-names.ts` | unclear: polish on a contributor's catalog, which rule 2 does not mention |
+| #536, #538 (2026-10-28) | follow-ups to #535 and #537, for #527 | `messages/**`; #536 also `i18n/exercise-names.ts` | unclear: same; they do not name #527 |
+| #548 (2026-11-06) | follow-up to @f1dot4's #544, refs #542 | `messages/**` | unclear: L53 requires such a follow-up and the operator asked to finish #544 ourselves, but neither says rule 2 is lifted |
+| #591 (2026-11-25) | #557, `adopted` | `messages/**` | authorized: "oui messages", before the merge |
+
+#318 (2026-08-27, #316 adopted from #314) and #569 (2026-11-17, follow-up to #565 and
+#568) touch no hard-block path. No merged implementation of ours was found for #57,
+#308/#320, #309, #525 and the rest of #331. Our other PRs on #576 and #582 (#577,
+#579, #580, #583, #584, #586, #587) implement parts that name no external issue.
+
+**#568 is the most serious miss and would still be human-only under the new rule**: it
+changed the database schema with a migration, the coach prompt and the backup route.
+It was merged by the loop with correctness/tests and security/threat-model records,
+without an egress/backdoor lens and without a rollback tag of its own.
+
+Session note: the maintainer session transcript (not public) holds an operator message
+of 2026-11-16 telling the loop to do the work it had just listed, #557 step 1 and #558
+slice 1 included, on its own, and to merge what is clean; and one of 2026-11-18
+agreeing to what the loop proposed on the distance unit. The lists put to the operator
+named no hard-block path, no migration and not rule 2, and nothing public records
+either as lifting it. Whether they authorized #565, #568 or #585 is for the operator
+to say; this document does not count them as an authorization.
 
 ## Trust tiers
 
@@ -410,7 +444,10 @@ the author's text - it re-derives the work itself.
    implementation of an adopted issue touches a hard-block path, it is a
    human task regardless of who would author the code - label it
    `needs-maintainer` and leave the analysis in a comment. Check this **before**
-   starting the work, and again on the final file list before the merge.
+   starting the work, and again on the final file list before the merge, for
+   any PR of ours that implements an external author's request: label `adopted`
+   or not, `Closes` or `Refs`, and through a loop-authored issue derived from one
+   (a batch issue, a leftover).
    **One exception** (operator, 2026-11-25): when `messages/**` is the **only**
    hard-block path the implementation touches, the loop may implement the adopted
    issue and merge its PR itself, when every pass is clean (no blocking, major or
