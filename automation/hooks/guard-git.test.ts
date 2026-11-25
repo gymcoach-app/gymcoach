@@ -13,9 +13,11 @@ const guard = require('./guard-git.cjs') as {
       findTop?: (dir: string) => { top: string; kind: string } | null;
       home?: string;
       pathExists?: (p: string) => boolean;
+      checkedOut?: (top: string) => { branch: string; top: string }[];
     },
   ) => { allow?: true; deny?: string };
   findTop: (dir: string) => { top: string; kind: string } | null;
+  checkedOut: (top: string) => { branch: string; top: string }[];
   tokenize: (s: string) => unknown[] | null;
 };
 
@@ -44,12 +46,19 @@ const FILES = new Set([
 ]);
 const pathExists = (p: string) => FILES.has(p);
 
+// The branch each fake checkout has checked out.
+const checkedOut = () => [
+  { branch: 'main', top: MAIN },
+  { branch: 'wa', top: WT_A },
+  { branch: 'wb', top: WT_B },
+];
+
 // By default a call comes from a subagent (agent_id set), which is who the
 // incidents behind L15 and L38 came from; `main` marks the main session.
 function run(command: string, cwd: string, who: 'subagent' | 'main' = 'subagent') {
   return guard.decide(
     { cwd, tool_input: { command }, ...(who === 'subagent' ? { agent_id: 'a1' } : {}) },
-    { findTop, home: '/home/u', pathExists },
+    { findTop, home: '/home/u', pathExists, checkedOut },
   );
 }
 const allowed = (command: string, cwd = WT_A, who: 'subagent' | 'main' = 'subagent') =>
@@ -290,7 +299,8 @@ describe('git guard: main session vs subagent', () => {
     allowed('git branch -D old-branch', MAIN, 'main');
     expect(denied(`git worktree remove --force ${WT_B}`, WT_A)).toContain('own worktree');
     denied('git worktree remove', WT_A);
-    allowed(`git worktree remove ${WT_A}`, WT_A);
+    // Until #593 its own worktree was allowed; see "worktree removal" below.
+    expect(denied(`git worktree remove ${WT_A}`, WT_A)).toContain('its own worktree included');
     expect(denied('git branch -D old-branch', WT_A)).toContain('branch cleanup');
     denied('git branch -f main origin/main', WT_A);
     denied('git branch -M renamed', WT_A);
@@ -343,7 +353,9 @@ describe('git guard: shapes that used to slip past', () => {
       'git cherry-pick abc123',
       'git am < patch.mbox',
       'git revert HEAD',
-      'git update-ref refs/heads/main abc123',
+      // A per-worktree ref. A branch ref is refused in the own worktree too
+      // since #593: see "update-ref on a branch" below.
+      'git update-ref HEAD abc123',
       'git symbolic-ref HEAD refs/heads/x',
       'git read-tree -u -m HEAD',
     ]) {
@@ -500,5 +512,430 @@ describe('git guard: the hook process', () => {
     const res = spawnSync(process.execPath, [script, '--self-test'], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('subagent refused, main session allowed (ok)');
+  });
+});
+
+// Issue #593, part 2: one subagent's `git worktree remove` went through while
+// similar commands were refused. Which forms pass was established by running
+// the guard on the matrix below (synthetic input, never a real git command),
+// and what git itself does with them in a throwaway repository on git 2.34.1.
+describe('git guard: command forms (issue #593)', () => {
+  const PAYLOADS = [
+    `git worktree remove --force ${WT_B}`,
+    'git branch -D old',
+    'git update-ref -d refs/heads/old',
+    `git -C ${MAIN} reset --hard`,
+  ];
+  const first = (p: string, as: string) => p.replace(/^git/, as);
+  const FORMS: Record<string, (p: string) => string> = {
+    plain: (p) => p,
+    and: (p) => `git status && ${p}`,
+    semicolon: (p) => `git status; ${p}`,
+    or: (p) => `git status || ${p}`,
+    'after a pipeline': (p) => `git status | cat; ${p}`,
+    'after a background job': (p) => `git status &\n${p}`,
+    'next line': (p) => `git status\n${p}`,
+    'after a comment': (p) => `git status # note\n${p}`,
+    subshell: (p) => `(${p})`,
+    'subshell with cd': (p) => `( cd /elsewhere && ${p} )`,
+    group: (p) => `{ ${p}; }`,
+    'group after &&': (p) => `true && { ${p}; }`,
+    '$(...)': (p) => `echo $(${p})`,
+    '"$(...)"': (p) => `echo "$(${p})"`,
+    'assignment from "$(...)"': (p) => `out="$(${p} 2>&1)"; echo "$out"`,
+    backticks: (p) => 'echo `' + p + '`',
+    'backticks in double quotes': (p) => 'echo "done: `' + p + '`"',
+    'variable prefix': (p) => `FOO=1 ${p}`,
+    'two variable prefixes': (p) => `FOO=1 BAR="b c" ${p}`,
+    'env prefix': (p) => `env FOO=1 ${p}`,
+    'after export': (p) => `export FOO=1; ${p}`,
+    'cd own worktree &&': (p) => `cd ${WT_A} && ${p}`,
+    'cd main &&': (p) => `cd ${MAIN} && ${p}`,
+    'cd main || exit;': (p) => `cd ${MAIN} || exit 1; ${p}`,
+    pushd: (p) => `pushd ${MAIN} >/dev/null && ${p}`,
+    '"git"': (p) => first(p, '"git"'),
+    "'git'": (p) => first(p, "'git'"),
+    '\\git': (p) => first(p, '\\git'),
+    '/usr/bin/git': (p) => first(p, '/usr/bin/git'),
+    'every argument quoted': (p) =>
+      p
+        .split(' ')
+        .map((w, i) => (i ? `"${w}"` : w))
+        .join(' '),
+    'git --no-pager': (p) => first(p, 'git --no-pager'),
+    'git -c k=v': (p) => first(p, 'git -c core.x=y'),
+    'bash -c': (p) => `bash -c "${p}"`,
+    'bash -lc': (p) => `bash -lc '${p}'`,
+    'sh -c': (p) => `sh -c "${p}"`,
+    'eval "..."': (p) => `eval "${p}"`,
+    'eval words': (p) => `eval ${p}`,
+    trap: (p) => `trap '${p}' EXIT; true`,
+    taskset: (p) => `taskset -c 4-11 ${p}`,
+    setsid: (p) => `setsid ${p}`,
+    time: (p) => `time ${p}`,
+    nohup: (p) => `nohup ${p} &`,
+    timeout: (p) => `timeout 60 ${p}`,
+    if: (p) => `if git status; then ${p}; fi`,
+    for: (p) => `for x in a b; do ${p}; done`,
+    'while read': (p) => `while read l; do ${p}; done < list.txt`,
+    case: (p) => `case x in x) ${p};; esac`,
+    'f() { }': (p) => `f() { ${p}; }; f`,
+    'function f { }': (p) => `function f { ${p}; }; f`,
+    'test &&': (p) => `test -d x && ${p}`,
+    '[ ] &&': (p) => `[ -d x ] && ${p}`,
+    '[[ ]] &&': (p) => `[[ -d x ]] && ${p}`,
+    '!': (p) => `! ${p}`,
+    '2>&1 | tail': (p) => `${p} 2>&1 | tail -3`,
+    '>/dev/null 2>&1': (p) => `${p} >/dev/null 2>&1`,
+    '&> /dev/null': (p) => `${p} &> /dev/null`,
+    '|| true': (p) => `${p} || true`,
+    'after a here-document': (p) => `cat <<'EOF' > /tmp/x\nhello\nEOF\n${p}`,
+  };
+
+  it('refuses a subagent the same command in every form a shell runs it in', () => {
+    const passed: string[] = [];
+    for (const [name, form] of Object.entries(FORMS)) {
+      for (const p of PAYLOADS) {
+        if (!run(form(p), WT_A).deny) passed.push(`${name}: ${form(p)}`);
+      }
+    }
+    expect(passed).toEqual([]);
+  });
+
+  it('keeps every one of those forms open to the main session', () => {
+    // Forms that leave the shell where it was: the main session, in the main
+    // checkout, may remove a worktree, delete a branch, and reset its tree.
+    const moving = ['subshell with cd', 'cd own worktree &&'];
+    const refused: string[] = [];
+    for (const [name, form] of Object.entries(FORMS)) {
+      if (moving.includes(name)) continue;
+      for (const p of PAYLOADS) {
+        if (run(form(p), MAIN, 'main').deny) refused.push(`${name}: ${form(p)}`);
+      }
+    }
+    expect(refused).toEqual([]);
+  });
+
+  it('does not take a command that is only text for a command that runs', () => {
+    for (const p of PAYLOADS) {
+      allowed(`echo ${p}`, WT_A);
+      allowed(`grep -rn "${p}" docs`, WT_A);
+      allowed(`echo '$(${p})'`, WT_A);
+      allowed(`git commit -q -m 'docs: say that \`${p}\` is refused'`, WT_A);
+      allowed(`git commit -q -F - <<'EOF'\ndocs: $(${p})\nEOF`, WT_A);
+    }
+  });
+
+  it('checks a substitution where the shell is, and keeps its cd to itself', () => {
+    expect(denied(`out="$(cd ${MAIN} && git checkout main 2>&1)"`, WT_A)).toContain(
+      'primary checkout',
+    );
+    expect(denied(`cd ${MAIN} && echo "now on $(git switch main)"`, WT_A)).toContain(
+      'primary checkout',
+    );
+    allowed(`echo "$(cd ${MAIN} && git status -sb)"; git switch -c feat/x`, WT_A);
+    // Quotes inside the substitution do not end the string around it.
+    allowed('echo "last: $(git log --format="%h %s" -1)"', MAIN);
+    expect(denied('echo "last: $(git log --format="%h" -1)" && git switch main', MAIN)).toContain(
+      'primary checkout',
+    );
+    // An escaped backtick in double quotes is a character, not a command.
+    allowed('git commit -q -m "docs: \\`git switch main\\` is refused"', MAIN);
+    allowed('echo "$((1 + 2))" && git status', MAIN);
+  });
+
+  it('reads eval, trap and function only as far as they hold commands', () => {
+    allowed('eval "$(ssh-agent -s)" && git fetch -q origin', MAIN);
+    allowed('trap - EXIT; git status', MAIN);
+    allowed("trap 'rm -f /tmp/x' EXIT; git log -1", MAIN);
+    expect(denied(`trap 'git -C ${MAIN} checkout main' EXIT`, WT_A)).toContain('primary checkout');
+    expect(denied('function back { git switch main; }; back', MAIN)).toContain('primary checkout');
+    allowed('taskset -c 4-11 git status', MAIN);
+    expect(denied('taskset -c 4-11 git switch main', MAIN)).toContain('primary checkout');
+  });
+});
+
+describe('git guard: worktree removal by a subagent (issue #593)', () => {
+  // The cause of the incident. The guard used to allow a subagent's
+  // `worktree remove <path>` when <path>, resolved against the shell's
+  // directory, lay inside the worktree holding its cwd. Two readings of
+  // <path> are wrong there, both checked on git 2.34.1 in a throwaway repo:
+  // git also takes a worktree by the last component of its path (from
+  // agent-a, `git worktree remove agent-b` removed the sibling), and a
+  // variable is not a path at all. Both resolved "inside its own worktree".
+  it('refuses the forms that used to pass as "its own worktree"', () => {
+    for (const cmd of [
+      'git worktree remove b', // git: the worktree whose path ends in /b
+      'git worktree remove --force b',
+      'git worktree remove "$WT"',
+      `WT=${WT_B}; git worktree remove "$WT"`,
+      'git worktree remove $(pwd)',
+      'git worktree remove "$(git rev-parse --show-toplevel)"',
+      'for w in a b; do git worktree remove --force "$w"; done',
+      'git worktree move b ../c',
+    ]) {
+      expect(denied(cmd, WT_A), cmd).toContain('worktree cleanup to the orchestrator');
+    }
+    // From the main checkout a bare name resolved to "inside the primary
+    // checkout", the subagent's own cwd: it passed too.
+    expect(denied('git worktree remove b', MAIN)).toContain('worktree cleanup');
+  });
+
+  it('refuses its own worktree too, however it is named', () => {
+    for (const cmd of [
+      `git worktree remove ${WT_A}`,
+      'git worktree remove .',
+      'git worktree remove --force .',
+      `cd ${MAIN} && git worktree remove .claude/worktrees/a`,
+      `git -C ${MAIN} worktree remove --force ${WT_A}`,
+      `git status --short && cd ${MAIN} && git worktree remove --force ${WT_A} && git branch -a`,
+      'git worktree move . ../c',
+    ]) {
+      expect(denied(cmd, WT_A), cmd).toContain('its own worktree included');
+    }
+  });
+
+  it('refuses a prune, which drops any worktree whose directory is missing', () => {
+    for (const cmd of [
+      'git worktree prune',
+      'git worktree prune -v',
+      'git worktree prune --expire now',
+      `rm -rf ${WT_B} && git worktree prune`,
+      `git -C ${MAIN} worktree prune`,
+    ]) {
+      expect(denied(cmd, WT_A), cmd).toContain('git worktree prune');
+      allowed(cmd, MAIN, 'main');
+    }
+  });
+
+  it('keeps the read-only and additive worktree commands', () => {
+    for (const cmd of [
+      'git worktree list',
+      'git worktree list --porcelain',
+      'git worktree prune -n',
+      'git worktree prune --dry-run -v',
+      'git worktree add -b fix/x /tmp/x origin/main',
+      'git worktree add --detach /tmp/y origin/main',
+      'git worktree lock .',
+      'git worktree remove -h',
+      'git worktree remove --help',
+      'git worktree -h',
+    ]) {
+      allowed(cmd, WT_A);
+      allowed(cmd, MAIN);
+    }
+  });
+
+  it('keeps the main session free to remove, move and prune', () => {
+    for (const cmd of [
+      `git worktree remove ${WT_A}`,
+      'git worktree remove a',
+      'git worktree remove --force "$WT"',
+      `git worktree move ${WT_A} /tmp/moved`,
+      'git worktree prune',
+      `cd - && git -C ${MAIN} worktree remove --force ${SCRATCH}`,
+    ]) {
+      allowed(cmd, MAIN, 'main');
+    }
+  });
+});
+
+describe('git guard: branches are shared by every worktree (issue #593)', () => {
+  it('refuses a subagent update-ref on a branch, in its own worktree too', () => {
+    // Checked on git 2.34.1: from one worktree, `update-ref refs/heads/main`
+    // moved the branch the primary checkout was on, and `update-ref -d`
+    // deleted the branch another worktree had checked out.
+    for (const cmd of [
+      'git update-ref -d refs/heads/old',
+      'git update-ref refs/heads/main abc123',
+      'git update-ref -m "reset" refs/heads/main abc123',
+      'git update-ref --no-deref -d refs/heads/wb',
+      'git update-ref "refs/heads/$b" abc123',
+      'git update-ref --stdin',
+      'git update-ref --stdin -z < refs.txt',
+    ]) {
+      expect(denied(cmd, WT_A), cmd).toContain('for every worktree');
+      expect(denied(cmd, MAIN), cmd).toContain('for every worktree');
+      // The main session keeps what it had: free in the primary checkout,
+      // refused in another session's worktree.
+      allowed(cmd, MAIN, 'main');
+      denied(`cd ${WT_B} && ${cmd}`, MAIN, 'main');
+    }
+  });
+
+  it('keeps update-ref on refs of the own worktree and on non-branch refs', () => {
+    for (const cmd of [
+      'git update-ref HEAD abc123',
+      'git update-ref -d ORIG_HEAD',
+      'git update-ref -d CHERRY_PICK_HEAD',
+      'git update-ref refs/worktree/tmp abc123',
+      'git update-ref refs/remotes/pr/5 FETCH_HEAD',
+      'git update-ref -d refs/remotes/pr/5',
+    ]) {
+      allowed(cmd, WT_A);
+      // Still a ref rewrite: not in a checkout the subagent does not own.
+      expect(denied(cmd, MAIN), cmd).toContain('primary checkout');
+    }
+    allowed('git update-ref -h', MAIN);
+  });
+
+  it('refuses force-creating a branch that another worktree has checked out', () => {
+    // Checked on git 2.34.1: `checkout -B main` and `switch -C wb` from a
+    // third worktree both succeed and move the branch under its checkout.
+    for (const cmd of [
+      'git checkout -B main origin/main',
+      'git checkout -q -B main',
+      'git switch -C wb',
+      'git switch --force-create main origin/main',
+      'git worktree add -B main /tmp/w origin/main',
+      `git status && git checkout -B main origin/main`,
+    ]) {
+      expect(denied(cmd, WT_A), cmd).toContain('which is checked out in');
+    }
+    for (const cmd of [
+      'git checkout -B wa origin/main', // the branch this worktree is on
+      'git checkout -B fresh origin/main',
+      'git switch -C fresh',
+      'git checkout -b main2 origin/main',
+      'git switch -c feat/x',
+      'git checkout -B "$b" origin/main', // only known at run time: not judged
+    ]) {
+      allowed(cmd, WT_A);
+    }
+    // In the primary checkout the subagent is refused as before, the main
+    // session allowed as before.
+    expect(denied('git checkout -B wb', MAIN)).toContain('primary checkout');
+    allowed('git checkout -B wb', MAIN, 'main');
+  });
+
+  it('reads the checked-out branches from the git directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'guard-heads-'));
+    tmpRoots.push(root);
+    const main = join(root, 'main');
+    const wt = join(root, 'wt', 'agent-a');
+    const admin = join(main, '.git', 'worktrees', 'agent-a');
+    mkdirSync(admin, { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(join(main, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    writeFileSync(join(admin, 'HEAD'), 'ref: refs/heads/wa\n');
+    writeFileSync(join(admin, 'commondir'), '../..\n');
+    writeFileSync(join(admin, 'gitdir'), `${join(wt, '.git')}\n`);
+    writeFileSync(join(wt, '.git'), `gitdir: ${admin}\n`);
+    // A stale entry and a detached worktree are left out, not fatal.
+    mkdirSync(join(main, '.git', 'worktrees', 'stale'));
+    const detached = join(main, '.git', 'worktrees', 'detached');
+    mkdirSync(detached);
+    writeFileSync(join(detached, 'HEAD'), '0123456789abcdef0123456789abcdef01234567\n');
+    writeFileSync(join(detached, 'gitdir'), `${join(root, 'wt', 'detached', '.git')}\n`);
+    const expected = [
+      { branch: 'main', top: main },
+      { branch: 'wa', top: wt },
+    ];
+    expect(guard.checkedOut(wt)).toEqual(expected);
+    expect(guard.checkedOut(main)).toEqual(expected);
+    expect(guard.checkedOut(join(root, 'nowhere'))).toEqual([]);
+    // End to end on that layout, with the real lookups.
+    const ask = (command: string) =>
+      guard.decide({ cwd: wt, tool_input: { command }, agent_id: 'a1' });
+    expect(ask('git checkout -B main origin/main').deny).toContain(`checked out in ${main}`);
+    expect(ask('git checkout -B wa origin/main')).toEqual({ allow: true });
+    expect(ask('git switch -C fresh')).toEqual({ allow: true });
+  });
+
+  it('still refuses a subagent every branch deletion, and reads branch listings as listings', () => {
+    for (const cmd of [
+      'git branch -d old',
+      'git branch --delete old',
+      'git branch --delete --force old',
+      'git branch -rd origin/old',
+      'git branch -m new-name',
+      'git branch --sort -committerdate -D old',
+    ]) {
+      expect(denied(cmd, WT_A), cmd).toContain('branch cleanup');
+    }
+    for (const cmd of [
+      // Refused before #593: the sort key was read as a cluster of flags.
+      'git branch --sort -committerdate',
+      'git branch -a --sort -committerdate --format "%(refname:short)"',
+      'git branch --sort=-committerdate',
+      'git branch --show-current',
+      'git branch -vv',
+      'git branch --merged main',
+      'git branch --contains HEAD -r',
+      'git branch -c copy',
+      'git branch -h',
+      'git branch -D old -h', // prints the usage, deletes nothing (checked)
+    ]) {
+      allowed(cmd, WT_A);
+      allowed(cmd, MAIN);
+    }
+  });
+});
+
+describe('git guard: gh pr checkout and read-only commands (issue #593)', () => {
+  it('treats `gh pr checkout` as the checkout it is', () => {
+    expect(denied('gh pr checkout 12', MAIN)).toContain('primary checkout');
+    expect(denied('gh pr checkout 12 --force', MAIN)).toContain('gh pr checkout');
+    expect(denied('gh -R gymcoach-app/gymcoach pr checkout 12', MAIN)).toContain('primary');
+    expect(denied(`cd ${MAIN} && gh pr checkout 12`, WT_A)).toContain('primary checkout');
+    expect(denied(`cd ${WT_B} && gh pr checkout 12`, WT_A)).toContain(WT_B);
+    allowed('gh pr checkout 12', WT_A);
+    allowed('gh pr checkout 12', MAIN, 'main');
+    for (const cmd of [
+      'gh pr view 12 --json state',
+      'gh pr checkout --help',
+      'gh pr list --search "checkout"',
+      'gh pr create --title "fix: gh pr checkout in the main checkout" --body x',
+      'gh api repos/o/r/pulls/12',
+      'gh issue view 593 --comments',
+    ]) {
+      allowed(cmd, MAIN);
+    }
+  });
+
+  it('does not refuse read-only commands, in the main checkout either', () => {
+    for (const cmd of [
+      'git log --oneline -5',
+      'git status --short && git diff --stat',
+      'git for-each-ref --sort=-committerdate refs/heads',
+      'git show-ref -d',
+      'git reflog -5',
+      'git ls-remote --heads origin',
+      'git rev-parse --abbrev-ref HEAD',
+      'git config --get remote.origin.url',
+      'git remote -v',
+      'git blame -L 1,5 README.md',
+      'git grep -n "git worktree remove" -- docs',
+      'git log --grep "reset --hard" -3',
+      'git show HEAD:automation/README.md | grep -n "worktree remove"',
+      'git diff --stat origin/main...HEAD -- . ":(exclude)package-lock.json"',
+      'git commit -q -m "docs: say git branch -D is refused"',
+      'git stash list',
+      'git stash -h',
+      'git stash drop -h',
+      'git stash show -p stash@{0}',
+      'git cherry -v origin/main',
+      'git merge-base origin/main HEAD',
+      'git check-ignore -v node_modules',
+      'git cat-file -p HEAD',
+      'git describe --tags --always',
+      'git tag -l',
+      'git shortlog -sn',
+      'git name-rev HEAD',
+      'git clean -nd',
+      'git rebase --show-current-patch',
+      'git symbolic-ref --short HEAD',
+      'git symbolic-ref -q HEAD',
+      'git restore --staged lib/a.ts',
+      'git worktree list --porcelain | grep -c worktree',
+      'echo "branch: $(git branch --show-current)"',
+      'echo "head: `git rev-parse --short HEAD`"',
+      'cd "$(git rev-parse --show-toplevel)" && git status -sb',
+    ]) {
+      allowed(cmd, MAIN);
+      allowed(cmd, WT_A);
+    }
+    // Help is only read right after a stash action: a later -h is not trusted.
+    expect(denied('git stash drop stash@{0} -h', WT_A)).toContain('stash stack');
   });
 });

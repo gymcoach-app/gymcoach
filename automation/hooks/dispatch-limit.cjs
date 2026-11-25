@@ -48,10 +48,32 @@
 // running when the budget is crossed are not stopped: the overrun is bounded
 // by the concurrency limit.
 //
-// Failure policy: fail open. Any error in the hook exits 0 and lets the call
-// through, with a one-line note on stderr; a broken hook must not freeze the
-// session. Disable with GYMCOACH_MAX_SUBAGENTS=off (the budget still applies
-// when set).
+// Failure policy: fail open, and say so. Any error in the hook exits 0 and
+// lets the call through; a broken hook must not freeze the session, and an
+// error is never turned into a refusal. A refusal only ever comes from a count
+// or a spend that was actually read. Disable with GYMCOACH_MAX_SUBAGENTS=off
+// (the budget still applies when set).
+//
+// A busy state lock is not an error (issue #593). When the lock cannot be
+// taken within LOCK_WAIT_MS (a saturated machine, or a lock left by a hook
+// that died less than LOCK_STALE_MS ago), the hook does its work WITHOUT the
+// lock instead of letting the call through uncounted: it still counts, still
+// refuses at the limit and still leaves its reservation. Every state file is
+// written whole under its own name (temp file, then rename), so the only thing
+// lost without the lock is exactness between calls that race: N calls deciding
+// in the same instant can overshoot the limit by N-1, where the old behaviour
+// lifted the limit for all of them and left no reservation. A lock that can
+// never be taken therefore cannot lock anybody out either.
+//
+// Visibility: whenever a check was skipped or weakened (an internal error, a
+// lock-free count, a state entry that could not be read and was not counted),
+// the hook prints one `dispatch-limit: ...` line on stderr, returns the same
+// text as a hook `systemMessage` on stdout (exit 0 only; Claude Code shows it
+// in the session, where stderr of a passing hook is only in the debug log) and
+// appends a line (time, event, reason code, session key; no path, no text) to
+// <state root>/skipped.log, so a limit that did not apply leaves a trace.
+// Not covered: a hook killed by Claude Code's own hook timeout (10 s in
+// .claude/settings.json) never gets to say anything; the call goes through.
 //
 // Written for old Node too (no optional chaining or ??), like the other hooks.
 
@@ -66,6 +88,9 @@ const RESERVATION_MS = 120 * 1000;
 const LOCK_WAIT_MS = 3000;
 const LOCK_STALE_MS = 15 * 1000;
 const SPIN_MS = 20;
+const LOCK_TIMEOUT = 'ELOCKTIMEOUT';
+const SKIP_LOG = 'skipped.log';
+const SKIP_LOG_MAX_BYTES = 1024 * 1024;
 const AGENT_TOOLS = ['Agent', 'Task'];
 
 function stateRoot(env) {
@@ -118,18 +143,29 @@ function agentTranscript(input) {
   );
 }
 
+// Waits SPIN_MS without burning a core where the runtime can sleep: a hook
+// that waits for the lock on a saturated machine must not add to the load
+// that made it wait. The busy loop is the fallback for a Node without
+// SharedArrayBuffer.
 function spin() {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SPIN_MS);
+    return;
+  } catch {
+    // no SharedArrayBuffer or Atomics here: spin instead
+  }
   const until = Date.now() + SPIN_MS;
   while (Date.now() < until) {
-    // brief spin: hooks are short-lived and Atomics.wait is not on old Node
+    // brief spin: hooks are short-lived
   }
 }
 
 // A tiny cross-process lock: mkdir is atomic. A lock older than
 // LOCK_STALE_MS belongs to a hook that died and is taken over.
 // Every path through the loop checks the deadline, so a lock that cannot be
-// taken or cleared ends in 'lock timeout' (and the caller fails open), never
-// in a spin. A .lock that is not a directory is debris: it is removed.
+// taken or cleared ends in a 'lock timeout' error (code ELOCKTIMEOUT, thrown
+// before fn runs; handle() then works without the lock), never in a spin. A
+// .lock that is not a directory is debris: it is removed.
 function withLock(dir, fn) {
   fs.mkdirSync(dir, { recursive: true });
   const lock = path.join(dir, '.lock');
@@ -141,7 +177,11 @@ function withLock(dir, fn) {
     } catch (e) {
       if (!e || e.code !== 'EEXIST') throw e;
     }
-    if (Date.now() > deadline) throw new Error('lock timeout');
+    if (Date.now() > deadline) {
+      const timeout = new Error('lock timeout');
+      timeout.code = LOCK_TIMEOUT;
+      throw timeout;
+    }
     try {
       const st = fs.statSync(lock);
       if (!st.isDirectory()) fs.unlinkSync(lock);
@@ -163,20 +203,55 @@ function withLock(dir, fn) {
   }
 }
 
-function entries(dir) {
+// withLock, or fn without the lock when the lock stays busy (see the header).
+// The note makes the weaker count visible.
+function lockedOrNot(dir, notes, fn) {
   try {
-    return fs.readdirSync(dir).filter(function (f) {
-      return f.charAt(0) !== '.';
-    });
-  } catch {
-    return [];
+    return withLock(dir, fn);
+  } catch (e) {
+    if (!e || e.code !== LOCK_TIMEOUT) throw e;
   }
+  notes.push({
+    code: 'lock-busy',
+    text:
+      'the state lock stayed busy for ' +
+      LOCK_WAIT_MS / 1000 +
+      ' s, so the lock was skipped and this call was counted without it (calls that race ' +
+      'each other can overshoot GYMCOACH_MAX_SUBAGENTS by one each)',
+  });
+  return fn();
+}
+
+// A state file appears whole or not at all: a reader without the lock never
+// sees a half-written entry. The temp name starts with a dot, so entries()
+// ignores it.
+function writeEntry(dir, name, content) {
+  const tmp = path.join(dir, '.tmp-' + process.pid + '-' + name);
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, path.join(dir, name));
+}
+
+// No state directory yet means no entries. Any other failure to list it
+// (EACCES, EMFILE, ENFILE, EIO) is thrown: counting zero there would lift the
+// limit without a word, so the caller fails open visibly instead.
+function entries(dir) {
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return [];
+    throw e;
+  }
+  return names.filter(function (f) {
+    return f.charAt(0) !== '.';
+  });
 }
 
 // An entry is { t: start time, transcript: path or null }; a bare number (the
 // first version of this hook) reads as a start time with no transcript.
 function readEntry(dir, name) {
   const raw = fs.readFileSync(path.join(dir, name), 'utf8');
+  if (!raw.trim()) throw new Error('empty entry'); // Number('') would read as 0
   const n = Number(raw);
   if (Number.isFinite(n)) return { t: n, transcript: null };
   const j = JSON.parse(raw);
@@ -205,20 +280,40 @@ function alive(entry, env, now) {
 }
 
 // Live running entries and reservations of one session, as names.
+// `unreadable` counts entries that exist but could not be read: they are not
+// counted (an error is never turned into a refusal), and the caller says so.
+// An entry removed between the listing and the read (SubagentStop takes no
+// lock) is simply gone.
 function census(dir, env, now) {
   const running = [];
   const pending = [];
+  let unreadable = 0;
   entries(dir).forEach(function (f) {
+    if (f.indexOf('running-') !== 0 && f.indexOf('pending-') !== 0) return;
     let e;
     try {
       e = readEntry(dir, f);
-    } catch {
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') unreadable += 1;
       return;
     }
     if (f.indexOf('running-') === 0 && alive(e, env, now)) running.push(f);
     if (f.indexOf('pending-') === 0 && now - e.t < RESERVATION_MS) pending.push(f);
   });
-  return { running: running, pending: pending };
+  return { running: running, pending: pending, unreadable: unreadable };
+}
+
+function noteUnreadable(notes, c) {
+  if (!c.unreadable) return;
+  notes.push({
+    code: 'unreadable-entry',
+    text:
+      c.unreadable +
+      (c.unreadable === 1 ? ' state entry' : ' state entries') +
+      ' could not be read and ' +
+      (c.unreadable === 1 ? 'was' : 'were') +
+      ' not counted (the limit may be looser than set)',
+  });
 }
 
 const SPENT_KINDS = ['input', 'output', 'cacheCreation5m', 'cacheCreation1h'];
@@ -281,10 +376,17 @@ function sessionSpend(ledgerFile, sessionKey) {
   return { known: known, unknownParts: unknownParts, agents: agents };
 }
 
-// Hook input in, decision out: { deny: string } or { allow: true }. Writes
+// Hook input in, decision out: { deny: string } or { allow: true }, either
+// with `notes` ({ code, text }) when a check was skipped or weakened. Writes
 // the session's state as a side effect. `now` is injectable for tests.
 function handle(input, env, now) {
-  const at = now || Date.now();
+  const notes = [];
+  const decision = decide(input, env, now || Date.now(), notes);
+  if (notes.length) decision.notes = notes;
+  return decision;
+}
+
+function decide(input, env, at, notes) {
   const event = input && input.hook_event_name;
   if (!input || typeof input.session_id !== 'string') return { allow: true };
   const dir = sessionDir(env, input.session_id);
@@ -293,9 +395,10 @@ function handle(input, env, now) {
     if (AGENT_TOOLS.indexOf(input.tool_name) === -1) return { allow: true };
     const max = maxSubagents(env);
     const budget = tokenBudget(env);
-    return withLock(dir, function () {
+    return lockedOrNot(dir, notes, function () {
       if (max !== null) {
         const c = census(dir, env, at);
+        noteUnreadable(notes, c);
         const busy = c.running.length + c.pending.length;
         if (busy >= max)
           return {
@@ -341,29 +444,46 @@ function handle(input, env, now) {
           };
       }
       const key = 'pending-' + usage.hash(String(input.tool_use_id || at + Math.random()));
-      fs.writeFileSync(path.join(dir, key), String(at));
+      writeEntry(dir, key, String(at));
       return { allow: true };
     });
   }
 
   if (event === 'SubagentStart') {
     if (typeof input.agent_id !== 'string') return { allow: true };
-    return withLock(dir, function () {
-      const c = census(dir, env, at);
-      if (c.pending.length) {
-        const oldest = c.pending
-          .map(function (f) {
-            return { f: f, t: startedAt(dir, f) };
-          })
-          .sort(function (a, b) {
-            return a.t - b.t;
-          })[0];
-        fs.unlinkSync(path.join(dir, oldest.f));
-      }
-      fs.writeFileSync(
-        path.join(dir, 'running-' + usage.hash(input.agent_id)),
+    return lockedOrNot(dir, notes, function () {
+      // The running entry first: whatever happens next, this subagent counts.
+      writeEntry(
+        dir,
+        'running-' + usage.hash(input.agent_id),
         JSON.stringify({ t: at, transcript: agentTranscript(input) }),
       );
+      // Then convert one reservation, oldest first. Without the lock another
+      // start may take the same one: try the next, so two starts never clear
+      // a single reservation between them and leave the other standing.
+      const c = census(dir, env, at);
+      noteUnreadable(notes, c);
+      const oldestFirst = c.pending
+        .map(function (f) {
+          let t = 0;
+          try {
+            t = startedAt(dir, f);
+          } catch {
+            // gone in between: the unlink below fails the same way and moves on
+          }
+          return { f: f, t: t };
+        })
+        .sort(function (a, b) {
+          return a.t - b.t;
+        });
+      for (let i = 0; i < oldestFirst.length; i++) {
+        try {
+          fs.unlinkSync(path.join(dir, oldestFirst[i].f));
+          break;
+        } catch (e) {
+          if (!e || e.code !== 'ENOENT') throw e;
+        }
+      }
       return { allow: true };
     });
   }
@@ -406,6 +526,68 @@ function handle(input, env, now) {
   return { allow: true };
 }
 
+// One line per skipped or weakened check: time, event, reason code, session
+// key. Never a path or a message. Best effort, and bounded.
+function logSkips(env, input, codes) {
+  try {
+    const root = stateRoot(env);
+    const file = path.join(root, SKIP_LOG);
+    fs.mkdirSync(root, { recursive: true });
+    try {
+      if (fs.statSync(file).size > SKIP_LOG_MAX_BYTES) return;
+    } catch {
+      // no log yet
+    }
+    const event = input && typeof input.hook_event_name === 'string' ? input.hook_event_name : '-';
+    const key = input && typeof input.session_id === 'string' ? usage.hash(input.session_id) : '-';
+    fs.appendFileSync(
+      file,
+      codes
+        .map(function (code) {
+          return [
+            new Date().toISOString(),
+            event.replace(/[^A-Za-z]/g, '') || '-',
+            String(code).replace(/[^A-Za-z0-9_-]/g, ''),
+            key,
+          ].join(' ');
+        })
+        .join('\n') + '\n',
+    );
+  } catch {
+    // the trace is a convenience: never a reason to fail
+  }
+}
+
+// Says that a check was skipped or weakened: stderr always, the skip log, and
+// (when the call is let through) a hook systemMessage on stdout.
+function report(env, input, notes, allowed) {
+  if (!notes.length) return;
+  const lines = notes.map(function (n) {
+    return 'dispatch-limit: ' + n.text;
+  });
+  process.stderr.write(lines.join('\n') + '\n');
+  logSkips(
+    env,
+    input,
+    notes.map(function (n) {
+      return n.code;
+    }),
+  );
+  if (allowed) process.stdout.write(JSON.stringify({ systemMessage: lines.join(' ') }) + '\n');
+}
+
+// The error code only (a message could name a path).
+function skipped(code) {
+  return {
+    code: 'skipped-' + code,
+    text:
+      'skipped (' +
+      code +
+      '): the subagent limit and the token budget were not checked for this event, ' +
+      'which was let through',
+  };
+}
+
 function main() {
   let raw = '';
   process.stdin.setEncoding('utf8');
@@ -413,21 +595,26 @@ function main() {
     raw += d;
   });
   process.stdin.on('error', function () {
+    report(process.env, null, [skipped('stdin')], true);
     process.exit(0);
   });
   process.stdin.on('end', function () {
+    let input = null;
     let decision = { allow: true };
     try {
-      decision = handle(JSON.parse(raw), process.env);
+      input = JSON.parse(raw);
+      decision = handle(input, process.env);
     } catch (e) {
-      // Fail open; the error code only (a message could name a path).
-      process.stderr.write('dispatch-limit: skipped (' + ((e && e.code) || 'error') + ')\n');
+      // Fail open, visibly.
+      report(process.env, input, [skipped(String((e && e.code) || 'error'))], true);
       process.exit(0);
     }
     if (decision.deny) {
       process.stderr.write(decision.deny + '\n');
+      report(process.env, input, decision.notes || [], false);
       process.exit(2);
     }
+    report(process.env, input, decision.notes || [], true);
     process.exit(0);
   });
 }
@@ -442,6 +629,7 @@ module.exports = {
   sessionDir,
   withLock,
   agentTranscript,
+  LOCK_WAIT_MS,
 };
 
 if (require.main === module) main();

@@ -17,15 +17,27 @@
 //   - a subagent may not move HEAD or clobber files in a primary checkout (a
 //     directory whose `.git` is a directory, such as the main checkout every
 //     session and the operator share), nor in a linked worktree other than
-//     the one its cwd is in; nor remove another worktree or delete or force
-//     a branch;
+//     the one its cwd is in; nor remove, move or prune any worktree, its
+//     own included, nor delete, force or rename a branch, nor rewrite a
+//     branch ref with `update-ref` (branches belong to every worktree), nor
+//     force-create (`checkout -B`, `switch -C`, `worktree add -B`) a branch
+//     that another worktree has checked out;
 //   - the main session (the operator's, or the orchestrator's) may do so in a
 //     primary checkout, but not in another session's linked worktree;
 //   - nobody may pop, drop or take an untagged entry of the shared stash.
 // "Own" checkout: the worktree that contains the `cwd` of the hook input.
 // A subagent may also not pull, merge or amend a commit in a primary checkout.
+// `gh pr checkout` is treated like `git checkout <ref>`.
 // Everything else is allowed, including read-only git, fetch, commit, push,
 // `git worktree add -b`, and restoring a single file.
+//
+// It is a guard against accidents, not a sandbox. It reads the command the
+// way a shell would (compound commands, subshells, `$(...)` and backticks in
+// or out of double quotes, `bash -c`, `eval`, `trap`, wrappers, env prefixes,
+// `cd` and `git -C`), and stops there: a git call built in a variable, behind
+// an alias or a shell function defined elsewhere, in a script file, or in a
+// here-document fed to a shell is not seen, and neither is a ref deleted
+// through `git push`.
 //
 // Failure policy: an internal error in this script allows the command (exit
 // 0) so a broken guard cannot brick every Bash call; a git command this
@@ -82,6 +94,8 @@ var WRAPPERS = {
   command: {},
   time: { '-f': true, '-o': true },
   nohup: {},
+  setsid: {},
+  taskset: {},
   exec: { '-a': true },
   sudo: { '-u': true, '-g': true, '-C': true, '-h': true, '-p': true, '-U': true, '-D': true },
   nice: { '-n': true, '--adjustment': true },
@@ -104,25 +118,70 @@ var WRAPPERS = {
   },
 };
 // Wrappers that take one positional argument before the command.
-var WRAPPER_POSITIONAL = { timeout: 1 };
+var WRAPPER_POSITIONAL = { timeout: 1, taskset: 1 };
 var GIT_ENV = /^(GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR)=/;
 
 // --- Tokenizer -------------------------------------------------------------
 
+// Index of the `)` that closes a `$(` whose body starts at `from`, or -1.
+// Quotes inside the body are skipped, so a `)` in a string does not close it.
+function closingParen(input, from) {
+  var depth = 1;
+  for (var i = from; i < input.length; i++) {
+    var c = input[i];
+    if (c === '\\') {
+      i++;
+    } else if (c === "'") {
+      var q = input.indexOf("'", i + 1);
+      if (q < 0) return -1;
+      i = q;
+    } else if (c === '"') {
+      var j = i + 1;
+      while (j < input.length && input[j] !== '"') j += input[j] === '\\' ? 2 : 1;
+      if (j >= input.length) return -1;
+      i = j;
+    } else if (c === '(') {
+      depth++;
+    } else if (c === ')') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+// Index of the backtick that closes the one before `from`, or -1.
+function closingBacktick(input, from) {
+  for (var i = from; i < input.length; i++) {
+    if (input[i] === '\\') i++;
+    else if (input[i] === '`') return i;
+  }
+  return -1;
+}
+
 // Splits a shell command into tokens. Operators (&&, ||, ;, |, &, newline,
-// parentheses, `$(`) become separate operator tokens. Returns null when the
-// quoting is unbalanced.
+// parentheses, `$(`) become separate operator tokens. A word that holds a
+// command substitution the shell runs while building it (`"$(...)"` inside
+// double quotes, backticks anywhere) carries the substitution's text in
+// `subs`, so those commands are checked too. Returns null when the quoting is
+// unbalanced.
 function tokenize(input, lenient) {
   var tokens = [];
   var cur = '';
   var has = false; // a word is in progress (even an empty quoted one)
   var dynamic = false; // the word contains $ or ` (expansion we cannot resolve)
+  var subs = []; // command substitutions inside the word in progress
   var i = 0;
   function push() {
-    if (has) tokens.push({ t: 'w', v: cur, dyn: dynamic });
+    if (has) {
+      var word = { t: 'w', v: cur, dyn: dynamic };
+      if (subs.length) word.subs = subs;
+      tokens.push(word);
+    }
     cur = '';
     has = false;
     dynamic = false;
+    subs = [];
   }
   while (i < input.length) {
     var c = input[i];
@@ -164,6 +223,28 @@ function tokenize(input, lenient) {
           closed = true;
           break;
         }
+        if (d === '$' && input[j + 1] === '(' && input[j + 2] !== '(') {
+          // "$(...)": the shell runs it. Keep its text in the word and its
+          // commands for the check; quotes inside it do not end this string.
+          var endSub = closingParen(input, j + 2);
+          if (endSub >= 0) {
+            subs.push(input.slice(j + 2, endSub));
+            buf += input.slice(j, endSub + 1);
+            dynamic = true;
+            j = endSub + 1;
+            continue;
+          }
+        }
+        if (d === '`') {
+          var endTickDq = closingBacktick(input, j + 1);
+          if (endTickDq >= 0) {
+            subs.push(input.slice(j + 1, endTickDq).replace(/\\([`$\\])/g, '$1'));
+            buf += input.slice(j, endTickDq + 1);
+            dynamic = true;
+            j = endTickDq + 1;
+            continue;
+          }
+        }
         if (d === '$' || d === '`') dynamic = true;
         buf += d;
         j++;
@@ -179,6 +260,18 @@ function tokenize(input, lenient) {
       tokens.push({ t: 'op', v: '(', sub: true });
       i += 2;
       continue;
+    }
+    if (c === '`') {
+      // `...`: one word part whose commands the shell runs.
+      var endTick = closingBacktick(input, i + 1);
+      if (endTick >= 0) {
+        subs.push(input.slice(i + 1, endTick).replace(/\\([`$\\])/g, '$1'));
+        cur += input.slice(i, endTick + 1);
+        dynamic = true;
+        has = true;
+        i = endTick + 1;
+        continue;
+      }
     }
     if (c === '$' || c === '`') {
       dynamic = true;
@@ -316,9 +409,29 @@ function commandsOf(tokens, cwd, home) {
     if (words.length) handle(words);
     words = [];
   }
+  // Commands of a script given as text (`bash -c`, `eval`, `trap`, a
+  // substitution inside a word), run from `from` (null: unknown).
+  function nestedScript(text, from, gitEnv) {
+    var inner = tokenize(text);
+    if (inner === null) {
+      out.push({ unparsable: true, text: text, dir: dir });
+      return;
+    }
+    var nested = commandsOf(inner, from === null ? cwd : from, home);
+    for (var n = 0; n < nested.length; n++) {
+      if (from === null) nested[n].dir = null;
+      if (gitEnv) nested[n].gitEnv = true;
+      out.push(nested[n]);
+    }
+  }
   function handle(ws) {
     var k = 0;
     var gitEnv = exportedGitEnv;
+    // Substitutions inside this command's words run first, where the shell is.
+    for (var s = 0; s < ws.length; s++) {
+      if (!ws[s].subs) continue;
+      for (var b = 0; b < ws[s].subs.length; b++) nestedScript(ws[s].subs[b], dir, gitEnv);
+    }
     var viaXargs = false;
     // A wrapper's own chdir option (`env -C <dir>`, `sudo -D <dir>`) applies
     // to this command only.
@@ -332,6 +445,11 @@ function commandsOf(tokens, cwd, home) {
       var w = ws[k].v;
       if (KEYWORDS[w]) {
         k++;
+        continue;
+      }
+      if (w === 'function' && k === 0 && ws.length > 2) {
+        // `function name { ...`: the body's first command follows the name.
+        k += 2;
         continue;
       }
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
@@ -391,17 +509,42 @@ function commandsOf(tokens, cwd, home) {
     }
     var script = SHELLS[name] ? shellScript(rest) : null;
     if (script) {
-      var inner = tokenize(script.v);
-      if (inner === null) {
-        out.push({ unparsable: true, text: script.v, dir: dir });
-        return;
+      nestedScript(script.v, cmdDir, gitEnv);
+      return;
+    }
+    if (name === 'eval' && rest.length > 1) {
+      // eval joins its arguments and runs the result as a command line.
+      nestedScript(
+        rest
+          .slice(1)
+          .map(function (r) {
+            return r.v;
+          })
+          .join(' '),
+        cmdDir,
+        gitEnv,
+      );
+      return;
+    }
+    if (name === 'trap' && rest.length > 2 && rest[1].v !== '-' && !/^-[lp]$/.test(rest[1].v)) {
+      // trap '<commands>' EXIT: they run later, from wherever the shell is then.
+      nestedScript(rest[1].v, cmdDir, gitEnv);
+      return;
+    }
+    if (name === 'gh') {
+      // `gh pr checkout <n>` switches the branch of the checkout it runs in.
+      var gw = [];
+      for (var q = 1; q < rest.length; q++) {
+        if (rest[q].v === '-R' || rest[q].v === '--repo') q++;
+        else gw.push(rest[q].v);
       }
-      var nested = commandsOf(inner, cmdDir === null ? cwd : cmdDir, home);
-      for (var n = 0; n < nested.length; n++) {
-        if (cmdDir === null) nested[n].dir = null;
-        if (gitEnv) nested[n].gitEnv = true;
-        out.push(nested[n]);
-      }
+      if (
+        gw[0] === 'pr' &&
+        (gw[1] === 'checkout' || gw[1] === 'co') &&
+        gw.indexOf('--help') < 0 &&
+        gw.indexOf('-h') < 0
+      )
+        out.push({ gh: true, dir: cmdDir, gitEnv: gitEnv });
       return;
     }
     if (name === 'git')
@@ -498,6 +641,25 @@ function hasMessage(args) {
 
 var PATH_WIDE = /^(\.|\.\/|\*|:\/|:\(top\)|:\(glob\).*|:\/\*)$/;
 
+// `-h` or `--help` among the options (before any `--`): git prints the usage
+// of the subcommand and does nothing else.
+function helpAsked(args) {
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] === '--') return false;
+    if (args[i] === '-h' || args[i] === '--help') return true;
+  }
+  return false;
+}
+
+// The word after one of `flags`, or null.
+function valueOf(args, flags) {
+  for (var i = 0; i < args.length - 1; i++) if (flags.indexOf(args[i]) >= 0) return args[i + 1];
+  return null;
+}
+
+// Refs that each worktree has for itself; every other ref is shared.
+var PER_WORKTREE_REF = /^(HEAD|[A-Z][A-Z_]*_HEAD|refs\/(worktree|bisect|rewritten)\/.+)$/;
+
 // Returns { reason, scope } when the command needs a location check, where
 // scope is 'head' (moves HEAD or rewrites refs or files: refused outside the
 // session's own checkout) or 'subagent' (only refused for subagents outside
@@ -511,6 +673,12 @@ function classify(sub, args, ctx) {
     function () {
       return false;
     };
+  // Checked on git 2.34.1: `git stash drop -h`, `git branch -D x -h` and
+  // `git worktree remove -h <path>` print the usage (exit 129) and change
+  // nothing. For stash and worktree only right after the action, where it
+  // cannot be the value of an option or follow a positional argument.
+  if (sub === 'branch' && helpAsked(args)) return null;
+  if ((sub === 'stash' || sub === 'worktree') && helpAsked(args.slice(0, 2))) return null;
   if (sub === 'stash') {
     var action = args[0];
     if (action === undefined || action.charAt(0) === '-') {
@@ -541,10 +709,15 @@ function classify(sub, args, ctx) {
   }
   if (sub === 'worktree') {
     if (args[0] === 'remove' || args[0] === 'move') {
-      var wt = args.slice(1).filter(function (a) {
-        return a.charAt(0) !== '-';
-      })[0];
-      return { reason: '`git worktree ' + args[0] + '`', scope: 'worktree', path: wt || null };
+      return { reason: '`git worktree ' + args[0] + '`', scope: 'worktree' };
+    }
+    if (args[0] === 'prune') {
+      // It drops the entry of every worktree whose directory is missing at
+      // that moment, whoever owns it. A dry run only lists them.
+      var dryRun = args.some(function (a) {
+        return a === '--dry-run' || /^-[a-zA-Z]*n/.test(a);
+      });
+      return dryRun ? null : { reason: '`git worktree prune`', scope: 'worktree' };
     }
     if (args[0] === 'add') {
       var forced = args.some(function (a) {
@@ -555,15 +728,23 @@ function classify(sub, args, ctx) {
             reason:
               '`git worktree add --force/-B` resets a branch or reuses one checked out elsewhere',
             scope: 'head',
+            forceBranch: valueOf(args, ['-B']),
           }
         : null;
     }
     return null;
   }
   if (sub === 'branch') {
-    var destructive = args.some(function (a) {
-      return /^-[a-zA-Z]*[DdfMmC]/.test(a) || /^--(delete|force|move|copy)$/.test(a);
-    });
+    var destructive = false;
+    for (var bi = 0; bi < args.length; bi++) {
+      if (args[bi] === '--') break;
+      if (args[bi] === '--sort' || args[bi] === '--format') {
+        bi++; // its value is a key or a format, even when it starts with `-`
+        continue;
+      }
+      if (/^-[a-zA-Z]*[DdfMmC]/.test(args[bi]) || /^--(delete|force|move|copy)$/.test(args[bi]))
+        destructive = true;
+    }
     return destructive
       ? {
           reason: '`git branch ' + args.join(' ') + '` deletes, forces or renames a branch',
@@ -616,7 +797,11 @@ function classify(sub, args, ctx) {
   if (sub === 'checkout') {
     if (args.length === 0) return null;
     if (args.indexOf('-b') >= 0 || args.indexOf('-B') >= 0)
-      return head('`git checkout -b` moves HEAD');
+      return {
+        reason: '`git checkout -b` moves HEAD',
+        scope: 'head',
+        forceBranch: valueOf(args, ['-B']),
+      };
     var dd = args.indexOf('--');
     var before = (dd >= 0 ? args.slice(0, dd) : args).filter(function (a) {
       return a.charAt(0) !== '-';
@@ -676,7 +861,12 @@ function classify(sub, args, ctx) {
     }
     return null;
   }
-  if (sub === 'switch') return head('`git switch` moves HEAD');
+  if (sub === 'switch')
+    return {
+      reason: '`git switch` moves HEAD',
+      scope: 'head',
+      forceBranch: valueOf(args, ['-C', '--force-create']),
+    };
   if (sub === 'reset') {
     var flags = args.filter(function (a) {
       return a.charAt(0) === '-';
@@ -710,6 +900,28 @@ function classify(sub, args, ctx) {
       return a === '-u' || a === '--reset' || /^-[a-zA-Z]*u/.test(a);
     });
     return updates ? head('`git read-tree -u` rewrites the index and the files') : null;
+  }
+  if (sub === 'update-ref') {
+    // update-ref [-m <reason>] [--no-deref] (-d <ref> [<old>] | <ref> <new> [<old>] | --stdin)
+    var ref = null;
+    for (var ui = 0; ui < args.length && ref === null; ui++) {
+      if (args[ui] === '-m') ui++;
+      else if (args[ui].charAt(0) !== '-') ref = args[ui];
+    }
+    var named = ref !== null && args.indexOf('--stdin') < 0;
+    if (named && PER_WORKTREE_REF.test(ref)) return head('`git update-ref` rewrites a ref');
+    // A branch, or refs the guard cannot read (--stdin, a variable): branches
+    // are shared by every worktree, so the checkout it runs in protects nobody.
+    if (!named || /^refs\/heads\//.test(ref) || /[$`]/.test(ref))
+      return {
+        reason:
+          '`git update-ref` on ' +
+          (named && /^refs\/heads\//.test(ref)
+            ? 'the branch ref ' + ref
+            : 'refs named at run time'),
+        scope: 'shared-ref',
+      };
+    return head('`git update-ref` rewrites a ref');
   }
   if (sub === 'symbolic-ref' || sub === 'update-ref') {
     var nonFlag = args.filter(function (a) {
@@ -758,6 +970,59 @@ function findTop(dir) {
 function exists(p) {
   return statOrNull(p) !== null;
 }
+
+function realOrSame(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+// The branches checked out in the worktrees of the repository that the
+// checkout `top` belongs to, as [{ branch, top }], read from its git
+// directory (HEAD of the primary checkout and of each `worktrees/<name>`).
+// Anything unreadable is left out: this only ever adds a refusal.
+function checkedOut(top) {
+  var out = [];
+  function add(headFile, wtTop) {
+    try {
+      var m = /^ref: refs\/heads\/(.+)$/m.exec(fs.readFileSync(headFile, 'utf8'));
+      if (m) out.push({ branch: m[1].trim(), top: wtTop });
+    } catch {
+      // unreadable: unknown
+    }
+  }
+  try {
+    var dotGit = path.join(top, '.git');
+    var common = dotGit;
+    if (!fs.statSync(dotGit).isDirectory()) {
+      var link = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+      if (!link) return out;
+      var gitDir = path.resolve(top, link[1].trim());
+      common = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
+    }
+    add(path.join(common, 'HEAD'), path.dirname(common));
+    var names = [];
+    try {
+      names = fs.readdirSync(path.join(common, 'worktrees'));
+    } catch {
+      // no linked worktree
+    }
+    names.forEach(function (n) {
+      var admin = path.join(common, 'worktrees', n);
+      try {
+        var wtGit = fs.readFileSync(path.join(admin, 'gitdir'), 'utf8').trim();
+        add(path.join(admin, 'HEAD'), path.dirname(path.resolve(admin, wtGit)));
+      } catch {
+        // a stale entry
+      }
+    });
+  } catch {
+    // not a layout this reads: unknown
+  }
+  return out;
+}
 function statOrNull(p) {
   try {
     return fs.statSync(p);
@@ -788,7 +1053,7 @@ function decide(input, opts) {
   var subagent = !!(input && input.agent_id);
   // Prefilter on the command with quotes and backslashes removed, so `g""it`
   // or `g\it` still reaches the parser.
-  if (!/\bgit\b/.test(command.replace(/["'\\]/g, ''))) return { allow: true };
+  if (!/\b(git|gh)\b/.test(command.replace(/["'\\]/g, ''))) return { allow: true };
 
   var tokens = tokenize(command);
   var unbalanced = false;
@@ -805,12 +1070,12 @@ function decide(input, opts) {
   for (var i = 0; i < cmds.length; i++) {
     var c = cmds[i];
     if (c.unparsable) {
-      if (/\bgit\b/.test(c.text)) {
+      if (/\b(git|gh)\b/.test(c.text)) {
         return { deny: 'a nested shell command around git could not be parsed. ' + ADVICE };
       }
       continue;
     }
-    var g = parseGit(c.argv);
+    var g = c.gh ? { sub: 'gh', args: [], dirs: [], unknownTarget: false } : parseGit(c.argv);
     // An absolute `git -C /abs` names its target even when the shell
     // directory is unknown (after `cd -`); a relative one needs it.
     var base = c.dir;
@@ -818,11 +1083,13 @@ function decide(input, opts) {
       if (path.isAbsolute(g.dirs[k])) base = path.resolve(g.dirs[k]);
       else base = base === null ? null : path.resolve(base, g.dirs[k]);
     }
-    var verdict = classify(g.sub, g.args, {
-      isPath: function (p) {
-        return base !== null && p.charAt(0) !== '-' && pathExists(path.resolve(base, p));
-      },
-    });
+    var verdict = c.gh
+      ? { reason: '`gh pr checkout` moves HEAD', scope: 'head' }
+      : classify(g.sub, g.args, {
+          isPath: function (p) {
+            return base !== null && p.charAt(0) !== '-' && pathExists(path.resolve(base, p));
+          },
+        });
     if (
       c.viaXargs &&
       (GUARDED[g.sub] || g.sub === 'stash' || g.sub === 'branch' || g.sub === 'worktree')
@@ -865,9 +1132,38 @@ function decide(input, opts) {
       }
       continue;
     }
-    // A main session may remove or move any worktree, and need not know where
-    // the shell is (the documented gate cleanup runs after `cd -`).
-    if (verdict.scope === 'worktree' && !subagent) continue;
+    // A main session may remove, move or prune any worktree, and need not know
+    // where the shell is (the documented gate cleanup runs after `cd -`). A
+    // subagent may not, whatever the path: git also takes a worktree by the
+    // last component of its path (`git worktree remove agent-b` from anywhere),
+    // and a path in a variable is only known at run time, so "its own
+    // worktree" cannot be told from somebody else's by reading the command
+    // (issue #593). Its own worktree is the orchestrator's to remove too.
+    if (verdict.scope === 'worktree') {
+      if (!subagent) continue;
+      return {
+        deny:
+          verdict.reason +
+          '; a subagent leaves worktree cleanup to the orchestrator, its own worktree ' +
+          'included (the orchestrator removes worktrees after the merge). Leave the ' +
+          'worktree in place and name it in your report.',
+      };
+    }
+    // A branch belongs to every worktree: moving or deleting its ref from the
+    // subagent's own worktree still pulls it from under whoever has it checked
+    // out. The main session keeps the rule of the other ref rewrites.
+    if (verdict.scope === 'shared-ref') {
+      if (subagent) {
+        return {
+          deny:
+            verdict.reason +
+            ' moves or deletes a branch for every worktree, whichever checkout it runs in; ' +
+            'a subagent leaves branch cleanup to the orchestrator. To move the branch you ' +
+            'are on, commit or `git reset` in your own worktree.',
+        };
+      }
+      verdict.scope = 'head';
+    }
     if (verdict.scope === 'subagent-primary' && !subagent) continue;
     if (base === null || g.unknownTarget || c.gitEnv) {
       return {
@@ -876,21 +1172,6 @@ function decide(input, opts) {
       };
     }
     var target = base;
-    if (verdict.scope === 'worktree') {
-      if (!verdict.path) {
-        return { deny: verdict.reason + ' without a path. ' + ADVICE };
-      }
-      var wt = top(path.resolve(base, verdict.path));
-      if (wt && own && wt.top === own.top) continue;
-      return {
-        deny:
-          verdict.reason +
-          ' on ' +
-          path.resolve(base, verdict.path) +
-          ", which is not this subagent's own worktree; the orchestrator removes worktrees. " +
-          ADVICE,
-      };
-    }
     var t = top(target);
     if (!t) continue; // not a repository: git will fail on its own
     if (verdict.scope === 'subagent-primary') {
@@ -931,6 +1212,24 @@ function decide(input, opts) {
           '. ' +
           ADVICE,
       };
+    }
+    // In its own worktree a subagent may force-create a branch, unless that
+    // branch is checked out elsewhere: git 2.34.1 moves it anyway (checked).
+    if (subagent && verdict.forceBranch) {
+      var holders = (opts.checkedOut || checkedOut)(t.top);
+      for (var h = 0; h < holders.length; h++) {
+        if (holders[h].branch !== verdict.forceBranch) continue;
+        if (realOrSame(holders[h].top) === realOrSame(t.top)) continue;
+        return {
+          deny:
+            'it would reset the branch `' +
+            verdict.forceBranch +
+            '`, which is checked out in ' +
+            holders[h].top +
+            ' (git 2.34 does not refuse that, and the other checkout is left with ' +
+            'its files showing as changed). Pick another branch name.',
+        };
+      }
     }
   }
   return { allow: true };
@@ -999,6 +1298,7 @@ module.exports = {
   classify: classify,
   decide: decide,
   findTop: findTop,
+  checkedOut: checkedOut,
 };
 
 if (require.main === module) main();

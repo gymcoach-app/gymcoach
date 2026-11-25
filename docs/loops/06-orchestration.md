@@ -131,7 +131,8 @@ reverted forward, re-shipped as PR #279).
   carries `agent_id`) is refused `git checkout <ref>`, `git switch`, `git reset --hard`/
   `<commit>`, `git clean -f`, rebase-like commands and path-wide restores when their target
   (after `cd`, `pushd` or `git -C`) is a primary checkout, such as the main checkout, or a
-  worktree other than its own, and it may not remove another worktree or delete a branch.
+  worktree other than its own, and it may not remove, move or prune a worktree (its own
+  included: the orchestrator removes worktrees), delete a branch or rewrite a branch ref.
   The **main session** keeps the main checkout but is refused in another session's worktree.
   Everyone is refused the stash forms that act on the shared stack without a tag. A tick
   starts its branch with `git fetch origin && git worktree add -b <branch> <path> origin/main`
