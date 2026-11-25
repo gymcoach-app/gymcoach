@@ -71,6 +71,7 @@ export const programs = {
     catalogEmpty: 'De catalogus is leeg. Voeg eerst een oefening toe in Catalogus.',
     supersetUpdateError: 'Kon de superset niet bijwerken.',
     reorderError: 'Kon de nieuwe volgorde niet opslaan.',
+    reorderAnnouncement: '{name} verplaatst naar positie {position} van {total}.',
     supersetLimit: 'Maximum aantal supersets voor deze sessie bereikt.',
     supersetPaired: 'Oefeningen gekoppeld als superset.',
     supersetRemoved: 'Superset verwijderd.',
@@ -112,6 +113,9 @@ export const programs = {
     notes: 'Notities (optioneel)',
     moveUp: 'Omhoog verplaatsen',
     moveDown: 'Omlaag verplaatsen',
+    dragHandle: '{name} verplaatsen',
+    dragHint:
+      'Sleep om deze oefening te verplaatsen, of druk op de pijltoetsen omhoog en omlaag. Escape annuleert het slepen.',
     pairPrevious: 'Koppelen aan vorige',
     unpair: 'Superset ontkoppelen',
     superset: 'Superset {label}',

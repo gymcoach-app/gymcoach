@@ -72,6 +72,7 @@ export const programs = {
     catalogEmpty: 'Katalog jest pusty. Najpierw dodaj ćwiczenie w Katalogu.',
     supersetUpdateError: 'Nie udało się zaktualizować superserii.',
     reorderError: 'Nie udało się zapisać nowej kolejności.',
+    reorderAnnouncement: '{name}: pozycja {position} z {total}.',
     supersetLimit: 'Osiągnięto limit superserii w tej sesji.',
     supersetPaired: 'Ćwiczenia połączone w superserię.',
     supersetRemoved: 'Superseria usunięta.',
@@ -111,6 +112,9 @@ export const programs = {
     notes: 'Notatki (opcjonalnie)',
     moveUp: 'Przesuń w górę',
     moveDown: 'Przesuń w dół',
+    dragHandle: 'Zmień kolejność: {name}',
+    dragHint:
+      'Przeciągnij, aby przenieść to ćwiczenie, albo naciśnij strzałkę w górę lub w dół. Escape anuluje przeciąganie.',
     pairPrevious: 'Połącz z poprzednim',
     unpair: 'Rozłącz superserię',
     superset: 'Superseria {label}',

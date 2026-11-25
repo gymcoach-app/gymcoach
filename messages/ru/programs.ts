@@ -71,6 +71,7 @@ export const programs = {
     catalogEmpty: 'Каталог пуст. Сначала добавьте упражнение в разделе «Упражнения».',
     supersetUpdateError: 'Не удалось изменить суперсет.',
     reorderError: 'Не удалось сохранить новый порядок.',
+    reorderAnnouncement: '{name}: позиция {position} из {total}.',
     supersetLimit: 'Достигнут предел суперсетов для этой тренировки.',
     supersetPaired: 'Упражнения объединены в суперсет.',
     supersetRemoved: 'Суперсет удалён.',
@@ -110,6 +111,9 @@ export const programs = {
     notes: 'Заметки (необязательно)',
     moveUp: 'Переместить вверх',
     moveDown: 'Переместить вниз',
+    dragHandle: 'Изменить порядок: {name}',
+    dragHint:
+      'Перетащите, чтобы переместить упражнение, или нажимайте стрелки вверх и вниз. Escape отменяет перетаскивание.',
     pairPrevious: 'Объединить с предыдущим',
     unpair: 'Разъединить суперсет',
     superset: 'Суперсет {label}',

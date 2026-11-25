@@ -69,6 +69,7 @@ export const programs = {
     catalogEmpty: 'Der Katalog ist leer. Füge zuerst eine Übung im Katalog hinzu.',
     supersetUpdateError: 'Supersatz konnte nicht aktualisiert werden.',
     reorderError: 'Die neue Reihenfolge konnte nicht gespeichert werden.',
+    reorderAnnouncement: '{name} auf Position {position} von {total} verschoben.',
     supersetLimit: 'Supersatz-Limit für diese Einheit erreicht.',
     supersetPaired: 'Übungen als Supersatz gepaart.',
     supersetRemoved: 'Supersatz entfernt.',
@@ -108,6 +109,9 @@ export const programs = {
     notes: 'Notizen (optional)',
     moveUp: 'Nach oben',
     moveDown: 'Nach unten',
+    dragHandle: '{name} verschieben',
+    dragHint:
+      'Ziehen, um diese Übung zu verschieben, oder die Pfeiltasten nach oben und unten drücken. Escape bricht das Ziehen ab.',
     pairPrevious: 'Mit vorigem paaren',
     unpair: 'Supersatz auflösen',
     superset: 'Supersatz {label}',

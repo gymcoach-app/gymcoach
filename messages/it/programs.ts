@@ -71,6 +71,7 @@ export const programs = {
     catalogEmpty: 'Il catalogo è vuoto. Aggiungi prima un esercizio in Catalogo.',
     supersetUpdateError: 'Impossibile aggiornare la superserie.',
     reorderError: 'Impossibile salvare il nuovo ordine.',
+    reorderAnnouncement: '{name}: posizione {position} di {total}.',
     supersetLimit: 'Limite di superserie raggiunto per questa sessione.',
     supersetPaired: 'Esercizi abbinati in superserie.',
     supersetRemoved: 'Superserie rimossa.',
@@ -112,6 +113,9 @@ export const programs = {
     notes: 'Note (facoltative)',
     moveUp: 'Sposta su',
     moveDown: 'Sposta giù',
+    dragHandle: 'Riordina {name}',
+    dragHint:
+      'Trascina per spostare questo esercizio, oppure premi i tasti freccia su e giù. Esc annulla il trascinamento.',
     pairPrevious: 'Abbina al precedente',
     unpair: 'Separa la superserie',
     superset: 'Superserie {label}',
