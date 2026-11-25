@@ -1103,7 +1103,9 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   (`GYMCOACH_HEAVY_SLOTS=1 taskset -c 4-11`): the unit and integration tiers were green in
   all five runs, the first from load 6 to 12.5. It is not a controlled comparison, since
   fewer things competed as well. E2E still failed in the two pinned runs that ended at load
-  12.5 and 11.5, and passed in the three that ended at load 3.5 to 5. The orchestrator's
+  12.5 and 11.5, and passed in the three that ended at load 3.5 to 5. The pin has a limit:
+  on 2026-11-25 a pinned default gate of this write-up (one run at a time, other work on the
+  machine, load 8 to 15) failed one `strava-archive` unit test on time. The orchestrator's
   first attempt was wrong twice: its waiter polled `pgrep -f` with a pattern that matched
   its own command line, so it never started, and it set `VITEST_MAX_WORKERS=3` for the whole
   gate, which an implementer reported breaks the integration tier (54 foreign-key failures
