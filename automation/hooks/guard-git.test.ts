@@ -1197,28 +1197,27 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
     allowed(`echo "$(cat <<''\na ) paren\n\n)" && git status`, MAIN);
   });
 
-  it('reads a here-string and arithmetic as what they are', () => {
-    // `<<<` is a here-string: its substitution runs.
-    expect(denied('cat <<<$(git switch main)', MAIN)).toContain('primary checkout');
-    expect(denied('cat <<< "$(git switch main)"', MAIN)).toContain('primary checkout');
-    expect(denied('cat <<<"$(git switch main)"', MAIN)).toContain('primary checkout');
-    expect(denied('cat <<< $(git switch main)', MAIN)).toContain('primary checkout');
-    expect(denied('cat <<<`git switch main`', MAIN)).toContain('primary checkout');
-    expect(denied('cat 0<<<"x `git switch main`" | wc -c', MAIN)).toContain('primary checkout');
-    allowed('cat <<<"$(git status -sb)"', MAIN);
-    // The text is not an argument of the command it feeds.
-    expect(denied('git stash <<<"x"', WT_A)).toContain('stash stack');
-    expect(denied('git stash <<<$(echo x)', WT_A)).toContain('stash stack');
-    expect(denied("cat <<<'x' && git switch main", MAIN)).toContain('primary checkout');
-    allowed("cat <<<'git switch main'", MAIN);
-    // `<<` inside $((...)) is a shift, not a here-document that would swallow
-    // the next lines.
-    expect(denied('echo $((1<<2))\ngit switch main', MAIN)).toContain('primary checkout');
-    expect(denied('n=$(( (x << 2) + 1 )); git switch main', MAIN)).toContain('primary checkout');
-    allowed('echo $((1<<2))\ngit status', MAIN);
-    // Two words in a row are commands, not arithmetic.
-    expect(denied('echo $((git switch main))', MAIN)).toContain('primary checkout');
-    expect(denied('echo $(( $(git switch main) ))', MAIN)).toContain('primary checkout');
+  it('still refuses what sits in or after $((...)) and a here-string, as before #593', () => {
+    // $((...)) and `<<<` are read the way the guard read them before #593
+    // (their limits are in automation/README.md). A reading of them as
+    // arithmetic or as a word was tried in the review of #595 and let these
+    // through, so they are pinned here.
+    for (const arithmetic of [
+      'n=$((2*(a+(b))))',
+      'n=$(( (a+(b)) * 2 ))',
+      'n=$(( $(date +$(b)) + 1 ))',
+    ]) {
+      const cmd = `(cd ${MAIN} && ${arithmetic} && git switch main)`;
+      expect(denied(cmd, WT_A), cmd).toBeTruthy();
+    }
+    for (const cmd of [
+      'echo $(( $(git $X) ))',
+      'echo $((git ${X}))',
+      'echo $(( $(git 2>&1 pull) ))',
+    ]) {
+      expect(denied(cmd, MAIN), cmd).toBeTruthy();
+    }
+    expect(denied('git stash <<<"x"$(y)', WT_A)).toContain('stash stack');
   });
 
   it('reads a nested script with unbalanced quotes leniently, like the top level', () => {

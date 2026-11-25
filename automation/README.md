@@ -56,8 +56,7 @@ the app never imports this directory and the Docker image does not ship it
   quotes, backticks in or out of them; a `cd` inside one stays inside it) and in the body
   of a here-document whose delimiter is unquoted (the shell expands that body; with
   `<<'EOF'`, `<<"EOF"` or `<<\EOF` the body is text; every here-document announced on a
-  line has its body skipped, a here-string `<<<` is a word whose substitutions run, and
-  `<<` inside `$((...))` is a shift), and treats
+  line has its body skipped), and treats
   `GIT_DIR=`/`GIT_WORK_TREE=`
   (also exported) as an unknown target. `-h`/`--help` right after a stash or worktree
   action, or among the options of `git branch`, is read as the usage request it is (git
@@ -96,8 +95,11 @@ its owner; a git call hidden in a variable (`$GIT`, `eval "$cmd"`), an alias (`g
 shell function defined elsewhere, a script file, a here-document fed to a shell or a
 wrapper the parser does not know (`flock`, `watch`, `strace`) is not
 inspected; a `$'...'` string is read as a plain quoted one, so an escaped quote in it
-(`$'it\'s'`) can hide the commands up to the next quote, and a `<<` inside a bare
-`((...))` (without `$`) is read as a here-document; `merge` and `pull` are not guarded; `git branch -D` by the main session is
+(`$'it\'s'`) can hide the commands up to the next quote; a `<<` that is a shift inside
+`$((...))`, bare or inside a quoted `$(...)`, is read as a here-document, so
+`echo $((1<<2))` can hide the lines after it; the target of a here-string (`<<<word`) is
+skipped like a redirection target, so a substitution in it is read for some spellings
+only (`<<<$(...)` is, backticks are not); `merge` and `pull` are not guarded; `git branch -D` by the main session is
 allowed (git itself refuses to delete a branch checked out in a worktree); the hook guards
 Claude Code sessions in this project, not humans or other tools.
 
