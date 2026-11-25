@@ -49,7 +49,10 @@ export function LoginForm() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: '', password: '' },
+    // No defaultValues on purpose: with them, react-hook-form writes '' into
+    // each input when it mounts, which erases whatever was typed or autofilled
+    // into the server-rendered form before the page hydrated (slow phone, slow
+    // network). Without them it adopts what the inputs already hold (#593).
   });
 
   async function loginAsDemo() {
@@ -103,7 +106,15 @@ export function LoginForm() {
             </Button>
           </div>
         )}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        {/* method="post": a submit that fires before hydration is a native one,
+            and the default GET would put the password in the URL, the browser
+            history and the server access log (#593). */}
+        <form
+          method="post"
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-4"
+          noValidate
+        >
           <div className="space-y-2">
             <Label htmlFor="email">{common('fields.email')}</Label>
             <Input

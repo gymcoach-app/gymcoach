@@ -86,6 +86,10 @@ Podman, whichever is available.
 The project uses a three-tier test setup. Please add or update tests with your
 change.
 
+Unit tests run in Node. A test that needs a DOM (every component test) starts
+with the line `// @vitest-environment jsdom`; without it the test fails on
+`document is not defined`.
+
 ```bash
 npm run test              # unit + component (Vitest, jsdom)
 npm run test:coverage     # with coverage

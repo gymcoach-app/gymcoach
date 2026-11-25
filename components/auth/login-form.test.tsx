@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import userEvent from '@testing-library/user-event';
 
 // The router is irrelevant to these assertions; stub it so the component mounts.
@@ -86,5 +89,77 @@ describe('LoginForm demo banner', () => {
     );
 
     await waitFor(() => expect(deleted).toEqual(['api-get']));
+  });
+});
+
+// Issue #593. On a slow phone the server-rendered form is on screen well
+// before its JavaScript, and a password manager fills it at once.
+describe('LoginForm before hydration (#593)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  async function serverRendered() {
+    vi.resetModules();
+    const { LoginForm } = await import('./login-form');
+    const host = document.createElement('div');
+    host.innerHTML = renderToString(<LoginForm />);
+    document.body.appendChild(host);
+    return { host, LoginForm };
+  }
+
+  it('server-renders a form whose native submit cannot put the password in the URL', async () => {
+    const { host } = await serverRendered();
+    // Without a method a form submits as GET /login?email=...&password=...
+    expect(host.querySelector('form')?.getAttribute('method')).toBe('post');
+  });
+
+  it('keeps what was typed or autofilled before hydration and submits it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { host, LoginForm } = await serverRendered();
+    const email = host.querySelector('#email') as HTMLInputElement;
+    const password = host.querySelector('#password') as HTMLInputElement;
+    email.value = 'alex@example.com';
+    password.value = 'longenough1';
+
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(host, <LoginForm />);
+    });
+
+    expect(email).toHaveValue('alex@example.com');
+    expect(password).toHaveValue('longenough1');
+
+    await userEvent.click(within(host).getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/auth/login',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ email: 'alex@example.com', password: 'longenough1' }),
+        }),
+      ),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => root?.unmount());
+  });
+
+  it('still validates an untouched form after hydration', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { host, LoginForm } = await serverRendered();
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(host, <LoginForm />);
+    });
+
+    await userEvent.click(within(host).getByRole('button', { name: 'Sign in' }));
+
+    expect(await within(host).findByText('Invalid email')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => root?.unmount());
   });
 });

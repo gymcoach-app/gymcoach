@@ -1,7 +1,7 @@
 // Extends Vitest's `expect` with @testing-library/jest-dom matchers
 // (toBeInTheDocument, toHaveTextContent, ...) for component tests.
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import englishMessages from './messages/en';
 
 // Component tests render isolated client components without app/layout.tsx.
@@ -33,4 +33,80 @@ vi.mock('next-intl', async (importOriginal) => {
       return scoped;
     },
   };
+});
+
+// A test that times out is abandoned by Vitest, but its async body keeps
+// running. A user-event instance it created then goes on typing, and since a
+// keystroke goes to whatever element has the focus, the rest of its text lands
+// in the form the next test just rendered: one timeout under load became two
+// or three failures (issue #593, live-equipment-weight-editor). So every
+// instance belongs to the test that created it and refuses to act once that
+// test is over. An instance created outside a test (shared by a whole file)
+// is left alone.
+const USER_EVENT_TEST_OVER =
+  'user-event: the test that created this instance is over (it timed out or returned ' +
+  'without awaiting an action). The action was dropped so it cannot reach the next test.';
+let finishedTests = 0;
+let insideTest = false;
+beforeEach(() => {
+  insideTest = true;
+});
+afterEach(() => {
+  finishedTests += 1;
+  insideTest = false;
+});
+// Captured before any test installs fake timers.
+const realSetTimeout = globalThis.setTimeout;
+
+vi.mock('@testing-library/user-event', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@testing-library/user-event')>();
+  const real = actual.default;
+  type Options = NonNullable<Parameters<typeof real.setup>[0]>;
+  type Instance = ReturnType<typeof real.setup>;
+
+  // Options whose pause between two actions ends in an error once the test is
+  // over. The check runs after the pause, right before the next keystroke.
+  const bound = (options: Options | undefined, over: () => boolean): Options => ({
+    ...options,
+    advanceTimers: async (ms: number) => {
+      await options?.advanceTimers?.(ms);
+      await new Promise<void>((resolve, reject) => {
+        realSetTimeout(() => (over() ? reject(new Error(USER_EVENT_TEST_OVER)) : resolve()), 0);
+      });
+    },
+  });
+
+  // The instance, with every action refused once the test is over.
+  const guard = (instance: Instance, over: () => boolean): Instance =>
+    new Proxy(instance, {
+      get(target, prop, receiver) {
+        const value: unknown = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        if (prop === 'setup') {
+          return (...args: unknown[]) => guard(value.apply(target, args) as Instance, over);
+        }
+        return (...args: unknown[]) =>
+          over() ? Promise.reject(new Error(USER_EVENT_TEST_OVER)) : value.apply(target, args);
+      },
+    });
+
+  const ownerCheck = (): (() => boolean) | null => {
+    if (!insideTest) return null;
+    const born = finishedTests;
+    return () => finishedTests !== born;
+  };
+
+  const userEvent = {
+    ...real,
+    setup: (options?: Options) => {
+      const over = ownerCheck();
+      return over ? guard(real.setup(bound(options, over)), over) : real.setup(options);
+    },
+    // The one direct call that loops over several keystrokes.
+    type: (...[element, text, options]: Parameters<typeof real.type>) => {
+      const over = ownerCheck();
+      return real.type(element, text, over ? bound(options, over) : options);
+    },
+  };
+  return { ...actual, default: userEvent, userEvent };
 });

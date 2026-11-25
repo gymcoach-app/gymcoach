@@ -110,14 +110,52 @@ describe('scanAppleHealthExport', () => {
     expect(scanAppleHealthExport(FIXTURE, NOW)).toEqual(EXPECTED);
   });
 
-  it('gives the same result when the text is split at every position', () => {
-    for (let cut = 0; cut <= FIXTURE.length; cut++) {
-      const scanner = new AppleHealthScanner(NOW);
-      scanner.push(FIXTURE.slice(0, cut));
-      scanner.push(FIXTURE.slice(cut));
-      expect(scanner.end(), `cut at ${cut}`).toEqual(EXPECTED);
+  // Every cut position costs one full scan of the fixture, so the work grows
+  // with the square of its length: about 3 700 scans, 1.1 s on an idle core
+  // and past the 5 s limit on a busy machine (issue #593). The positions are
+  // therefore checked in ranges of SPLIT_RANGE, each its own test, and each
+  // range is held to a CPU budget: CPU time, unlike the wall clock, does not
+  // grow when other processes take the cores, so a scanner that became several
+  // times slower still fails here, on any machine.
+  const SPLIT_RANGE = 512;
+  const SPLIT_STARTS = Array.from(
+    { length: Math.ceil((FIXTURE.length + 1) / SPLIT_RANGE) },
+    (_, index) => index * SPLIT_RANGE,
+  );
+  // Measured: 0.2 to 0.3 s of CPU per range of 512 scans.
+  const SPLIT_RANGE_CPU_BUDGET_MS = 1500;
+
+  it('covers every split position, the end of the text included', () => {
+    const covered = SPLIT_STARTS.flatMap((start) => [
+      start,
+      Math.min(start + SPLIT_RANGE, FIXTURE.length + 1) - 1,
+    ]);
+    expect(covered[0]).toBe(0);
+    expect(covered.at(-1)).toBe(FIXTURE.length);
+    for (let i = 1; i < SPLIT_STARTS.length; i++) {
+      // Each range starts right after the previous one ends.
+      expect(covered[2 * i]).toBe(covered[2 * i - 1]! + 1);
     }
+    // The fixture is what sizes the work: a much longer one needs a new look
+    // at these numbers rather than a slower suite.
+    expect(FIXTURE.length).toBeLessThan(8_000);
   });
+
+  it.each(SPLIT_STARTS)(
+    'gives the same result when the text is split at every position (from %i)',
+    (start) => {
+      const end = Math.min(start + SPLIT_RANGE, FIXTURE.length + 1);
+      const cpu = process.cpuUsage();
+      for (let cut = start; cut < end; cut++) {
+        const scanner = new AppleHealthScanner(NOW);
+        scanner.push(FIXTURE.slice(0, cut));
+        scanner.push(FIXTURE.slice(cut));
+        expect(scanner.end(), `cut at ${cut}`).toEqual(EXPECTED);
+      }
+      const spent = process.cpuUsage(cpu);
+      expect((spent.user + spent.system) / 1000).toBeLessThan(SPLIT_RANGE_CPU_BUDGET_MS);
+    },
+  );
 
   it('gives the same result fed one byte at a time (multi-byte characters split)', () => {
     const bytes = new TextEncoder().encode(FIXTURE.replace('Scale &amp; Co', `Balance ${String.fromCodePoint(0xe9, 0x4f53, 0x1f600)}`));
