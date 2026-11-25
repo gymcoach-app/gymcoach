@@ -17,8 +17,9 @@ history of the browser used (and the devices it syncs to) and, until the app
 is next opened there, in its offline cache. Search your logs for `/login?`
 and `/signup?` with `password=` and redact what you find. For an affected
 account: change its password (an admin procedure, there is no self-service
-change), set a new `JWT_SECRET` and restart to end the sessions already open
-(a new password does not end them), review and revoke its MCP tokens, which
+change), set a new `JWT_SECRET` and recreate the app container (`docker
+compose up -d`; a plain `restart` keeps the old secret) to end the sessions
+already open (a new password does not end them), review and revoke its MCP tokens, which
 depend on neither, and change the password wherever else it was used. The
 steps are in `docs/faq.md`, "Could a password have ended up in a URL or a
 log?". What was typed or autofilled into these forms before the page became

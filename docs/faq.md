@@ -123,8 +123,10 @@ read:
    afterwards, with the second command given there.
 2. **Sign everyone out.** A new password does not end a session that was
    opened with the old one: sessions are signed tokens valid for 30 days and
-   are not stored on the server. Set a new `JWT_SECRET` and restart the app;
-   every session on the instance ends and everyone signs in again.
+   are not stored on the server. Set a new `JWT_SECRET` in `.env` and run
+   `docker compose up -d` (with the `-f` options you normally use), which
+   recreates the app; `docker compose restart` keeps the old secret. Every
+   session on the instance ends and everyone signs in again.
 3. **Review the account's MCP tokens** (Settings). A token is not tied to the
    password or to `JWT_SECRET`: it has no expiry and works until it is
    revoked. Someone who signed in with the leaked password could have created
