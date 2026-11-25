@@ -53,6 +53,23 @@ What did not change: unvetted code is never executed on the operator's host;
 the vetted list is granted by a human only; any security, blocking or major
 finding means no merge.
 
+Extension 2026-11-25 (operator, in session; adopted external **issues** only).
+The occasion was #591, the second step of #557 by @mattordev, an adopted external
+issue whose implementation touched `messages/**` (three strings in each of the 11
+locales) and no other hard-block path. Rule 2 of "External issues" made it
+human-only. The loop asked, offering "oui #591" (that PR only) or "oui messages"
+(all adopted external issues whose only hard-block path is `messages/**`). The
+operator answered, quoted verbatim: "oui messages" ("yes messages"). The rule as
+extended is rule 2 of "External issues" below. It widens nothing else: every
+other hard-block path, `i18n/**` included, still makes an adopted issue human-only.
+
+Recorded with it: the loop started #557's second step before checking rule 2, and
+the first step, #565 (merged 2026-11-16), had also touched `messages/**` (and no
+other hard-block path) and was merged by the loop without anyone noticing that
+rule 2 made it human-only. #591 was held after its review and green CI until the
+operator's answer. The extension does not make the #565 merge compliant after the
+fact.
+
 ## Trust tiers
 
 1. **Maintainers** - `author.login` in `{JulienAu, Julien-Au}`. Unchanged: the
@@ -392,7 +409,16 @@ the author's text - it re-derives the work itself.
 2. **Blast radius attaches to the change, not the author.** If the correct
    implementation of an adopted issue touches a hard-block path, it is a
    human task regardless of who would author the code - label it
-   `needs-maintainer` and leave the analysis in a comment.
+   `needs-maintainer` and leave the analysis in a comment. Check this **before**
+   starting the work, and again on the final file list before the merge.
+   **One exception** (operator, 2026-11-25): when `messages/**` is the **only**
+   hard-block path the implementation touches, the loop may implement the adopted
+   issue and merge its PR itself, when every pass is clean (no blocking, major or
+   security finding, green CI on the pinned SHA), the egress/backdoor and
+   threat-model lenses both ran on the diff and are both clean, and a rollback tag
+   `autonomy-baseline-<date>[suffix]` is pushed at the pre-merge `main` before the
+   merge call. Any other hard-block path, alone or next to `messages/**` (a Prisma
+   migration, `i18n/**`, any group B path), keeps the issue human-only.
 3. **Adoption**: for a clean, in-scope issue, the loop verifies the claim
    against the code, re-derives the requirement in its own words (never
    copying text verbatim), then implements it through the normal pipeline -

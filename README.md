@@ -212,6 +212,10 @@ on your own key - all self-hosted.
   ([example](docs/screenshots/history.png)). A session whose Finish is tapped
   more than 30 minutes after its last set ends at that set, so its duration
   stays real.
+- **Correct or backfill your history** - edit a finished session (date, start
+  time, duration, every set, exercises added or removed), or log a past workout
+  on its real date, from a workout or freestyle. Records, estimated 1RM, volume,
+  the next suggested load and the calendar follow the corrected data.
 - **Copy a workout as text** - one tap puts a finished session's recap on the
   clipboard, ready to paste into a chat or a training log.
 - **Share a workout as an image** - a finished session draws a 1080x1350
@@ -296,7 +300,10 @@ on your own key - all self-hosted.
   live session starts its inputs from that target.
 - **Exercise catalog** - searchable by name, on top of your custom exercises and
   muscle-group grouping. Star your favourites: they get their own section at
-  the top of the catalog and come first in the in-session pickers.
+  the top of the catalog and come first in the in-session pickers. Filter it by
+  muscle, on a front and back body silhouette or its list, and by "Only what my
+  gym has": dumbbell and barbell work hides when the saved gym has no such
+  weights, and so does any exercise you switched off for that gym.
 - **Duplicate and reuse** - copy a whole program or a single workout as a
   starting point, or save a finished session from the history as a workout
   in one of your programs.
@@ -592,7 +599,7 @@ than CI reaching in to a small VPS.
 - [x] Free exercise switching in a live session with a rest timer per exercise
 - [x] RPE as an alternative effort scale to RIR
 - [x] Free session without a program
-- [x] Move exercises up and down in a workout (drag-and-drop still open, #557)
+- [x] Reorder the exercises of a workout, by drag-and-drop or from the menu
 - [x] Cardio exercises prescribed by duration and distance in a program (first
       slice of #558)
 - [x] Heart rate in the coach context, and a watch file attached to a logged
@@ -602,6 +609,8 @@ than CI reaching in to a small VPS.
 - [x] Health endpoint and container healthcheck for self-hosters
 - [x] Apple Health export and Strava archive imports
 - [x] Kilometers or miles for cardio distance
+- [x] Edit a finished session and log a past workout
+- [x] Filter the exercise catalog by muscle and by your gym's equipment
 
 ## Contributing
 
@@ -673,8 +682,8 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   made the case for publishing the production image so self-hosters can pull
   instead of build (#310).
 - [@mattordev](https://github.com/mattordev) - asked for exercise reordering
-  in the program builder (#557) and for cardio-specific prescriptions (#558);
-  the first steps of both have shipped.
+  in the program builder (#557, shipped: menu and drag-and-drop) and for
+  cardio-specific prescriptions (#558, the first step has shipped).
 - [@gogoku121](https://github.com/gogoku121) - proposed the browsable
   exercise library built on an MIT-licensed dataset (#308, scoped and tracked
   as #320).

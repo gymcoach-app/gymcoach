@@ -56,6 +56,10 @@ changes on.
      `CLAUDE.md`, `docs/loops/**`, container, ignore and env files, `middleware.ts`, dependency
      manifests and lockfiles, executable configs, `.coderabbit.yaml`): verdict only, a
      human merges. The lists in the policy file are authoritative.
+   - **A PR of ours for an adopted external issue:** check its full file list against the
+     hard-block list before merging. Any hit is a human merge, except `messages/**` as the
+     only hit, under the conditions of rule 2 of "External issues" in the policy file
+     (lesson L66).
    Also skip if: draft, `state != OPEN`, `reviewDecision == CHANGES_REQUESTED`, or not
    targeting `main`. Report why it was skipped.
 
@@ -127,6 +131,9 @@ changes on.
    15's default (`node_modules/next/dist/shared/lib/modern-browserslist-target.js`: Chrome
    64, Edge 79, Firefox 67, Opera 51, Safari 12). The compiler lowers most syntax to it, but
    not regex features: a lookbehind is a syntax error on Safari before 16.4 (lesson L62).
+   If the change reads data that a screen, an API or an import writes, ask which of those
+   writers really produces the shape the tests use, and what the code does with data as the
+   UI produces it; if it edits stored data, ask what an untouched save writes (lesson L64).
    **A hardening race has a budget.** When the same security or validity control draws
    a new blocking or major bypass in three consecutive reviews, state the remaining round
    budget (at most two more) before the next fixup. When it is spent, stop hardening:

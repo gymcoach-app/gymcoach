@@ -1093,3 +1093,65 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
 - **Status:** graduated -> `ship-pr` step 4 (review questions, "If the change parses a file
   or archive a user picks", with the browser baseline named: Next.js 15's default list,
   Safari 12 and up, since the repository sets no browserslist).
+
+### L63 - Parallel full gates on one busy machine: queue them and pin each one, do not turn worker knobs
+- **Trigger:** 2026-11-24, #389, #402 and #557. Three implementers ran gates in parallel
+  on 12 cores next to unrelated Python jobs (load up to 33). Nine runs (eight `--full`, one
+  default) failed at the unit tier, almost all on timeouts (ledger, 16:16 to 18:01 UTC; the
+  last one had no other gate beside it, unpinned, load 7 to 17). L61 held: nothing was
+  pushed. From 18:10 UTC the gates ran one at a time, pinned to 8 cores
+  (`GYMCOACH_HEAVY_SLOTS=1 taskset -c 4-11`): the unit and integration tiers were green in
+  all five runs, the first from load 6 to 12.5. It is not a controlled comparison, since
+  fewer things competed as well. E2E still failed in the two pinned runs that ended at load
+  12.5 and 11.5, and passed in the three that ended at load 3.5 to 5. The orchestrator's
+  first attempt was wrong twice: its waiter polled `pgrep -f` with a pattern that matched
+  its own command line, so it never started, and it set `VITEST_MAX_WORKERS=3` for the whole
+  gate, which an implementer reported breaks the integration tier (54 foreign-key failures
+  with the variable at 2, green without; L33).
+- **Lesson:** gates of parallel tracks are queued by one owner. `taskset` lowers the worker
+  count where the tools compute it and leaves the integration tier's single worker alone; an
+  environment variable for the whole gate does not. Pinning is a way to run a gate, not a
+  substitute for a green one, and E2E still needs a calm machine. Test a waiter once before
+  relying on it.
+- **Status:** graduated -> `implement-issue` step 5 and `06-orchestration.md` ("Confirmed
+  pattern").
+
+### L64 - Ask which writer produces the test data, and what an untouched save writes
+- **Trigger:** 2026-11-24. #402's gym filter hid machine and cable exercises unless the gym
+  had a saved item of that type. The settings screen never creates items (only the API, the
+  MCP tools and a backup do), so for a gym made in the UI the filter would have hidden almost
+  every machine and cable exercise; the tests used gyms with items, data the UI cannot
+  produce. The review found it, and the rule was rewritten to follow the settings screen.
+  #389's review found two majors that its tests had not: a Save on an untouched form moved
+  the start time (by up to a minute, or by an hour in the hour daylight saving repeats), and
+  a set added while the session was being moved could be dated outside its session, because
+  the window was read outside the transaction.
+- **Lesson:** green tests on hand-built data do not say that the product can produce that
+  data. The review names the writer behind each fixture shape, and for an editor of stored
+  data it asks what saving without a change writes, and what two writes at once do.
+- **Status:** graduated -> `ship-pr` step 4 ("Review questions the prompt names").
+
+### L65 - Parallel agents share the scratchpad: give each one a file prefix
+- **Trigger:** 2026-11-24. The #402 and #557 implementers both left a PR body in the session
+  scratchpad, and their briefs gave no distinct file names: both wrote `pr-body.md` and one
+  overwrote the other. The lost text was recovered before any PR was opened.
+- **Lesson:** worktree isolation does not cover the scratchpad. A brief names the files an
+  agent may write there (a prefix per agent), as it names its branch.
+- **Status:** graduated -> `06-orchestration.md` ("Confirmed pattern").
+
+### L66 - Check the blast radius of an adopted issue before assigning it
+- **Trigger:** 2026-11-24, #557 step 2 (#591). `docs/loops/10` makes an adopted external
+  issue human-only when its implementation touches a hard-block path. The orchestrator
+  assigned the work without that check; the change touched `messages/**`. Looking back, step
+  1 (#565, merged by the loop on 2026-11-16) had touched `messages/**` too and nobody noticed.
+  The implementer flagged the author and the path in its report; the orchestrator held the
+  merge and asked. The operator's answer on 2026-11-25 ("oui messages") created a narrow
+  exception; the rollback tag `autonomy-baseline-2026-11-25` was pushed at the pre-merge
+  `main` (`4e061fb`) before #591 merged.
+- **Lesson:** almost any user-facing feature adds strings, so it touches `messages/**`.
+  Check the expected file list of an adopted issue against the hard-block list when assigning
+  it, check the real one again before the merge, and say so when an earlier merge missed it.
+- **Status:** graduated -> `docs/loops/10-external-contributions.md` (extension of
+  2026-11-25, rule 2 of "External issues"), `implement-issue` step 1, `triage`, `ship-pr`
+  step 1, pointers in `CLAUDE.md` and `07-autonomy.md`. The #565 merge stays recorded as a
+  miss.

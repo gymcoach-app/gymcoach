@@ -43,6 +43,9 @@ for repo conventions; this skill assumes them.
    before implementing: if the implementation would touch a hard-block path from
    `docs/loops/10-external-contributions.md`, STOP, label the issue `needs-maintainer`,
    and report - the blast radius attaches to the change, not to who authors the code.
+   Read that policy's rule 2 of "External issues" before writing code (#557 was started
+   without it): its one exception is `messages/**` as the only hard-block path, and that
+   exception has merge conditions. A new user-facing string touches `messages/**`.
 
 2. **Start clean, in your own worktree.** Never branch in the main checkout (the git guard
    refuses a subagent's `git switch` there, lessons L15/L38). If you run in an Agent
@@ -117,7 +120,11 @@ for repo conventions; this skill assumes them.
    draft (gh 2.4.0 has no `gh pr ready --undo`: use the GraphQL mutation
    `convertPullRequestToDraft`) and marks it ready only after a green local run on the
    pinned head. A unit-tier timeout under load is a performance defect to investigate
-   (lesson L42), not load to wave through.
+   (lesson L42), not load to wave through. When several gates wait on one busy machine, run
+   one at a time pinned to a part of the cores: `GYMCOACH_HEAVY_SLOTS=1 taskset -c 4-11 bash
+   scripts/verify.sh --full` (vitest sizes its pool from `os.availableParallelism()`, which
+   the pin lowers). Never set `VITEST_MAX_WORKERS` for the whole gate: it overrides the
+   integration tier's single worker (lessons L33, L63). The exit code must still be 0.
    **Read the gate's own exit code** (lesson L55): run it on its own line
    (`bash scripts/verify.sh > <log> 2>&1; status=$?`) and act on `$status` or on the
    `GREEN-GATE PASSED` line. Never pipe it into `tail` or `grep` in front of an `&&` that

@@ -181,3 +181,9 @@ tracks each) gets its worktrees from Agent isolation, which branches from the re
 the session's working directory. Launch it from the checkout, never with the scratchpad as
 the working directory: there the isolation cannot start and the launch fails at once
 (lesson L59). Check with `git rev-parse --show-toplevel` before the launch.
+
+Parallel tracks share the session's scratchpad and the machine (2026-11-24, lessons L63 and
+L65). Give each agent its own file prefix in the brief: two used `pr-body.md` and one
+overwrote the other's PR description. Queue the full gates and run them one at a time,
+pinned (`implement-issue`, step 5). A waiter that polls `pgrep -f <pattern>` matches its own
+command line; bracket one character of the pattern (`verif[y]`) or wait on a PID.

@@ -1166,3 +1166,33 @@ with their skill and playbook edits.
 
 **Trust the gate (lower risk):** the import UI components and their tests, the message
 catalogs, the FAQ additions, the docs here.
+
+## 2026-11-25 - edit and backfill history (#589), catalog filters (#590), drag-and-drop (#591)
+
+Merged: **#589**, **#590**, **#591**. In this PR: changelog fold, README, lessons L63 to L66,
+and a narrow extension of the external-issue policy.
+
+**Read first:**
+
+1. **This PR - the trust policy.** The diff of `docs/loops/10-external-contributions.md`,
+   `CLAUDE.md`, `docs/loops/07-autonomy.md` and `.claude/skills/`. Check that the text says
+   what "oui messages" meant: adopted external issues, `messages/**` as the only hard-block
+   path, all passes and both security lenses clean, rollback tag first, nothing else widened.
+2. **#589 - writes to finished history.** `gh pr diff 589`. `lib/session-edit.ts` (moving and
+   squeezing set timestamps), the row lock in `lib/goal-achievement.ts` and the 8-attempt
+   retry that set writes now share, the `amend: true` gate in
+   `app/api/sessions/[id]/sets/route.ts` and `app/api/sets/[id]/route.ts`, the raw `UPDATE ...
+   FROM (VALUES ...)`, and `PUT /api/sessions/[id]` no longer rewriting `finishedAt`. Known
+   limit: re-importing the file of a moved session duplicates it.
+3. **#590 - the gym rule.** `gh pr diff 590`. `gymAvailability` in `lib/exercise-filters.ts`:
+   machines and cables are never hidden by type. That is a product choice; a home gym with
+   only dumbbells still lists machines until they are switched off one by one.
+4. **#591 - pointer handling.** `gh pr diff 591`. The abort paths in
+   `components/programs/use-drag-reorder.ts`; the save goes through the step 1 endpoint,
+   unchanged.
+5. **Open reliability items.** The list in the autonomy-log entry: stuck signups under load,
+   unit tests near their limit, the dispatch-limit test that exited 0 once, the git guard
+   gap. The last two concern guardrails.
+
+**Trust the gate (lower risk):** the filter and drag component tests, the message catalogs
+(not checked by native speakers), the two screenshots.
