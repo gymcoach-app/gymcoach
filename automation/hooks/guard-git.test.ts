@@ -789,6 +789,15 @@ describe('git guard: branches are shared by every worktree (issue #593)', () => 
       'git switch --force-create main origin/main',
       'git worktree add -B main /tmp/w origin/main',
       `git status && git checkout -B main origin/main`,
+      // Every spelling git accepts for the option and its value.
+      'git checkout -Bmain origin/main',
+      'git checkout -fB main origin/main',
+      'git checkout -qfBmain',
+      'git switch -Cwb',
+      'git switch -fC wb',
+      'git switch --force-create=main origin/main',
+      'git worktree add -Bmain /tmp/w origin/main',
+      'git worktree add -fB main /tmp/w',
     ]) {
       expect(denied(cmd, WT_A), cmd).toContain('which is checked out in');
     }
@@ -799,9 +808,18 @@ describe('git guard: branches are shared by every worktree (issue #593)', () => 
       'git checkout -b main2 origin/main',
       'git switch -c feat/x',
       'git checkout -B "$b" origin/main', // only known at run time: not judged
+      'git checkout -Bfresh origin/main',
+      'git checkout -b main2 -B fresh', // -b takes `main2`; -B takes `fresh`
+      'git checkout -bmain origin/x', // a new branch named `main`: git refuses it itself
+      'git switch --force-create=fresh',
+      'git switch -cC', // a new branch named `C`
+      'git worktree add -Bfresh /tmp/w origin/main',
     ]) {
       allowed(cmd, WT_A);
     }
+    // `worktree add -B<name>` is a forced add like `-B <name>`: not in a
+    // checkout the subagent does not own.
+    expect(denied('git worktree add -Bfresh /tmp/w', MAIN)).toContain('primary checkout');
     // In the primary checkout the subagent is refused as before, the main
     // session allowed as before.
     expect(denied('git checkout -B wb', MAIN)).toContain('primary checkout');
@@ -877,6 +895,12 @@ describe('git guard: gh pr checkout and read-only commands (issue #593)', () => 
     expect(denied('gh pr checkout 12', MAIN)).toContain('primary checkout');
     expect(denied('gh pr checkout 12 --force', MAIN)).toContain('gh pr checkout');
     expect(denied('gh -R gymcoach-app/gymcoach pr checkout 12', MAIN)).toContain('primary');
+    expect(denied('gh --repo=gymcoach-app/gymcoach pr checkout 12', MAIN)).toContain('primary');
+    expect(denied('gh -Rgymcoach-app/gymcoach pr checkout 12', MAIN)).toContain('primary');
+    expect(denied('gh pr --repo gymcoach-app/gymcoach checkout 12', MAIN)).toContain('primary');
+    // New with #593 for the main session too: like `git checkout`, not in
+    // another session's worktree.
+    expect(denied(`cd ${WT_B} && gh pr checkout 12`, MAIN, 'main')).toContain(WT_B);
     expect(denied(`cd ${MAIN} && gh pr checkout 12`, WT_A)).toContain('primary checkout');
     expect(denied(`cd ${WT_B} && gh pr checkout 12`, WT_A)).toContain(WT_B);
     allowed('gh pr checkout 12', WT_A);
@@ -937,5 +961,289 @@ describe('git guard: gh pr checkout and read-only commands (issue #593)', () => 
     }
     // Help is only read right after a stash action: a later -h is not trusted.
     expect(denied('git stash drop stash@{0} -h', WT_A)).toContain('stash stack');
+  });
+});
+
+// Review of #595. Reading "$(...)" inside double quotes must not cost the two
+// things the plain reading had: prose in a message body is never refused, and
+// a command next to such a body is never hidden. The guard as it was before
+// #593 is kept as a fixture (automation/hooks/fixtures, the file at bbf7f1d)
+// so both can be checked against it.
+describe('git guard: message bodies and substitutions (issue #593, review of #595)', () => {
+  const before = require('./fixtures/guard-git.before-593.cjs') as Pick<typeof guard, 'decide'>;
+  const ask = (
+    g: Pick<typeof guard, 'decide'>,
+    command: string,
+    cwd: string,
+    who: 'subagent' | 'main',
+  ) =>
+    g.decide(
+      { cwd, tool_input: { command }, ...(who === 'subagent' ? { agent_id: 'a1' } : {}) },
+      { findTop, home: '/home/u', pathExists, checkedOut },
+    );
+  const WHO: Array<[string, 'subagent' | 'main']> = [
+    [MAIN, 'subagent'],
+    [WT_A, 'subagent'],
+    [MAIN, 'main'],
+  ];
+
+  // Prose as it appears in commit messages and PR bodies. None of it is a
+  // command when the here-document's delimiter is quoted.
+  const PROSE = [
+    'Steps:\n1) first\n2) second',
+    'works now :)',
+    "the guard's rule (and the hook's) changed",
+    "don't",
+    "can't (yet)",
+    'run `git stash pop` after `git checkout main`',
+    'a 5" screen, a 3\' cable',
+    'an unbalanced ( paren',
+    'a closing ) only',
+    "# a heading: it's short",
+    'case a) or b) esac',
+    'costs $(5), see $x and ${y}',
+    'says "$(git stash pop)" in the docs',
+    'a "quoted" word and a \\ backslash',
+    'EOF2 is not the delimiter\n EOF neither',
+    'cat <<EOF inside the body',
+    'ends with a backslash \\',
+    '`unclosed backtick and "unclosed quote',
+    'if x; then y; fi; case z in',
+    '',
+  ];
+  const tabbed = (b: string) =>
+    b
+      .split('\n')
+      .map((l) => `\t${l}`)
+      .join('\n');
+  // Ways a body reaches git or gh with a quoted delimiter.
+  const QUOTED: Record<string, (b: string) => string> = {
+    'commit -m "$(cat <<\'EOF\')"': (b) => `git commit -q -m "$(cat <<'EOF'\n${b}\nEOF\n)"`,
+    'commit -m "$(cat <<"EOF")"': (b) => `git commit -q -m "$(cat <<"EOF"\n${b}\nEOF\n)"`,
+    'commit -m "$(cat <<\\EOF)"': (b) => `git commit -q -m "$(cat <<\\EOF\n${b}\nEOF\n)"`,
+    'commit -m "$(cat <<-\'EOF\')"': (b) =>
+      `git commit -q -m "$(cat <<-'EOF'\n${tabbed(b)}\n\tEOF\n)"`,
+    'title and body': (b) =>
+      `git commit -q -m "fix: x" -m "$(cat <<'EOF'\n${b}\nEOF\n)" && git push -q origin HEAD`,
+    'gh pr create --body': (b) =>
+      `gh pr create --title "fix: x" --body "$(cat <<'EOF'\n${b}\nEOF\n)"`,
+    'gh pr comment --body': (b) => `gh pr comment 595 --body "$(cat <<'EOF'\n${b}\nEOF\n)"`,
+    'commit -F - <<': (b) => `git commit -q -F - <<'EOF'\n${b}\nEOF`,
+    'gh pr create --body-file - <<': (b) =>
+      `gh pr create --title t --body-file - <<'EOF'\n${b}\nEOF`,
+  };
+  // What must stay refused next to a body: (command, cwd, who).
+  const GUARDED: Array<[string, string, 'subagent' | 'main']> = [
+    ['git stash pop', WT_A, 'subagent'],
+    ['git stash pop', MAIN, 'main'],
+    ['git switch main', MAIN, 'subagent'],
+    [`git -C ${MAIN} reset --hard origin/main`, WT_A, 'subagent'],
+    [`git -C ${WT_B} checkout main`, MAIN, 'main'],
+  ];
+
+  it('never refuses prose in a body with a quoted delimiter', () => {
+    const refused: string[] = [];
+    let checked = 0;
+    for (const [name, form] of Object.entries(QUOTED)) {
+      for (const b of PROSE) {
+        for (const [cwd, who] of WHO) {
+          checked++;
+          const res = ask(guard, form(b), cwd, who);
+          if (res.deny) refused.push(`${name} | ${who}@${cwd} | ${JSON.stringify(b)}`);
+        }
+      }
+    }
+    expect(refused).toEqual([]);
+    expect(checked).toBe(9 * 20 * 3);
+  });
+
+  it('never hides a guarded command behind a body: before, after, or between two', () => {
+    const hidden: string[] = [];
+    let refusedBefore = 0;
+    let checked = 0;
+    for (const [name, form] of Object.entries(QUOTED)) {
+      // A here-document at the top level ends the line: the next command
+      // goes on the next line there.
+      const sep = name.endsWith('<<') ? '\n' : ' && ';
+      for (let i = 0; i < PROSE.length; i++) {
+        const one = form(PROSE[i]!);
+        const other = form(PROSE[(i + 3) % PROSE.length]!);
+        for (const [cmd, cwd, who] of GUARDED) {
+          for (const command of [
+            `${cmd} && ${one}`,
+            `${one}${sep}${cmd}`,
+            `${one}${sep}${cmd} && ${other}`,
+          ]) {
+            checked++;
+            const was = ask(before, command, cwd, who).deny;
+            const now = ask(guard, command, cwd, who).deny;
+            if (was) refusedBefore++;
+            // The property: nothing the old guard refused is allowed now. And
+            // more than that: every one of these is refused now.
+            if (!now) hidden.push(`${was ? 'REGRESSION' : 'missed'} | ${name} | ${command}`);
+          }
+        }
+      }
+    }
+    expect(hidden).toEqual([]);
+    expect(checked).toBe(9 * 20 * 5 * 3);
+    // The old guard missed some itself (an apostrophe in a top-level body
+    // line never did; a quote inside "$(...)" did): the new one misses none.
+    expect(refusedBefore).toBeGreaterThan(checked * 0.8);
+  });
+
+  it('reads the inputs of the review both ways', () => {
+    // Refused by the first version of #595, allowed by the guard before it.
+    for (const body of [
+      'Steps:\n1) first\n2) second',
+      'done :)',
+      "the parser's rule (the old one's) is back",
+      'use `git stash pop` with care',
+      'a 5" screen',
+    ]) {
+      for (const cmd of [
+        `git commit -q -m "$(cat <<'EOF'\n${body}\nEOF\n)"`,
+        `gh pr comment 595 --body "$(cat <<'EOF'\n${body}\nEOF\n)"`,
+        `gh pr create --title t --body "$(cat <<'EOF'\n${body}\nEOF\n)"`,
+      ]) {
+        allowed(cmd, MAIN, 'main');
+        allowed(cmd, MAIN);
+        expect(ask(before, cmd, MAIN, 'main'), cmd).toEqual({ allow: true });
+      }
+    }
+    // Hidden by the first version of #595, refused by the guard before it.
+    const hiding =
+      `git commit -q -m "$(cat <<'EOF'\ndon't\nEOF\n)" && git stash pop && ` +
+      `git commit -q -m "$(cat <<'EOF'\ncan't\nEOF\n)"`;
+    expect(ask(before, hiding, MAIN, 'main').deny).toContain('stash stack');
+    expect(denied(hiding, MAIN, 'main')).toContain('stash stack');
+    expect(denied(hiding, WT_A)).toContain('stash stack');
+  });
+
+  it('knows comments, case patterns and here-documents inside "$(...)"', () => {
+    for (const cmd of [
+      `echo "$(echo hi # don't (really)\n)" && git status`,
+      `echo "$(case $x in a) echo one;; (b) echo two;; esac)" && git status`,
+      `echo "$(cat <<EOF\nplain ) text\nEOF\n)" && git status`,
+      `echo "$(cat <<A; cat <<'B'\nfirst )\nA\nsecond ' \nB\n)" && git status`,
+      'echo "$(cat <<<"a ) b")" && git status',
+      'echo "$(echo "$((1 + (2 * 3)))")" && git status',
+    ]) {
+      allowed(cmd, MAIN);
+      expect(denied(`${cmd} && git switch main`, MAIN), cmd).toContain('primary checkout');
+    }
+    // And still reads the commands in them.
+    expect(denied(`echo "$(case $x in a) git switch main;; esac)"`, MAIN)).toContain('primary');
+    expect(denied(`echo "$(true # note\ngit switch main)"`, MAIN)).toContain('primary checkout');
+  });
+
+  it('runs the substitutions of a here-document only when its delimiter is unquoted', () => {
+    // The shell expands an unquoted body: these commands do run.
+    for (const body of ['now on $(git switch main)', 'now on `git switch main`']) {
+      expect(denied(`cat <<EOF\n${body}\nEOF`, MAIN)).toContain('primary checkout');
+      expect(denied(`git commit -q -m "$(cat <<EOF\n${body}\nEOF\n)"`, MAIN)).toContain('primary');
+      expect(denied(`cat <<-EOF\n\t${body}\n\tEOF`, MAIN)).toContain('primary checkout');
+      allowed(`cat <<'EOF'\n${body}\nEOF`, MAIN);
+      allowed(`cat <<"EOF"\n${body}\nEOF`, MAIN);
+      allowed(`cat <<\\EOF\n${body}\nEOF`, MAIN);
+      allowed(`cat <<EOF\n${body.replace(/[$`]/g, '\\$&')}\nEOF`, MAIN); // escaped: text
+    }
+    // The rest of an unquoted body is data, whatever it looks like.
+    for (const b of PROSE.filter((p) => !/[`]|\$\(/.test(p))) {
+      for (const [cwd, who] of WHO) {
+        expect(ask(guard, `git commit -q -F - <<EOF\n${b}\nEOF`, cwd, who), b).toEqual({
+          allow: true,
+        });
+        expect(
+          ask(guard, `gh pr create --title t --body "$(cat <<EOF\n${b}\nEOF\n)"`, cwd, who),
+          b,
+        ).toEqual({ allow: true });
+      }
+    }
+    // A substitution that does not close or is not shell code is left alone.
+    allowed('cat <<EOF\nan open $( paren and a lone ` tick\nEOF', MAIN);
+    allowed("cat <<EOF\nit's `not shell'` code\nEOF", MAIN);
+  });
+
+  it('falls back to the plain reading of a string it cannot read, like the old guard', () => {
+    for (const cmd of [
+      // No closing parenthesis, no closing backtick, a body that is not shell.
+      'git commit -q -m "an open $( paren"',
+      'git commit -q -m "a lone ` tick"',
+      `git commit -q -m "it is \`not shell' code\`"`,
+      `git commit -q -m "$(echo 'unclosed)"`,
+      'git commit -q -m "$(cat <<EOF\nnever ends\n)"',
+      // The fallback is for the whole string: its other backticks are not
+      // commands either.
+      'git commit -q -m "`git switch main` and an open $( paren"',
+      'git commit -q -m "an open $( paren and `git stash pop`"',
+    ]) {
+      for (const [cwd, who] of WHO) {
+        expect(ask(guard, cmd, cwd, who), cmd).toEqual(ask(before, cmd, cwd, who));
+        expect(ask(guard, cmd, cwd, who), cmd).toEqual({ allow: true });
+        const then = `${cmd} && git stash pop`;
+        expect(ask(guard, then, cwd, who).deny, then).toBeTruthy();
+      }
+    }
+  });
+
+  it('reads a nested script with unbalanced quotes leniently, like the top level', () => {
+    // Refused before: any nested script that did not parse and named git.
+    allowed(`bash -c "git log --oneline -3 && echo it's"`, MAIN);
+    allowed(`bash -lc 'git status && echo "unterminated'`, MAIN);
+    allowed(`eval "git log -1 && echo it's"`, MAIN);
+    // Still refused when a call that needs a check is in it.
+    expect(denied(`bash -c "git switch main && echo it's"`, MAIN)).toContain('unbalanced quotes');
+    expect(denied(`bash -c "git stash pop && echo it's"`, WT_A)).toContain('stash stack');
+    expect(denied(`trap 'git switch main; echo "x' EXIT`, MAIN)).toContain('unbalanced quotes');
+  });
+
+  it('stays fast on input built to make it rescan', () => {
+    const timed = (command: string) => {
+      const began = performance.now();
+      const res = guard.decide(
+        { cwd: MAIN, tool_input: { command }, agent_id: 'a1' },
+        { findTop, home: '/home/u', pathExists, checkedOut },
+      );
+      return { res, ms: performance.now() - began };
+    };
+    let evalWords = 'git status';
+    let evalSubs = 'git status';
+    let shells = 'git switch main';
+    // Each level of quoting doubles the backslashes, so the quoted form is
+    // 2^depth characters long by itself (2 MB at depth 20, read in a time
+    // linear in that): depth 14 keeps the input, not the guard, small.
+    for (let i = 0; i < 14; i++) evalWords = `eval ${JSON.stringify(evalWords)}`;
+    for (let i = 0; i < 20; i++) evalSubs = `eval "$(${evalSubs})"`;
+    for (let i = 0; i < 6; i++) shells = `bash -c ${JSON.stringify(shells)}`;
+    const cases: Array<[string, string, boolean]> = [
+      ['"$(" x 50000', `${'"$('.repeat(50_000)} git status`, false],
+      ['"$(a" x 20000', `${'"$(a" '.repeat(20_000)}git status`, false],
+      ['"`" x 50000', `${'"`'.repeat(50_000)} git status`, false],
+      ['eval nested 14 deep (quoted)', evalWords, false],
+      ['eval "$(...)" nested 20 deep', evalSubs, false],
+      [
+        '"$(...)" nested 5000 deep',
+        `${'echo "$('.repeat(5000)}git status${')"'.repeat(5000)}`,
+        false,
+      ],
+      [
+        'a 200 kB body',
+        `git commit -q -m "$(cat <<'EOF'\n${"it's 1) fine\n".repeat(15_000)}EOF\n)"`,
+        false,
+      ],
+      // Depth does not hide a command either.
+      ['bash -c nested 6 deep', shells, true],
+      [
+        '"$(...)" nested 30 deep around a checkout',
+        `${'echo "$('.repeat(30)}git switch main${')"'.repeat(30)}`,
+        true,
+      ],
+    ];
+    for (const [name, command, refused] of cases) {
+      const { res, ms } = timed(command);
+      expect(!!res.deny, name).toBe(refused);
+      expect(ms, `${name}: ${Math.round(ms)} ms`).toBeLessThan(1000);
+    }
   });
 });

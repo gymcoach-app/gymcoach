@@ -34,7 +34,9 @@ the app never imports this directory and the Docker image does not ship it
     non-branch refs keep the "moves HEAD" rule); in its own worktree, `checkout -B`,
     `switch -C` and `worktree add -B` of a branch that another worktree has checked out
     (read from the git directory); and `git pull`, `git merge` and `git commit --amend` in
-    a primary checkout. `gh pr checkout` counts as a `git checkout <ref>`;
+    a primary checkout. `gh pr checkout` counts as a `git checkout <ref>`, for the main
+    session too: `cd <another session's worktree> && gh pr checkout <n>` is refused to it
+    like `git checkout` there, which it was not before #593;
   - the **main session** (operator or orchestrator) may do them in a primary checkout, but
     not in another session's linked worktree;
   - refused for everyone, because the stash stack is shared by every worktree: `git stash`,
@@ -44,30 +46,40 @@ the app never imports this directory and the Docker image does not ship it
     primary checkout or for the main session, `pull` and `merge`),
     restoring a single file (`git checkout -- <file>`, `git restore <file>`),
     `git reset [HEAD] [--] <paths>`, tagged stash pushes, `git stash apply <sha>`.
-  The parser follows shell keywords and groups (`if`/`then`, `do`/`done`, `{ }`, `!`),
-  `function f { }`, wrappers (`env`, `command`, `time`, `timeout`, `nice`, `xargs`, `sudo`,
-  `stdbuf`, `taskset`, `setsid`; the
-  chdir of `env -C`/`--chdir` and `sudo -D` is applied), `cd` options (`cd -P`, `cd --`),
-  an absolute `git -C /path` even after `cd -`, git spelled with quotes or a backslash, any
-  `-c` flag cluster of a shell (`bash -lc`, `sh -ec`), the commands of `eval` and of
-  `trap '<commands>' <signal>`, command substitutions inside a word (`"$(...)"` in double
-  quotes, backticks in or out of them; a `cd` inside one stays inside it), and treats
-  `GIT_DIR=`/`GIT_WORK_TREE=`
-  (also exported) as an unknown target. `-h`/`--help` right after a stash or worktree
-  action, or among the options of `git branch`, is read as the usage request it is (git
-  prints the usage and changes nothing), and the value of `git branch --sort`/`--format`
-  is not read as flags. Unbalanced quotes alone (an apostrophe in prose) are
-  not refused; a guarded git command next to them is. A guarded command whose target it
-  cannot resolve (`cd "$DIR"`, `cd -` followed by a relative path, `--work-tree`,
-  `xargs git checkout`) is refused; a main session's `git worktree remove|move|prune` is
-  allowed wherever its shell is (the merge-gate cleanup). Session-start canary:
-  `node automation/hooks/guard-git.cjs --self-test` checks the decision logic, and the
-  subagent probe in `docs/loops/06-orchestration.md` checks that Claude Code still sends
-  `agent_id`. A bug in
-  the guard itself allows the command, so a broken guard cannot block every Bash call. It
-  runs on old Node too (no modern syntax) and takes about 30 ms. The operator turns it off
-  for one session by starting Claude Code with `GYMCOACH_GIT_GUARD=off`; an assignment
-  inside the command has no effect.
+    The parser follows shell keywords and groups (`if`/`then`, `do`/`done`, `{ }`, `!`),
+    `function f { }`, wrappers (`env`, `command`, `time`, `timeout`, `nice`, `xargs`, `sudo`,
+    `stdbuf`, `taskset`, `setsid`; the
+    chdir of `env -C`/`--chdir` and `sudo -D` is applied), `cd` options (`cd -P`, `cd --`),
+    an absolute `git -C /path` even after `cd -`, git spelled with quotes or a backslash, any
+    `-c` flag cluster of a shell (`bash -lc`, `sh -ec`), the commands of `eval` and of
+    `trap '<commands>' <signal>`, command substitutions inside a word (`"$(...)"` in double
+    quotes, backticks in or out of them; a `cd` inside one stays inside it) and in the body
+    of a here-document whose delimiter is unquoted (the shell expands that body; with
+    `<<'EOF'`, `<<"EOF"` or `<<\EOF` the body is text), and treats
+    `GIT_DIR=`/`GIT_WORK_TREE=`
+    (also exported) as an unknown target. `-h`/`--help` right after a stash or worktree
+    action, or among the options of `git branch`, is read as the usage request it is (git
+    prints the usage and changes nothing), and the value of `git branch --sort`/`--format`
+    is not read as flags. A message body is prose, not commands: the close of a `"$(...)"`
+    is looked for as a shell would (not inside quotes, a comment, a `case` pattern or the
+    body of a here-document), and a string that does not read that way (no close, a
+    substitution that is not shell code) is read the plain way, as before #593: nothing is
+    refused because of it and none of its backticks is taken for a command. That look-ahead
+    is bounded (16 characters per character of the command, 40 levels of nesting; past a
+    bound, the plain reading again), and the same script from the same directory is read
+    once. Unbalanced quotes alone (an apostrophe in prose) are
+    not refused, at the top level or inside `bash -c`, `eval` and `trap`; a guarded git
+    command next to them is. A guarded command whose target it
+    cannot resolve (`cd "$DIR"`, `cd -` followed by a relative path, `--work-tree`,
+    `xargs git checkout`) is refused; a main session's `git worktree remove|move|prune` is
+    allowed wherever its shell is (the merge-gate cleanup). Session-start canary:
+    `node automation/hooks/guard-git.cjs --self-test` checks the decision logic, and the
+    subagent probe in `docs/loops/06-orchestration.md` checks that Claude Code still sends
+    `agent_id`. A bug in
+    the guard itself allows the command, so a broken guard cannot block every Bash call. It
+    runs on old Node too (no modern syntax) and takes about 30 ms. The operator turns it off
+    for one session by starting Claude Code with `GYMCOACH_GIT_GUARD=off`; an assignment
+    inside the command has no effect.
 - `review/snapshot.sh <pr> [dir]` - fetches the PR head into `refs/remotes/pr/<pr>`, adds
   a detached worktree at that SHA (default `${TMPDIR:-/tmp}/gymcoach-review/pr-<n>-<sha12>`),
   makes it read-only and prints its path; `--remove <dir>` deletes it, and refuses any path
@@ -96,7 +108,9 @@ to "inside its own worktree" and passed. Since no reading of the command can tel
 subagent's own worktree from somebody else's, a subagent is now refused every
 `worktree remove|move|prune`, its own worktree included, which is also what the
 orchestration rules say (the orchestrator removes worktrees). The same check of command
-forms (58 forms of 4 destructive commands, in `guard-git.test.ts`) found the forms listed
+forms (58 forms of 4 destructive commands, in `guard-git.test.ts`; the guard as it was
+before #593 is kept in `hooks/fixtures/` so the tests can replay message bodies through
+both and show that nothing it refused next to a body is allowed now) found the forms listed
 above that were not read (`"$(...)"`, backticks, `eval`, `trap`, `taskset`, `setsid`,
 `function f { }`), and three ways to reach a branch from the subagent's own worktree that
 git 2.34.1 does not stop: `update-ref` on `refs/heads/*`, and `checkout -B` / `switch -C`
@@ -156,7 +170,7 @@ anything that takes deliberate effort to hide.
   is named in the `review-for-other-head` detail.
   Tested against real git in a throwaway repository (`base-update.test.ts`). For a fork
   PR, `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/<n>/update-branch -f
-  expected_head_sha=<head>` writes the base update when `maintainerCanModify` is set and
+expected_head_sha=<head>` writes the base update when `maintainerCanModify` is set and
   the tier rules allow it.
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
@@ -194,14 +208,14 @@ anything that takes deliberate effort to hide.
   paths (renamed-from paths included) and its author's trust tier. Each rule returns a
   group of lenses, any one of which satisfies it, and the reason it applies:
 
-  | Rule | Applies when | Needs one of |
-  |---|---|---|
-  | `base` | every PR | `correctness`, `tests` |
-  | `group-a-security` | a group A path (docs/loops/10) | `security` (advisory for a maintainer) |
-  | `group-a-threat-model` | a group A path | `threat-model` (advisory for a maintainer) |
-  | `external-security` | the author is not a maintainer | `security` |
-  | `docs-accuracy` | every path is `*.md` or under `docs/` | `docs-accuracy` |
-  | `translation-quality` | a `messages/<locale>/` path, locale not `en` | `translation-quality` (advisory for a maintainer) |
+  | Rule                   | Applies when                                 | Needs one of                                      |
+  | ---------------------- | -------------------------------------------- | ------------------------------------------------- |
+  | `base`                 | every PR                                     | `correctness`, `tests`                            |
+  | `group-a-security`     | a group A path (docs/loops/10)               | `security` (advisory for a maintainer)            |
+  | `group-a-threat-model` | a group A path                               | `threat-model` (advisory for a maintainer)        |
+  | `external-security`    | the author is not a maintainer               | `security`                                        |
+  | `docs-accuracy`        | every path is `*.md` or under `docs/`        | `docs-accuracy`                                   |
+  | `translation-quality`  | a `messages/<locale>/` path, locale not `en` | `translation-quality` (advisory for a maintainer) |
 
   Rules only add requirements. The group A conditions of docs/loops/10 apply to external
   PRs; the loop's own work on those paths is governed by the charter, so for a maintainer
@@ -215,6 +229,7 @@ anything that takes deliberate effort to hide.
   records that count for the approved head and passed, and refuses with
   `review-lens-missing`, naming the rule and its reason, when a group is uncovered.
   Advisory groups are listed in the decision's `advisories`.
+
 - `publish/changed-paths.ts` - the paths the gate routes on, read with git in the trusted
   gate tree for the approved SHA, never from the files API (which lists the PR's live
   head, so a push after approval could change the routing): it fetches the PR head and

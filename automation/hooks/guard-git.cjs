@@ -123,49 +123,292 @@ var GIT_ENV = /^(GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR)=/;
 
 // --- Tokenizer -------------------------------------------------------------
 
-// Index of the `)` that closes a `$(` whose body starts at `from`, or -1.
-// Quotes inside the body are skipped, so a `)` in a string does not close it.
-function closingParen(input, from) {
-  var depth = 1;
+// Reading substitutions inside words is extra work on top of the plain
+// reading, so it is bounded: `budget` characters of look-ahead per command
+// and `MAX_NEST` levels. Past either bound a substitution is simply not found
+// and the string is read the plain way, as before #593.
+var MAX_NEST = 40;
+function newScan(length) {
+  return { budget: 16 * length + 4096, nest: 0 };
+}
+
+// After words that keep the next word in command position.
+var COMMAND_FOLLOWS = {
+  then: true,
+  do: true,
+  else: true,
+  elif: true,
+  if: true,
+  while: true,
+  until: true,
+  time: true,
+  '{': true,
+  '!': true,
+};
+
+// The here-document operator at input[at] (`<<` or `<<-`, not `<<<`):
+// { delim, strip, quoted, end } with `end` the index after the delimiter
+// word, or null when there is no delimiter. A quoted delimiter (any quote or
+// backslash in it) makes the body literal text.
+function heredocHeader(input, at) {
+  var i = at + 2;
+  var strip = false;
+  if (input[i] === '-') {
+    strip = true;
+    i++;
+  }
+  while (input[i] === ' ' || input[i] === '\t') i++;
+  var delim = '';
+  var quoted = false;
+  while (i < input.length && ' \t\n;&|()<>'.indexOf(input[i]) < 0) {
+    if (input[i] === "'" || input[i] === '"' || input[i] === '\\') quoted = true;
+    else delim += input[i];
+    i++;
+  }
+  return delim ? { delim: delim, strip: strip, quoted: quoted, end: i } : null;
+}
+
+// The body of a here-document that starts at `pos` (the start of a line):
+// { bodyEnd, next } with `next` the index of the end of the delimiter line
+// (its newline, or the end of the input), or null when it never ends.
+function heredocBody(input, pos, doc) {
+  var at = pos;
+  while (at <= input.length) {
+    var eol = input.indexOf('\n', at);
+    var line = eol < 0 ? input.slice(at) : input.slice(at, eol);
+    if ((doc.strip ? line.replace(/^\t+/, '') : line) === doc.delim)
+      return { bodyEnd: at, next: eol < 0 ? input.length : eol };
+    if (eol < 0) return null;
+    at = eol + 1;
+  }
+  return null;
+}
+
+// Index of the `)` that closes a `$(` whose body starts at `from`, or -1 when
+// none is found (or the scan bounds are reached). The body is shell code, so
+// a `)` does not close it inside quotes, in a comment, in the body of a
+// here-document, or as the end of a `case` pattern.
+function closingParen(input, from, scan) {
+  if (scan.nest >= MAX_NEST) return -1;
+  scan.nest++;
+  var found = closingParenAt(input, from, scan);
+  scan.nest--;
+  return found;
+}
+function closingParenAt(input, from, scan) {
+  var open = ['(']; // '(' or 'case', innermost last
+  var docs = []; // here-documents announced on the current line
+  var wordStart = true;
+  var commandStart = true;
   for (var i = from; i < input.length; i++) {
+    if (--scan.budget < 0) return -1;
     var c = input[i];
+    if (c === '\n') {
+      for (var d = 0; d < docs.length; d++) {
+        var body = heredocBody(input, i + 1, docs[d]);
+        if (!body) return -1;
+        scan.budget -= body.next - i;
+        i = body.next;
+      }
+      docs = [];
+      wordStart = commandStart = true;
+      continue;
+    }
+    if (c === ' ' || c === '\t') {
+      wordStart = true;
+      continue;
+    }
+    if (c === '#' && wordStart) {
+      var eol = input.indexOf('\n', i);
+      if (eol < 0) return -1;
+      i = eol - 1;
+      continue;
+    }
+    if (c === ';' || c === '&' || c === '|') {
+      wordStart = commandStart = true;
+      continue;
+    }
+    if (c === '(') {
+      open.push('(');
+      wordStart = commandStart = true;
+      continue;
+    }
+    if (c === ')') {
+      wordStart = commandStart = true;
+      if (open[open.length - 1] === 'case') continue; // the end of a pattern
+      open.pop();
+      if (!open.length) return i;
+      continue;
+    }
+    if (c === '<' && input[i + 1] === '<') {
+      if (input[i + 2] === '<') {
+        i += 2;
+      } else {
+        var doc = heredocHeader(input, i);
+        if (!doc) return -1;
+        docs.push(doc);
+        i = doc.end - 1;
+      }
+      wordStart = false;
+      commandStart = false;
+      continue;
+    }
+    if (wordStart && commandStart) {
+      var m = /^(case|esac|then|do|else|elif|if|while|until|time|\{|!)(?=[\s;()]|$)/.exec(
+        input.slice(i, i + 6),
+      );
+      var word = m ? m[1] : '';
+      if (word === 'case') open.push('case');
+      else if (word === 'esac' && open[open.length - 1] === 'case') open.pop();
+      if (COMMAND_FOLLOWS[word]) {
+        i += word.length - 1;
+        wordStart = false;
+        continue; // commandStart stays
+      }
+    }
+    wordStart = false;
+    commandStart = false;
     if (c === '\\') {
       i++;
     } else if (c === "'") {
       var q = input.indexOf("'", i + 1);
       if (q < 0) return -1;
+      scan.budget -= q - i;
       i = q;
     } else if (c === '"') {
       var j = i + 1;
-      while (j < input.length && input[j] !== '"') j += input[j] === '\\' ? 2 : 1;
+      while (j < input.length && input[j] !== '"') {
+        if (--scan.budget < 0) return -1;
+        if (input[j] === '\\') {
+          j += 2;
+        } else if (input[j] === '$' && input[j + 1] === '(') {
+          var inner = closingParen(input, j + 2, scan);
+          if (inner < 0) return -1;
+          j = inner + 1;
+        } else if (input[j] === '`') {
+          var tickIn = closingBacktick(input, j + 1, scan);
+          if (tickIn < 0) return -1;
+          j = tickIn + 1;
+        } else {
+          j++;
+        }
+      }
       if (j >= input.length) return -1;
       i = j;
-    } else if (c === '(') {
-      depth++;
-    } else if (c === ')') {
-      depth--;
-      if (depth === 0) return i;
+    } else if (c === '`') {
+      var tick = closingBacktick(input, i + 1, scan);
+      if (tick < 0) return -1;
+      i = tick;
     }
   }
   return -1;
 }
 
 // Index of the backtick that closes the one before `from`, or -1.
-function closingBacktick(input, from) {
+function closingBacktick(input, from, scan) {
   for (var i = from; i < input.length; i++) {
+    if (--scan.budget < 0) return -1;
     if (input[i] === '\\') i++;
     else if (input[i] === '`') return i;
   }
   return -1;
 }
 
+// A substitution's text as { text, tokens }, or null when it does not read as
+// shell code (then the caller keeps the plain reading of the string).
+function substitution(text, scan) {
+  if (scan.nest >= MAX_NEST) return null;
+  scan.nest++;
+  var tokens = tokenize(text, false, scan);
+  scan.nest--;
+  return tokens === null ? null : { text: text, tokens: tokens };
+}
+
+// The double-quoted string whose opening quote is at input[at], read with
+// its command substitutions: { end, text, subs } with `end` the index of the
+// closing quote, or null when it does not read that way (no closing quote, a
+// substitution that never closes or is not shell code, a scan bound). The
+// caller then reads the string the plain way: nothing is refused because of
+// it, and nothing in it is taken for a command.
+function doubleQuoted(input, at, scan) {
+  var j = at + 1;
+  var text = '';
+  var subs = [];
+  while (j < input.length) {
+    var d = input[j];
+    if (d === '\\' && j + 1 < input.length && '"\\$`'.indexOf(input[j + 1]) >= 0) {
+      text += input[j + 1];
+      j += 2;
+      continue;
+    }
+    if (d === '"') return { end: j, text: text, subs: subs };
+    if (d === '$' && input[j + 1] === '(') {
+      var close = closingParen(input, j + 2, scan);
+      if (close < 0) return null;
+      if (input[j + 2] !== '(') {
+        // "$(...)": the shell runs it. "$((...))" is arithmetic: only skipped.
+        var sub = substitution(input.slice(j + 2, close), scan);
+        if (!sub) return null;
+        subs.push(sub);
+      }
+      text += input.slice(j, close + 1);
+      j = close + 1;
+      continue;
+    }
+    if (d === '`') {
+      var tick = closingBacktick(input, j + 1, scan);
+      if (tick < 0) return null;
+      var ticked = substitution(input.slice(j + 1, tick).replace(/\\([`$\\])/g, '$1'), scan);
+      if (!ticked) return null;
+      subs.push(ticked);
+      text += input.slice(j, tick + 1);
+      j = tick + 1;
+      continue;
+    }
+    text += d;
+    j++;
+  }
+  return null;
+}
+
+// The substitutions the shell runs in the body of a here-document with an
+// unquoted delimiter. One that does not close or is not shell code is left
+// alone: the body is data first.
+function heredocSubs(body, scan) {
+  var subs = [];
+  for (var i = 0; i < body.length; i++) {
+    var c = body[i];
+    if (c === '\\') {
+      i++;
+    } else if (c === '$' && body[i + 1] === '(' && body[i + 2] !== '(') {
+      var close = closingParen(body, i + 2, scan);
+      var sub = close < 0 ? null : substitution(body.slice(i + 2, close), scan);
+      if (sub) {
+        subs.push(sub);
+        i = close;
+      }
+    } else if (c === '`') {
+      var tick = closingBacktick(body, i + 1, scan);
+      var ticked =
+        tick < 0 ? null : substitution(body.slice(i + 1, tick).replace(/\\([`$\\])/g, '$1'), scan);
+      if (ticked) {
+        subs.push(ticked);
+        i = tick;
+      }
+    }
+  }
+  return subs;
+}
+
 // Splits a shell command into tokens. Operators (&&, ||, ;, |, &, newline,
 // parentheses, `$(`) become separate operator tokens. A word that holds a
 // command substitution the shell runs while building it (`"$(...)"` inside
-// double quotes, backticks anywhere) carries the substitution's text in
-// `subs`, so those commands are checked too. Returns null when the quoting is
-// unbalanced.
-function tokenize(input, lenient) {
+// double quotes, backticks anywhere) carries it in `subs` as { text, tokens },
+// so those commands are checked too; the substitutions in the body of an
+// unquoted here-document come as a { t: 'subs' } token. Returns null when the
+// quoting is unbalanced.
+function tokenize(input, lenient, scan) {
+  scan = scan || newScan(input.length);
   var tokens = [];
   var cur = '';
   var has = false; // a word is in progress (even an empty quoted one)
@@ -209,6 +452,17 @@ function tokenize(input, lenient) {
       continue;
     }
     if (c === '"') {
+      // With its substitutions when it reads that way (quotes inside a
+      // "$(...)" then do not end the string); the plain way otherwise.
+      var dq = doubleQuoted(input, i, scan);
+      if (dq && dq.subs.length) {
+        for (var ds = 0; ds < dq.subs.length; ds++) subs.push(dq.subs[ds]);
+        cur += dq.text;
+        dynamic = true;
+        has = true;
+        i = dq.end + 1;
+        continue;
+      }
       var j = i + 1;
       var buf = '';
       var closed = false;
@@ -222,28 +476,6 @@ function tokenize(input, lenient) {
         if (d === '"') {
           closed = true;
           break;
-        }
-        if (d === '$' && input[j + 1] === '(' && input[j + 2] !== '(') {
-          // "$(...)": the shell runs it. Keep its text in the word and its
-          // commands for the check; quotes inside it do not end this string.
-          var endSub = closingParen(input, j + 2);
-          if (endSub >= 0) {
-            subs.push(input.slice(j + 2, endSub));
-            buf += input.slice(j, endSub + 1);
-            dynamic = true;
-            j = endSub + 1;
-            continue;
-          }
-        }
-        if (d === '`') {
-          var endTickDq = closingBacktick(input, j + 1);
-          if (endTickDq >= 0) {
-            subs.push(input.slice(j + 1, endTickDq).replace(/\\([`$\\])/g, '$1'));
-            buf += input.slice(j, endTickDq + 1);
-            dynamic = true;
-            j = endTickDq + 1;
-            continue;
-          }
         }
         if (d === '$' || d === '`') dynamic = true;
         buf += d;
@@ -263,9 +495,13 @@ function tokenize(input, lenient) {
     }
     if (c === '`') {
       // `...`: one word part whose commands the shell runs.
-      var endTick = closingBacktick(input, i + 1);
-      if (endTick >= 0) {
-        subs.push(input.slice(i + 1, endTick).replace(/\\([`$\\])/g, '$1'));
+      var endTick = closingBacktick(input, i + 1, scan);
+      var ticked =
+        endTick < 0
+          ? null
+          : substitution(input.slice(i + 1, endTick).replace(/\\([`$\\])/g, '$1'), scan);
+      if (ticked) {
+        subs.push(ticked);
         cur += input.slice(i, endTick + 1);
         dynamic = true;
         has = true;
@@ -315,44 +551,28 @@ function tokenize(input, lenient) {
         has = false;
       }
       push();
-      i += 2;
-      var strip = false;
-      if (input[i] === '-') {
-        strip = true;
-        i++;
-      }
-      while (input[i] === ' ' || input[i] === '\t') i++;
-      var delim = '';
-      while (i < input.length && ' \t\n;&|()<>'.indexOf(input[i]) < 0) {
-        if (input[i] !== "'" && input[i] !== '"' && input[i] !== '\\') delim += input[i];
-        i++;
-      }
-      if (!delim) return null;
+      var doc = heredocHeader(input, i);
+      if (!doc) return null;
+      i = doc.end;
       // The rest of this line is still commands; the body starts after it.
       var nl = input.indexOf('\n', i);
       var lineRest = nl < 0 ? input.slice(i) : input.slice(i, nl);
-      var restTokens = tokenize(lineRest, lenient);
+      var restTokens = tokenize(lineRest, lenient, scan);
       if (restTokens === null) return null;
       for (var r = 0; r < restTokens.length; r++) tokens.push(restTokens[r]);
       if (nl < 0) return tokens;
-      var pos = nl + 1;
-      var found = false;
-      while (pos <= input.length) {
-        var eol = input.indexOf('\n', pos);
-        var line = eol < 0 ? input.slice(pos) : input.slice(pos, eol);
-        if ((strip ? line.replace(/^\t+/, '') : line) === delim) {
-          found = true;
-          pos = eol < 0 ? input.length : eol;
-          break;
-        }
-        if (eol < 0) break;
-        pos = eol + 1;
-      }
-      if (!found) {
+      var docBody = heredocBody(input, nl + 1, doc);
+      if (!docBody) {
         if (!lenient) return null;
         return tokens;
       }
-      i = pos;
+      if (!doc.quoted) {
+        // Unquoted delimiter: the shell expands the body, so the commands of
+        // its substitutions run. The rest of the body stays data.
+        var docSubs = heredocSubs(input.slice(nl + 1, docBody.bodyEnd), scan);
+        if (docSubs.length) tokens.push({ t: 'subs', subs: docSubs });
+      }
+      i = docBody.next;
       continue;
     }
     if (c === '>' || c === '<') {
@@ -399,7 +619,9 @@ function shellScript(rest) {
 // Groups tokens into simple commands, each with the directory in effect.
 // Returns null if a directory change could not be resolved statically and a
 // later git command depends on it (signalled by dir === null).
-function commandsOf(tokens, cwd, home) {
+// `ctx` is shared by one whole command: { scan, seen, depth }.
+function commandsOf(tokens, cwd, home, ctx) {
+  ctx = ctx || { scan: newScan(0), seen: {}, depth: 0 };
   var out = [];
   var stack = [];
   var dir = cwd;
@@ -409,29 +631,51 @@ function commandsOf(tokens, cwd, home) {
     if (words.length) handle(words);
     words = [];
   }
-  // Commands of a script given as text (`bash -c`, `eval`, `trap`, a
-  // substitution inside a word), run from `from` (null: unknown).
-  function nestedScript(text, from, gitEnv) {
-    var inner = tokenize(text);
+  // Commands of a script given as text (`bash -c`, `eval`, `trap`) or of a
+  // substitution already read as tokens, run from `from` (null: unknown).
+  // The same text from the same place is read once (`eval "$(x)"` holds
+  // `$(x)` both as a word and as its script). A script with unbalanced quotes
+  // is read leniently, like the top level: it is refused only when that
+  // reading finds a call that needs a check.
+  function nestedScript(text, from, gitEnv, tokensRead) {
+    var key = (from === null ? '?' : from) + '\n' + (gitEnv ? 1 : 0) + '\n' + text;
+    if (ctx.seen[key]) return;
+    ctx.seen[key] = true;
+    var inner = tokensRead || null;
+    var unbalanced = false;
+    if (ctx.depth >= MAX_NEST) {
+      // Too deep to follow. A substitution is left unread, as before #593; a
+      // script counts as one that cannot be parsed.
+      if (!tokensRead) out.push({ unparsable: true, text: text, dir: dir });
+      return;
+    }
+    if (!inner) inner = tokenize(text, false, ctx.scan);
+    if (inner === null) {
+      inner = tokenize(text, true, ctx.scan);
+      unbalanced = true;
+    }
     if (inner === null) {
       out.push({ unparsable: true, text: text, dir: dir });
       return;
     }
-    var nested = commandsOf(inner, from === null ? cwd : from, home);
+    ctx.depth++;
+    var nested = commandsOf(inner, from === null ? cwd : from, home, ctx);
+    ctx.depth--;
     for (var n = 0; n < nested.length; n++) {
       if (from === null) nested[n].dir = null;
       if (gitEnv) nested[n].gitEnv = true;
+      if (unbalanced) nested[n].unbalanced = true;
       out.push(nested[n]);
     }
+  }
+  function runSubs(list, gitEnv) {
+    for (var b = 0; b < list.length; b++) nestedScript(list[b].text, dir, gitEnv, list[b].tokens);
   }
   function handle(ws) {
     var k = 0;
     var gitEnv = exportedGitEnv;
     // Substitutions inside this command's words run first, where the shell is.
-    for (var s = 0; s < ws.length; s++) {
-      if (!ws[s].subs) continue;
-      for (var b = 0; b < ws[s].subs.length; b++) nestedScript(ws[s].subs[b], dir, gitEnv);
-    }
+    for (var s = 0; s < ws.length; s++) if (ws[s].subs) runSubs(ws[s].subs, gitEnv);
     var viaXargs = false;
     // A wrapper's own chdir option (`env -C <dir>`, `sudo -D <dir>`) applies
     // to this command only.
@@ -536,7 +780,7 @@ function commandsOf(tokens, cwd, home) {
       var gw = [];
       for (var q = 1; q < rest.length; q++) {
         if (rest[q].v === '-R' || rest[q].v === '--repo') q++;
-        else gw.push(rest[q].v);
+        else if (!/^(--repo=|-R.)/.test(rest[q].v)) gw.push(rest[q].v);
       }
       if (
         gw[0] === 'pr' &&
@@ -554,6 +798,11 @@ function commandsOf(tokens, cwd, home) {
     var tk = tokens[i];
     if (tk.t === 'w') {
       words.push(tk);
+      continue;
+    }
+    if (tk.t === 'subs') {
+      // From the body of an unquoted here-document: run where the shell is.
+      runSubs(tk.subs, exportedGitEnv);
       continue;
     }
     if (tk.v === '(' && tk.sub) {
@@ -651,9 +900,33 @@ function helpAsked(args) {
   return false;
 }
 
-// The word after one of `flags`, or null.
-function valueOf(args, flags) {
-  for (var i = 0; i < args.length - 1; i++) if (flags.indexOf(args[i]) >= 0) return args[i + 1];
+// The value of the short option `letter`, however git accepts it (`-B bb`,
+// `-Bbb`, in a cluster `-fB bb`), or of `long` (`--long bb`, `--long=bb`):
+// '' when the option is there without a value, null when it is absent.
+// `valued` lists the short options that take a value: a cluster ends there.
+function optionValue(args, letter, valued, long) {
+  for (var i = 0; i < args.length; i++) {
+    var a = args[i];
+    if (a === '--') return null;
+    if (long && a === long) return i + 1 < args.length ? args[i + 1] : '';
+    if (long && a.indexOf(long + '=') === 0) return a.slice(long.length + 1);
+    if (!/^-[A-Za-z]/.test(a)) continue;
+    for (var p = 1; p < a.length; p++) {
+      if (a[p] === letter) return a.slice(p + 1) || (i + 1 < args.length ? args[i + 1] : '');
+      if (valued.indexOf(a[p]) >= 0) {
+        if (p === a.length - 1) i++; // its value is the next word
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+// The branch a command creates or resets by force, or null.
+function forcedBranch(sub, args) {
+  if (sub === 'checkout') return optionValue(args, 'B', 'bB') || null;
+  if (sub === 'switch') return optionValue(args, 'C', 'cC', '--force-create') || null;
+  if (sub === 'worktree' && args[0] === 'add') return optionValue(args.slice(1), 'B', 'bB') || null;
   return null;
 }
 
@@ -720,15 +993,16 @@ function classify(sub, args, ctx) {
       return dryRun ? null : { reason: '`git worktree prune`', scope: 'worktree' };
     }
     if (args[0] === 'add') {
-      var forced = args.some(function (a) {
-        return a === '--force' || a === '-B' || /^-[a-zA-Z]*f/.test(a);
-      });
+      var forced =
+        forcedBranch(sub, args) !== null ||
+        args.some(function (a) {
+          return a === '--force' || a === '-B' || /^-[a-zA-Z]*f/.test(a);
+        });
       return forced
         ? {
             reason:
               '`git worktree add --force/-B` resets a branch or reuses one checked out elsewhere',
             scope: 'head',
-            forceBranch: valueOf(args, ['-B']),
           }
         : null;
     }
@@ -797,11 +1071,7 @@ function classify(sub, args, ctx) {
   if (sub === 'checkout') {
     if (args.length === 0) return null;
     if (args.indexOf('-b') >= 0 || args.indexOf('-B') >= 0)
-      return {
-        reason: '`git checkout -b` moves HEAD',
-        scope: 'head',
-        forceBranch: valueOf(args, ['-B']),
-      };
+      return head('`git checkout -b` moves HEAD');
     var dd = args.indexOf('--');
     var before = (dd >= 0 ? args.slice(0, dd) : args).filter(function (a) {
       return a.charAt(0) !== '-';
@@ -861,12 +1131,7 @@ function classify(sub, args, ctx) {
     }
     return null;
   }
-  if (sub === 'switch')
-    return {
-      reason: '`git switch` moves HEAD',
-      scope: 'head',
-      forceBranch: valueOf(args, ['-C', '--force-create']),
-    };
+  if (sub === 'switch') return head('`git switch` moves HEAD');
   if (sub === 'reset') {
     var flags = args.filter(function (a) {
       return a.charAt(0) === '-';
@@ -1055,17 +1320,18 @@ function decide(input, opts) {
   // or `g\it` still reaches the parser.
   if (!/\b(git|gh)\b/.test(command.replace(/["'\\]/g, ''))) return { allow: true };
 
-  var tokens = tokenize(command);
+  var scan = newScan(command.length);
+  var tokens = tokenize(command, false, scan);
   var unbalanced = false;
   if (tokens === null) {
     // Unbalanced quotes (often an apostrophe in prose): read leniently and
     // refuse only if that reading finds a git call that needs a check.
-    tokens = tokenize(command, true);
+    tokens = tokenize(command, true, scan);
     unbalanced = true;
     if (tokens === null)
       return { deny: 'the command could not be parsed around a git call. ' + ADVICE };
   }
-  var cmds = commandsOf(tokens, cwd, home);
+  var cmds = commandsOf(tokens, cwd, home, { scan: scan, seen: {}, depth: 0 });
   var own = top(cwd);
   for (var i = 0; i < cmds.length; i++) {
     var c = cmds[i];
@@ -1105,6 +1371,7 @@ function decide(input, opts) {
       verdict = { reason: 'a git subcommand only known at run time', scope: 'head' };
     }
     if (!verdict) continue;
+    if (!c.gh && verdict.scope === 'head') verdict.forceBranch = forcedBranch(g.sub, g.args);
     if (verdict.stash) {
       return {
         deny:
@@ -1114,7 +1381,7 @@ function decide(input, opts) {
           '`git stash apply <sha>`.',
       };
     }
-    if (unbalanced) {
+    if (unbalanced || c.unbalanced) {
       return {
         deny:
           'the command has unbalanced quotes around ' +
