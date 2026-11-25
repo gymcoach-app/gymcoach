@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import { REST_END_FLASH_MS, RestEndFlash } from '@/components/session/rest-end-flash';

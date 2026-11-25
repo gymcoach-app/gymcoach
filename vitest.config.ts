@@ -35,8 +35,22 @@ export default defineConfig({
       'automation/**/*.test.ts',
       'evals/**/*.test.ts',
     ],
-    // jsdom covers both: pure logic tests run fine in it too.
-    environment: 'jsdom',
+    // Node by default; a test that needs a DOM says so on its first line:
+    //   // @vitest-environment jsdom
+    // (every test under components/ does, and the lib/ tests of browser
+    // storage). A test that touches `document` fails at once without that
+    // line, but nothing fails for code that only checks `typeof window` or
+    // reads `navigator`: it takes its server branch and the test passes
+    // without having tested the browser one. A new test of such code must
+    // carry the line. jsdom used to be the default for every file: Vitest builds
+    // a fresh environment per test file, and loading jsdom was most of the
+    // unit tier's CPU. Measured on the 143 files of lib/ and automation/, at
+    // load 9 to 20 on 12 cores (issue #593): 701 s of summed environment time
+    // and 239 s of wall time with jsdom, 0.3 s and 121 s without. That load is
+    // what pushed the CPU-bound tests of those folders past their 5 s limit.
+    // No `projects` here: the eval harness wraps this file with mergeConfig
+    // and overrides `test.include` (evals/maintainer/runner.ts, canaryFiles).
+    environment: 'node',
     setupFiles: ['./vitest.setup.ts'],
     globals: true,
     maxWorkers,

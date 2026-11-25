@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -54,6 +54,40 @@ function advanceMain(): string {
   sh('checkout', '-q', 'main');
   mainCounter += 1;
   return commitFile(`main-${mainCounter}.ts`, `export const m = ${mainCounter};\n`, `main ${mainCounter}`);
+}
+
+// `count` new commits on main in one git process (fast-import), without
+// checking main out: the same commits advanceMain makes one at a time, four
+// processes each. The caller must not be on main, whose work tree this leaves
+// behind. Returns the new commits, oldest first; the last is the live tip.
+function advanceMainBy(count: number): string[] {
+  const marks = join(repo, '.git', 'advance-main.marks');
+  let stream = '';
+  for (let i = 1; i <= count; i += 1) {
+    mainCounter += 1;
+    const message = `main ${mainCounter}`;
+    const content = `export const m = ${mainCounter};\n`;
+    stream +=
+      `commit refs/heads/main\nmark :${i}\n` +
+      `committer Test <test@example.com> ${1_700_000_000 + mainCounter} +0000\n` +
+      `data ${Buffer.byteLength(message)}\n${message}\n` +
+      (i === 1 ? 'from refs/heads/main^0\n' : '') +
+      `M 100644 inline main-${mainCounter}.ts\ndata ${Buffer.byteLength(content)}\n${content}\n`;
+  }
+  const r = spawnSync('git', ['fast-import', '--quiet', `--export-marks=${marks}`], {
+    cwd: repo,
+    encoding: 'utf8',
+    input: stream,
+    env: { ...process.env, ...GIT_ENV },
+  });
+  if (r.status !== 0) throw new Error(`git fast-import: ${r.stderr}`);
+  const byMark = new Map(
+    readFileSync(marks, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => line.split(' ') as [string, string]),
+  );
+  return Array.from({ length: count }, (_, index) => byMark.get(`:${index + 1}`)!);
 }
 
 // Merges `other` into `branch` (created at `from` when given), optionally with
@@ -201,13 +235,23 @@ describe('pure base update verification', () => {
   });
 
   it('follows at most five hops', () => {
-    sh('branch', '-f', 'many', head);
+    // Six updates of main, each merged into the branch. Built with as few git
+    // processes as the history allows (15 instead of 55): starting a process
+    // is what this file's time is made of, and this test, the longest, went
+    // past its limit on a busy machine (issue #593). The merges are still
+    // real `git merge` commits.
+    sh('checkout', '-q', '-B', 'many', head);
+    const tips = advanceMainBy(6);
     const heads = [head];
-    let tip = '';
-    for (let i = 0; i < 6; i += 1) {
-      tip = advanceMain();
-      heads.push(mergeInto('many', tip));
+    for (const mainTip of tips) {
+      sh('merge', '-q', '--no-ff', '-m', `merge ${mainTip}`, mainTip);
+      heads.push(sh('rev-parse', 'HEAD'));
     }
+    const tip = tips.at(-1)!;
+    // The same shape mergeInto builds: two parents, the reviewed head first.
+    expect(sh('rev-list', '--parents', '-n', '1', heads[6]!)).toBe(
+      `${heads[6]} ${heads[5]} ${tip}`,
+    );
     const { hops } = verifyBaseUpdates(git, heads[6]!, tip);
     // Six pure hops exist; the walk stops after five (MAX_HOPS).
     expect(hops).toHaveLength(5);

@@ -7,7 +7,7 @@ import {
   createSelectiveUnzip,
   type ZipEntryPicker,
 } from './zip-stream';
-import { halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
+import { deflatedZip, halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
 
 const SLICE = 64 * 1024;
 
@@ -177,7 +177,7 @@ describe('createSelectiveUnzip', () => {
 
   it('stops inflating an entry once its sink returns false', () => {
     const payload = halfNoise(6 * 1024 * 1024);
-    const zip = zipSync({ 'bomb.bin': payload, 'after.txt': strToU8('still read') });
+    const zip = deflatedZip({ 'bomb.bin': payload, 'after.txt': strToU8('still read') });
     // Compressed, the first entry spans dozens of slices.
     expect(zip.length).toBeGreaterThan(30 * SLICE);
 

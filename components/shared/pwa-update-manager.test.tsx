@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -245,5 +246,34 @@ describe('reloadedRecently', () => {
     window.sessionStorage.setItem(RELOAD_GUARD_STORAGE_KEY, String(now - 1000));
     expect(reloadedRecently(now)).toBe(true);
     expect(reloadedRecently(now + RELOAD_GUARD_WINDOW_MS)).toBe(false);
+  });
+});
+
+describe('PwaUpdateManager, login and signup pages cached by an earlier version (#593)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('removes them from the caches when the app loads, service worker or not', async () => {
+    const pages = [
+      'https://gym.example/',
+      'https://gym.example/login?email=a%40b.c&password=hunter22',
+      'https://gym.example/signup',
+    ];
+    vi.stubGlobal('caches', {
+      keys: async () => ['pages'],
+      open: async () => ({
+        keys: async () => pages.map((url) => ({ url })),
+        delete: async (request: { url: string }) => {
+          pages.splice(pages.indexOf(request.url), 1);
+          return true;
+        },
+      }),
+    });
+    Reflect.deleteProperty(navigator, 'serviceWorker');
+
+    render(<PwaUpdateManager reloadPage={() => {}} />);
+
+    await waitFor(() => expect(pages).toEqual(['https://gym.example/']));
   });
 });

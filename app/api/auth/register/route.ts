@@ -2,11 +2,33 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcrypt';
 import { db } from '@/lib/db';
+import { Prisma } from '@/prisma/generated/client';
 import { signSession, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from '@/lib/auth';
 import { registerSchema } from '@/lib/schemas/auth';
-import { seedExerciseCatalog } from '@/lib/exercise-catalog';
+import { EXERCISE_CATALOG } from '@/lib/exercise-catalog';
 import { rateLimit, clientIp } from '@/lib/rate-limit';
 import { ApiError, readJsonWithCap, SMALL_JSON_BODY_MAX_BYTES } from '@/lib/api';
+
+// Whether the error is the unique index on User.email refusing the row. With
+// the pg driver adapter (Prisma 7) the violated index is named in
+// meta.driverAdapterError.cause.constraint.index; the query engines before it
+// listed the columns in meta.target. Anything unrecognised is not this error.
+function isEmailTakenError(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const meta = (err.meta ?? {}) as {
+    target?: unknown;
+    modelName?: unknown;
+    driverAdapterError?: { cause?: { constraint?: { index?: unknown; fields?: unknown } } };
+  };
+  const constraint = meta.driverAdapterError?.cause?.constraint;
+  if (constraint?.index === 'User_email_key') return true;
+  const columns = Array.isArray(constraint?.fields)
+    ? constraint.fields
+    : Array.isArray(meta.target)
+      ? meta.target
+      : null;
+  return meta.modelName === 'User' && columns?.length === 1 && columns[0] === 'email';
+}
 
 // POST /api/auth/register: creates an account, seeds the default exercise
 // catalog for it, and signs the user in. Public route (see middleware).
@@ -34,21 +56,39 @@ export async function POST(req: Request) {
     }
 
     const { email, password, displayName } = parsed.data;
-    const existing = await db.user.findUnique({ where: { email } });
-    if (existing) {
-      return NextResponse.json(
+    const emailTaken = () =>
+      NextResponse.json(
         { error: 'An account with this email already exists.' },
         { status: 409 },
       );
-    }
+    const existing = await db.user.findUnique({ where: { email } });
+    if (existing) return emailTaken();
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await db.user.create({
-      data: { email, passwordHash, displayName: displayName ?? null },
-    });
-
-    // Give the new account a starter catalog so the app is not empty.
-    await seedExerciseCatalog(db, user.id);
+    // The account and its starter catalog (so the app is not empty) go in as
+    // one write: a user row plus a single multi-row insert, in one transaction.
+    // The catalog used to be upserted one exercise at a time after the user
+    // was created, about 50 transactions per signup; under load that kept the
+    // form waiting for seconds, and a failure midway left an account with half
+    // a catalog whose email could not be registered again (#593).
+    let user;
+    try {
+      user = await db.user.create({
+        data: {
+          email,
+          passwordHash,
+          displayName: displayName ?? null,
+          exercises: { createMany: { data: EXERCISE_CATALOG } },
+        },
+      });
+    } catch (err) {
+      // Two requests for one email (a double submit) both pass the check
+      // above; the unique index lets one in and the other is a conflict, not
+      // a server error. Any other unique violation (a catalog with the same
+      // exercise name twice) is a defect of ours: logged, 500.
+      if (isEmailTakenError(err)) return emailTaken();
+      throw err;
+    }
 
     const token = await signSession({ userId: user.id, email: user.email });
     (await cookies()).set(SESSION_COOKIE, token, SESSION_COOKIE_OPTIONS);

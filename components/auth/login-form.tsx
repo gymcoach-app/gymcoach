@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { purgeUserCaches } from '@/lib/pwa-cache';
+import { scrubCredentialsFromAddressBar } from '@/lib/credential-url';
 
 type FormValues = { email: string; password: string };
 
@@ -33,6 +34,11 @@ export function LoginForm() {
   const common = useTranslations('common');
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
+  // An old copy of this page could submit as a GET and land here with the
+  // form fields in the URL: take them out of the address bar (#593).
+  useEffect(() => {
+    scrubCredentialsFromAddressBar();
+  }, []);
   const schema = useMemo(
     () =>
       z.object({
@@ -49,7 +55,10 @@ export function LoginForm() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: '', password: '' },
+    // No defaultValues on purpose: with them, react-hook-form writes '' into
+    // each input when it mounts, which erases whatever was typed or autofilled
+    // into the server-rendered form before the page hydrated (slow phone, slow
+    // network). Without them it adopts what the inputs already hold (#593).
   });
 
   async function loginAsDemo() {
@@ -103,7 +112,15 @@ export function LoginForm() {
             </Button>
           </div>
         )}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        {/* method="post": a submit that fires before hydration is a native one,
+            and the default GET would put the password in the URL, the browser
+            history and the server access log (#593). */}
+        <form
+          method="post"
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-4"
+          noValidate
+        >
           <div className="space-y-2">
             <Label htmlFor="email">{common('fields.email')}</Label>
             <Input

@@ -1430,7 +1430,15 @@ export function canaryFiles(id: string, hiddenFiles: readonly string[] = []): Ma
     `beforeEach(() => check('before a test'));\n` +
     `afterEach(() => check('after a test'));\n` +
     `afterAll(() => {\n  check('after the file');\n  probe('after the file');\n});\n`;
-  const test = (guardImport: string) =>
+  // A copy next to a unit-tier hidden test runs under jsdom, whatever the base
+  // config's default: the repository's default environment became `node`
+  // (#593), a component test asks for jsdom on its first line, and the probe
+  // inside the canary test must see the environment such a hidden test runs
+  // in. The root copy keeps the config's default, so both are probed. With a
+  // base whose default is already jsdom the line changes nothing. The
+  // integration tier's copies stay in that tier's environment.
+  const test = (guardImport: string, environment: 'jsdom' | null = null) =>
+    (environment ? `// @vitest-environment ${environment}\n` : '') +
     head +
     `import { assert, chai, expect, it, vi } from 'vitest';\n` +
     `import { check } from '${guardImport}';\n` +
@@ -1466,7 +1474,12 @@ export function canaryFiles(id: string, hiddenFiles: readonly string[] = []): Ma
     [p.test, Buffer.from(test(`./${p.guard}`))],
     ...extraTests.map((file): [string, Buffer] => [
       file,
-      Buffer.from(test(path.posix.relative(path.posix.dirname(file), p.guard))),
+      Buffer.from(
+        test(
+          path.posix.relative(path.posix.dirname(file), p.guard),
+          tierOf(file) === 'unit' ? 'jsdom' : null,
+        ),
+      ),
     ]),
     [p.unitConfig, Buffer.from(config('vitest.config', p.preUnit))],
     [p.integrationConfig, Buffer.from(config('vitest.integration.config', p.preIntegration))],

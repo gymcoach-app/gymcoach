@@ -86,8 +86,17 @@ Podman, whichever is available.
 The project uses a three-tier test setup. Please add or update tests with your
 change.
 
+Unit tests run in Node. A test of anything that behaves differently in a
+browser (every component test, and a `lib/` test of browser storage, of
+`navigator` or of code guarded by `typeof window`) starts with the line
+`// @vitest-environment jsdom`. Do not count on a failure to remind you:
+a test that touches `document` does fail without the line, but code that
+checks `typeof window === 'undefined'` or reads `navigator.onLine` quietly
+takes its server branch, and the test then passes without testing the browser
+one.
+
 ```bash
-npm run test              # unit + component (Vitest, jsdom)
+npm run test              # unit + component (Vitest; Node, jsdom where a test asks)
 npm run test:coverage     # with coverage
 
 # Integration + E2E need the test database. `bash scripts/verify.sh --full`

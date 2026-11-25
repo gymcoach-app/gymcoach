@@ -11,7 +11,7 @@ import {
   StravaArchiveError,
   type StravaArchiveEntry,
 } from './strava-archive';
-import { halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
+import { deflatedZip, halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
 
 const CSV = 'Activity ID,Activity Date,Activity Name,Activity Type,Filename\n1,d,Run,Run,activities/1.gpx\n';
 const GPX = '<gpx><trk><name>Morning Run</name></trk></gpx>';
@@ -225,7 +225,7 @@ describe('readStravaArchive', () => {
     // Twice the cap once inflated, and a header that declares 1 KB: only the
     // count of inflated bytes can tell.
     const payload = halfNoise(2 * STRAVA_MAX_ACTIVITY_BYTES);
-    const zip = zipSync({ 'activities/bomb.gpx': payload, 'activities/ok.gpx': strToU8(GPX) });
+    const zip = deflatedZip({ 'activities/bomb.gpx': payload, 'activities/ok.gpx': strToU8(GPX) });
     const lying = zip.slice();
     new DataView(lying.buffer).setUint32(22, 1024, true);
     const compressed = new DataView(zip.buffer).getUint32(18, true);
