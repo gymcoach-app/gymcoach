@@ -1178,13 +1178,15 @@ and a narrow extension of the external-issue policy.
    `CLAUDE.md`, `docs/loops/07-autonomy.md` and `.claude/skills/`. Check that the text says
    what "oui messages" meant: adopted external issues, `messages/**` as the only hard-block
    path, all passes and both security lenses clean, rollback tag first, nothing else widened.
-   Then read the table of earlier merges there (a search, maybe not exhaustive, none called
-   compliant): misses #346, #565 and #568, unclear #534, #536, #538, #548, #578 and #585.
-   **#568 is the most serious** (`gh pr diff 568`: schema, migration, coach prompt, backup
-   route; still human-only under the new rule): read that diff.
-   Your answer of 2026-11-26 ("1 oui oui 2. oui") is recorded there: #565 and #568
-   authorized after the fact, #558 slice 2 authorized with its migration. Check that the
-   text does not stretch it: #346 stays a miss, #578 and #585 (not asked) stay unclear.
+   Then read the table of earlier merges there (a search, maybe not exhaustive; none was
+   compliant when merged): #346 a miss; #565 and #568 not checked at merge time and
+   authorized by you after the fact on 2026-11-26; unclear #534, #536, #538, #548, #578 and
+   #585. **#568 is the most serious** (`gh pr diff 568`: schema, migration, coach prompt,
+   backup route; it would still be human-only under the `messages/**` exception): read that
+   diff. Your reply of 2026-11-26 is quoted there in full, with the questions it answered.
+   Check that the text does not stretch it: #346 stays a miss, and #534, #536, #538, #548,
+   #578 and #585 (not asked) stay unclear; the conditions on #558 slice 2 are the loop's
+   commitment, not your words.
    Then lesson L67, the rule against disguising a refused command.
 2. **#589 - writes to finished history.** `gh pr diff 589`. `lib/session-edit.ts` (moving and
    squeezing set timestamps), the row lock in `lib/goal-achievement.ts` and the 8-attempt

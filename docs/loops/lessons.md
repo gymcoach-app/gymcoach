@@ -1152,10 +1152,11 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   the backup route), and six unclear ones, #534, #536, #538, #548, #578 and #585. #568 is the
   most serious and would still be human-only under the `messages/**` exception; #558 carried
   no `adopted` label, so a check keyed on the label would not have fired. On 2026-11-26 the
-  operator, asked with that list in view, answered "1 oui oui 2. oui": "oui messages" holds,
-  his 2026-11-16 "full autonomie" covered #565 and #568 (authorized after the fact, those two
-  only), and #558 slice 2 may go ahead with its migration. #346 stays a miss; the unclear six
-  stay unclear (question and answer quoted in `docs/loops/10`).
+  operator, after that list had been put to him on 2026-11-25, answered (excerpt) "1 oui oui 2.
+  oui": "oui messages" holds, his 2026-11-16 "full autonomie" covered #565 and #568
+  (authorized after the fact, those two only), and #558 slice 2 may go ahead with its
+  migration; its review conditions are the loop's own commitment, not his words. #346 stays a
+  miss; the unclear six stay unclear (questions and full reply quoted in `docs/loops/10`).
   The implementer flagged the author and the path in its report; the orchestrator held the
   merge and asked. The operator's answer on 2026-11-25 ("oui messages") created a narrow
   exception; the rollback tag `autonomy-baseline-2026-11-25` was pushed at the pre-merge
@@ -1188,4 +1189,4 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   command that the check can read, or stop and report what was refused and what is blocked.
   Every report says when a check refused something and what was done instead.
 - **Status:** graduated -> `implement-issue` step 2 and `06-orchestration.md` ("Concurrent
-  ticks"). Operator approval of the rule: 2026-11-26 ("3. oui").
+  ticks" section, paragraph "A refused command is a stop, not a puzzle"). Operator approval of the rule: 2026-11-26 ("3. oui").

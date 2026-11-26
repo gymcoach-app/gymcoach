@@ -70,8 +70,11 @@ in force since #315 (2026-08-27) and had been missed before. A read-only search 
 issue adopted from one, or a batch issue carrying their leftovers (#576, #582). It
 matched issue numbers, branch names, GitHub cross-references and contributor names,
 so **it may not be exhaustive**, and it does not cover maintainer polish on
-contributors' PRs that names no such issue. None of the merges below is called
-compliant here, and the extension makes none of them compliant after the fact.
+contributors' PRs that names no such issue. None of the merges below was compliant
+when it was merged, and the `messages/**` extension makes none of them compliant
+after the fact. Two of them, #565 and #568, were later authorized by the operator
+(2026-11-26, below); that is recorded as an authorization after the fact, not as
+compliance.
 
 | PR (merged) | Request | Hard-block paths | Class |
 | --- | --- | --- | --- |
@@ -103,22 +106,28 @@ slice 1 included, on its own, and to merge what is clean; and one of 2026-11-18
 agreeing to what the loop proposed on the distance unit. The lists put to the operator
 named no hard-block path, no migration and not rule 2.
 
-On 2026-11-26 the operator was asked, in French, with this table and the
-transcript messages below in view: "« oui messages » tient-il, maintenant que tu
-connais #346 et #568 ? Et ton « full autonomie » du 16/11 couvrait-il #565 et #568 ?"
-("Does 'oui messages' still hold, now that you know about #346 and #568? And did
-your 'full autonomy' of 11/16 cover #565 and #568?"; an earlier wording of the
-second question added "including the hard-block paths"); then "#558 tranche 2 (RPE
-et fréquence cardiaque cibles) : je la lance, migration de base comprise ?" ("#558
-slice 2, RPE and heart rate targets: shall I start it, database migration
-included?"). The answer, verbatim: "1 oui oui 2. oui" ("1 yes yes 2. yes").
+The operator's reply of 2026-11-26 followed a message of the loop whose list of
+questions read, in French: (1) "#592 : « oui, oui » ou « oui, non » (« oui
+messages » tient-il, et ton « full autonomie » couvrait-il #565 et #568 ?)" ("#592:
+'yes, yes' or 'yes, no' (does 'oui messages' hold, and did your 'full autonomy'
+cover #565 and #568?)"); (2) "#558 tranche 2 : je la lance, migration comprise ?"
+("#558 slice 2: shall I start it, migration included?"); (3) whether to add the rule
+never to disguise a command. That message itself did not repeat the table. The
+table, #346 and #568 with their paths, the two transcript messages above, and a
+longer form of question 1 ("... y compris les chemins sensibles", "... including
+the hard-block paths") were in the loop's earlier messages of 2026-11-25 in the same
+thread. The reply, verbatim and in full: "1 oui oui 2. oui 3. oui 4.tu t'en charges 5.explique moi les impact" ("1 yes yes 2. yes 3. yes
+4. you take care of it 5. explain the impacts to me"; items 4 and 5 answer other
+questions).
 
 What that answer settles, and nothing more: "oui messages" is confirmed with the
 full record in view; #565 and #568 are **authorized by the operator after the fact**
 (they were not checked against rule 2 when merged, and that stays recorded); #558
-slice 2, still to come, is authorized in advance, a Prisma migration included, under
-the usual passes, with both security lenses and a rollback tag before the merge. It
-does not generalize: no other PR, no other slice and no other hard-block path is
+slice 2, still to come, is authorized in advance by the operator, a Prisma migration
+included ("2. oui"). The conditions that go with it are the loop's own commitment,
+not the operator's words, stated to him right after his reply on 2026-11-26: every
+pass, both security lenses (egress/backdoor and threat model) on the diff, and a
+rollback tag before the merge. The answer does not generalize: no other PR, no other slice and no other hard-block path is
 covered. #346 stays a miss, and the unclear rows (#534, #536, #538, #548, #578, #585)
 stay unclear: the operator was not asked about them.
 

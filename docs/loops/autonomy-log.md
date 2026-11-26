@@ -3918,20 +3918,19 @@ exhaustive; table and evidence in `10-external-contributions.md`) found: misses 
 human-only under the `messages/**` exception, it had no egress/backdoor lens and no rollback
 tag of its own, and #558 was never labelled `adopted`.
 
-**The operator's answer (2026-11-26).** Asked with that list in view whether "oui messages"
-still holds and whether his "full autonomie" of 2026-11-16 covered #565 and #568, and whether
-#558 slice 2 may start with its migration, he answered "1 oui oui 2. oui" ("1 yes yes 2.
-yes"). So "oui messages" is confirmed; #565 and #568 are authorized after the fact (those two
-only; not checked at merge time, which stays recorded); #558 slice 2 is authorized in advance,
-migration included. #346 stays a miss and the six unclear merges stay unclear. To "3." (add
-the rule never to disguise a refused command) he answered "oui": lesson L67.
+**The operator's answer (2026-11-26).** The list above, with #346 and #568 and their paths,
+was put to him on 2026-11-25. His reply followed a shorter question list on 2026-11-26: does
+"oui messages" hold, did his "full autonomie" of 2026-11-16 cover #565 and #568, may #558 slice
+2 start with its migration, may the loop add a rule against disguising a command. He answered
+(excerpt) "1 oui oui 2. oui 3. oui" ("1 yes yes 2. yes 3. yes"; full reply and questions in
+`10-external-contributions.md`). So "oui messages" is confirmed; #565 and #568 are authorized
+after the fact (those two only; not checked at merge time, which stays recorded); #558 slice 2
+is authorized in advance, migration included. Its conditions (every pass, both security lenses
+on the diff, a rollback tag before the merge) are the loop's own commitment, not his words.
+#346 stays a miss and the six unclear merges stay unclear. Item 3 is lesson L67.
 
 **Not in this write-up: #594 and #595** (merged 2026-11-25, #593 parts 1 and 2) go to the next
-one. One fact from that work belongs here because the operator asked for it: after #594 found
-that a password could end up in the URL of the signup or login form, the orchestrator searched
-the operator's VPS nginx logs (12 to 26 November 2026, 14 rotated files) and the logs of the
-three app containers for a URL holding `password=`, and found none. That search counted
-matches only; it did not read or print any log line.
+one.
 
 **Green gate.** Ledger `verify` lines from the #588 merge to the #591 merge: 14 (13 `--full`,
 1 default). 3 green, one per PR. 11 red: 9 at the unit tier, 2 at E2E.
