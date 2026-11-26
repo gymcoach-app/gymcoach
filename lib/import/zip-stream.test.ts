@@ -7,7 +7,7 @@ import {
   createSelectiveUnzip,
   type ZipEntryPicker,
 } from './zip-stream';
-import { referenceCost } from '@/lib/testing/cpu-cost';
+import { describeCost, repeatedReferenceCost } from '@/lib/testing/cpu-cost';
 import { deflatedZip, halfNoise, heldBytes, manyEntriesZip, noise } from './zip-test-support';
 
 const SLICE = 64 * 1024;
@@ -93,15 +93,25 @@ describe('createSelectiveUnzip', () => {
   // keeps the worst case to a couple of seconds (about ten times that for
   // twice the entries).
   //
-  // The cost is measured in units of a fixed reference work run right before
-  // and after the read (lib/testing/cpu-cost.ts), not in seconds: the old
-  // bound, 30 s on the wall clock, depended on how busy the machine was, and
-  // was so far above the one to two seconds the read takes that a read ten
-  // times slower still passed (#593). Measured on 12 cores: 860 to 1100 units
-  // on a calm machine, 670 to 1520 with 16 busy loops on top of other jobs.
-  // With 0.5 ms of work added per entry, which makes the read ten to twenty
-  // times slower: 10 500 to 20 400. The limit is between the two.
-  const ZIP_LIMIT_UNITS = 3500;
+  // The cost is measured in units of the reference work of
+  // lib/testing/cpu-cost.ts, not in seconds: the old bound, 30 s on the wall
+  // clock, depended on how busy the machine was, and was so far above the
+  // second the read takes that a read ten times slower still passed (#593).
+  //
+  // Calibration (one machine: a six-core 2020 laptop, Node 22). The read is
+  // run five times and the fastest of the last four is kept, against the
+  // fastest of four batches of reference work: 270 to 450 units on a calm
+  // machine, 280 to 670 with 16 busy loops. With two more slot lists kept per
+  // entry the way fflate keeps its own, which is about three times the work:
+  // 910 to 1210 (calm). With 0.5 ms of work added per entry: over 10 000.
+  // The limit is between the code as it is and the three-times version, with
+  // less room than one would like on both sides (1.17 times each way): the
+  // read itself has two speeds, a factor of 1.6 apart, that no sampling
+  // removes. It moves a 50 000 slot array on every entry, and how fast the
+  // engine does that depends on what its garbage collector is doing during
+  // the read. A machine with another processor can sit elsewhere: the units
+  // it measures are printed on CI and with COST_UNITS_LOG=1 (describeCost).
+  const ZIP_LIMIT_UNITS = 780;
 
   it('reads an archive right at the default limit at a bounded cost, and no larger one', () => {
     expect(ZIP_MAX_ENTRIES).toBe(50_000);
@@ -111,12 +121,22 @@ describe('createSelectiveUnzip', () => {
       seen += 1;
       return null;
     };
-    // The read takes seconds: the reference is sampled for 200 ms on each side.
-    const cost = referenceCost(() => {
-      expect(() => feed(createSelectiveUnzip(count), zip)).toThrow(ZipEntryLimitError);
-    }, 200);
-    expect(cost.units, `${Math.round(cost.cpuMs)} ms of CPU time`).toBeLessThan(ZIP_LIMIT_UNITS);
-    expect(seen).toBe(ZIP_MAX_ENTRIES);
+    const cost = repeatedReferenceCost(
+      () => {
+        seen = 0;
+        expect(() => feed(createSelectiveUnzip(count), zip)).toThrow(ZipEntryLimitError);
+        expect(seen).toBe(ZIP_MAX_ENTRIES);
+      },
+      { rounds: 4 },
+    );
+    const measured = describeCost(
+      'zip entry limit',
+      cost.units,
+      ZIP_LIMIT_UNITS,
+      `${cost.cpuMs.toFixed(0)} ms, reference ${cost.referenceMs.toFixed(3)} ms`,
+    );
+    expect(cost.units, measured).toBeGreaterThan(0);
+    expect(cost.units, measured).toBeLessThan(ZIP_LIMIT_UNITS);
   }, 120_000);
 
   it('hands over the picked entries, deflated, stored or empty, and only those', () => {

@@ -19,7 +19,12 @@
 // - `referenceCost` reports a cost as a multiple of a fixed piece of work run
 //   right before and after it. Use it when the test guards an absolute cost
 //   ("the whole property stays cheap") and no smaller size exists to compare
-//   with.
+//   with. `repeatedReferenceCost` does the same more tightly for work that
+//   can be run several times.
+//
+// A growth says nothing about code that is ten times slower at every size,
+// and a bound in reference units says nothing about the order of growth: a
+// test that replaces a bound in milliseconds usually needs one of each.
 //
 // Both compare two things measured within milliseconds of each other, for
 // about as long as each other, and never a time with a constant. The second
@@ -31,10 +36,12 @@
 // Vitest runs each test file in its own process (the default `forks` pool),
 // so the CPU time read here is the test file's own.
 //
-// When the code offers something to count instead (lock waits, characters
+// When the code offers something to count as well (lock waits, characters
 // read, syntax trees parsed), count it: a count does not depend on the
-// machine at all. See the dispatch-limit tests, the resume test of the Apple
-// Health scanner and the alias chain test of the eval runner.
+// machine at all. It only sees the work that goes through what is counted,
+// though, so it comes with a measurement, not instead of one. See the
+// dispatch-limit tests, the resume tests of the Apple Health scanner and the
+// alias chain tests of the eval runner.
 
 // CPU time (user and system, in ms) the process spends in `run`.
 export function cpuMs(run: () => void): number {
@@ -223,4 +230,64 @@ export function referenceCost(run: () => void, sampleMs = REFERENCE_SAMPLE_MS): 
   const after = referenceMs(sampleMs);
   const reference = (before + after) / 2;
   return { cpuMs: spent, referenceMs: reference, units: spent / reference };
+}
+
+// The longest batch of reference work set against one run of the work.
+const REFERENCE_BATCH_MS = 250;
+
+export interface RepeatedCostOptions {
+  // Timed runs of the work, after one run that is not timed. Default 3.
+  rounds?: number;
+  // The longest batch of reference work set against one run, in ms. Default
+  // REFERENCE_BATCH_MS.
+  referenceBatchMs?: number;
+}
+
+// The same cost in reference units, measured more tightly, for work that can
+// be run several times. `run` is called once without being timed (the first
+// call pays for compilation and a cold heap), then `run` and a batch of
+// reference work about as long as it (REFERENCE_BATCH_MS at most) are timed
+// in turn, `rounds` times, and the fastest of each is kept, as in
+// `measureGrowth`. One measurement by `referenceCost` is good to a factor of
+// two on a busy machine; this one moved by a factor of 1.2 on a calm machine
+// and 1.7 with 16 busy loops for the git guard, which lets a limit sit
+// between the code as it is and the same code three times slower. `run` must
+// do the same work every time it is called.
+export function repeatedReferenceCost(
+  run: () => void,
+  options: RepeatedCostOptions = {},
+): ReferenceCost {
+  const rounds = options.rounds ?? 3;
+  const longestBatchMs = options.referenceBatchMs ?? REFERENCE_BATCH_MS;
+  const unit = referenceWork;
+  if (!referenceCompiled) {
+    for (let call = 0; call < 60; call++) referenceWork();
+    referenceCompiled = true;
+  }
+  const first = batchMs(run, 1);
+  const batch = sizeBatch(unit, Math.max(2, Math.min(first, longestBatchMs)));
+  const work: number[] = [];
+  const reference: number[] = [];
+  for (let round = 0; round < rounds; round++) {
+    work.push(batchMs(run, 1));
+    reference.push(batchMs(unit, batch.calls) / batch.calls);
+  }
+  const workMs = Math.min(...work);
+  const referenceMs = Math.min(...reference);
+  return { cpuMs: workMs, referenceMs, units: workMs / referenceMs };
+}
+
+// One line saying what a cost test measured, to pass to `expect` as its
+// message. The limits in reference units were set from measurements on one
+// machine (a 2020 six-core laptop under WSL), and another processor can move
+// the ratio between a piece of code and the reference work: so the line is
+// also printed when the test passes, on CI and wherever COST_UNITS_LOG is
+// set, and the units of that machine can be read from the test's output
+// before a limit is trusted there.
+export function describeCost(label: string, units: number, limit: number, detail = ''): string {
+  const line =
+    `[cost] ${label}: ${units.toFixed(1)} reference units, limit ${limit}` +
+    (detail ? ` (${detail})` : '');
+  if (process.env.CI || process.env.COST_UNITS_LOG) console.info(line);
+  return line;
 }

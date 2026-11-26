@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { cpuMs, measureGrowth, referenceCost, referenceMs } from './cpu-cost';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  cpuMs,
+  describeCost,
+  measureGrowth,
+  referenceCost,
+  referenceMs,
+  repeatedReferenceCost,
+} from './cpu-cost';
 
 // Work whose cost is known: `passes` additions per element.
 function sumPasses(values: Float64Array, passes: number): number {
@@ -93,6 +100,68 @@ describe('referenceCost', () => {
     const second = referenceMs(100);
     expect(second / first).toBeGreaterThan(1 / 3);
     expect(second / first).toBeLessThan(3);
+  });
+});
+
+describe('repeatedReferenceCost', () => {
+  const values = new Float64Array(100_000).fill(1);
+
+  it('runs the work once untimed and then once per round', () => {
+    let runs = 0;
+    const cost = repeatedReferenceCost(
+      () => {
+        runs += 1;
+        sumPasses(values, 100);
+      },
+      { rounds: 2 },
+    );
+    expect(runs).toBe(3);
+    expect(cost.units).toBeCloseTo(cost.cpuMs / cost.referenceMs, 10);
+    expect(cost.units).toBeGreaterThan(0);
+  });
+
+  it('gives about three times the units for three times the work', () => {
+    const once = repeatedReferenceCost(() => {
+      sumPasses(values, 300);
+    });
+    const threeTimes = repeatedReferenceCost(() => {
+      sumPasses(values, 900);
+    });
+    const ratio = threeTimes.units / once.units;
+    expect(ratio).toBeGreaterThan(1.7);
+    expect(ratio).toBeLessThan(5.2);
+  });
+});
+
+describe('describeCost', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('says what was measured against which limit', () => {
+    vi.stubEnv('CI', '');
+    vi.stubEnv('COST_UNITS_LOG', '');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    expect(describeCost('zip entry limit', 431.26, 800, '512 ms')).toBe(
+      '[cost] zip entry limit: 431.3 reference units, limit 800 (512 ms)',
+    );
+    expect(describeCost('split', 3, 9)).toBe('[cost] split: 3.0 reference units, limit 9');
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it('prints the line from a passing test on CI and on request', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.stubEnv('CI', 'true');
+    vi.stubEnv('COST_UNITS_LOG', '');
+    describeCost('a', 1, 2);
+    vi.stubEnv('CI', '');
+    vi.stubEnv('COST_UNITS_LOG', '1');
+    describeCost('b', 1, 2);
+    expect(info.mock.calls.map((call) => call[0])).toEqual([
+      '[cost] a: 1.0 reference units, limit 2',
+      '[cost] b: 1.0 reference units, limit 2',
+    ]);
   });
 });
 

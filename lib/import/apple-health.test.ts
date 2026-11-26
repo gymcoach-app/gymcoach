@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
-import { measureGrowth, referenceCost } from '@/lib/testing/cpu-cost';
+import { describeCost, measureGrowth, referenceCost } from '@/lib/testing/cpu-cost';
 import { IMPORT_DUPLICATE_WINDOW_MS } from './duplicate-window';
 import {
   APPLE_HEALTH_GENERIC_EXERCISE,
@@ -134,7 +134,9 @@ describe('scanAppleHealthExport', () => {
   // jobs. With 1.6 ms of CPU added to every end(), the scanner about ten times
   // slower that the old budget was sized against: 2300 to 4900. The budget is
   // between the two, so that mutant fails it, while each range still passes
-  // its own test.
+  // its own test. These numbers are from one machine (a six-core 2020 laptop,
+  // Node 22); the units another one measures are printed on CI and with
+  // COST_UNITS_LOG=1 (describeCost).
   const SPLIT_RANGE = 512;
   const SPLIT_STARTS = Array.from(
     { length: Math.ceil((FIXTURE.length + 1) / SPLIT_RANGE) },
@@ -179,8 +181,9 @@ describe('scanAppleHealthExport', () => {
     // Every position from 0 to the end of the text, once.
     expect(costs.reduce((sum, cost) => sum + cost.positions, 0)).toBe(FIXTURE.length + 1);
     const totalUnits = costs.reduce((sum, cost) => sum + cost.units, 0);
-    expect(totalUnits).toBeGreaterThan(0);
-    expect(totalUnits).toBeLessThan(SPLIT_UNITS_BUDGET);
+    const measured = describeCost('Apple Health split property', totalUnits, SPLIT_UNITS_BUDGET);
+    expect(totalUnits, measured).toBeGreaterThan(0);
+    expect(totalUnits, measured).toBeLessThan(SPLIT_UNITS_BUDGET);
   });
 
   it('gives the same result fed one byte at a time (multi-byte characters split)', () => {
@@ -452,6 +455,37 @@ describe('scanAppleHealthExport', () => {
         maxHr: null,
       },
     ]);
+  });
+
+  // The count above only sees a search made through charCodeAt. The same
+  // rule is measured as time too, so that a search made again by other means
+  // (indexing, a regular expression) shows as well: a tag eight times longer,
+  // fed 64 characters at a time, may take about eight times longer (an
+  // exponent of 1), not sixty-four. Measured: 0.9 to 1.15, calm and with 16
+  // busy loops; 1.9 with the tag searched again from its start through
+  // codePointAt, which the count above does not see.
+  it('reads a tag fed in small pushes in a time proportional to its length', () => {
+    const tagOf = (length: number) =>
+      `<Workout workoutActivityType="HKWorkoutActivityTypeHiking" note='${'a > b " '.repeat(length / 8)}' ` +
+      'startDate="2024-01-03 08:00:00 +0000" duration="10" durationUnit="min"/>';
+    const tags = new Map([2000, 16_000].map((length) => [length, tagOf(length)]));
+    const feedTag = (length: number) => {
+      const tag = tags.get(length)!;
+      const scanner = new AppleHealthScanner(NOW);
+      for (let offset = 0; offset < tag.length; offset += 64) {
+        scanner.push(tag.slice(offset, offset + 64));
+      }
+      return scanner.end();
+    };
+    for (const length of tags.keys()) {
+      expect(feedTag(length).workouts.map((w) => w.activityType)).toEqual(['Hiking']);
+    }
+    const growth = measureGrowth(feedTag, 2000, 16_000);
+    expect(
+      growth.exponent,
+      `${growth.smallMs.toFixed(3)} ms for a note of 2000 characters, ` +
+        `${growth.largeMs.toFixed(3)} ms for 16000`,
+    ).toBeLessThan(LINEAR);
   });
 
   it('works through one huge chunk in bounded slices', () => {

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { measureGrowth } from '@/lib/testing/cpu-cost';
 import {
   EGRESS_ALLOWLIST,
   NODE_IMAGE,
@@ -666,6 +667,37 @@ describe('tamperViolations', () => {
       expect.stringContaining('test global'),
     );
     expect((aliasEdgeChecks() - before) / n).toBeLessThan(10);
+  });
+
+  // The count above only sees work that goes through the worklist's own
+  // check: a closure rewritten as passes that do not call it would count
+  // nothing and take the square of the chain all the same. So the time is
+  // measured too, as growth between two chain lengths (an exponent of 1 is
+  // proportional, 2 the square), on the screen of the test globals alone,
+  // whose syntax tree is kept between calls. Measured: 0.9 to 1.15, calm and
+  // with 16 busy loops; 1.86 with such uncounted passes.
+  it('screens an alias chain eight times longer in about eight times the time', () => {
+    const chain = (n: number) => {
+      const lines: string[] = [];
+      for (let i = n; i >= 1; i--) lines.push(`const a${i} = a${i - 1};`);
+      lines.push('const a0 = globalThis;', `a${n}.afterEach(restore);`);
+      return lines.join('\n');
+    };
+    const chains = new Map([150, 1200].map((n) => [n, chain(n)]));
+    for (const content of chains.values()) {
+      expect(testGlobalHits('lib/b.ts', content).length).toBeGreaterThan(0);
+    }
+    const growth = measureGrowth(
+      (n) => {
+        testGlobalHits('lib/b.ts', chains.get(n)!);
+      },
+      150,
+      1200,
+    );
+    expect(
+      growth.exponent,
+      `${growth.smallMs.toFixed(2)} ms for 150 names, ${growth.largeMs.toFixed(2)} ms for 1200`,
+    ).toBeLessThan(1.5);
   });
 
   it('blames a base hit moved onto a changed line', () => {
