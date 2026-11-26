@@ -1182,8 +1182,10 @@ and a narrow extension of the external-issue policy.
    compliant): misses #346, #565 and #568, unclear #534, #536, #538, #548, #578 and #585.
    **#568 is the most serious** (`gh pr diff 568`: schema, migration, coach prompt, backup
    route; still human-only under the new rule): read that diff.
-   Decide whether your session messages of 2026-11-16 and 2026-11-18 covered #565, #568
-   and #585.
+   Your answer of 2026-11-26 ("1 oui oui 2. oui") is recorded there: #565 and #568
+   authorized after the fact, #558 slice 2 authorized with its migration. Check that the
+   text does not stretch it: #346 stays a miss, #578 and #585 (not asked) stay unclear.
+   Then lesson L67, the rule against disguising a refused command.
 2. **#589 - writes to finished history.** `gh pr diff 589`. `lib/session-edit.ts` (moving and
    squeezing set timestamps), the row lock in `lib/goal-achievement.ts` and the 8-attempt
    retry that set writes now share, the `amend: true` gate in

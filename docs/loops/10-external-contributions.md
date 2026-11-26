@@ -77,8 +77,8 @@ compliant here, and the extension makes none of them compliant after the fact.
 | --- | --- | --- | --- |
 | #321 (2026-08-27) | #310, `needs-maintainer` | `.github/workflows/publish-image.yml` | authorized: its body says the operator green-lit it in session that day |
 | #346 (2026-09-11) | #333, adopted from #331 | `messages/**` | miss: #333 says "no hard-block path" while asking for strings in the catalogs; no authorization found |
-| #565 (2026-11-16) | #557, `adopted` | `messages/**` | miss: rule 2 not checked; see the session note |
-| #568 (2026-11-17) | #558, never labelled `adopted` | `messages/**`, `prisma/schema.prisma`, a migration, `lib/prompts/coach-system-prompt.ts`, `app/api/backup/route.ts` | miss, the most serious: see below and the session note |
+| #565 (2026-11-16) | #557, `adopted` | `messages/**` | rule 2 not checked at the time; authorized by the operator after the fact (2026-11-26) |
+| #568 (2026-11-17) | #558, never labelled `adopted` | `messages/**`, `prisma/schema.prisma`, a migration, `lib/prompts/coach-system-prompt.ts`, `app/api/backup/route.ts` | rule 2 not checked at the time, the most serious case; authorized by the operator after the fact (2026-11-26) |
 | #578 (2026-11-17) | #576 part 4, leftovers of #558 | `messages/**`, `lib/llm/reasoning-call-sites.test.ts` | unclear: a loop-authored batch issue, but the cardio part fixes #568 and comes from #558 (the `lib/llm` test comes from #575, our own work) |
 | #585 (2026-11-18) | #582 part 3 | `messages/**`, `prisma/schema.prisma`, a migration, `app/api/backup/route.ts` | unclear: #582 says "decided by the maintainer" and does not name #558, but #558 asked for kilometers or miles and our reply there announced this setting |
 | #534 (2026-10-28) | follow-up to @sapatmohit's #532, part of #527 | `messages/**`, `i18n/exercise-names.ts` | unclear: polish on a contributor's catalog, which rule 2 does not mention |
@@ -91,18 +91,36 @@ compliant here, and the extension makes none of them compliant after the fact.
 #308/#320, #309, #525 and the rest of #331. Our other PRs on #576 and #582 (#577,
 #579, #580, #583, #584, #586, #587) implement parts that name no external issue.
 
-**#568 is the most serious miss and would still be human-only under the new rule**: it
-changed the database schema with a migration, the coach prompt and the backup route.
-It was merged by the loop with correctness/tests and security/threat-model records,
-without an egress/backdoor lens and without a rollback tag of its own.
+**#568 was the most serious case and would still be human-only under the
+`messages/**` exception**: it changed the database schema with a migration, the coach
+prompt and the backup route. It was merged by the loop with correctness/tests and
+security/threat-model records, without an egress/backdoor lens and without a rollback
+tag of its own.
 
 Session note: the maintainer session transcript (not public) holds an operator message
 of 2026-11-16 telling the loop to do the work it had just listed, #557 step 1 and #558
 slice 1 included, on its own, and to merge what is clean; and one of 2026-11-18
 agreeing to what the loop proposed on the distance unit. The lists put to the operator
-named no hard-block path, no migration and not rule 2, and nothing public records
-either as lifting it. Whether they authorized #565, #568 or #585 is for the operator
-to say; this document does not count them as an authorization.
+named no hard-block path, no migration and not rule 2.
+
+On 2026-11-26 the operator was asked, in French, with this table and the
+transcript messages below in view: "« oui messages » tient-il, maintenant que tu
+connais #346 et #568 ? Et ton « full autonomie » du 16/11 couvrait-il #565 et #568 ?"
+("Does 'oui messages' still hold, now that you know about #346 and #568? And did
+your 'full autonomy' of 11/16 cover #565 and #568?"; an earlier wording of the
+second question added "including the hard-block paths"); then "#558 tranche 2 (RPE
+et fréquence cardiaque cibles) : je la lance, migration de base comprise ?" ("#558
+slice 2, RPE and heart rate targets: shall I start it, database migration
+included?"). The answer, verbatim: "1 oui oui 2. oui" ("1 yes yes 2. yes").
+
+What that answer settles, and nothing more: "oui messages" is confirmed with the
+full record in view; #565 and #568 are **authorized by the operator after the fact**
+(they were not checked against rule 2 when merged, and that stays recorded); #558
+slice 2, still to come, is authorized in advance, a Prisma migration included, under
+the usual passes, with both security lenses and a rollback tag before the merge. It
+does not generalize: no other PR, no other slice and no other hard-block path is
+covered. #346 stays a miss, and the unclear rows (#534, #536, #538, #548, #578, #585)
+stay unclear: the operator was not asked about them.
 
 ## Trust tiers
 

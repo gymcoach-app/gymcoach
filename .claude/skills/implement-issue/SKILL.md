@@ -58,6 +58,12 @@ for repo conventions; this skill assumes them.
    Limit: without isolation your shell returns to the main checkout between calls, so the
    guard treats that scratch worktree as another session's and refuses rebase,
    `reset --soft` and path-wide restores there; commits, merges and pushes still work.
+   **A refusal is a stop, not a puzzle** (lesson L67). When the git guard, another hook, the
+   harness's worktree isolation or a permission refuses a command, never rewrite it to get
+   past the check: no split words, quoting tricks, globs, encodings or wrapper scripts. Use
+   the dedicated tool (Read, Edit, Write) or a plainer command the check can read, or stop
+   and report what was refused and what is blocked. Your report says when a check refused
+   something and what you did instead.
 
 3. **Implement.** Make the smallest change that satisfies the issue. Follow
    `CLAUDE.md`: TypeScript strict, Zod for API inputs, reuse `components/ui`

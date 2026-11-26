@@ -3914,11 +3914,24 @@ exhaustive; table and evidence in `10-external-contributions.md`) found: misses 
 (#333, `messages/**`), **#565** (#557 step 1, `messages/**`) and **#568** (#558 slice 1,
 `messages/**`, `prisma/schema.prisma`, a migration, `lib/prompts/coach-system-prompt.ts`,
 `app/api/backup/route.ts`); unclear **#534**, **#536**, **#538**, **#548**, **#578**,
-**#585**; authorized **#321** and **#591**. None is called compliant. #568 is the most
-serious: it is still human-only under the new rule, it had no egress/backdoor lens and no
-rollback tag of its own, and #558 was never labelled `adopted`. Two operator messages in the
-session transcript (2026-11-16 and 2026-11-18) bear on #565, #568 and #585 but mention
-neither rule 2 nor those paths; the operator decides what they covered.
+**#585**; authorized **#321** and **#591**. #568 was the most serious: it would still be
+human-only under the `messages/**` exception, it had no egress/backdoor lens and no rollback
+tag of its own, and #558 was never labelled `adopted`.
+
+**The operator's answer (2026-11-26).** Asked with that list in view whether "oui messages"
+still holds and whether his "full autonomie" of 2026-11-16 covered #565 and #568, and whether
+#558 slice 2 may start with its migration, he answered "1 oui oui 2. oui" ("1 yes yes 2.
+yes"). So "oui messages" is confirmed; #565 and #568 are authorized after the fact (those two
+only; not checked at merge time, which stays recorded); #558 slice 2 is authorized in advance,
+migration included. #346 stays a miss and the six unclear merges stay unclear. To "3." (add
+the rule never to disguise a refused command) he answered "oui": lesson L67.
+
+**Not in this write-up: #594 and #595** (merged 2026-11-25, #593 parts 1 and 2) go to the next
+one. One fact from that work belongs here because the operator asked for it: after #594 found
+that a password could end up in the URL of the signup or login form, the orchestrator searched
+the operator's VPS nginx logs (12 to 26 November 2026, 14 rotated files) and the logs of the
+three app containers for a URL holding `password=`, and found none. That search counted
+matches only; it did not read or print any log line.
 
 **Green gate.** Ledger `verify` lines from the #588 merge to the #591 merge: 14 (13 `--full`,
 1 default). 3 green, one per PR. 11 red: 9 at the unit tier, 2 at E2E.

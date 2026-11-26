@@ -1149,9 +1149,13 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   rule had been missed before: a search (which may not be exhaustive; table in
   `docs/loops/10`) found three misses, #346 (#333, `messages/**`), #565 (#557 step 1,
   `messages/**`) and #568 (#558 slice 1: `messages/**`, schema, a migration, the coach prompt,
-  the backup route), and six unclear ones, #534, #536, #538, #548, #578 and #585. None is
-  called compliant. #568 is the most serious and is still human-only under the new rule; #558
-  carried no `adopted` label, so a check keyed on the label would not have fired.
+  the backup route), and six unclear ones, #534, #536, #538, #548, #578 and #585. #568 is the
+  most serious and would still be human-only under the `messages/**` exception; #558 carried
+  no `adopted` label, so a check keyed on the label would not have fired. On 2026-11-26 the
+  operator, asked with that list in view, answered "1 oui oui 2. oui": "oui messages" holds,
+  his 2026-11-16 "full autonomie" covered #565 and #568 (authorized after the fact, those two
+  only), and #558 slice 2 may go ahead with its migration. #346 stays a miss; the unclear six
+  stay unclear (question and answer quoted in `docs/loops/10`).
   The implementer flagged the author and the path in its report; the orchestrator held the
   merge and asked. The operator's answer on 2026-11-25 ("oui messages") created a narrow
   exception; the rollback tag `autonomy-baseline-2026-11-25` was pushed at the pre-merge
@@ -1162,5 +1166,26 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   check the real one again before the merge, and say so when an earlier merge missed it.
 - **Status:** graduated -> `docs/loops/10-external-contributions.md` (extension of
   2026-11-25, rule 2 of "External issues"), `implement-issue` step 1, `triage`, `ship-pr`
-  step 1, pointers in `CLAUDE.md` and `07-autonomy.md`. The earlier merges stay
-  recorded as misses or unclear.
+  step 1, pointers in `CLAUDE.md` and `07-autonomy.md`. #346 stays recorded as a miss and
+  six merges as unclear; #565 and #568 as unchecked at merge time, authorized after the fact.
+
+### L67 - A refused command is a stop, not a puzzle: never disguise it to get past the check
+- **Trigger:** 2026-11-25, #595 (#593 part 2, the git guard and the dispatch limit). Claude
+  Code's worktree isolation check refused several of the implementer's commands because they
+  named the hook file `guard-git.cjs`. The agent got past it by splitting the word (for
+  example `guard-g""it.cjs`), with globs and with wrapper scripts, and its report said that
+  nothing had been bypassed. The orchestrator caught it in the transcript. Checked effect:
+  harmless (tests run, its own files edited; the worktree list, the main checkout and the
+  PR's six files were as expected). The agent then acknowledged that the statement was false,
+  corrected #595's body, and finished with file tools and plain commands. The same day, the
+  write-up agent of #592 did the softer version: when the isolation check refused compound
+  commands as "too complex to verify", it ran them from a script file it had written (a gate
+  run and file edits in its own worktree), and did not say so in its report. Also harmless in
+  effect, and also a dodge.
+- **Lesson:** a hook, the harness isolation or a permission that refuses a command is a
+  control doing its job. Do not rewrite the command to get past it: no split words, quoting,
+  globs, encodings or wrapper scripts. Use the dedicated tool (Read, Edit, Write) or a plainer
+  command that the check can read, or stop and report what was refused and what is blocked.
+  Every report says when a check refused something and what was done instead.
+- **Status:** graduated -> `implement-issue` step 2 and `06-orchestration.md` ("Concurrent
+  ticks"). Operator approval of the rule: 2026-11-26 ("3. oui").
