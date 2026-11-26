@@ -128,7 +128,11 @@ describe('which runs are verdicts', () => {
     expect(isRedRun(redRun(HEAD, { steps: failedSteps('full', 'infra-lock') }))).toBe(false);
     // The test database bootstrap applies the change's migrations: a verdict.
     expect(isRedRun(redRun(HEAD, { steps: failedSteps('full', 'test-db') }))).toBe(true);
-    // Killed: no exit code, or a signal status with the step left open.
+    // A signal that kills a step's child while the gate's shell survives is a
+    // failed step like any other: red (fails safe).
+    expect(isRedRun(redRun(HEAD, { exit: 1, steps: failedSteps('full', 'unit') }))).toBe(true);
+    // The gate's own shell killed: no exit code, or a signal status with the
+    // step left open.
     expect(isRedRun(matchedRun(HEAD, { exit: null }))).toBe(false);
     expect(
       isRedRun(
@@ -164,6 +168,55 @@ describe('local green gate', () => {
     expect(describeRun(report.accepted)).toContain(
       'the same tree plus an untracked node_modules symlink',
     );
+  });
+
+  describe('a diff that changes the install', () => {
+    const linked = matchedRun(HEAD, { dirty: true, match: 'tree-plus-node-modules-symlink' });
+
+    it.each(['package.json', 'package-lock.json'])(
+      'refuses a green run through the symlink when the diff touches %s',
+      (manifest) => {
+        const { code, detail } = refusal({
+          evidence: ledgerEvidence([linked]),
+          changedPaths: ['lib/a.ts', manifest],
+        });
+        expect(code).toBe('local-gate-missing');
+        expect(detail).toContain('ledger line 10 is a green run through a node_modules symlink');
+        expect(detail).toContain('npm ci');
+      },
+    );
+
+    it('refuses it when the changed paths are unknown', () => {
+      expect(refusal({ evidence: ledgerEvidence([linked]), changedPaths: null }).code).toBe(
+        'local-gate-missing',
+      );
+    });
+
+    it('accepts a run on the exact tree (a checkout with its own install)', () => {
+      const report = accepted({ changedPaths: ['package.json', 'package-lock.json'] });
+      expect(report.accepted.match).toBe('tree');
+    });
+
+    it('keeps a nested manifest out of the rule', () => {
+      expect(
+        accepted({ evidence: ledgerEvidence([linked]), changedPaths: ['evals/x/package.json'] })
+          .accepted.line,
+      ).toBe(10);
+    });
+
+    it('still counts a red run through the symlink', () => {
+      const red = redRun(HEAD, {
+        line: 11,
+        at: '2026-11-20T11:00:00.000Z',
+        match: 'tree-plus-node-modules-symlink',
+      });
+      expect(
+        refusal({
+          evidence: ledgerEvidence([matchedRun(HEAD), red]),
+          changedPaths: ['package.json'],
+        }).code,
+      ).toBe('local-gate-red');
+    });
   });
 
   it('refuses when the ledger holds no run on that content', () => {
@@ -210,7 +263,7 @@ describe('local green gate', () => {
     ).toBe('local-gate-missing');
   });
 
-  it('never counts a killed run as green', () => {
+  it('never counts a run with no exit code as green', () => {
     expect(refusal({ evidence: ledgerEvidence([matchedRun(HEAD, { exit: null })]) }).code).toBe(
       'local-gate-missing',
     );
@@ -272,7 +325,7 @@ describe('local green gate', () => {
       expect(accepted({ evidence: ledgerEvidence([before, green]) }).accepted.line).toBe(10);
     });
 
-    it('ignores a newer run that only failed waiting for a lock, or was killed', () => {
+    it('ignores a newer run that only failed waiting for a lock, or whose shell was killed', () => {
       const slot = redRun(HEAD, {
         line: 11,
         at: '2026-11-20T11:00:00.000Z',
@@ -334,6 +387,11 @@ describe('local green gate', () => {
       expect(
         accepted({ evidence: ledgerEvidence([red, green]), carriedHeads: [OLD] }).accepted.line,
       ).toBe(6);
+    });
+
+    it('names the git error when the base updates could not be verified', () => {
+      const { detail } = refusal({ evidence: ledgerEvidence([]), carryError: 'fetch failed' });
+      expect(detail).toContain('git could not verify the base updates (fetch failed)');
     });
 
     it('refuses a green run on the approved head when a carried head failed after it', () => {
@@ -447,7 +505,13 @@ describe('local green gate', () => {
           input({ authorTier, evidence: { ledger: { status: 'disabled' }, ...none } }),
         );
         expect(result).toMatchObject({ ok: true, report: { required: 'none' } });
-        if (result.ok) expect(result.report.reason).toContain('CI is its only executor');
+        if (result.ok) {
+          expect(result.report.reason).toContain('CI is its only executor');
+          // trustTier maps a missing author to unvetted: the reason says so.
+          expect(result.report.reason.includes('which includes an unknown author')).toBe(
+            authorTier === 'unvetted',
+          );
+        }
       },
     );
   });

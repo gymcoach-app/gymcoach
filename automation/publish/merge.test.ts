@@ -11,6 +11,7 @@ import {
   localGateLines,
   mergeRequestArgs,
   needsBaseUpdateCheck,
+  needsLocalGateHops,
   parseArgs,
   type RawPull,
   POLICY_PATH,
@@ -93,6 +94,24 @@ describe('local gate lines', () => {
 
   it('prints nothing for a refusal', () => {
     expect(localGateLines({ mergeable: false, refusals: [] })).toEqual([]);
+  });
+});
+
+describe('base update verification for the local gate alone', () => {
+  it('runs for any two-parent merge head, whatever the review records cover', () => {
+    // #577, #579, #580: every record on the merged head, the run on its parent.
+    expect(needsBaseUpdateCheck(SHA, [SHA], () => ['e'.repeat(40), BASE])).toBe(false);
+    expect(needsLocalGateHops(SHA, () => ['e'.repeat(40), BASE])).toBe(true);
+  });
+
+  it('skips git for a plain commit, an octopus or an invalid SHA', () => {
+    expect(needsLocalGateHops(SHA, () => ['e'.repeat(40)])).toBe(false);
+    expect(needsLocalGateHops(SHA, () => ['e'.repeat(40), BASE, 'f'.repeat(40)])).toBe(false);
+    expect(
+      needsLocalGateHops('abc', () => {
+        throw new Error('parents must not be read');
+      }),
+    ).toBe(false);
   });
 });
 

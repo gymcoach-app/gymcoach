@@ -205,8 +205,21 @@ anything that takes deliberate effort to hide.
     or an identical-diff carry-over that carried): every commit added since is a merge
     of `main`, the PR's own content is what was gated, and CI must still pass on the new
     head. A merge with a hand edit or an extra commit carries nothing, so the new head
-    needs its own run. The hops are only examined when some review record is for an
-    older head, exactly as for the records.
+    needs its own run. The pure-update hops are verified whenever the approved head
+    is a two-parent merge, whatever the review records cover: when every record is
+    already on the merged head (reviews posted after an `update-branch`, the run made
+    before it, as on #577, #579 and #580), the CLI proves the hops for the local gate
+    alone (`localGateBaseUpdates`) and the review evidence is untouched; a hand-edited
+    merge proves no hop and the run on the parent does not count. The identical-diff
+    proof needs a record pin, so it only extends the local gate when a review record is
+    for the older head. If git cannot verify the hops, no older head counts and the
+    refusal names the git error.
+  - **A diff that changes the install.** The symlink match says nothing about what the
+    link points to. When the diff touches the root `package.json` or `package-lock.json`
+    (or its paths could not be read), a green run through the symlink does not count:
+    it may have tested the main checkout's older install. Gate such a change in a
+    checkout with its own `npm ci` (a real `node_modules` directory is ignored, so the
+    trees are equal). A red run through the symlink still counts.
   - **Docs-only diffs** may use the default tier (a full-tier line also counts). A path
     is documentation when it is under `docs/`, or is a Markdown file at the repository
     root or under `.claude/`, `.github/`, `automation/`, `changelog.d/` or `evals/`
@@ -223,10 +236,15 @@ anything that takes deliberate effort to hide.
     failed has a test that depends on something other than the tree, and L61 says that
     red is red until a later run is green. A red run is a non-zero exit with a failed
     step other than the two lock waits (`slot`, `infra-lock`, where none of the change's
-    code runs); a killed run (no exit code, or no failed step) is no verdict. A red run
-    of any tier counts (the default tier is part of the full one), a green default-tier
-    run never clears a red full one, and a red run on the approved head overrides a
-    green run on an older carried head whatever their times.
+    code runs). A run with no exit code (the gate's own shell died from a signal during
+    a step) or with no failed step is no verdict; when a signal kills only a step's
+    child and the shell survives, that step fails like any other and the run is red,
+    which fails safe (run again). A red run of any tier counts (the default tier is
+    part of the full one), and a green default-tier run never clears a red full one.
+    "The same content" spans every head that counts: a red run on an older carried
+    head, newer than a green run on the approved head, overrides it; and a red run on
+    the approved head overrides a green run on an older carried head whatever their
+    times.
   - **Ledger disabled, missing or unreadable refuses**, with the reason and the remedy
     (`local-gate-ledger-disabled` when `GYMCOACH_USAGE_LEDGER=off` in the gate's
     environment, `-missing` with the path it looked at, `-unreadable` with the error
@@ -240,7 +258,9 @@ anything that takes deliberate effort to hide.
   - **External authors are exempt, and the output says so.** The execution gate of
     `docs/loops/10-external-contributions.md` forbids running a vetted or unvetted
     author's code on the host, so no such line may exist; CI is their only executor.
-    The tier comes from the pulls API author id, like lens routing.
+    The tier comes from the pulls API author id, like lens routing; an unknown author
+    (no `user` in the payload) is `unvetted` there, so it is exempt here too while the
+    external lenses apply, and the printed reason names that case.
   - **Ledger location and sharing.** The gate resolves the ledger like the recorder:
     `GYMCOACH_USAGE_LEDGER_PATH`, else `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`
     (a test pins the two to the same answer). It is per user and per machine, shared by

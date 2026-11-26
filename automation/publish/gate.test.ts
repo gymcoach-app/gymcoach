@@ -920,6 +920,77 @@ describe('merge gate', () => {
       ]);
     });
 
+    describe('records posted after the update-branch, the run made before it (#577, #579, #580)', () => {
+      // Every record is on the merged head, so no carry is examined for the
+      // reviews; the hops are verified for the local gate alone.
+      const after = (over: Partial<GateInput> = {}): Partial<GateInput> =>
+        updated({
+          reviews: [evidence({ headSha: SHA, baseSha: TIP })],
+          baseUpdates: { hops: [], basesOnMain: [], error: null },
+          localGateBaseUpdates: {
+            hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }],
+            basesOnMain: [],
+            error: null,
+          },
+          ...over,
+        });
+
+      it('accepts the run on the parent head across a proven pure base update', () => {
+        const decision = evaluateMergeGate(input(after()));
+        expect(decision).toMatchObject({
+          mergeable: true,
+          localGate: { accepted: { line: 31, head: OLD_HEAD } },
+        });
+        // The review evidence is the record on the merged head, not a carry.
+        if (decision.mergeable) expect(decision.reviews[0]!.carriedFrom).toBeUndefined();
+      });
+
+      it('still refuses when the merge was hand-edited (git proved no hop)', () => {
+        expect(
+          codes(after({ localGateBaseUpdates: { hops: [], basesOnMain: [], error: null } })),
+        ).toEqual(['local-gate-missing']);
+      });
+
+      it('still refuses when the hop merged in something other than the live tip', () => {
+        expect(
+          codes(
+            after({
+              localGateBaseUpdates: {
+                hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: OTHER }],
+                basesOnMain: [],
+                error: null,
+              },
+            }),
+          ),
+        ).toEqual(['local-gate-missing']);
+      });
+
+      it('refuses, naming the git error, when the hops could not be verified', () => {
+        const decision = evaluateMergeGate(
+          input(after({ localGateBaseUpdates: { hops: [], basesOnMain: [], error: 'fetch failed' } })),
+        );
+        expect(decision.mergeable).toBe(false);
+        if (!decision.mergeable) {
+          expect(decision.refusals.map((r) => r.code)).toEqual(['local-gate-missing']);
+          expect(decision.refusals[0]!.detail).toContain('fetch failed');
+        }
+      });
+
+      it('never lets these hops carry a review record', () => {
+        expect(
+          codes(after({ reviews: [evidence({ headSha: OLD_HEAD, baseSha: BASE })] })),
+        ).toEqual(['review-for-other-head']);
+      });
+    });
+
+    it('refuses a run through the node_modules symlink when the diff changes the install', () => {
+      const linked = ledgerEvidence([matchedRun(SHA, { match: 'tree-plus-node-modules-symlink' })]);
+      expect(evaluateMergeGate(input({ localGate: linked })).mergeable).toBe(true);
+      expect(
+        codes({ localGate: linked, changedFiles: paths('lib/a.ts', 'package-lock.json') }),
+      ).toEqual(['local-gate-missing']);
+    });
+
     it('carries no run across a merge that was not proven pure', () => {
       // A fresh review of the new head exists, but the only run is on the old one.
       expect(

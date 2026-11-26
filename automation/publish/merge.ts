@@ -341,6 +341,14 @@ export function localGateHeads(approvedSha: string, baseUpdates: BaseUpdateEvide
   ];
 }
 
+// Whether git must verify pure base updates for the local gate alone: only a
+// two-parent merge can be one. Unlike needsBaseUpdateCheck this does not look
+// at the review records, so a run made on the head before an update-branch
+// counts even when the reviews were posted after it.
+export function needsLocalGateHops(approvedSha: string, parents: () => string[]): boolean {
+  return FULL_SHA.test(approvedSha) && parents().length === 2;
+}
+
 export interface RawComment {
   id: number;
   user: { login: string; id: number } | null;
@@ -431,11 +439,14 @@ async function run(argv: string[]): Promise<number> {
   // Git runs in the current tree: the trusted origin/main worktree the skill
   // runs this from, and only when a carry could matter (needsBaseUpdateCheck).
   // When it runs, any failure refuses the merge.
-  const baseUpdates = needsBaseUpdateCheck(
+  let parents: string[] | undefined;
+  const approvedParents = () => (parents ??= fetchCommitParents(args.sha));
+  const reviewCarry = needsBaseUpdateCheck(
     args.sha,
     reviews.records.map((r) => r.review.headSha),
-    () => fetchCommitParents(args.sha),
-  )
+    approvedParents,
+  );
+  const baseUpdates = reviewCarry
     ? collectBaseUpdates(
         runGit(process.cwd()),
         args.pr,
@@ -459,7 +470,20 @@ async function run(argv: string[]): Promise<number> {
   // The heads a local gate run may have checked: the approved one, and every
   // older head git examined for a carry-over. The gate keeps only the ones its
   // own carry rules accept.
-  const localGate = collectLocalGate(runGit(process.cwd()), localGateHeads(args.sha, baseUpdates));
+  // The local gate follows pure base updates even when every review record is
+  // already on the approved head (records posted after an update-branch, the
+  // run made before it): the hops are then verified for it alone, and the
+  // review evidence above is untouched.
+  // Never for an external author, whose PR needs no local run.
+  const authorTier = trustTier(live.author, MAINTAINERS, readVettedLogins());
+  const localGateBaseUpdates =
+    authorTier === 'maintainer' && !reviewCarry && needsLocalGateHops(args.sha, approvedParents)
+      ? collectBaseUpdates(runGit(process.cwd()), args.pr, BASE_BRANCH, args.sha, baseTipSha, [])
+      : baseUpdates;
+  const localGate = collectLocalGate(
+    runGit(process.cwd()),
+    localGateHeads(args.sha, localGateBaseUpdates),
+  );
   const decision = evaluateMergeGate({
     pull: live.pull,
     approvedSha: args.sha,
@@ -475,8 +499,9 @@ async function run(argv: string[]): Promise<number> {
     baseTipSha,
     baseUpdates,
     changedFiles,
-    authorTier: trustTier(live.author, MAINTAINERS, readVettedLogins()),
+    authorTier,
     localGate,
+    localGateBaseUpdates,
   });
   print(decision, reviews);
   if (!decision.mergeable) return 1;

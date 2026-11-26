@@ -92,7 +92,8 @@ for repo conventions; this skill assumes them.
    `automation/`, `changelog.d/`, `evals/`), the last run before the commit you push must
    be `bash scripts/verify.sh --full`, green, on exactly the files you commit: do not edit
    while it runs, leave no other uncommitted file (the `node_modules` symlink of a
-   worktree is fine), and do not set `GYMCOACH_USAGE_LEDGER=off`. The run is recorded in
+   worktree is fine, unless the diff touches `package.json` or `package-lock.json`: then
+   run it in a checkout with its own `npm ci`), and do not set `GYMCOACH_USAGE_LEDGER=off`. The run is recorded in
    the local run ledger and `automation/publish/merge.ts` refuses the merge without that
    line (`ship-pr` step 5, "The local green gate"). After any later fixup, run it again.
    **If typecheck fails on `.next/types` stubs for a route that does not exist on your

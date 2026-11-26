@@ -24,16 +24,29 @@ import type { TrustTier } from '@/automation/review/lenses';
 // Which runs are verdicts: a green run has exit 0, every recorded step passed,
 // and the steps its tier promises are all there. A red run has a non-zero exit
 // and a failed step other than the two lock waits (`slot`, `infra-lock`),
-// during which none of the change's code runs. A killed run (no exit code, or
-// no failed step) is no verdict either way.
+// during which none of the change's code runs. A run with no exit code (the
+// gate's own shell died from a signal during a step) or with no failed step is
+// no verdict either way. Only that: when a signal kills a step's child while
+// the shell survives, the step fails like any other and the run is red, which
+// fails safe (a later green run clears it).
 //
 // A red run newer than a green one on the same content refuses: the latest
 // verdict decides, as for a CI rerun (gate.ts, "the latest one decides"). The
 // same tree that passed and then failed has a test that depends on something
 // other than the tree (load, order, time); L61 says that red is red until it
-// is explained and a later run is green. A red run on the approved head also
-// overrides a green run on an older carried head whatever their times: it is
-// the only local evidence about the merged-in base.
+// is explained and a later run is green. "Same content" spans every head that
+// counts: a red run on an older carried head that is newer than a green run
+// on the approved head overrides it too (the PR's own content failed last).
+// A red run on the approved head also overrides a green run on an older
+// carried head whatever their times: it is the only local evidence about the
+// merged-in base.
+//
+// The node_modules symlink match is refused for a green run when the diff
+// touches `package.json` or `package-lock.json` (or its paths are unknown):
+// the link points at another checkout's install, which the gate cannot see,
+// so that run may have tested the old dependencies. Such a change is gated in
+// a checkout with its own `npm ci` (a real, ignored `node_modules` directory:
+// the trees are then equal). A red run through the link still counts.
 //
 // External authors (vetted or not) are exempt, and the decision says so: the
 // execution gate of docs/loops/10-external-contributions.md forbids running
@@ -119,9 +132,11 @@ export type LocalGateResult =
 export interface LocalGateInput {
   evidence: LocalGateEvidence;
   approvedSha: string;
-  // Older heads whose review records the gate carries to the approved head
-  // (gate.ts carriedHeads and identicalDiffCarries).
+  // Older heads that reach the approved head through merges of the base
+  // branch git proved (gate.ts carriedHeads and identicalDiffCarries).
   carriedHeads: readonly string[];
+  // Why git could not verify the pure base updates, when it could not.
+  carryError?: string | null;
   // The paths the approved SHA changes, or null when git could not read them.
   changedPaths: readonly string[] | null;
   authorTier: TrustTier;
@@ -173,6 +188,13 @@ export function isRedRun(run: MatchedRun): boolean {
   return run.steps.some((s) => s.outcome === 'failed' && !LOCK_STEPS.includes(s.name));
 }
 
+// Root manifests that decide what an install holds.
+const INSTALL_MANIFESTS = ['package.json', 'package-lock.json'];
+
+export function changesInstall(changedPaths: readonly string[] | null): boolean {
+  return changedPaths === null || changedPaths.some((p) => INSTALL_MANIFESTS.includes(p));
+}
+
 const short = (sha: string) => sha.slice(0, 12);
 
 // Ledger order: by time, then by position in the file.
@@ -206,7 +228,7 @@ export function evaluateLocalGate(input: LocalGateInput): LocalGateResult {
       ok: true,
       report: {
         required: 'none',
-        reason: `the author is not a maintainer (tier ${authorTier}): external code is never run on this host, CI is its only executor (docs/loops/10-external-contributions.md)`,
+        reason: `the author is not a maintainer (tier ${authorTier}${authorTier === 'unvetted' ? ', which includes an unknown author' : ''}): external code is never run on this host, CI is its only executor (docs/loops/10-external-contributions.md)`,
       },
     };
   }
@@ -252,8 +274,12 @@ export function evaluateLocalGate(input: LocalGateInput): LocalGateResult {
   const heads = [approvedSha, ...input.carriedHeads.filter((h) => h !== approvedSha)];
   const onContent = evidence.runs.filter((r) => heads.includes(r.head));
   const reds = onContent.filter(isRedRun);
+  // A green run through the node_modules link proves nothing about a diff
+  // that changes what the install must hold.
+  const staleInstall = (r: MatchedRun) =>
+    r.match === 'tree-plus-node-modules-symlink' && changesInstall(input.changedPaths);
   const greens = onContent
-    .filter((r) => isGreenRun(r) && (tier === 'default' || r.tier === 'full'))
+    .filter((r) => isGreenRun(r) && !staleInstall(r) && (tier === 'default' || r.tier === 'full'))
     .sort((a, b) => (newer(a, b) ? -1 : 1));
   // The red run that overrides a green one: newer on any of the heads, or on
   // the approved head when the green run is on an older, carried one.
@@ -278,7 +304,18 @@ export function evaluateLocalGate(input: LocalGateInput): LocalGateResult {
     );
   }
   const hints: string[] = [];
-  const lowerTier = onContent.filter((r) => isGreenRun(r) && r.tier === 'default');
+  const linked = onContent.filter((r) => isGreenRun(r) && staleInstall(r));
+  if (linked.length > 0) {
+    hints.push(
+      `ledger line ${linked.map((r) => r.line).join(', ')} is a green run through a node_modules symlink, but the diff ${input.changedPaths === null ? 'could not be read' : 'changes package.json or package-lock.json'}, so it may have tested another install: run the gate in a checkout with its own \`npm ci\``,
+    );
+  }
+  if (input.carryError) {
+    hints.push(`a run on an older head was not considered: git could not verify the base updates (${input.carryError})`);
+  }
+  const lowerTier = onContent.filter(
+    (r) => isGreenRun(r) && !staleInstall(r) && r.tier === 'default',
+  );
   if (tier === 'full' && lowerTier.length > 0) {
     hints.push(
       `ledger line ${lowerTier.map((r) => r.line).join(', ')} is a green default-tier run on that content, but the diff is not docs-only, so the full tier is required`,

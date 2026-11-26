@@ -125,12 +125,21 @@ approved head:
   proves that the symlink is the only difference. A run whose files changed while it ran
   never counts.
 - **Head.** The approved head, or the head the review records are carried from (a pure
-  base update or an identical-diff carry-over, the section above). A fixup push or a
-  hand-resolved merge is a new head and needs its own run.
+  base update or an identical-diff carry-over, the section above). The pure base update
+  is also followed when the reviews were posted after the `update-branch` and only the run
+  predates it (#577, #579, #580). A fixup push or a hand-resolved merge is a new head and
+  needs its own run.
+- **Dependencies.** A run through the `node_modules` symlink does not count when the diff
+  touches `package.json` or `package-lock.json`: gate it in a checkout with its own
+  `npm ci`.
 - **Red after green.** A failed run newer than the green one, on the same content,
   refuses the merge: the latest verdict decides, and a tree that passes and then fails is
-  the flake L61 and L42 say to explain, not to outvote. A run that only failed waiting for
-  a machine lock, or was killed, is no verdict.
+  the flake L61 and L42 say to explain, not to outvote. This holds across the heads that
+  count: a newer red run on the older, carried head overrides a green one on the merged
+  head, and a red run on the merged head always overrides a green one on the older head.
+  A run that only failed waiting for a machine lock, or whose own shell was killed (no
+  exit code), is no verdict; a step whose child process was killed is a failed step, so
+  that run is red.
 - **No ledger, no merge.** `GYMCOACH_USAGE_LEDGER=off`, a missing file or an unreadable one
   refuses with the reason and the remedy. There is no override flag: a maintainer's code
   can always be gated on this machine, so the way forward is always the run itself.

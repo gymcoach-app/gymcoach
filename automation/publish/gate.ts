@@ -125,6 +125,12 @@ export interface GateInput {
   // head and to the heads review records may carry from, or why the ledger
   // could not be read (local-gate-collect.ts).
   localGate: LocalGateEvidence;
+  // The pure base updates the local gate may follow, when they were verified
+  // for it alone: the approved head is a merge of the base branch and every
+  // review record is already on it, so `baseUpdates` was not computed (a run
+  // made before an update-branch still counts, #596). Never used for review
+  // records. Absent: the local gate uses `baseUpdates`.
+  localGateBaseUpdates?: BaseUpdateEvidence;
 }
 
 // One verified hop: `head` is a merge commit whose first parent is
@@ -380,7 +386,11 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
   const localGate = evaluateLocalGate({
     evidence: input.localGate,
     approvedSha,
-    carriedHeads: [...carriedHeads(input), ...identicalDiffCarries(input).map((c) => c.recordHead)],
+    carriedHeads: [
+      ...carriedHeads(input, input.localGateBaseUpdates ?? input.baseUpdates),
+      ...identicalDiffCarries(input).map((c) => c.recordHead),
+    ],
+    carryError: (input.localGateBaseUpdates ?? input.baseUpdates).error,
     changedPaths: input.changedFiles.paths,
     authorTier: input.authorTier,
   });
@@ -448,8 +458,11 @@ function isStop(review: StructuredReview): boolean {
 // newest hop must have merged in the PR's current base, which the gate
 // separately requires to be the live tip. Anything that does not link ends
 // the walk, so a gap never widens what counts.
-export function carriedHeads(input: GateInput): string[] {
-  const { pull, approvedSha, baseUpdates } = input;
+export function carriedHeads(
+  input: GateInput,
+  baseUpdates: BaseUpdateEvidence = input.baseUpdates,
+): string[] {
+  const { pull, approvedSha } = input;
   const carried: string[] = [];
   if (baseUpdates.error !== null) return carried;
   let head = approvedSha;
