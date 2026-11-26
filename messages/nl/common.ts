@@ -81,6 +81,9 @@ export const common = {
 
     chinese: 'Vereenvoudigd Chinees',
   },
+  units: {
+    bpm: '{value} bpm',
+  },
   theme: {
     dark: 'Donker',
     light: 'Licht',

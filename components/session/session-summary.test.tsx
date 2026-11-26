@@ -39,6 +39,9 @@ const pe: ProgramExercise & { exercise: Exercise } = {
   loadAdjustmentPct: null,
   targetDurationSec: null,
   targetDistanceM: null,
+  targetRpe: null,
+  targetHrMin: null,
+  targetHrMax: null,
   exercise: exo,
 };
 

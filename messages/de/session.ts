@@ -122,6 +122,7 @@ export const session = {
     parseError: 'Konnte das nicht analysieren. Versuch die Kurzform (z.B. 100x8@9).',
     duration: 'Dauer (mm:ss)',
     durationExample: 'z.B. 12:30 oder 12.30',
+    cardioIntensity: 'Zielintensität: {target}',
     durationError:
       'Erwartetes Format: mm:ss (z.B. 12:30, oder 12.30 auf einer Zahlentastatur), h:mm:ss, oder einfache Minuten.',
     distance: 'Distanz ({unit}, optional)',

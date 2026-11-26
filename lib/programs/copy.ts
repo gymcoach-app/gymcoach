@@ -52,6 +52,9 @@ export type SourceRowSettings = Pick<
   | 'loadAdjustmentPct'
   | 'targetDurationSec'
   | 'targetDistanceM'
+  | 'targetRpe'
+  | 'targetHrMin'
+  | 'targetHrMax'
 >;
 
 export interface WorkoutRowFromSession {
@@ -71,6 +74,10 @@ export interface WorkoutRowFromSession {
   // a saved cardio exercise stays prescribed by duration and distance.
   targetDurationSec: number | null;
   targetDistanceM: number | null;
+  // Its intensity (slice 2): target RPE and heart rate range.
+  targetRpe: number | null;
+  targetHrMin: number | null;
+  targetHrMax: number | null;
 }
 
 const DEFAULT_RIR = 2;
@@ -133,6 +140,9 @@ export function workoutRowsFromSession(
       loadAdjustmentPct: source?.loadAdjustmentPct ?? null,
       targetDurationSec: source?.targetDurationSec ?? null,
       targetDistanceM: source?.targetDistanceM ?? null,
+      targetRpe: source?.targetRpe ?? null,
+      targetHrMin: source?.targetHrMin ?? null,
+      targetHrMax: source?.targetHrMax ?? null,
     });
   }
   return rows;

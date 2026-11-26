@@ -81,6 +81,9 @@ export const common = {
     polish: '波兰语',
     turkish: '土耳其语',
   },
+  units: {
+    bpm: '{value} 次/分',
+  },
   theme: {
     dark: '深色',
     light: '浅色',

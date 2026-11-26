@@ -8,6 +8,7 @@ import {
 } from '@/lib/intra-set-autoregulation';
 import { MAX_SUPERSET_GROUP, MIN_SUPERSET_GROUP } from '@/lib/supersets';
 import { MAX_DISTANCE_M, MAX_DURATION_SEC } from '@/lib/cardio';
+import { TARGET_HR_MAX, TARGET_HR_MIN, TARGET_RPE_MAX, TARGET_RPE_MIN } from '@/lib/cardio-target';
 
 export const programExerciseInputSchema = z
   .object({
@@ -47,6 +48,13 @@ export const programExerciseInputSchema = z
     // fields, like the superset pairing, never wipes a target).
     targetDurationSec: z.number().int().min(1).max(MAX_DURATION_SEC).nullable().optional(),
     targetDistanceM: z.number().positive().max(MAX_DISTANCE_M).nullable().optional(),
+    // Cardio intensity (issue #558, slice 2): a target effort on the 1 to 10
+    // RPE scale and a target heart rate range in bpm. Same rules as above:
+    // cardio only (checked by the routes), null clears, ABSENT leaves the
+    // stored value unchanged. The two heart rate bounds travel together.
+    targetRpe: z.number().int().min(TARGET_RPE_MIN).max(TARGET_RPE_MAX).nullable().optional(),
+    targetHrMin: z.number().int().min(TARGET_HR_MIN).max(TARGET_HR_MAX).nullable().optional(),
+    targetHrMax: z.number().int().min(TARGET_HR_MIN).max(TARGET_HR_MAX).nullable().optional(),
   })
   .refine((v) => v.targetRepsMax >= v.targetRepsMin, {
     message: 'Reps max must be >= reps min',
@@ -57,6 +65,28 @@ export const programExerciseInputSchema = z
   .refine((v) => !(v.targetDistanceM != null && v.targetDurationSec === null), {
     message: 'A distance target needs a duration target',
     path: ['targetDistanceM'],
+  })
+  // Same for the intensity: an effort or a heart rate is held for a duration.
+  .refine(
+    (v) =>
+      !(
+        (v.targetRpe != null || v.targetHrMin != null || v.targetHrMax != null) &&
+        v.targetDurationSec === null
+      ),
+    { message: 'An intensity target needs a duration target', path: ['targetDurationSec'] },
+  )
+  // A heart rate target is a range: both bounds sent or both absent, both
+  // null or both numbers, the lower one first. So a stored row never holds
+  // half a range, and an update never has to merge one bound with the other.
+  .refine(
+    (v) =>
+      (v.targetHrMin === undefined) === (v.targetHrMax === undefined) &&
+      (v.targetHrMin === null) === (v.targetHrMax === null),
+    { message: 'A heart rate target needs both bounds', path: ['targetHrMax'] },
+  )
+  .refine((v) => v.targetHrMin == null || v.targetHrMax == null || v.targetHrMax >= v.targetHrMin, {
+    message: 'Heart rate max must be >= heart rate min',
+    path: ['targetHrMax'],
   });
 
 export type ProgramExerciseInput = z.infer<typeof programExerciseInputSchema>;

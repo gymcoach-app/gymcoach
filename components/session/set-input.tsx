@@ -30,6 +30,7 @@ import {
   cardioTargetLoggerInputs,
   distanceMToInput,
   distanceUnitLabel,
+  formatCardioIntensity,
   maxTargetDistance,
 } from '@/lib/cardio-target';
 import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
@@ -320,6 +321,14 @@ export function SetInput({
       (distanceM != null && distanceM > MAX_DISTANCE_M));
   const distanceUnitText = distanceUnitLabel(distanceUnit, locale);
   const cardioInvalid = isCardio && (durationSec === null || distanceInvalid);
+  // Intensity of the row's cardio target (issue #558, slice 2): the RPE and
+  // the heart rate range to hold, shown next to the inputs. The logger has no
+  // field for either, so they are a reminder, not a prefill.
+  const cardioIntensity = isCardio
+    ? formatCardioIntensity(programExercise, {
+        bpm: (value) => common('units.bpm', { value }),
+      })
+    : null;
 
   async function handleValidate() {
     if (cardioInvalid) return;
@@ -441,6 +450,11 @@ export function SetInput({
 
         {isCardio ? (
           <>
+            {cardioIntensity && (
+              <p className="text-sm text-muted-foreground" data-testid="cardio-intensity-target">
+                {t('cardioIntensity', { target: cardioIntensity })}
+              </p>
+            )}
             {/* Duration (required) */}
             <div className="space-y-1">
               <Label

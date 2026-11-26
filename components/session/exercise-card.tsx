@@ -89,10 +89,12 @@ export function ExerciseCard({
   // them, so those blocks are hidden.
   const isCardio = exo.category === 'CARDIO';
   // Cardio target of the workout row (issue #558): shown instead of the set
-  // count when the program prescribes a duration (and distance).
+  // count when the program prescribes a duration (and distance). The RPE and
+  // heart rate of the target (slice 2) are left to the set logger rendered
+  // under this card, which shows them next to its inputs: one place, not two.
   const distanceUnit = useDistanceUnit();
   const cardioTarget = isCardio
-    ? formatCardioTarget(programExercise, { locale, distanceUnit })
+    ? formatCardioTarget(programExercise, { locale, distanceUnit, intensity: false })
     : null;
 
   const repsLabel =

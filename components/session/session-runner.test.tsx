@@ -210,6 +210,9 @@ function row(
     loadAdjustmentPct: null,
     targetDurationSec: null,
     targetDistanceM: null,
+    targetRpe: null,
+    targetHrMin: null,
+    targetHrMax: null,
     exercise: exercise(id, id),
   };
 }

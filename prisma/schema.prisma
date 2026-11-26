@@ -300,6 +300,13 @@ model ProgramExercise {
   // on a cardio row, so every existing reader keeps working.
   targetDurationSec  Int?
   targetDistanceM    Float?
+  // Cardio intensity (issue #558, slice 2, additive): a target effort on the
+  // 1 to 10 RPE scale and a target heart rate range in bpm (40 to 250, both
+  // bounds or neither, min <= max), enforced by the Zod schemas of every
+  // writer. Only set next to targetDurationSec; NULL everywhere else.
+  targetRpe          Int?
+  targetHrMin        Int?
+  targetHrMax        Int?
 }
 
 enum SetAutoregulationMode {

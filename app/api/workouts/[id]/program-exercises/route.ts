@@ -43,6 +43,16 @@ export async function POST(req: Request, props: Params) {
     if (data.targetDistanceM != null && data.targetDurationSec == null) {
       throw new ApiError(400, 'A distance target needs a duration target.');
     }
+    // Intensity (slice 2): a target RPE and a heart rate range, same rules.
+    // The schema guarantees the two heart rate bounds come together, in order.
+    const hasIntensityInput =
+      data.targetRpe != null || data.targetHrMin != null || data.targetHrMax != null;
+    if (hasIntensityInput && !isCardioExercise(exercise)) {
+      throw new ApiError(400, 'Only a cardio exercise takes an RPE or heart rate target.');
+    }
+    if (hasIntensityInput && data.targetDurationSec == null) {
+      throw new ApiError(400, 'An RPE or heart rate target needs a duration target.');
+    }
 
     // Refuse an exercise the workout already contains (issue #379). The
     // in-session menu and the program editor hide exercises already in the
@@ -86,6 +96,9 @@ export async function POST(req: Request, props: Params) {
         supersetGroup: data.supersetGroup ?? null,
         targetDurationSec: data.targetDurationSec ?? null,
         targetDistanceM: data.targetDistanceM ?? null,
+        targetRpe: data.targetRpe ?? null,
+        targetHrMin: data.targetHrMin ?? null,
+        targetHrMax: data.targetHrMax ?? null,
       },
       include: { exercise: true },
     });

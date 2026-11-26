@@ -1,5 +1,7 @@
 import type { ExerciseCategory } from '@/lib/prisma-client';
 import {
+  AVG_HR_MAX,
+  AVG_HR_MIN,
   MAX_DISTANCE_M,
   MAX_DURATION_SEC,
   distanceInUnit,
@@ -24,10 +26,31 @@ import {
 // The text is localized (issue #576): the unit names and the decimal mark
 // come from Intl.NumberFormat in the reader's locale ("20 min", "20 Min.",
 // "2,5 km"). The coach payload stays numeric and locale-free.
+//
+// Intensity (issue #558, slice 2): next to the duration a cardio row may
+// carry a target effort (targetRpe, the 1 to 10 scale of perceived exertion)
+// and a target heart rate range in bpm (targetHrMin, targetHrMax, always both
+// or neither, min <= max). They only exist next to a duration, like the
+// distance. The cardio RPE is its own number: it is not the strength effort
+// (RIR, shown as RPE = 10 - RIR when the user picks that scale, lib/effort),
+// which has no meaning for a continuous effort, so it reads "RPE 6" whatever
+// the user's effort scale. The app has no heart rate zones and no maximum
+// heart rate on the profile, so the heart rate target is a plain range.
+
+// Bounds of the intensity targets, shared by the Zod schemas, the backup
+// import and the editor. The heart rate window is the one of a logged
+// average heart rate (lib/cardio).
+export const TARGET_RPE_MIN = 1;
+export const TARGET_RPE_MAX = 10;
+export const TARGET_HR_MIN = AVG_HR_MIN;
+export const TARGET_HR_MAX = AVG_HR_MAX;
 
 export interface CardioTargetFields {
   targetDurationSec?: number | null;
   targetDistanceM?: number | null;
+  targetRpe?: number | null;
+  targetHrMin?: number | null;
+  targetHrMax?: number | null;
 }
 
 // True when the exercise is prescribed and logged as cardio: the same test
@@ -46,6 +69,18 @@ export interface CardioTargetFormatOptions {
   locale?: string;
   /** Unit the distance is shown in. Default: kilometers. */
   distanceUnit?: DistanceUnit;
+  /**
+   * Writes a heart rate value or range with its unit in the reader's language
+   * ("140-150" to "140-150 bpm"): the catalog entry common.units.bpm.
+   * Default: the English "bpm".
+   */
+  bpm?: (value: string) => string;
+  /**
+   * False leaves the RPE and the heart rate out of the one-line target. The
+   * live session card does that: the set logger under it already shows the
+   * intensity (formatCardioIntensity), and it would read twice. Default true.
+   */
+  intensity?: boolean;
 }
 
 const INTL_UNIT: Record<DistanceUnit, string> = { km: 'kilometer', mi: 'mile' };
@@ -120,8 +155,57 @@ export function formatCardioTargetParts(
   };
 }
 
-// One-line prescription of a cardio row: "20 min", or "20 min · 5 km" when a
-// distance is set. Null when the row has no target (rows created before the
+// True when the value is a usable target effort: a whole number from 1 to 10.
+function isTargetRpe(rpe: number | null | undefined): rpe is number {
+  return rpe != null && Number.isInteger(rpe) && rpe >= TARGET_RPE_MIN && rpe <= TARGET_RPE_MAX;
+}
+
+// The heart rate range of a row, or null when it has none. Both bounds are
+// needed and must be in order: a half range reads as no target rather than
+// as a wrong one.
+export function targetHeartRateRange(
+  target: CardioTargetFields,
+): { min: number; max: number } | null {
+  const { targetHrMin: min, targetHrMax: max } = target;
+  if (min == null || max == null || min <= 0 || max < min) return null;
+  return { min, max };
+}
+
+// The target effort as text: "RPE 6". The acronym is not translated in any
+// catalog (lib/effort).
+export function formatTargetRpe(rpe: number): string {
+  return `RPE ${rpe}`;
+}
+
+// The target heart rate as text: "140-150 bpm", or "145 bpm" when both bounds
+// are the same.
+export function formatTargetHeartRate(
+  range: { min: number; max: number },
+  bpm: (value: string) => string = (value) => `${value} bpm`,
+): string {
+  return bpm(range.min === range.max ? String(range.min) : `${range.min}-${range.max}`);
+}
+
+// The intensity half of a cardio target on one line: "RPE 6 · 140-150 bpm",
+// "RPE 6" or "140-150 bpm". Null when the row has no duration target or no
+// intensity target. The set logger shows it next to its inputs: it has a
+// field for the duration and the distance, none for the effort or the heart
+// rate, which are a plan to hold while the set runs.
+export function formatCardioIntensity(
+  target: CardioTargetFields,
+  options: CardioTargetFormatOptions = {},
+): string | null {
+  if (!hasCardioTarget(target)) return null;
+  const parts: string[] = [];
+  if (isTargetRpe(target.targetRpe)) parts.push(formatTargetRpe(target.targetRpe));
+  const range = targetHeartRateRange(target);
+  if (range) parts.push(formatTargetHeartRate(range, options.bpm));
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+// One-line prescription of a cardio row: "20 min", "20 min · 5 km" when a
+// distance is set, then the intensity when one is set ("20 min · RPE 6 ·
+// 140-150 bpm"). Null when the row has no target (rows created before the
 // columns existed, or by a writer that does not set them): the caller then
 // shows a neutral cardio label, never the strength line.
 export function formatCardioTarget(
@@ -130,7 +214,11 @@ export function formatCardioTarget(
 ): string | null {
   const { duration, distance } = formatCardioTargetParts(target, options);
   if (duration == null) return null;
-  return distance != null ? `${duration} · ${distance}` : duration;
+  const parts = [duration];
+  if (distance != null) parts.push(distance);
+  const intensity = options.intensity === false ? null : formatCardioIntensity(target, options);
+  if (intensity != null) parts.push(intensity);
+  return parts.join(' · ');
 }
 
 // --- Editor conversions (minutes and kilometers typed, metric stored) --------
@@ -170,6 +258,36 @@ export function distanceInputToM(
 // Kilometers typed to stored meters (distanceInputToM in km).
 export function kmInputToDistanceM(input: string): number | null | undefined {
   return distanceInputToM(input, 'km');
+}
+
+// A whole number typed in an optional editor field (the target RPE, a heart
+// rate bound) within [min, max]. Null means the field was left empty, which
+// is allowed; `undefined` means the text is not a whole number in bounds.
+export function optionalIntInput(
+  input: string,
+  min: number,
+  max: number,
+): number | null | undefined {
+  const trimmed = input.trim();
+  if (trimmed === '') return null;
+  if (!/^\d{1,4}$/.test(trimmed)) return undefined;
+  const value = parseInt(trimmed, 10);
+  return value >= min && value <= max ? value : undefined;
+}
+
+// The heart rate range typed in the editor's two fields. Null when both are
+// empty (no heart rate target); `undefined` when only one is filled, a bound
+// is out of the 40 to 250 bpm window, or the first is above the second.
+export function heartRateInputsToRange(
+  minInput: string,
+  maxInput: string,
+): { min: number; max: number } | null | undefined {
+  const min = optionalIntInput(minInput, TARGET_HR_MIN, TARGET_HR_MAX);
+  const max = optionalIntInput(maxInput, TARGET_HR_MIN, TARGET_HR_MAX);
+  if (min === undefined || max === undefined) return undefined;
+  if (min === null && max === null) return null;
+  if (min === null || max === null || min > max) return undefined;
+  return { min, max };
 }
 
 // Stored seconds as the minutes shown in the editor field ("20", "12.5").
@@ -220,15 +338,27 @@ export function cardioTargetLoggerInputs(
 // numbers, whatever the reader's locale or distance unit, each key present
 // only when set. An empty object for a row without a target (or a
 // non-cardio row), so spreading it leaves the payload byte-identical.
+//
+// Intensity (slice 2): targetRpe (1 to 10) and the heart rate range as
+// targetHrMinBpm / targetHrMaxBpm, both or neither.
 export function coachCardioTarget(
   exercise: { category: ExerciseCategory },
   target: CardioTargetFields,
-): { targetDurationMin?: number; targetDistanceKm?: number } {
+): {
+  targetDurationMin?: number;
+  targetDistanceKm?: number;
+  targetRpe?: number;
+  targetHrMinBpm?: number;
+  targetHrMaxBpm?: number;
+} {
   if (!isCardioExercise(exercise) || !hasCardioTarget(target)) return {};
+  const range = targetHeartRateRange(target);
   return {
     targetDurationMin: +(target.targetDurationSec! / 60).toFixed(1),
     ...(target.targetDistanceM != null && target.targetDistanceM > 0
       ? { targetDistanceKm: +(target.targetDistanceM / 1000).toFixed(2) }
       : {}),
+    ...(isTargetRpe(target.targetRpe) ? { targetRpe: target.targetRpe } : {}),
+    ...(range ? { targetHrMinBpm: range.min, targetHrMaxBpm: range.max } : {}),
   };
 }

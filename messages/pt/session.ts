@@ -120,6 +120,7 @@ export const session = {
     parseError: 'Não foi possível interpretar. Tente o formato abreviado (ex.: 100x8@9).',
     duration: 'Duração (mm:ss)',
     durationExample: 'ex.: 12:30 ou 12.30',
+    cardioIntensity: 'Intensidade alvo: {target}',
     durationError:
       'Formato esperado: mm:ss (ex.: 12:30, ou 12.30 em um teclado numérico), h:mm:ss ou apenas minutos.',
     distance: 'Distância ({unit}, opcional)',

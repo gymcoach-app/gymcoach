@@ -24,6 +24,13 @@ import {
   MAX_HR_MAX,
   MAX_HR_MIN,
 } from '@/lib/cardio';
+import {
+  TARGET_HR_MAX,
+  TARGET_HR_MIN,
+  TARGET_RPE_MAX,
+  TARGET_RPE_MIN,
+  targetHeartRateRange,
+} from '@/lib/cardio-target';
 import { MAX_SUPERSET_GROUP, MIN_SUPERSET_GROUP } from '@/lib/supersets';
 import { sorenessSchema } from '@/lib/schemas/readiness';
 import {
@@ -58,7 +65,8 @@ import {
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
 //   usesBodyweight, equipmentType, isFavorite.
 // - Program / Workout / ProgramExercise: all user content incl supersetGroup
-//   and the cardio target (v12, issue #558: targetDurationSec, targetDistanceM).
+//   and the cardio target (v12, issue #558: targetDurationSec, targetDistanceM;
+//   v15, slice 2: targetRpe, targetHrMin, targetHrMax).
 // - Session / Set: all user content incl durationSec, distanceM, avgHr, block.
 // - Session.freestyle and SessionExercise (v10, issue #388): the marker and
 //   the exercise list of a freestyle session, re-linked to the exercise by name.
@@ -78,7 +86,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 14;
+const VERSION = 15;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -280,6 +288,10 @@ export async function GET() {
             // exercise; null on every other row and absent from older backups.
             targetDurationSec: pe.targetDurationSec,
             targetDistanceM: pe.targetDistanceM,
+            // New in v15 (issue #558, slice 2): the intensity of that target.
+            targetRpe: pe.targetRpe,
+            targetHrMin: pe.targetHrMin,
+            targetHrMax: pe.targetHrMax,
           })),
         })),
       })),
@@ -496,6 +508,29 @@ const importSchema = z.object({
                       .number()
                       .positive()
                       .max(MAX_DISTANCE_M)
+                      .nullable()
+                      .optional(),
+                    // v15 (issue #558, slice 2); absent in older backups.
+                    // Same bounds as the live route's schema.
+                    targetRpe: z
+                      .number()
+                      .int()
+                      .min(TARGET_RPE_MIN)
+                      .max(TARGET_RPE_MAX)
+                      .nullable()
+                      .optional(),
+                    targetHrMin: z
+                      .number()
+                      .int()
+                      .min(TARGET_HR_MIN)
+                      .max(TARGET_HR_MAX)
+                      .nullable()
+                      .optional(),
+                    targetHrMax: z
+                      .number()
+                      .int()
+                      .min(TARGET_HR_MIN)
+                      .max(TARGET_HR_MAX)
                       .nullable()
                       .optional(),
                   }),
@@ -929,6 +964,9 @@ export async function POST(req: Request) {
               if (!exId) continue;
               const cardioTarget =
                 cardioExerciseNames.has(pe.exerciseName) && pe.targetDurationSec != null;
+              // Heart rate range (v15): kept only whole and in order, the
+              // rule of the live routes; half a range is dropped.
+              const hrRange = cardioTarget ? targetHeartRateRange(pe) : null;
               await tx.programExercise.create({
                 data: {
                   workoutId: workout.id,
@@ -950,6 +988,9 @@ export async function POST(req: Request) {
                   // cannot store what the live routes refuse.
                   targetDurationSec: cardioTarget ? (pe.targetDurationSec ?? null) : null,
                   targetDistanceM: cardioTarget ? (pe.targetDistanceM ?? null) : null,
+                  targetRpe: cardioTarget ? (pe.targetRpe ?? null) : null,
+                  targetHrMin: hrRange?.min ?? null,
+                  targetHrMax: hrRange?.max ?? null,
                 },
               });
             }

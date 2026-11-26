@@ -119,6 +119,13 @@ export const programs = {
     cardioDurationError: 'Enter a duration in minutes, up to 1440.',
     cardioDistanceError: 'Enter a distance up to {max} {unit}, or leave it empty.',
     cardioNoTarget: 'Cardio - no target set',
+    cardioRpe: 'Target RPE (1-10, optional)',
+    cardioRpeHint: '1 is very easy, 10 is all out.',
+    cardioHrMin: 'Heart rate from (bpm, optional)',
+    cardioHrMax: 'Heart rate to (bpm, optional)',
+    cardioRpeError: 'Enter a whole number from 1 to 10, or leave it empty.',
+    cardioHrError:
+      'Enter both heart rates, between {min} and {max} bpm and lowest first, or leave both empty.',
   },
   print: {
     action: 'Print sheet',

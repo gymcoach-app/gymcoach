@@ -122,6 +122,13 @@ export const programs = {
     cardioDurationError: 'Gib eine Dauer in Minuten ein, höchstens 1440.',
     cardioDistanceError: 'Gib eine Distanz bis {max} {unit} ein oder lass das Feld leer.',
     cardioNoTarget: 'Kardio - kein Ziel festgelegt',
+    cardioRpe: 'Ziel-RPE (1-10, optional)',
+    cardioRpeHint: '1 ist sehr leicht, 10 ist maximale Anstrengung.',
+    cardioHrMin: 'Herzfrequenz von (bpm, optional)',
+    cardioHrMax: 'Herzfrequenz bis (bpm, optional)',
+    cardioRpeError: 'Gib eine ganze Zahl von 1 bis 10 ein oder lass das Feld leer.',
+    cardioHrError:
+      'Gib beide Herzfrequenzen ein, zwischen {min} und {max} bpm und die niedrigere zuerst, oder lass beide Felder leer.',
   },
   print: {
     action: 'Blatt drucken',

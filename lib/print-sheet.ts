@@ -36,6 +36,10 @@ export interface PrintSheetExerciseInput extends SupersetItem {
   notes: string | null;
   targetDurationSec?: number | null;
   targetDistanceM?: number | null;
+  // Intensity of the cardio target (issue #558, slice 2), printed in the plan.
+  targetRpe?: number | null;
+  targetHrMin?: number | null;
+  targetHrMax?: number | null;
 }
 
 export interface PrintSheetCell {
@@ -62,7 +66,10 @@ export interface PrintSheetRow {
   notes: string | null;
   /** True for a CARDIO exercise: its plan is not sets, reps and effort. */
   cardio: boolean;
-  /** "20 min" or "20 min · 5 km" for a cardio row with a target, else null. */
+  /**
+   * "20 min", "20 min · 5 km" or "20 min · RPE 6 · 140-150 bpm" for a cardio
+   * row with a target, else null.
+   */
   cardioTarget: string | null;
   /**
    * Empty cells, set-major. A strength row has targetSets x 3 (set 1 weight,

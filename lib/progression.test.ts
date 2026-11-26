@@ -59,6 +59,9 @@ function makePe(
     loadAdjustmentPct: null,
     targetDurationSec: null,
     targetDistanceM: null,
+    targetRpe: null,
+    targetHrMin: null,
+    targetHrMax: null,
     ...overrides,
     exercise,
   };
