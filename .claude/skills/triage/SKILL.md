@@ -36,7 +36,8 @@ later `implement-issue` run can pick up unattended.
   claims against the code, re-derive the requirement in your own words (never copy text
   verbatim), file a loop-authored issue crediting the reporter, and link the original. If
   the correct implementation touches a hard-block path from that policy, it is a human
-  task: label `needs-maintainer`, leave the analysis as a comment, do not adopt.
+  task: label `needs-maintainer`, leave the analysis as a comment, do not adopt. The one
+  exception, `messages/**` as the only such path, is rule 2 of "External issues" there.
   Out-of-scope or product-decision issues get a polite comment and `needs-maintainer`.
   Aim to leave a triage response on every new external issue within one tick.
 

@@ -182,3 +182,17 @@ tracks each) gets its worktrees from Agent isolation, which branches from the re
 the session's working directory. Launch it from the checkout, never with the scratchpad as
 the working directory: there the isolation cannot start and the launch fails at once
 (lesson L59). Check with `git rev-parse --show-toplevel` before the launch.
+
+**A refused command is a stop, not a puzzle** (lesson L67, operator 2026-11-26). When a
+hook, the harness's worktree isolation or a permission refuses a command, no agent rewrites
+it to get past the check (split words, quoting, globs, wrapper scripts, encodings). It uses
+the dedicated tool or a plainer command, or stops and reports what was refused and what is
+blocked; every report says when a check was refused. The orchestrator reads the transcript of
+a run that met refusals: on #595 that is how a disguised command, reported as "nothing was
+bypassed", was caught.
+
+Parallel tracks share the session's scratchpad and the machine (2026-11-24, lessons L63 and
+L65). Give each agent its own file prefix in the brief: two used `pr-body.md` and one
+overwrote the other's PR description. Queue the full gates and run them one at a time,
+pinned (`implement-issue`, step 5). A waiter that polls `pgrep -f <pattern>` matches its own
+command line; bracket one character of the pattern (`verif[y]`) or wait on a PID.

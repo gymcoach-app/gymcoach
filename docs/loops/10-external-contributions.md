@@ -53,6 +53,84 @@ What did not change: unvetted code is never executed on the operator's host;
 the vetted list is granted by a human only; any security, blocking or major
 finding means no merge.
 
+Extension 2026-11-25 (operator, in session; adopted external **issues** only).
+The occasion was #591, the second step of #557 by @mattordev, an adopted external
+issue whose implementation touched `messages/**` (three strings in each of the 11
+locales) and no other hard-block path. Rule 2 of "External issues" made it
+human-only. The loop asked, offering "oui #591" ("yes #591", that PR only) or "oui messages"
+(all adopted external issues whose only hard-block path is `messages/**`). The
+operator answered, quoted verbatim: "oui messages" ("yes messages"). The rule as
+extended is rule 2 of "External issues" below. It widens nothing else: every
+other hard-block path, `i18n/**` included, still makes an adopted issue human-only.
+
+Recorded with it: the loop started #557's second step before checking rule 2. #591
+was held after its review and green CI until the operator's answer. Rule 2 had been
+in force since #315 (2026-08-27) and had been missed before. A read-only search on
+2026-11-25 listed the merged PRs of our accounts that name an external issue, an
+issue adopted from one, or a batch issue carrying their leftovers (#576, #582). It
+matched issue numbers, branch names, GitHub cross-references and contributor names,
+so **it may not be exhaustive**, and it does not cover maintainer polish on
+contributors' PRs that names no such issue. None of the merges below was compliant
+when it was merged, and the `messages/**` extension makes none of them compliant
+after the fact. Two of them, #565 and #568, were later authorized by the operator
+(2026-11-26, below); that is recorded as an authorization after the fact, not as
+compliance.
+
+| PR (merged) | Request | Hard-block paths | Class |
+| --- | --- | --- | --- |
+| #321 (2026-08-27) | #310, `needs-maintainer` | `.github/workflows/publish-image.yml` | authorized: its body says the operator green-lit it in session that day |
+| #346 (2026-09-11) | #333, adopted from #331 | `messages/**` | miss: #333 says "no hard-block path" while asking for strings in the catalogs; no authorization found |
+| #565 (2026-11-16) | #557, `adopted` | `messages/**` | rule 2 not checked at the time; authorized by the operator after the fact (2026-11-26) |
+| #568 (2026-11-17) | #558, never labelled `adopted` | `messages/**`, `prisma/schema.prisma`, a migration, `lib/prompts/coach-system-prompt.ts`, `app/api/backup/route.ts` | rule 2 not checked at the time, the most serious case; authorized by the operator after the fact (2026-11-26) |
+| #578 (2026-11-17) | #576 part 4, leftovers of #558 | `messages/**`, `lib/llm/reasoning-call-sites.test.ts` | unclear: a loop-authored batch issue, but the cardio part fixes #568 and comes from #558 (the `lib/llm` test comes from #575, our own work) |
+| #585 (2026-11-18) | #582 part 3 | `messages/**`, `prisma/schema.prisma`, a migration, `app/api/backup/route.ts` | unclear: #582 says "decided by the maintainer" and does not name #558, but #558 asked for kilometers or miles and our reply there announced this setting |
+| #534 (2026-10-28) | follow-up to @sapatmohit's #532, part of #527 | `messages/**`, `i18n/exercise-names.ts` | unclear: polish on a contributor's catalog, which rule 2 does not mention |
+| #536, #538 (2026-10-28) | follow-ups to #535 and #537, for #527 | `messages/**`; #536 also `i18n/exercise-names.ts` | unclear: same; they do not name #527 |
+| #548 (2026-11-06) | follow-up to @f1dot4's #544, refs #542 | `messages/**` | unclear: L53 requires such a follow-up and the operator asked to finish #544 ourselves, but neither says rule 2 is lifted |
+| #591 (2026-11-25) | #557, `adopted` | `messages/**` | authorized: "oui messages", before the merge |
+
+#318 (2026-08-27, #316 adopted from #314) and #569 (2026-11-17, follow-up to #565 and
+#568) touch no hard-block path. No merged implementation of ours was found for #57,
+#308/#320, #309, #525 and the rest of #331. Our other PRs on #576 and #582 (#577,
+#579, #580, #583, #584, #586, #587) implement parts that name no external issue.
+
+**#568 was the most serious case and would still be human-only under the
+`messages/**` exception**: it changed the database schema with a migration, the coach
+prompt and the backup route. It was merged by the loop with correctness/tests and
+security/threat-model records, without an egress/backdoor lens and without a rollback
+tag of its own.
+
+Session note: the maintainer session transcript (not public) holds an operator message
+of 2026-11-16 telling the loop to do the work it had just listed, #557 step 1 and #558
+slice 1 included, on its own, and to merge what is clean; and one of 2026-11-18
+agreeing to what the loop proposed on the distance unit. The lists put to the operator
+named no hard-block path, no migration and not rule 2.
+
+The operator's reply of 2026-11-26 followed a message of the loop whose list of
+questions read, in French: (1) "#592 : « oui, oui » ou « oui, non » (« oui
+messages » tient-il, et ton « full autonomie » couvrait-il #565 et #568 ?)" ("#592:
+'yes, yes' or 'yes, no' (does 'oui messages' hold, and did your 'full autonomy'
+cover #565 and #568?)"); (2) "#558 tranche 2 : je la lance, migration comprise ?"
+("#558 slice 2: shall I start it, migration included?"); (3) whether to add the rule
+never to disguise a command. That message itself did not repeat the table. The
+table, #346 and #568 with their paths, the two transcript messages above, and a
+longer form of question 1 ("... y compris les chemins sensibles", "... including
+the hard-block paths") were in the loop's earlier messages of 2026-11-25 in the same
+thread. The reply, verbatim and in full: "1 oui oui 2. oui 3. oui 4.tu t'en charges 5.explique moi les impact" ("1 yes yes 2. yes 3. yes
+4. you take care of it 5. explain the impacts to me"; items 4 and 5 answer other
+questions).
+
+What that answer settles, and nothing more: "oui messages" is confirmed with the
+full record in view; #565 and #568 are **authorized by the operator after the fact**
+(they were not checked against rule 2 when merged, and that stays recorded); #558
+slice 2, still to come, is authorized in advance by the operator, a Prisma migration
+included ("2. oui"). The conditions that go with it are the loop's own commitment,
+not the operator's words, stated to him right after his reply on 2026-11-26: every
+pass, both security lenses (egress/backdoor and threat model) on the diff, and a
+rollback tag before the merge. The answer does not generalize: no other PR, no other slice and no other hard-block path is
+covered. #346 stays a miss, and the unclear rows (#534, #536, #538, #548, #578, #585)
+stay unclear: the operator was not asked about them.
+
 ## Trust tiers
 
 1. **Maintainers** - `author.login` in `{JulienAu, Julien-Au}`. Unchanged: the
@@ -392,7 +470,19 @@ the author's text - it re-derives the work itself.
 2. **Blast radius attaches to the change, not the author.** If the correct
    implementation of an adopted issue touches a hard-block path, it is a
    human task regardless of who would author the code - label it
-   `needs-maintainer` and leave the analysis in a comment.
+   `needs-maintainer` and leave the analysis in a comment. Check this **before**
+   starting the work, and again on the final file list before the merge, for
+   any PR of ours that implements an external author's request: label `adopted`
+   or not, `Closes` or `Refs`, and through a loop-authored issue derived from one
+   (a batch issue, a leftover).
+   **One exception** (operator, 2026-11-25): when `messages/**` is the **only**
+   hard-block path the implementation touches, the loop may implement the adopted
+   issue and merge its PR itself, when every pass is clean (no blocking, major or
+   security finding, green CI on the pinned SHA), the egress/backdoor and
+   threat-model lenses both ran on the diff and are both clean, and a rollback tag
+   `autonomy-baseline-<date>[suffix]` is pushed at the pre-merge `main` before the
+   merge call. Any other hard-block path, alone or next to `messages/**` (a Prisma
+   migration, `i18n/**`, any group B path), keeps the issue human-only.
 3. **Adoption**: for a clean, in-scope issue, the loop verifies the claim
    against the code, re-derives the requirement in its own words (never
    copying text verbatim), then implements it through the normal pipeline -

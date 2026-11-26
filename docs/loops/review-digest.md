@@ -1166,3 +1166,43 @@ with their skill and playbook edits.
 
 **Trust the gate (lower risk):** the import UI components and their tests, the message
 catalogs, the FAQ additions, the docs here.
+
+## 2026-11-25 - edit and backfill history (#589), catalog filters (#590), drag-and-drop (#591)
+
+Merged: **#589**, **#590**, **#591**. In this PR: changelog fold, README, lessons L63 to L66,
+and a narrow extension of the external-issue policy.
+
+**Read first:**
+
+1. **This PR - the trust policy.** The diff of `docs/loops/10-external-contributions.md`,
+   `CLAUDE.md`, `docs/loops/07-autonomy.md` and `.claude/skills/`. Check that the text says
+   what "oui messages" meant: adopted external issues, `messages/**` as the only hard-block
+   path, all passes and both security lenses clean, rollback tag first, nothing else widened.
+   Then read the table of earlier merges there (a search, maybe not exhaustive; none was
+   compliant when merged): #346 a miss; #565 and #568 not checked at merge time and
+   authorized by you after the fact on 2026-11-26; unclear #534, #536, #538, #548, #578 and
+   #585. **#568 is the most serious** (`gh pr diff 568`: schema, migration, coach prompt,
+   backup route; it would still be human-only under the `messages/**` exception): read that
+   diff. Your reply of 2026-11-26 is quoted there in full, with the questions it answered.
+   Check that the text does not stretch it: #346 stays a miss, and #534, #536, #538, #548,
+   #578 and #585 (not asked) stay unclear; the conditions on #558 slice 2 are the loop's
+   commitment, not your words.
+   Then lesson L67, the rule against disguising a refused command.
+2. **#589 - writes to finished history.** `gh pr diff 589`. `lib/session-edit.ts` (moving and
+   squeezing set timestamps), the row lock in `lib/goal-achievement.ts` and the 8-attempt
+   retry that set writes now share, the `amend: true` gate in
+   `app/api/sessions/[id]/sets/route.ts` and `app/api/sets/[id]/route.ts`, the raw `UPDATE ...
+   FROM (VALUES ...)`, and `PUT /api/sessions/[id]` no longer rewriting `finishedAt`. Known
+   limit: re-importing the file of a moved session duplicates it.
+3. **#590 - the gym rule.** `gh pr diff 590`. `gymAvailability` in `lib/exercise-filters.ts`:
+   machines and cables are never hidden by type. That is a product choice; a home gym with
+   only dumbbells still lists machines until they are switched off one by one.
+4. **#591 - pointer handling.** `gh pr diff 591`. The abort paths in
+   `components/programs/use-drag-reorder.ts`; the save goes through the step 1 endpoint,
+   unchanged.
+5. **Open reliability items.** The list in the autonomy-log entry: stuck signups under load,
+   unit tests near their limit, the dispatch-limit test that exited 0 once, the git guard
+   gap. The last two concern guardrails.
+
+**Trust the gate (lower risk):** the filter and drag component tests, the message catalogs
+(not checked by native speakers), the two screenshots.
