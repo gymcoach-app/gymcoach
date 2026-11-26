@@ -176,6 +176,86 @@ anything that takes deliberate effort to hide.
   PR, `gh api -X PUT repos/gymcoach-app/gymcoach/pulls/<n>/update-branch -f
   expected_head_sha=<head>` writes the base update when `maintainerCanModify` is set and
   the tier rules allow it.
+- `publish/local-gate.ts` (pure rule) and `publish/local-gate-collect.ts` (ledger and
+  git) - **a green local gate on the reviewed head** (#596 part A, lessons L55 and L61;
+  #587 was merged with six red local runs and no green one on its head). A
+  maintainer-authored PR merges only when the run ledger (below, "Green-gate runs in the
+  ledger") holds a `verify` line that is green, of the required tier, on the content of
+  the approved head.
+  - **Which lines count.** `treeChanged: false` (the files were the same before the
+    first step and at exit; a line written before that comparison existed never
+    counts), exit 0, every recorded step `passed`, and the steps of the tier all there
+    (`lint`, `typecheck`, `unit`, `build`, plus `integration` and `e2e` for `full`), so a
+    full-tier line that stops before E2E is not green whatever its exit code.
+  - **Which content.** The line's `treeSha` must be the tree of the head commit. The
+    tree decides, not the line's `headSha`: the gate usually runs before the commit, so
+    HEAD is then the parent while the tree is already the commit's. One difference is
+    accepted, and git proves it (`git diff-tree`, not recursive, in the gate tree): the
+    checked tree is the head's tree plus exactly one added root entry, a symlink named
+    `node_modules`. An agent worktree links the main checkout's install, and
+    `.gitignore` ignores only the directory form, so such a run is recorded
+    `dirty: true` although it checked the commit's files. Any other dirty tree (an edit, an extra file, a `node_modules` file, a
+    nested or renamed link) is not the head's content and does not count. The proof
+    reads the dirty tree's objects, which the recorder wrote to the object store of the
+    clone that ran the gate: worktrees of one clone share them; a run from another
+    clone, or one `git gc` collected, cannot be read and is reported as a near miss
+    (commit first and run on a clean checkout, or run again).
+  - **Which head.** The approved head, or a head the gate carries review records from,
+    by the same two proofs and the same links to the live tip (a pure base update hop,
+    or an identical-diff carry-over that carried): every commit added since is a merge
+    of `main`, the PR's own content is what was gated, and CI must still pass on the new
+    head. A merge with a hand edit or an extra commit carries nothing, so the new head
+    needs its own run. The hops are only examined when some review record is for an
+    older head, exactly as for the records.
+  - **Docs-only diffs** may use the default tier (a full-tier line also counts). A path
+    is documentation when it is under `docs/`, or is a Markdown file at the repository
+    root or under `.claude/`, `.github/`, `automation/`, `changelog.d/` or `evals/`
+    (`isLocalGateDocsPath`, an allowlist: Markdown under `app/`, `lib/`, `public/`,
+    `prisma/`, `messages/` or any new directory is code). The paths are the ones lens
+    routing reads at the approved SHA, renamed-from paths included; unknown paths or an
+    empty diff need the full tier. The two tiers `--full` adds drive the built app
+    against Postgres and a browser and read none of these files, while the default tier
+    does (unit tests parse the policy and the baseline, the changelog fragments are
+    checked), so a docs-only PR is never exempt, only spared the tiers that cannot see
+    its diff.
+  - **A red run newer than a green one refuses** (`local-gate-red`): on the same
+    content the latest verdict decides, as for a CI rerun. A tree that passed and then
+    failed has a test that depends on something other than the tree, and L61 says that
+    red is red until a later run is green. A red run is a non-zero exit with a failed
+    step other than the two lock waits (`slot`, `infra-lock`, where none of the change's
+    code runs); a killed run (no exit code, or no failed step) is no verdict. A red run
+    of any tier counts (the default tier is part of the full one), a green default-tier
+    run never clears a red full one, and a red run on the approved head overrides a
+    green run on an older carried head whatever their times.
+  - **Ledger disabled, missing or unreadable refuses**, with the reason and the remedy
+    (`local-gate-ledger-disabled` when `GYMCOACH_USAGE_LEDGER=off` in the gate's
+    environment, `-missing` with the path it looked at, `-unreadable` with the error
+    code); a git failure refuses too (`local-gate-unverified`), and no matching green
+    line is `local-gate-missing`, with the near misses (a green default-tier line where
+    the full tier is needed, failed runs, runs whose files changed while they ran).
+    **No flag waives the check**, and none is needed: a maintainer's code may always be
+    run on this machine, so the remedy is always the run the rule asks for
+    (`bash scripts/verify.sh --full` on a checkout of the head, its own exit 0, with the
+    ledger on), then the merge gate again.
+  - **External authors are exempt, and the output says so.** The execution gate of
+    `docs/loops/10-external-contributions.md` forbids running a vetted or unvetted
+    author's code on the host, so no such line may exist; CI is their only executor.
+    The tier comes from the pulls API author id, like lens routing.
+  - **Ledger location and sharing.** The gate resolves the ledger like the recorder:
+    `GYMCOACH_USAGE_LEDGER_PATH`, else `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`
+    (a test pins the two to the same answer). It is per user and per machine, shared by
+    every checkout and worktree; a line is matched by the tree it checked, never by a
+    branch name or a path, so a run in any checkout of that content counts and a run on
+    other content cannot. Running the gate and merging under different `HOME`,
+    `XDG_DATA_HOME` or ledger paths, or on two machines, finds no line and refuses.
+  - **Output.** The decision carries `localGate` and the CLI prints one line: the
+    ledger file, the accepted line's number, tier, exit, time, HEAD and tree, the head
+    whose content it checked and how the trees compare.
+  - **Limits.** The ledger is a local file the loop itself writes: like the review
+    records posted from the shared maintainer account, the check prevents slips (a push
+    or a merge on a red or missing run), not forgery. Equal start and exit trees do not
+    prove nothing changed in between (see the ledger section). A run on an older head
+    says nothing about the `main` merged in since; CI on the new head covers that.
 - `publish/checks.ts` - the allowlist (the five jobs of `.github/workflows/ci.yml`) and
   the pinned CI app (`CI_APP_ID`, GitHub Actions). The gate refuses when either
   disagrees with the repository's required status checks; when the rules cannot be
@@ -183,7 +263,8 @@ anything that takes deliberate effort to hide.
 - `publish/merge.ts` - the only way the maintainer merges (see the `ship-pr` skill,
   which runs it from a detached worktree of freshly fetched `origin/main`). Dry run by
   default; `--merge` calls the merge endpoint with `sha=<approved>`, then deletes a
-  same-repo head branch (never a fork's; `--keep-branch` to keep it). Strict argument
+  same-repo head branch (never a fork's; `--keep-branch` to keep it). It reads the run
+  ledger for the local green gate above and prints the line it accepted. Strict argument
   parsing; re-reads an unknown mergeable state up to 5 times. Exit codes: 0 merged or
   mergeable, 1 refused, 2 usage error, 3 `gh`, network or any unexpected error (one
   line, no stack; check the PR before any retry).

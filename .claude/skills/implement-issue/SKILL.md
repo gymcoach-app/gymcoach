@@ -87,6 +87,14 @@ for repo conventions; this skill assumes them.
    (`scripts/test-db.sh`, which retired the manual `prisma migrate deploy` of lessons L4 and
    L23). It needs Docker running, or a Postgres already listening on :5434; otherwise it stops
    with instructions.
+   **The merge gate requires the full tier** (#596): unless the diff is docs-only (every
+   path under `docs/`, or Markdown at the repository root or under `.claude/`, `.github/`,
+   `automation/`, `changelog.d/`, `evals/`), the last run before the commit you push must
+   be `bash scripts/verify.sh --full`, green, on exactly the files you commit: do not edit
+   while it runs, leave no other uncommitted file (the `node_modules` symlink of a
+   worktree is fine), and do not set `GYMCOACH_USAGE_LEDGER=off`. The run is recorded in
+   the local run ledger and `automation/publish/merge.ts` refuses the merge without that
+   line (`ship-pr` step 5, "The local green gate"). After any later fixup, run it again.
    **If typecheck fails on `.next/types` stubs for a route that does not exist on your
    branch**, the stale stubs are from the previous branch's build and `verify.sh` typechecks
    before it builds: run `npm run build` on the current branch to regenerate them, then

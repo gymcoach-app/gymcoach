@@ -7,6 +7,7 @@ import {
   REQUIRED_CHECKS,
 } from '@/automation/publish/checks';
 import {
+  type BaseUpdateEvidence,
   type CheckRun,
   FULL_SHA,
   type GateDecision,
@@ -25,6 +26,8 @@ import { parseVetted } from '@/automation/baseline/collect';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectChangedPaths } from '@/automation/publish/changed-paths';
+import { collectLocalGate } from '@/automation/publish/local-gate-collect';
+import { describeRun } from '@/automation/publish/local-gate';
 
 // Pinned merge for every PR, loop-authored or external (roadmap milestone 2).
 // Fetches the live PR, its check runs for the approved SHA, the repository's
@@ -32,7 +35,11 @@ import { collectChangedPaths } from '@/automation/publish/changed-paths';
 // base branch, proves with git (in the current tree) which base updates on the
 // approved head are pure, runs the gate, and only then calls the merge
 // endpoint with `sha=<approved>`, so GitHub itself also refuses if the head
-// moved.
+// moved. For a maintainer-authored PR it also reads the local run ledger and
+// refuses unless a green verify.sh run (full tier; default tier for a
+// docs-only diff) checked the content of the approved head or of a head the
+// review records carry from (#596, local-gate.ts); it prints the ledger line
+// it accepted. No flag waives that check.
 //
 //   npx tsx automation/publish/merge.ts <pr> --sha <approved-40-hex>        # dry run
 //   npx tsx automation/publish/merge.ts <pr> --sha <sha> --merge \
@@ -322,6 +329,18 @@ export function needsBaseUpdateCheck(
   return parents().length === 2;
 }
 
+// Pure: the approved head first, then the older heads of the verified hops and
+// of the identical-diff proofs that carried.
+export function localGateHeads(approvedSha: string, baseUpdates: BaseUpdateEvidence): string[] {
+  return [
+    ...new Set([
+      approvedSha,
+      ...baseUpdates.hops.map((h) => h.reviewedHead),
+      ...(baseUpdates.identicalDiffs ?? []).filter((c) => c.carried).map((c) => c.recordHead),
+    ]),
+  ];
+}
+
 export interface RawComment {
   id: number;
   user: { login: string; id: number } | null;
@@ -372,9 +391,21 @@ export function carryOverLines(decision: GateDecision): string[] {
     );
 }
 
+// Pure: the local gate run that allowed the merge (which ledger line, of which
+// file, on which content), or why no local run is required.
+export function localGateLines(decision: GateDecision): string[] {
+  if (!decision.mergeable) return [];
+  const gate = decision.localGate;
+  if (gate.required === 'none') return [`Local gate: not required, ${gate.reason}.`];
+  return [
+    `Local gate: required ${gate.reason}. Accepted ${gate.ledgerPath} ${describeRun(gate.accepted)}.`,
+  ];
+}
+
 function print(decision: GateDecision, reviews: ParsedReviews) {
   console.log(JSON.stringify(decision, null, 2));
   for (const line of carryOverLines(decision)) console.log(line);
+  for (const line of localGateLines(decision)) console.log(line);
   // A maintainer comment with the marker that did not parse or was edited
   // refuses the merge (review-comment-invalid); name it so it can be fixed by
   // posting a fresh record and deleting the broken comment.
@@ -415,6 +446,20 @@ async function run(argv: string[]): Promise<number> {
         reviews.records.map((r) => ({ baseSha: r.review.baseSha, headSha: r.review.headSha })),
       )
     : { hops: [], basesOnMain: [], error: null };
+  // Read with git at the approved SHA, never from the live head (a push after
+  // approval cannot change which lenses are required). This fetches the PR
+  // head, so the local gate's tree lookups below find the commits.
+  const changedFiles = collectChangedPaths(
+    runGit(process.cwd()),
+    args.pr,
+    BASE_BRANCH,
+    args.sha,
+    baseTipSha,
+  );
+  // The heads a local gate run may have checked: the approved one, and every
+  // older head git examined for a carry-over. The gate keeps only the ones its
+  // own carry rules accept.
+  const localGate = collectLocalGate(runGit(process.cwd()), localGateHeads(args.sha, baseUpdates));
   const decision = evaluateMergeGate({
     pull: live.pull,
     approvedSha: args.sha,
@@ -429,16 +474,9 @@ async function run(argv: string[]): Promise<number> {
     invalidReviews: reviews.invalid,
     baseTipSha,
     baseUpdates,
-    // Read with git at the approved SHA, never from the live head (a push after
-    // approval cannot change which lenses are required).
-    changedFiles: collectChangedPaths(
-      runGit(process.cwd()),
-      args.pr,
-      BASE_BRANCH,
-      args.sha,
-      baseTipSha,
-    ),
+    changedFiles,
     authorTier: trustTier(live.author, MAINTAINERS, readVettedLogins()),
+    localGate,
   });
   print(decision, reviews);
   if (!decision.mergeable) return 1;

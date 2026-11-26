@@ -9,6 +9,7 @@ import {
 } from './gate';
 import type { ReviewEvidence } from '../review/comment';
 import type { StructuredReview } from '../review/schema';
+import { ledgerEvidence, matchedRun, redRun } from './local-gate.fixtures';
 
 const SHA = 'a'.repeat(40);
 const paths = (...p: string[]) => ({ paths: p, error: null });
@@ -75,6 +76,8 @@ function input(over: Partial<GateInput> = {}): GateInput {
     baseUpdates: { hops: [], basesOnMain: [], error: null },
     changedFiles: paths('lib/a.ts'),
     authorTier: 'maintainer',
+    // A green full-tier verify.sh run on the approved head's tree.
+    localGate: ledgerEvidence([matchedRun(SHA)]),
     ...over,
   };
 }
@@ -798,6 +801,184 @@ describe('merge gate', () => {
       expect(codes({ changedFiles: { paths: null, error: 'fetch failed' } })).toEqual([
         'changed-files-unreadable',
       ]);
+    });
+  });
+
+  // The rule itself is tested in local-gate.test.ts; these cases pin how the
+  // merge gate feeds it and that it stands next to every other check.
+  describe('local green gate (#596)', () => {
+    const OLD_HEAD = 'd'.repeat(40);
+    const TIP = 'e'.repeat(40);
+    const none = { heads: [], runs: [], changedDuringRun: 0, treeAbsent: 0, error: null };
+    // The PR after `origin/main` (TIP) was merged into OLD_HEAD, giving SHA;
+    // the only local run is on OLD_HEAD.
+    const updated = (over: Partial<GateInput> = {}): Partial<GateInput> => ({
+      pull: { ...pull, baseSha: TIP },
+      baseTipSha: TIP,
+      reviews: [evidence({ headSha: OLD_HEAD, baseSha: BASE })],
+      baseUpdates: {
+        hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: TIP }],
+        basesOnMain: [BASE],
+        error: null,
+      },
+      localGate: ledgerEvidence([matchedRun(OLD_HEAD, { line: 31 })]),
+      ...over,
+    });
+
+    it('names the ledger line that allowed the merge', () => {
+      expect(evaluateMergeGate(input())).toMatchObject({
+        mergeable: true,
+        localGate: { required: 'full', accepted: { line: 10, head: SHA, tier: 'full', exit: 0 } },
+      });
+    });
+
+    it('refuses a PR with green CI and a ready review but no green local run (#587)', () => {
+      expect(codes({ localGate: ledgerEvidence([]) })).toEqual(['local-gate-missing']);
+      expect(codes({ localGate: ledgerEvidence([redRun(SHA)]) })).toEqual(['local-gate-missing']);
+    });
+
+    it('refuses a red run newer than the green one', () => {
+      const red = redRun(SHA, { line: 11, at: '2026-11-20T11:00:00.000Z' });
+      expect(codes({ localGate: ledgerEvidence([matchedRun(SHA), red]) })).toEqual([
+        'local-gate-red',
+      ]);
+    });
+
+    it('refuses a run on another head (a fixup was pushed after the gate ran)', () => {
+      expect(codes({ localGate: ledgerEvidence([matchedRun(OTHER)]) })).toEqual([
+        'local-gate-missing',
+      ]);
+    });
+
+    it('refuses when the ledger is disabled, missing or unreadable', () => {
+      expect(codes({ localGate: { ledger: { status: 'disabled' }, ...none } })).toEqual([
+        'local-gate-ledger-disabled',
+      ]);
+      expect(codes({ localGate: { ledger: { status: 'missing', path: '/l' }, ...none } })).toEqual([
+        'local-gate-ledger-missing',
+      ]);
+      expect(
+        codes({
+          localGate: { ledger: { status: 'unreadable', path: '/l', error: 'EACCES' }, ...none },
+        }),
+      ).toEqual(['local-gate-ledger-unreadable']);
+    });
+
+    it('refuses when git could not compare the trees', () => {
+      expect(codes({ localGate: ledgerEvidence([matchedRun(SHA)], { error: 'bad object' }) })).toEqual(
+        ['local-gate-unverified'],
+      );
+    });
+
+    it('accepts the default tier for a docs-only diff, and only for one', () => {
+      const lower = ledgerEvidence([matchedRun(SHA, { tier: 'default' })]);
+      const docs = {
+        changedFiles: paths('README.md', 'docs/loops/04-ship-loop.md'),
+        reviews: [evidence({ lenses: ['correctness', 'docs-accuracy'] })],
+      };
+      expect(evaluateMergeGate(input({ ...docs, localGate: lower }))).toMatchObject({
+        mergeable: true,
+        localGate: { required: 'default', accepted: { tier: 'default' } },
+      });
+      expect(codes({ localGate: lower })).toEqual(['local-gate-missing']);
+      expect(
+        codes({ ...docs, changedFiles: paths('README.md', 'lib/a.ts'), localGate: lower }),
+      ).toEqual(['local-gate-missing']);
+    });
+
+    it('accepts a run on the head a pure base update carried the records from', () => {
+      expect(evaluateMergeGate(input(updated()))).toMatchObject({
+        mergeable: true,
+        reviews: [{ carriedFrom: OLD_HEAD }],
+        localGate: { accepted: { line: 31, head: OLD_HEAD } },
+      });
+    });
+
+    it('accepts a run on the head an identical-diff proof carried the records from', () => {
+      const proof: IdenticalDiffCarry = {
+        recordHead: OLD_HEAD,
+        recordBase: BASE,
+        head: SHA,
+        base: TIP,
+        carried: true,
+        detail: '1 merge(s) of the base branch, identical diff',
+      };
+      const carriedBy = (identicalDiffs: IdenticalDiffCarry[]) =>
+        updated({ baseUpdates: { hops: [], basesOnMain: [], identicalDiffs, error: null } });
+      expect(evaluateMergeGate(input(carriedBy([proof])))).toMatchObject({
+        mergeable: true,
+        localGate: { accepted: { head: OLD_HEAD } },
+      });
+      // A refused proof, or one made against another tip, carries no run either.
+      expect(codes(carriedBy([{ ...proof, carried: false, detail: 'file list changed' }]))).toEqual([
+        'review-for-other-head',
+        'local-gate-missing',
+      ]);
+      expect(codes(carriedBy([{ ...proof, base: OTHER }]))).toEqual([
+        'review-for-other-head',
+        'local-gate-missing',
+      ]);
+    });
+
+    it('carries no run across a merge that was not proven pure', () => {
+      // A fresh review of the new head exists, but the only run is on the old one.
+      expect(
+        codes(
+          updated({
+            reviews: [evidence({ headSha: SHA, baseSha: TIP })],
+            baseUpdates: { hops: [], basesOnMain: [BASE], error: null },
+          }),
+        ),
+      ).toEqual(['local-gate-missing']);
+    });
+
+    it('carries no run when the newest hop merged in something other than the live tip', () => {
+      const result = codes(
+        updated({
+          baseUpdates: {
+            hops: [{ head: SHA, reviewedHead: OLD_HEAD, base: OTHER }],
+            basesOnMain: [BASE],
+            error: null,
+          },
+        }),
+      );
+      expect(result).toContain('local-gate-missing');
+    });
+
+    it('carries no run when git could not verify the base updates', () => {
+      const result = codes(
+        updated({ baseUpdates: { hops: [], basesOnMain: [], error: 'fetch failed' } }),
+      );
+      expect(result).toContain('base-update-unverified');
+      expect(result).toContain('local-gate-missing');
+    });
+
+    it('lets a red run on the approved head override a green run on the carried head', () => {
+      const runs = [matchedRun(OLD_HEAD, { line: 31 }), redRun(SHA, { line: 30 })];
+      expect(codes(updated({ localGate: ledgerEvidence(runs) }))).toEqual(['local-gate-red']);
+    });
+
+    it('requires no local run of an external author, and the decision says so', () => {
+      const external = {
+        authorTier: 'unvetted' as const,
+        reviews: [evidence({ lenses: ['correctness', 'security'] })],
+        localGate: { ledger: { status: 'disabled' as const }, ...none },
+      };
+      const decision = evaluateMergeGate(input(external));
+      expect(decision).toMatchObject({ mergeable: true, localGate: { required: 'none' } });
+      // The same evidence refuses a maintainer's PR.
+      expect(codes({ localGate: external.localGate })).toEqual(['local-gate-ledger-disabled']);
+    });
+
+    it('waives nothing else: a green local run never stands in for CI or a review', () => {
+      expect(codes({ checkRuns: [] })).toContain('no-checks');
+      expect(codes({ reviews: [] })).toEqual(['no-review']);
+      expect(codes({ pull: { ...pull, headSha: OTHER } })).toEqual(['head-moved']);
+    });
+
+    it('reports the local gate next to the other refusals, not instead of them', () => {
+      const result = codes({ reviews: [], localGate: ledgerEvidence([]) });
+      expect(result).toEqual(['no-review', 'local-gate-missing']);
     });
   });
 });

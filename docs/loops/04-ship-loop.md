@@ -17,8 +17,10 @@ is the trust boundary. The loop never merges around it:
 - the inherited deny-list (no force-push, no hard reset) still holds.
 
 This is why local-only verification is not enough: `scripts/verify.sh` covers
-lint/type/unit/build, but integration + E2E run **only in CI**. The ship loop is where the
-full gate actually gates a merge.
+lint/type/unit/build by default and integration + E2E only with `--full`, on one machine,
+while CI runs the whole pyramid on every PR. The ship loop is where the full gate actually
+gates a merge; since #596 the merge gate also requires the local `--full` run on the
+reviewed head (section below).
 
 ## The body is one sentence
 
@@ -102,6 +104,49 @@ The gate also caught a slip of the loop itself on #492, the first PR merged afte
 fragments landed: the review record post failed on a transient GitHub API error, the gate
 refused the merge with `no-review`, the record was posted again, and the merge went
 through on it. Nothing merged without its record.
+
+## A green local gate on the reviewed head is part of the merge gate
+
+Lesson L61 recorded a deviation: #587 was merged on green CI and two clean reviews while
+all six local `verify.sh --full` runs on its head were red, and the rule that forbids it
+existed only as prose in two skills. Since #596 (part A) the merge gate checks it. For a
+PR authored by a maintainer account it reads the local run ledger (the `verify` line each
+`scripts/verify.sh` run appends) and refuses unless a green run checked the content of the
+approved head:
+
+- **Tier.** The full tier (`--full`: integration and E2E as well). A docs-only diff may
+  use the default tier: every changed path under `docs/`, or Markdown at the repository
+  root or under `.claude/`, `.github/`, `automation/`, `changelog.d/` or `evals/`. Those
+  files are read by the default tier (unit tests, the changelog fragment check) and by
+  neither of the two tiers `--full` adds.
+- **Content, not a commit id.** The line counts when the tree it checked is the tree of
+  the head commit, so a run made just before the commit counts for it. A run in an agent
+  worktree, whose only untracked file is the `node_modules` symlink, counts too: git
+  proves that the symlink is the only difference. A run whose files changed while it ran
+  never counts.
+- **Head.** The approved head, or the head the review records are carried from (a pure
+  base update or an identical-diff carry-over, the section above). A fixup push or a
+  hand-resolved merge is a new head and needs its own run.
+- **Red after green.** A failed run newer than the green one, on the same content,
+  refuses the merge: the latest verdict decides, and a tree that passes and then fails is
+  the flake L61 and L42 say to explain, not to outvote. A run that only failed waiting for
+  a machine lock, or was killed, is no verdict.
+- **No ledger, no merge.** `GYMCOACH_USAGE_LEDGER=off`, a missing file or an unreadable one
+  refuses with the reason and the remedy. There is no override flag: a maintainer's code
+  can always be gated on this machine, so the way forward is always the run itself.
+- **External PRs are exempt**, and the gate says so in its output: their code is never
+  run on the host (`10-external-contributions.md`), CI is their only executor.
+
+The gate prints the ledger line it accepted (file, line number, tier, time, tree). The
+loop and the operator share one machine account and the ledger is a local file, so this
+check prevents slips, not forgery. The rule and its justifications are in
+[`automation/README.md`](../../automation/README.md), "Merge gate";
+the code is [`local-gate.ts`](../../automation/publish/local-gate.ts).
+
+In practice: run `bash scripts/verify.sh --full` on the final content before the commit
+that is pushed for merge (or on a clean checkout of it), on its own line, and read its own
+exit code (L55). When `main` is merged in without hand edits afterwards, that run still
+counts. After any fixup, run it again.
 
 ## How it chains
 
