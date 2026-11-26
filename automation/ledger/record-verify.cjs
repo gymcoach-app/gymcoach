@@ -157,7 +157,17 @@ function gitState(git) {
         // the real index by rename, so the copy is never a half-written file.
         const seeded = orNull(function () {
           const real = path.resolve(repoRoot(git), git(['rev-parse', '--git-path', 'index']));
+          // The copy must keep the real index's modification time. git only
+          // rehashes an entry whose stat data match when the entry is not
+          // older than the index file ("racily clean"); a fresh copy looks
+          // newer than every entry, so a file rewritten with the same size in
+          // the same second as the last index write would pass as unchanged
+          // and the dirty tree would come out as HEAD's. The time is taken
+          // before the copy and cut down to a whole second: an index that
+          // looks older only makes git rehash more, never less.
+          const mtime = Math.floor(fs.statSync(real).mtimeMs / 1000);
           fs.copyFileSync(real, index);
+          fs.utimesSync(index, mtime, mtime);
           return true;
         });
         if (seeded !== true) git(['read-tree', 'HEAD'], env);

@@ -528,6 +528,11 @@ the line kind keeps them apart, and the usage attribution ignores it.
   index (a copy of the real one, else `read-tree HEAD`; then `add -A`, `write-tree`):
   it stores blob and tree objects that `git gc` later collects, and touches no ref
   and not the real index (the dirty check runs `git --no-optional-locks status`).
+  The copy keeps the real index's modification time, cut down to a whole second
+  (#596): git rehashes a file whose size and times are unchanged only when the file is
+  not older than the index, so a fresh copy made a same-size edit in the second of
+  the last index write come out as HEAD's tree (16 of 400 tries, and every try when
+  the recorder ran in the next second; `ledger/record-verify.git.test.ts`).
   The tree is taken before the first step and again at exit, and recorded only when
   the two agree; a file changed while the gate ran (an agent editing during a
   background run) leaves `treeSha` null and `treeChanged` true. A recorded
