@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { newHits, newTestGlobalHits, testGlobalHits } from './test-globals';
+import {
+  escapedIdentifierHits,
+  newHits,
+  newTestGlobalHits,
+  specifierHits,
+  syntaxTreesParsed,
+  testGlobalHits,
+} from './test-globals';
 
 const kinds = (content: string) => testGlobalHits('lib/x.ts', content).map((h) => h.key);
 
@@ -133,5 +140,46 @@ describe('testGlobalHits', () => {
       'const same = a.constructor === b.constructor;',
     ])
       expect(kinds(content), content).toEqual([]);
+  });
+});
+
+describe('the syntax tree of a screened file', () => {
+  // Counted, not timed: parsing is most of the cost of a screen, and every
+  // rule asks for the tree of the same text (issue #593).
+  it('is parsed once for all the rules that read it, and again when the text changes', () => {
+    const before = syntaxTreesParsed();
+    const content = `const g = globalThis;\ng.afterEach(restore);\n// ${Math.random()}`;
+    const hits = testGlobalHits('lib/once.ts', content);
+    expect(hits.length).toBeGreaterThan(0);
+    expect(testGlobalHits('lib/once.ts', content)).toEqual(hits);
+    expect(escapedIdentifierHits('lib/once.ts', content)).toEqual([]);
+    expect(specifierHits('lib/once.ts', content, () => true)).toEqual([]);
+    expect(syntaxTreesParsed() - before).toBe(1);
+
+    // The same text under another name is another file (a .tsx parses differently).
+    testGlobalHits('lib/once.tsx', content);
+    expect(syntaxTreesParsed() - before).toBe(2);
+    // Another text of the same file is parsed, and the base and the head of
+    // a comparison are both kept.
+    const head = `${content}\ng.beforeEach(restore);`;
+    expect(newTestGlobalHits('lib/once.ts', content, head).length).toBeGreaterThan(0);
+    expect(syntaxTreesParsed() - before).toBe(3);
+    newTestGlobalHits('lib/once.ts', content, head);
+    expect(syntaxTreesParsed() - before).toBe(3);
+  });
+
+  it('gives the same hits from a kept tree as from a fresh one', () => {
+    const content = 'const g = globalThis;\ng.afterEach(restore);';
+    const first = testGlobalHits('lib/kept.ts', content);
+    const second = testGlobalHits('lib/kept.ts', content);
+    expect(second).toEqual(first);
+    expect(first.map((hit) => hit.key)).toContain(
+      'test global read off the global object: g.afterEach',
+    );
+  });
+
+  it('does not screen a file that is not a script, kept or not', () => {
+    expect(testGlobalHits('lib/notes.md', 'globalThis.afterEach(restore);')).toEqual([]);
+    expect(testGlobalHits('lib/notes.md', 'globalThis.afterEach(restore);')).toEqual([]);
   });
 });

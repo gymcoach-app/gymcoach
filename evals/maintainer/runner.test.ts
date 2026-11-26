@@ -43,7 +43,7 @@ import {
   type TreeEntry,
 } from './runner';
 import { evalTaskSchema, type TestRun } from './schema';
-import { testGlobalHits } from './test-globals';
+import { aliasEdgeChecks, testGlobalHits } from './test-globals';
 
 // A changed regular file for the tamper check.
 const ch = (
@@ -646,16 +646,26 @@ describe('tamperViolations', () => {
     ).toContainEqual(expect.stringContaining('test global'));
   });
 
+  // Every alias is declared before the one it copies, so a pass over the
+  // declarations in order binds one name per pass: closing the set that way
+  // takes as many passes as there are names, the square of the chain. The
+  // worklist checks each declaration once, and once more when the name it
+  // copies joins the set. Counted, not timed: 5 checks per name for the alias
+  // sets together, where a pass per name makes as many checks per name as the
+  // chain is long. The test used to time 3000 names against 5 s on the wall
+  // clock, which depends on the machine (issue #593); a count is exact at any
+  // length, so 500 names say as much, and the test no longer takes a second
+  // of CPU time by itself.
   it('screens a long reverse-ordered alias chain in linear time', () => {
-    const n = 3000;
+    const n = 500;
     const lines: string[] = [];
     for (let i = n; i >= 1; i--) lines.push(`const a${i} = a${i - 1};`);
     lines.push('const a0 = globalThis;', `a${n}.afterEach(restore);`);
-    const started = Date.now();
+    const before = aliasEdgeChecks();
     expect(tamperViolations([ch('lib/b.ts', lines.join('\n'))], task)).toContainEqual(
       expect.stringContaining('test global'),
     );
-    expect(Date.now() - started).toBeLessThan(5000);
+    expect((aliasEdgeChecks() - before) / n).toBeLessThan(10);
   });
 
   it('blames a base hit moved onto a changed line', () => {

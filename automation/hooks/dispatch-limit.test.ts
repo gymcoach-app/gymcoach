@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 type Decision = { allow?: true; deny?: string; notes?: { code: string; text: string }[] };
@@ -41,6 +41,20 @@ function tmp(): string {
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
+
+// How often the hook waits for its lock, counted instead of timed: every wait
+// is one Atomics.wait of SPIN_MS (`spin` in the hook). "It did not wait" used
+// to be asserted as "it took under 1000 ms", which a busy machine can break
+// with no wait at all and which let up to 49 waits through (#593). Returns a
+// function that gives the count so far and stops counting.
+function countLockWaits(): () => number {
+  const spy = vi.spyOn(Atomics, 'wait');
+  return () => {
+    const calls = spy.mock.calls.length;
+    spy.mockRestore();
+    return calls;
+  };
+}
 
 const SESSION = 'session-1';
 function env(over: Record<string, string> = {}): Record<string, string> {
@@ -160,9 +174,9 @@ describe('dispatch limit: concurrency', () => {
     hook.handle(start('busy'), e, t);
     const dir = hook.sessionDir(e, SESSION);
     mkdirSync(join(dir, '.lock'));
-    const began = Date.now();
+    const waits = countLockWaits();
     expect(hook.handle(stop('busy'), e, t + 1).allow).toBe(true);
-    expect(Date.now() - began).toBeLessThan(1000);
+    expect(waits()).toBe(0);
     expect(readdirSync(dir).filter((f) => f.startsWith('running-'))).toHaveLength(0);
   });
 
@@ -290,9 +304,9 @@ describe('dispatch limit: the hook process', () => {
     const dir = hook.sessionDir(e, SESSION);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '.lock'), 'debris');
-    const began = Date.now();
+    const waits = countLockWaits();
     expect(hook.withLock(dir, () => 'ran')).toBe('ran');
-    expect(Date.now() - began).toBeLessThan(1000);
+    expect(waits()).toBe(0);
   });
 
   it('warns once when a budget is set but the ledger is off, and lets dispatches through', () => {

@@ -610,6 +610,7 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
         queue.push(name);
       }
     const settle = (i: number) => {
+      edgeChecks += 1;
       const edge = edges[i]!;
       if (!set.has(edge.name) && binds(edge)) {
         set.add(edge.name);
@@ -951,9 +952,37 @@ function escapedIdentifierHitsIn(source: ts.SourceFile): Hit[] {
   return hits;
 }
 
+// The last few syntax trees, by file and content. Every rule that screens a
+// file asks for the tree of the same text (eight or so times per file: once
+// per specifier rule, once for the test globals, once for the escaped
+// identifiers), and parsing was more than half of the cost of a screen: 57% of
+// it in a CPU profile of a 3000 line file (issue #593). A tree is only ever
+// read, so one copy serves them all. Four entries hold the base and the head
+// of the file being screened.
+const PARSE_CACHE_SIZE = 4;
+const parsed: { file: string; content: string; source: ts.SourceFile }[] = [];
+let treesParsed = 0;
+let edgeChecks = 0;
+
+// Test seams only: how many syntax trees have been built so far, and how many
+// times an alias declaration has been checked while closing an alias set. The
+// tests of the two cost rules of this file count with them instead of timing.
+export function syntaxTreesParsed(): number {
+  return treesParsed;
+}
+export function aliasEdgeChecks(): number {
+  return edgeChecks;
+}
+
 function parse(file: string, content: string): ts.SourceFile | null {
   if (!SCRIPT_FILE.test(file)) return null;
-  return ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, scriptKind(file));
+  const known = parsed.find((entry) => entry.content === content && entry.file === file);
+  if (known) return known.source;
+  const source = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, scriptKind(file));
+  treesParsed += 1;
+  parsed.unshift({ file, content, source });
+  if (parsed.length > PARSE_CACHE_SIZE) parsed.pop();
+  return source;
 }
 
 export function testGlobalHits(file: string, content: string): Hit[] {

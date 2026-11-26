@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { measureGrowth } from '@/lib/testing/cpu-cost';
 
 const require = createRequire(import.meta.url);
 const guard = require('./guard-git.cjs') as {
@@ -1231,52 +1232,114 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
     expect(denied(`trap 'git switch main; echo "x' EXIT`, MAIN)).toContain('unbalanced quotes');
   });
 
-  it('stays fast on input built to make it rescan', () => {
-    const timed = (command: string) => {
-      const began = performance.now();
-      const res = guard.decide(
-        { cwd: MAIN, tool_input: { command }, agent_id: 'a1' },
-        { findTop, home: '/home/u', pathExists, checkedOut },
-      );
-      return { res, ms: performance.now() - began };
-    };
-    let evalWords = 'git status';
-    let evalSubs = 'git status';
-    let shells = 'git switch main';
-    // Each level of quoting doubles the backslashes, so the quoted form is
-    // 2^depth characters long by itself (2 MB at depth 20, read in a time
-    // linear in that): depth 14 keeps the input, not the guard, small.
-    for (let i = 0; i < 14; i++) evalWords = `eval ${JSON.stringify(evalWords)}`;
-    for (let i = 0; i < 20; i++) evalSubs = `eval "$(${evalSubs})"`;
-    for (let i = 0; i < 6; i++) shells = `bash -c ${JSON.stringify(shells)}`;
+  // Each of these shapes once made the guard read the same text again and
+  // again: a look-ahead restarted at every `"$(`, or a nested script read once
+  // per level that holds it. The look-ahead budget (`newScan`) and the `seen`
+  // set of `commandsOf` keep the work proportional to the length of the
+  // command, and this test holds them to it.
+  //
+  // It measures growth, not milliseconds: every shape is built at two sizes,
+  // and the CPU time may grow no faster than the command gets longer, with a
+  // margin: the exponent of the growth (1 is proportional, 2 the square) stays
+  // under LINEAR. It used to allow each input 1000 ms on the wall clock, which
+  // failed at 1018 ms on a busy machine (#593) and would have let a guard
+  // three times slower through on an idle one.
+  //
+  // The three shapes that nest a script in a script are not linear by design
+  // below MAX_NEST levels: each level reads the text it holds, so depth times
+  // length. They are also a few dozen characters long and take a tenth of a
+  // millisecond, so their measured exponent moves more than the others'.
+  //
+  // Measured with 16 busy loops on 12 cores: 0.85 to 1.05 for the linear
+  // shapes, 0.7 to 0.9 for `bash -c`, 1.5 to 1.6 for the plain "$(...)", 1.5
+  // to 1.8 for the `eval` one. Without the look-ahead budget the `"$(a"`
+  // shape takes 65 to 82 times longer for 8 times the length (2.0 to 2.1).
+  // Without `seen` the `eval "$(...)"` shape doubles with every level until
+  // the budget stops it at about 8 levels, which is why that shape is
+  // measured from 3 levels to 8: 22 to 80 times longer for 2.3 times the
+  // length (4.2 to 5.4). Both fail here.
+  //
+  // Between the 1.05 at most of the linear shapes and the 2 of a square.
+  const LINEAR = 1.6;
+  const DEPTH_TIMES_LENGTH = 2.5;
+  // Halfway between what the `eval` shape measures with `seen` and without.
+  const EACH_LEVEL_ONCE = 3.3;
+  const decideAsAgent = (command: string) =>
+    guard.decide(
+      { cwd: MAIN, tool_input: { command }, agent_id: 'a1' },
+      { findTop, home: '/home/u', pathExists, checkedOut },
+    );
+  const wrapped = (inner: string, depth: number, wrap: (text: string) => string) => {
+    let command = inner;
+    for (let i = 0; i < depth; i++) command = wrap(command);
+    return command;
+  };
+  // Each level of quoting doubles the backslashes, so the quoted forms are
+  // 2^depth characters long by themselves: the cost is compared with the
+  // length of the command, never with the depth.
+  const evalWords = (depth: number) =>
+    wrapped('git status', depth, (text) => `eval ${JSON.stringify(text)}`);
+  const evalSubs = (depth: number) => wrapped('git status', depth, (text) => `eval "$(${text})"`);
+  const shells = (depth: number) =>
+    wrapped('git switch main', depth, (text) => `bash -c ${JSON.stringify(text)}`);
+  const nestedSubs = (depth: number, inner: string) =>
+    `${'echo "$('.repeat(depth)}${inner}${')"'.repeat(depth)}`;
+  const hereDocument = (lines: number) =>
+    `git commit -q -m "$(cat <<'EOF'\n${"it's 1) fine\n".repeat(lines)}EOF\n)"`;
+
+  // [name, the command at size n, small n, large n, limit, refused?]
+  it.each<[string, (n: number) => string, number, number, number, boolean]>([
+    ['"$(" repeated', (n) => `${'"$('.repeat(n)} git status`, 1000, 8000, LINEAR, false],
+    ['"$(a" repeated', (n) => `${'"$(a" '.repeat(n)}git status`, 1000, 8000, LINEAR, false],
+    ['"`" repeated', (n) => `${'"`'.repeat(n)} git status`, 2000, 16_000, LINEAR, false],
+    ['eval nested (quoted)', evalWords, 11, 14, LINEAR, false],
+    ['eval "$(...)" nested', evalSubs, 3, 8, EACH_LEVEL_ONCE, false],
+    ['"$(...)" nested', (n) => nestedSubs(n, 'git status'), 600, 4800, LINEAR, false],
+    ['a long here-document body', hereDocument, 2000, 16_000, LINEAR, false],
+    // Depth does not hide a command either.
+    ['bash -c nested', shells, 3, 6, DEPTH_TIMES_LENGTH, true],
+    [
+      '"$(...)" nested around a checkout',
+      (n) => nestedSubs(n, 'git switch main'),
+      4,
+      30,
+      DEPTH_TIMES_LENGTH,
+      true,
+    ],
+  ])('reads %s without reading it again and again', (name, build, small, large, limit, refused) => {
+    const commands = new Map([small, large].map((n) => [build(n).length, build(n)]));
+    const [smallLength, largeLength] = [...commands.keys()] as [number, number];
+    for (const command of commands.values()) {
+      expect(!!decideAsAgent(command).deny, name).toBe(refused);
+    }
+    const growth = measureGrowth(
+      (length) => {
+        decideAsAgent(commands.get(length)!);
+      },
+      smallLength,
+      largeLength,
+    );
+    expect(
+      growth.exponent,
+      `${growth.smallMs.toFixed(3)} ms for ${smallLength} characters, ` +
+        `${growth.largeMs.toFixed(3)} ms for ${largeLength}`,
+    ).toBeLessThan(limit);
+  });
+
+  it('still decides the largest inputs it was first held to', () => {
     const cases: Array<[string, string, boolean]> = [
       ['"$(" x 50000', `${'"$('.repeat(50_000)} git status`, false],
       ['"$(a" x 20000', `${'"$(a" '.repeat(20_000)}git status`, false],
       ['"`" x 50000', `${'"`'.repeat(50_000)} git status`, false],
-      ['eval nested 14 deep (quoted)', evalWords, false],
-      ['eval "$(...)" nested 20 deep', evalSubs, false],
-      [
-        '"$(...)" nested 5000 deep',
-        `${'echo "$('.repeat(5000)}git status${')"'.repeat(5000)}`,
-        false,
-      ],
-      [
-        'a 200 kB body',
-        `git commit -q -m "$(cat <<'EOF'\n${"it's 1) fine\n".repeat(15_000)}EOF\n)"`,
-        false,
-      ],
-      // Depth does not hide a command either.
-      ['bash -c nested 6 deep', shells, true],
-      [
-        '"$(...)" nested 30 deep around a checkout',
-        `${'echo "$('.repeat(30)}git switch main${')"'.repeat(30)}`,
-        true,
-      ],
+      ['eval nested 14 deep (quoted)', evalWords(14), false],
+      ['eval "$(...)" nested 20 deep', evalSubs(20), false],
+      ['"$(...)" nested 5000 deep', nestedSubs(5000, 'git status'), false],
+      ['a 200 kB body', hereDocument(15_000), false],
+      ['bash -c nested 6 deep', shells(6), true],
+      ['"$(...)" nested 30 deep around a checkout', nestedSubs(30, 'git switch main'), true],
     ];
     for (const [name, command, refused] of cases) {
-      const { res, ms } = timed(command);
-      expect(!!res.deny, name).toBe(refused);
-      expect(ms, `${name}: ${Math.round(ms)} ms`).toBeLessThan(1000);
+      expect(!!decideAsAgent(command).deny, name).toBe(refused);
     }
   });
 });
