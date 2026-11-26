@@ -2,6 +2,7 @@
 // did not support Next 15). Same NetworkFirst/CacheFirst strategy as before;
 // the workbox-level options (runtimeCaching, buildExcludes, skipWaiting) now
 // live under workboxOptions.
+const { isCacheablePage } = require('./lib/pwa-runtime-caching.cjs');
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   register: true,
@@ -15,8 +16,8 @@ const withPWA = require('@ducanh2912/next-pwa').default({
     runtimeCaching: [
       {
         // App pages: NetworkFirst, fall back to cache when offline.
-        urlPattern: ({ request, url }) =>
-          request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
+        // Not the login and signup pages (lib/pwa-runtime-caching.cjs).
+        urlPattern: isCacheablePage,
         handler: 'NetworkFirst',
         options: {
           cacheName: 'pages',

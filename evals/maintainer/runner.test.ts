@@ -1639,6 +1639,34 @@ describe('the canary', () => {
     for (const file of files.keys()) expect(isAgentWritable(file, t), file).toBe(false);
   });
 
+  it('runs the unit-tier copies under jsdom, whatever the default environment (#593)', () => {
+    const p = canaryPaths('abc');
+    const files = canaryFiles('abc', [
+      'lib/a.test.ts',
+      'components/x/c.test.tsx',
+      'tests/integration/d.test.ts',
+    ]);
+    const pragma = '// @vitest-environment jsdom\n';
+    // Vitest reads the environment from the file's text, so it must come first.
+    expect(files.get('lib/xabc.test.ts')!.toString().startsWith(pragma)).toBe(true);
+    expect(files.get('components/x/xabc.test.ts')!.toString().startsWith(pragma)).toBe(true);
+    // The root copy runs in both tiers, in the default environment of each;
+    // the integration tier's copy stays in that tier's environment.
+    expect(files.get(p.test)!.toString()).not.toContain('@vitest-environment');
+    expect(files.get('tests/integration/xabc.test.ts')!.toString()).not.toContain(
+      '@vitest-environment',
+    );
+    // Apart from that line and the guard's import path, the copies are the root test.
+    const body = (file: string) =>
+      files
+        .get(file)!
+        .toString()
+        .replace(pragma, '')
+        .replace(/from '[^']*xabc\.guard\.ts'/, 'from GUARD');
+    expect(body('lib/xabc.test.ts')).toBe(body(p.test));
+    expect(body('tests/integration/xabc.test.ts')).toBe(body(p.test));
+  });
+
   it('records every built-in and checks from inside the hidden tests (#468 part a)', () => {
     const p = canaryPaths('abc');
     const files = canaryFiles('abc');

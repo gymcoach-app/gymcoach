@@ -436,8 +436,9 @@ backups alongside the database.
 
 ## Testing
 
-Three tiers: unit/component (Vitest + jsdom), integration (Vitest against a
-real Postgres), and end to end (Playwright driving the built app).
+Three tiers: unit/component (Vitest, in Node, with jsdom for the tests that ask
+for a DOM), integration (Vitest against a real Postgres), and end to end
+(Playwright driving the built app).
 
 ```bash
 npm run test            # unit and component tests

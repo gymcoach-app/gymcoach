@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { IMPORT_DUPLICATE_WINDOW_MS } from './duplicate-window';
 import {
@@ -110,13 +111,66 @@ describe('scanAppleHealthExport', () => {
     expect(scanAppleHealthExport(FIXTURE, NOW)).toEqual(EXPECTED);
   });
 
-  it('gives the same result when the text is split at every position', () => {
-    for (let cut = 0; cut <= FIXTURE.length; cut++) {
+  // Every cut position costs one full scan of the fixture, so the work grows
+  // with the square of its length: about 3 700 scans, 1.1 s of wall time on
+  // an idle core as one test, and past the 5 s limit of a single test on a busy
+  // machine (issue #593). The positions are checked in ranges of SPLIT_RANGE, each its
+  // own test with the default 5 s limit.
+  //
+  // Ranges alone would loosen the limit on the scanner: the same work would
+  // get one 5 s limit per range. So the last test sums the CPU time of all
+  // positions and holds it to ONE budget, half the old limit. CPU time does
+  // not grow the way the wall clock does when other processes take the cores:
+  // measured for the whole property, 0.4 to 0.65 s on an idle machine and 1.1 to 1.5 s with 24 busy loops on 12
+  // cores (it is not constant: sharing a core costs speed). With 1.6 ms of
+  // CPU added to every end(), a scanner about ten times slower, the total is
+  // 6.6 s: the budget test fails, while each range still passes its own.
+  const SPLIT_RANGE = 512;
+  const SPLIT_STARTS = Array.from(
+    { length: Math.ceil((FIXTURE.length + 1) / SPLIT_RANGE) },
+    (_, index) => index * SPLIT_RANGE,
+  );
+  const SPLIT_CPU_BUDGET_MS = 2500;
+  // CPU time (ms) and number of positions of each range checked so far.
+  const splitCost = new Map<number, { cpuMs: number; positions: number }>();
+
+  function checkSplitRange(start: number): void {
+    const end = Math.min(start + SPLIT_RANGE, FIXTURE.length + 1);
+    const cpu = process.cpuUsage();
+    for (let cut = start; cut < end; cut++) {
       const scanner = new AppleHealthScanner(NOW);
       scanner.push(FIXTURE.slice(0, cut));
       scanner.push(FIXTURE.slice(cut));
-      expect(scanner.end(), `cut at ${cut}`).toEqual(EXPECTED);
+      const result = scanner.end();
+      // toEqual, at a fraction of its cost when the result is right: a result
+      // that is deeply and strictly equal always passes toEqual, so only a
+      // result that is not goes to toEqual, to be judged and reported by it.
+      if (!isDeepStrictEqual(result, EXPECTED)) expect(result, `cut at ${cut}`).toEqual(EXPECTED);
     }
+    const spent = process.cpuUsage(cpu);
+    splitCost.set(start, { cpuMs: (spent.user + spent.system) / 1000, positions: end - start });
+  }
+
+  it.each(SPLIT_STARTS)(
+    'gives the same result when the text is split at every position (from %i)',
+    (start) => {
+      checkSplitRange(start);
+    },
+  );
+
+  it('checks every split position within one CPU budget for all of them', () => {
+    // A range that did not run (this test picked alone with -t, or a filtered
+    // range) is checked here, so the total is never a sum over nothing.
+    for (const start of SPLIT_STARTS) {
+      if (!splitCost.has(start)) checkSplitRange(start);
+    }
+    const costs = [...splitCost.values()];
+    expect(costs).toHaveLength(SPLIT_STARTS.length);
+    // Every position from 0 to the end of the text, once.
+    expect(costs.reduce((sum, cost) => sum + cost.positions, 0)).toBe(FIXTURE.length + 1);
+    const totalCpuMs = costs.reduce((sum, cost) => sum + cost.cpuMs, 0);
+    expect(totalCpuMs).toBeGreaterThan(0);
+    expect(totalCpuMs).toBeLessThan(SPLIT_CPU_BUDGET_MS);
   });
 
   it('gives the same result fed one byte at a time (multi-byte characters split)', () => {

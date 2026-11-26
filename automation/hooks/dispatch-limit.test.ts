@@ -1,12 +1,22 @@
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-type Decision = { allow?: true; deny?: string };
+type Decision = { allow?: true; deny?: string; notes?: { code: string; text: string }[] };
 const hook = require('./dispatch-limit.cjs') as {
   handle: (input: Record<string, unknown>, env: Record<string, string>, now?: number) => Decision;
   sessionSpend: (
@@ -17,6 +27,7 @@ const hook = require('./dispatch-limit.cjs') as {
   sessionDir: (env: Record<string, string>, sessionId: string) => string;
   withLock: <T>(dir: string, fn: () => T) => T;
   agentTranscript: (input: Record<string, unknown>) => string | null;
+  LOCK_WAIT_MS: number;
 };
 const usage = require('./record-usage.cjs') as { hash: (v: string) => string };
 
@@ -250,9 +261,16 @@ describe('dispatch limit: the hook process', () => {
 
   it('exits 2 with the reason on stderr when it refuses, 0 otherwise', () => {
     const e = env({ GYMCOACH_MAX_SUBAGENTS: '1' });
-    expect(run(pre('one'), e).status).toBe(0);
+    // The first call must have been counted, not let through by a skipped
+    // check: that would make the second one pass too. The stderr in the
+    // message names the cause if this ever goes wrong again (issue #593: it
+    // exited 0 once under load, with nothing kept to say why).
+    const first = run(pre('one'), e);
+    expect(first.status, first.stderr).toBe(0);
+    expect(first.stderr).toBe('');
+    expect(first.stdout).toBe('');
     const res = run(pre('two'), e);
-    expect(res.status).toBe(2);
+    expect(res.status, res.stderr).toBe(2);
     expect(res.stderr).toMatch(/dispatch-limit: .*limit 1/);
     expect(res.stdout).toBe('');
   });
@@ -301,5 +319,142 @@ describe('dispatch limit: the hook process', () => {
     const res = run(pre('b'), e);
     expect(res.status).toBe(0);
     expect(res.stderr).toMatch(/skipped/);
+  });
+});
+
+// Issue #593: the hook's test exited 0 instead of 2 once at load ~30. Each case
+// below is a way the limit used to stop applying without a refusal, replayed
+// with synthetic input: a lock somebody else holds, state that cannot be read.
+describe('dispatch limit: a busy lock or unreadable state does not lift the limit silently', () => {
+  function run(input: unknown, e: Record<string, string>) {
+    return spawnSync(process.execPath, [SCRIPT], {
+      input: JSON.stringify(input),
+      encoding: 'utf8',
+      env: { ...process.env, GYMCOACH_MAX_SUBAGENTS: '', GYMCOACH_SESSION_TOKEN_BUDGET: '', ...e },
+    });
+  }
+  // A lock held by another hook for the whole call. Its mtime is in the
+  // future, so a slow machine cannot make it look abandoned (15 s) mid-test.
+  function holdLock(dir: string) {
+    const lock = join(dir, '.lock');
+    mkdirSync(lock, { recursive: true });
+    const later = new Date(Date.now() + 10 * 60_000);
+    utimesSync(lock, later, later);
+    return lock;
+  }
+  const names = (dir: string, prefix: string) =>
+    readdirSync(dir).filter((f) => f.startsWith(prefix));
+  const skipLog = (e: Record<string, string>) =>
+    readFileSync(join(e.GYMCOACH_DISPATCH_STATE_DIR!, 'skipped.log'), 'utf8');
+
+  it('still refuses at the limit while the lock is held', { timeout: 30_000 }, () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '1' });
+    expect(run(pre('one'), e).status).toBe(0);
+    const dir = hook.sessionDir(e, SESSION);
+    const lock = holdLock(dir);
+    const began = Date.now();
+    const res = run(pre('two'), e);
+    // It waited for the lock first, then counted without it.
+    expect(Date.now() - began).toBeGreaterThanOrEqual(hook.LOCK_WAIT_MS);
+    expect(res.status, res.stderr).toBe(2);
+    expect(res.stderr).toMatch(/already has 1 subagent\(s\) running or starting \(limit 1/);
+    expect(res.stderr).toMatch(/lock was skipped and this call was counted without it/);
+    // A refusal keeps stdout empty; the holder's lock is not taken from it.
+    expect(res.stdout).toBe('');
+    expect(existsSync(lock)).toBe(true);
+    expect(skipLog(e)).toMatch(new RegExp(`^\\S+ PreToolUse lock-busy ${usage.hash(SESSION)}\\n$`));
+  });
+
+  it('under the limit, counts the call without the lock and says so', { timeout: 30_000 }, () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '2' });
+    expect(run(pre('one'), e).status).toBe(0);
+    const dir = hook.sessionDir(e, SESSION);
+    holdLock(dir);
+    const res = run(pre('two'), e);
+    expect(res.status, res.stderr).toBe(0);
+    // Visible three ways: stderr, a hook systemMessage, the skip log.
+    expect(res.stderr).toMatch(/^dispatch-limit: the state lock stayed busy for 3 s/);
+    expect(JSON.parse(res.stdout)).toEqual({
+      systemMessage: expect.stringMatching(/^dispatch-limit: .*counted without it/),
+    });
+    expect(skipLog(e)).toContain(' PreToolUse lock-busy ');
+    // The reservation is there, so the next call is refused: before #593
+    // this call left none and the limit was lifted for it.
+    expect(names(dir, 'pending-')).toHaveLength(2);
+    expect(readdirSync(dir).filter((f) => f.startsWith('.tmp-'))).toHaveLength(0);
+    expect(hook.handle(pre('three'), e, Date.now()).deny).toMatch(/limit 2/);
+  });
+
+  it('counts a subagent whose SubagentStart found the lock held', { timeout: 30_000 }, () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '1' });
+    const t = Date.now();
+    expect(hook.handle(pre('one'), e, t).allow).toBe(true);
+    const dir = hook.sessionDir(e, SESSION);
+    holdLock(dir);
+    const started = hook.handle(start('late'), e, t + 1);
+    expect(started.allow).toBe(true);
+    expect(started.notes?.map((n) => n.code)).toEqual(['lock-busy']);
+    // Its reservation became a running entry: one in flight, not zero, not two.
+    expect(names(dir, 'running-')).toEqual([`running-${usage.hash('late')}`]);
+    expect(names(dir, 'pending-')).toHaveLength(0);
+    rmSync(join(dir, '.lock'), { recursive: true });
+    expect(hook.handle(pre('two'), e, t + 2).deny).toMatch(/limit 1/);
+    hook.handle(stop('late'), e, t + 3);
+    expect(hook.handle(pre('two'), e, t + 4)).toEqual({ allow: true });
+  });
+
+  // root lists a directory whatever its mode.
+  it.skipIf(process.getuid?.() === 0)(
+    'says so when the state directory cannot be listed, instead of counting zero',
+    () => {
+      const e = env({ GYMCOACH_MAX_SUBAGENTS: '1' });
+      expect(run(pre('one'), e).status).toBe(0);
+      const dir = hook.sessionDir(e, SESSION);
+      chmodSync(dir, 0o300); // write and search, no read: the lock works, the listing fails
+      try {
+        const res = run(pre('two'), e);
+        // An internal error still lets the call through (never a refusal)...
+        expect(res.status).toBe(0);
+        // ...but no longer without a word (before #593: exit 0, empty stderr).
+        expect(res.stderr).toMatch(/^dispatch-limit: skipped \(EACCES\): .*not checked/);
+        expect(JSON.parse(res.stdout).systemMessage).toMatch(/skipped \(EACCES\)/);
+        expect(skipLog(e)).toContain(' PreToolUse skipped-EACCES ');
+      } finally {
+        chmodSync(dir, 0o700);
+      }
+    },
+  );
+
+  it('does not count an entry it cannot read, and says so', () => {
+    const e = env({ GYMCOACH_MAX_SUBAGENTS: '2' });
+    const dir = hook.sessionDir(e, SESSION);
+    mkdirSync(join(dir, 'pending-is-a-directory'), { recursive: true });
+    writeFileSync(join(dir, 'running-cut-short'), '');
+    const t = Date.now();
+    const res = hook.handle(pre('one'), e, t);
+    expect(res.allow).toBe(true);
+    expect(res.notes).toEqual([
+      {
+        code: 'unreadable-entry',
+        text: expect.stringMatching(/^2 state entries could not be read/),
+      },
+    ]);
+    // Readable state says nothing.
+    rmSync(join(dir, 'pending-is-a-directory'), { recursive: true });
+    rmSync(join(dir, 'running-cut-short'));
+    expect(hook.handle(pre('two'), e, t)).toEqual({ allow: true });
+    expect(hook.handle(pre('three'), e, t).deny).toMatch(/limit 2/);
+  });
+
+  it('keeps the error out of a refusal: bad input names its reason and exits 0', () => {
+    const e = env();
+    const res = spawnSync(process.execPath, [SCRIPT], {
+      input: 'not json',
+      encoding: 'utf8',
+      env: { ...process.env, ...e },
+    });
+    expect(res.status).toBe(0);
+    expect(res.stderr).toMatch(/^dispatch-limit: skipped \(error\)/);
+    expect(skipLog(e)).toMatch(/ - skipped-error -\n$/);
   });
 });

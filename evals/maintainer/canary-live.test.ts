@@ -322,10 +322,37 @@ const RESULT_SWAP =
   return a + b + 1;`,
   );
 
+interface GradedRun {
+  run: TestRun;
+  outcome: string;
+  messages: string;
+  environments: Map<string, 'jsdom' | 'node'>;
+}
+
 interface Scenario {
   add: string;
   doubles?: boolean;
+  // The repository as it is since #593: `node` is the base config's default
+  // environment and the hidden test, a DOM test, asks for jsdom on its first
+  // line. The fixture's base setup then notes, per test file, whether it ran
+  // with a DOM (ENV_LOG), so a test can tell which environment the canary
+  // copies really ran in.
+  nodeDefault?: boolean;
 }
+
+// A built-in made to lie for the hidden test file, and only where there is a
+// DOM: in a repository whose default environment is `node`, it is active in
+// the files that ask for jsdom and nowhere else.
+const ENV_LOG = 'environments.log';
+
+const DOM_ONLY_ROUND = `
+if (typeof document !== 'undefined') {
+  const tamperD = Math as unknown as { round: (x: number) => number };
+  const tamperDomRound = tamperD.round;
+  tamperD.round = (x: number) =>
+    /add[.]test[.]ts/.test(new Error().stack ?? '') ? Math.floor(x) : tamperDomRound(x);
+}
+`;
 
 // At most two vitest processes at a time: each is a full vitest run.
 let running = 0;
@@ -358,14 +385,14 @@ function write(root: string, file: string, content: string | Buffer): void {
 function grade(
   s: Scenario,
   canary = true,
-): Promise<{ run: TestRun; outcome: string; messages: string }> {
+): Promise<GradedRun> {
   return limited(() => gradeNow(s, canary));
 }
 
 async function gradeNow(
   s: Scenario,
   canary: boolean,
-): Promise<{ run: TestRun; outcome: string; messages: string }> {
+): Promise<GradedRun> {
   const root = mkdtempSync(path.join(tmpdir(), 'gymcoach-canary-'));
   dirs.push(root);
   symlinkSync(NODE_MODULES, path.join(root, 'node_modules'), 'dir');
@@ -373,16 +400,21 @@ async function gradeNow(
     root,
     'vitest.config.ts',
     `import { defineConfig } from 'vitest/config';\n` +
-      `export default defineConfig({ test: { include: ['lib/**/*.test.ts'], environment: 'jsdom', globals: true, setupFiles: ['./vitest.setup.ts'], maxWorkers: 1 } });\n`,
+      `export default defineConfig({ test: { include: ['lib/**/*.test.ts'], environment: '${s.nodeDefault ? 'node' : 'jsdom'}', globals: true, setupFiles: ['./vitest.setup.ts'], maxWorkers: 1 } });\n`,
   );
   write(
     root,
     'vitest.setup.ts',
-    `import '@testing-library/jest-dom/vitest';\nimport './messages';\n`,
+    `import '@testing-library/jest-dom/vitest';\nimport './messages';\n` +
+      (s.nodeDefault
+        ? `import { appendFileSync } from 'node:fs';\n` +
+          `beforeAll(({}, file) => appendFileSync(${JSON.stringify(ENV_LOG)}, ` +
+          `(file as unknown as { filepath: string }).filepath + ' ' + typeof document + '\\n'));\n`
+        : ''),
   );
   write(root, 'messages.ts', `export const messages = { hello: 'Hello' };\n`);
   write(root, 'lib/add.ts', s.add);
-  write(root, HIDDEN, HIDDEN_TEST);
+  write(root, HIDDEN, (s.nodeDefault ? '// @vitest-environment jsdom\n' : '') + HIDDEN_TEST);
   const hidden = s.doubles ? [HIDDEN, DOUBLES] : [HIDDEN];
   if (s.doubles) write(root, DOUBLES, DOUBLES_TEST);
   const files = canaryFiles(ID, hidden);
@@ -423,7 +455,16 @@ async function gradeNow(
     skipped: skippedTests(raw),
   };
   const outcome = decideOutcome({ hidden: [run], preserved: [], infraErrors: [] });
-  return { run, outcome, messages: raw ?? '' };
+  // Which environment each test file ran in: its path relative to the fixture
+  // and 'object' (a DOM) or 'undefined' (none). Empty unless nodeDefault.
+  const envLog = path.join(root, ENV_LOG);
+  const environments = new Map(
+    (existsSync(envLog) ? readFileSync(envLog, 'utf8').trim().split('\n') : []).map((line) => {
+      const [file, dom] = line.split(' ') as [string, string];
+      return [path.relative(root, file), dom === 'object' ? 'jsdom' : 'node'] as const;
+    }),
+  );
+  return { run, outcome, messages: raw ?? '', environments };
 }
 
 describe('harness canary, live (#468 part a)', () => {
@@ -441,6 +482,7 @@ describe('harness canary, live (#468 part a)', () => {
     taskSwap: { add: TASK_SWAP },
   };
   const skip = { add: SKIP_FROM_BODY };
+  const domOnly = { add: BROKEN_ROUND + DOM_ONLY_ROUND, nodeDefault: true };
   const runs = {
     clean: grade({ add: FIXED, doubles: true }),
     broken: grade({ add: BROKEN }),
@@ -455,6 +497,8 @@ describe('harness canary, live (#468 part a)', () => {
     contextRebind: grade(cheats.contextRebind),
     taskSwap: grade(cheats.taskSwap),
     skip: grade(skip),
+    nodeDefaultClean: grade({ add: FIXED, nodeDefault: true }),
+    domOnly: grade(domOnly),
   };
   const controls = {
     selective: grade(cheats.selective, false),
@@ -467,6 +511,7 @@ describe('harness canary, live (#468 part a)', () => {
     resultSwap: grade(cheats.resultSwap, false),
     contextRebind: grade(cheats.contextRebind, false),
     taskSwap: grade(cheats.taskSwap, false),
+    domOnly: grade(domOnly, false),
   };
   const skipControl = grade(skip, false);
 
@@ -506,6 +551,30 @@ describe('harness canary, live (#468 part a)', () => {
       .sort();
     expect(ran).toHaveLength(2);
     expect(ran).toContain(`lib/x${ID}.test.ts`);
+  }, 300_000);
+
+  it('runs the canary copy next to a DOM test under jsdom (#593)', async () => {
+    const { run, outcome, environments } = await runs.nodeDefaultClean;
+    expect(run.canary).toBe('ok');
+    // 4 hidden tests (one of them reads the DOM) and the two canary tests.
+    expect(run.passed).toBe(6);
+    expect(run.failed).toBe(0);
+    expect(outcome).toBe('pass');
+    // Recorded by the fixture's setup in each test file. Without the jsdom
+    // line canaryFiles puts on the unit-tier copies, the lib/ copy reads
+    // 'node' here: its probe would run where no DOM test runs.
+    expect(Object.fromEntries(environments)).toEqual({
+      [HIDDEN]: 'jsdom',
+      [`lib/x${ID}.test.ts`]: 'jsdom',
+      [`x${ID}.test.ts`]: 'node',
+    });
+  }, 300_000);
+
+  it('fails a built-in that lies only where there is a DOM (#593)', async () => {
+    const { run, outcome, messages } = await runs.domOnly;
+    expect(run.canary).toBe('failed');
+    expect(messages).toContain('Math.round');
+    expect(outcome).toBe('fail');
   }, 300_000);
 
   it('fails the broken fix on its own merits, the canary ok', async () => {

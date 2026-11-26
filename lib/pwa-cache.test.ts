@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { isPerUserCache, purgeUserCaches } from './pwa-cache';
 
