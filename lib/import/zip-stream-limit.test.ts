@@ -31,7 +31,9 @@ function feed(unzip: Unzip, zip: Uint8Array): void {
 // This test has a file to itself, which gives it a process to itself: next
 // to the other tests of zip-stream.test.ts the same read measured 490 to
 // 1910 units under load instead of 300 to 670, because of what those tests
-// leave on the heap (see below).
+// leave on the heap (see below). Vitest's default isolate: true with the
+// forks pool (a process per test file) is what this relies on: with one
+// process for several files, the limit below would have to be measured again.
 //
 // Calibration (one machine: a six-core 2020 laptop, Node 22). The read is
 // run five times and the fastest of the last four is kept, against the
@@ -51,7 +53,8 @@ function feed(unzip: Unzip, zip: Uint8Array): void {
 // - four more lists, a read five to six times slower: 1610 to 2560 units,
 //   failed in 5 runs of 5; five lists 2240 to 2880; 0.5 ms added per entry
 //   17 900;
-// - three more lists: 1350 to 2490, failed in 4 runs of 5;
+// - three more lists, a read four to five times slower: 1350 to 2490,
+//   failed in 4 runs of 5;
 // - two more lists, three to four times slower: 910 to 1620, not caught
 //   reliably.
 // So the test holds the read to about five times its cost, where the old

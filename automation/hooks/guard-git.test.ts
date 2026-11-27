@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { describeCost, measureGrowth, repeatedReferenceCost } from '@/lib/testing/cpu-cost';
+import { measureGrowth } from '@/lib/testing/cpu-cost';
 
 const require = createRequire(import.meta.url);
 const guard = require('./guard-git.cjs') as {
@@ -1345,37 +1345,7 @@ describe('git guard: message bodies and substitutions (issue #593, review of #59
     }
   });
 
-  // Growth says nothing about a guard that reads every command once but ten
-  // times more slowly, which the old bound (1000 ms per input) did catch on a
-  // calm machine. So the heaviest of those inputs also has a bound on what it
-  // costs, in units of the reference work of lib/testing/cpu-cost.ts measured
-  // next to it. Calibration (one machine: a six-core 2020 laptop, Node 22):
-  // 64 to 75 units on a calm machine, where the read takes 100 ms, and 67 to
-  // 110 with 16 busy loops. With every command read three times: 182 to 226.
-  // Ten times: 600. The limit is between the code as it is and the
-  // three-times version (1.3 times each way), and five times stricter than
-  // the old bound was on a calm machine (1000 ms is 690 units there). The
-  // units another machine measures are printed on CI and with
-  // COST_UNITS_LOG=1 (describeCost).
-  const HEAVIEST_INPUT_LIMIT_UNITS = 140;
-
-  it('reads the heaviest input it was first held to at a bounded cost', () => {
-    const command = `${'"$('.repeat(50_000)} git status`;
-    const cost = repeatedReferenceCost(
-      () => {
-        expect(decideAsAgent(command).deny).toBeFalsy();
-      },
-      // One timed run and a short batch: this test runs next to seventy
-      // others in a file that has five seconds per test.
-      { rounds: 1, referenceBatchMs: 100 },
-    );
-    const measured = describeCost(
-      'git guard, "$(" x 50000',
-      cost.units,
-      HEAVIEST_INPUT_LIMIT_UNITS,
-      `${cost.cpuMs.toFixed(0)} ms, reference ${cost.referenceMs.toFixed(3)} ms`,
-    );
-    expect(cost.units, measured).toBeGreaterThan(0);
-    expect(cost.units, measured).toBeLessThan(HEAVIEST_INPUT_LIMIT_UNITS);
-  });
+  // Growth says nothing about a guard that reads every command once but
+  // several times more slowly: what the heaviest of these inputs costs is
+  // bounded in guard-git-cost.test.ts, a file of its own (see there why).
 });
