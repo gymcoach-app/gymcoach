@@ -445,6 +445,7 @@ Set one provider in `.env`:
 | --------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `anthropic` (default) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`                    | Defaults to `claude-opus-4-7`. `claude-sonnet-4-6` and `claude-haiku-4-5` trade some coaching quality for lower cost.                                    |
 | `openrouter`          | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`                  | Any model on OpenRouter, for example `anthropic/claude-sonnet-4.5`. Reasoning models need `OPENROUTER_MAX_TOKENS`, a floor on each call's output budget. |
+| `llmtr`               | `LLMTR_API_KEY`, `LLMTR_MODEL`                            | Prepaid OpenAI-compatible gateway at https://llmtr.com/v1. Create a key at https://llmtr.com/dashboard/keys. Model IDs use the `vendor/model` form, for example `qwen/qwen3.8-27b-free`. Reasoning models need `LLMTR_MAX_TOKENS`, a floor on each call's output budget. |
 | `openai-compatible`   | `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`   | Any OpenAI Chat Completions server: Ollama, LM Studio, vLLM, llama.cpp server, or another gateway. See [a local model](#run-the-coach-on-a-local-model). |
 | `codex-lb`            | `CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`, `CODEX_LB_MODEL` | Any OpenAI Responses-compatible endpoint; include `/v1` in the base URL.                                                                                 |
 | `demo`                | none                                                      | Canned replies. Useful to click through the AI screens without a key.                                                                                    |
@@ -452,7 +453,7 @@ Set one provider in `.env`:
 Pricing is provider-side, so check the current tables rather than trusting a
 number in a repository: [Anthropic pricing](https://www.anthropic.com/pricing)
 and [OpenRouter models](https://openrouter.ai/models) (each model page lists its
-input and output price).
+input and output price). LLMTR is documented at [llmtr.com](https://llmtr.com).
 
 ### Run the coach on a local model
 
@@ -606,12 +607,12 @@ never the provider's answer:
 
 | Class | The provider answered | What to do |
 | --- | --- | --- |
-| `invalid_key` | 401 or 403 | Check the key variable named in the message (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`, `CODEX_LB_API_KEY`) in `.env`, then restart the app. |
+| `invalid_key` | 401 or 403 | Check the key variable named in the message (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `LLMTR_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`, `CODEX_LB_API_KEY`) in `.env`, then restart the app. |
 | `quota` | 429, 402, or "credit balance too low" | Wait and retry, or add credits on the provider account. |
 | `model` | 400, 404, 422, an empty answer, or a generated program that failed validation | Check the model variable named in the message (for example `OPENROUTER_MODEL`), or pick another model. |
 | `outage` | 5xx, including 529 "overloaded" | Retry later. |
 | `timeout` | nothing in time, or the connection failed | Retry; for a local model server, check that it is running and reachable from the app container. |
-| `truncated` | an answer cut at the output token budget | Raise `OPENROUTER_MAX_TOKENS` or `OPENAI_COMPATIBLE_MAX_TOKENS`. |
+| `truncated` | an answer cut at the output token budget | Raise `OPENROUTER_MAX_TOKENS`, `LLMTR_MAX_TOKENS` or `OPENAI_COMPATIBLE_MAX_TOKENS`. |
 | `not_configured` | nothing: a required setting is missing or refused | Set the variable named in the message. |
 
 The API answers these with `502`, `503` or `504` and a body of the form

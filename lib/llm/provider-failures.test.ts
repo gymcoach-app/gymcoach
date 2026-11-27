@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodexLbProvider } from './codex-lb';
 import { OpenAiCompatibleProvider } from './openai-compatible';
+import { LlmtrProvider } from './llmtr';
 import { OpenRouterProvider } from './openrouter';
 import { LlmError, type LlmProvider } from './types';
 
@@ -11,6 +12,9 @@ const ENV_KEYS = [
   'OPENROUTER_API_KEY',
   'OPENROUTER_MODEL',
   'OPENROUTER_MAX_TOKENS',
+  'LLMTR_API_KEY',
+  'LLMTR_MODEL',
+  'LLMTR_MAX_TOKENS',
   'OPENAI_COMPATIBLE_BASE_URL',
   'OPENAI_COMPATIBLE_MODEL',
   'OPENAI_COMPATIBLE_API_KEY',
@@ -27,6 +31,7 @@ beforeEach(() => {
     delete process.env[k];
   }
   process.env.OPENROUTER_API_KEY = 'sk-or-test';
+  process.env.LLMTR_API_KEY = 'sk-llmtr-test';
   process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://localhost:11434/v1';
   process.env.OPENAI_COMPATIBLE_MODEL = 'llama3';
   process.env.CODEX_LB_API_KEY = 'codex-test';
@@ -44,6 +49,7 @@ const REQUEST = { system: 'S', messages: [{ role: 'user' as const, content: 'x' 
 
 const providers: [string, () => LlmProvider][] = [
   ['openrouter', () => new OpenRouterProvider()],
+  ['llmtr', () => new LlmtrProvider()],
   ['openai-compatible', () => new OpenAiCompatibleProvider()],
   ['codex-lb', () => new CodexLbProvider()],
 ];
@@ -155,6 +161,11 @@ describe('chat completions specifics', () => {
     });
     delete process.env.OPENROUTER_API_KEY;
     expect(await failureOf(() => new OpenRouterProvider().complete(REQUEST))).toMatchObject({
+      status: 503,
+      failure: 'not_configured',
+    });
+    delete process.env.LLMTR_API_KEY;
+    expect(await failureOf(() => new LlmtrProvider().complete(REQUEST))).toMatchObject({
       status: 503,
       failure: 'not_configured',
     });

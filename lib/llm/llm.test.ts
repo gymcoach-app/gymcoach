@@ -22,6 +22,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 import AnthropicMock from '@anthropic-ai/sdk';
 import { AnthropicProvider } from './anthropic';
+import { LlmtrProvider } from './llmtr';
 import { OpenRouterProvider } from './openrouter';
 import { resolveProviderId, getLlmProvider } from './index';
 import { LlmError } from './types';
@@ -35,6 +36,9 @@ const ENV_KEYS = [
   'OPENROUTER_APP_NAME',
   'OPENROUTER_APP_URL',
   'OPENROUTER_MAX_TOKENS',
+  'LLMTR_API_KEY',
+  'LLMTR_MODEL',
+  'LLMTR_MAX_TOKENS',
   'CODEX_LB_API_KEY',
   'CODEX_LB_BASE_URL',
   'CODEX_LB_MODEL',
@@ -66,6 +70,12 @@ describe('provider selection', () => {
     process.env.LLM_PROVIDER = 'OpenRouter';
     expect(resolveProviderId()).toBe('openrouter');
     expect(getLlmProvider().id).toBe('openrouter');
+  });
+
+  it('selects llmtr when LLM_PROVIDER=llmtr (case-insensitive)', () => {
+    process.env.LLM_PROVIDER = 'LLMTR';
+    expect(resolveProviderId()).toBe('llmtr');
+    expect(getLlmProvider().id).toBe('llmtr');
   });
 
   it('selects codex-lb using its supported aliases', () => {
@@ -298,5 +308,89 @@ describe('OpenRouterProvider', () => {
     await expect(
       p.complete({ system: 'S', messages: [{ role: 'user', content: 'x' }] }),
     ).rejects.toMatchObject({ status: 502, message: expect.stringContaining('cut off') });
+  });
+});
+
+describe('LlmtrProvider', () => {
+  function mockFetch(
+    impl: () => Partial<Response> & { json?: () => unknown; text?: () => unknown },
+  ) {
+    const fn = vi.fn(async (_url: string, _init: RequestInit) => impl() as unknown as Response);
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+
+  it('throws 503 when the key is missing', async () => {
+    const p = new LlmtrProvider();
+    expect(p.isConfigured()).toBe(false);
+    await expect(
+      p.complete({ system: 'S', messages: [{ role: 'user', content: 'x' }] }),
+    ).rejects.toMatchObject({ status: 503, failure: 'not_configured' });
+  });
+
+  it('uses the default model and overrides via LLMTR_MODEL', () => {
+    expect(new LlmtrProvider().model).toBe('qwen/qwen3.8-27b-free');
+    process.env.LLMTR_MODEL = 'qwen/qwen3-32b';
+    expect(new LlmtrProvider().model).toBe('qwen/qwen3-32b');
+  });
+
+  it('posts to the LLMTR Chat Completions URL with a Bearer key', async () => {
+    process.env.LLMTR_API_KEY = 'sk-llmtr-test';
+    const fetchFn = mockFetch(() => ({
+      ok: true,
+      json: async () => ({
+        model: 'qwen/qwen3.8-27b-free',
+        choices: [{ message: { role: 'assistant', content: '  hi there  ' } }],
+      }),
+    }));
+
+    const p = new LlmtrProvider();
+    const res = await p.complete({
+      system: 'SYSTEM',
+      messages: [{ role: 'user', content: 'payload' }],
+      temperature: 0.4,
+      maxTokens: 999,
+    });
+
+    expect(p.isConfigured()).toBe(true);
+    expect(res).toEqual({ text: 'hi there', modelUsed: 'qwen/qwen3.8-27b-free' });
+
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(url).toBe('https://llmtr.com/v1/chat/completions');
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer sk-llmtr-test');
+    expect(headers['HTTP-Referer']).toBeUndefined();
+    expect(headers['X-Title']).toBeUndefined();
+    const body = JSON.parse(init.body as string);
+    expect(body.model).toBe('qwen/qwen3.8-27b-free');
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'SYSTEM' });
+    expect(body.messages[1]).toEqual({ role: 'user', content: 'payload' });
+    expect(body.temperature).toBe(0.4);
+    expect(body.max_tokens).toBe(999);
+  });
+
+  it('LLMTR_MAX_TOKENS raises the per-call budget but never lowers it', async () => {
+    process.env.LLMTR_API_KEY = 'sk-llmtr-test';
+    process.env.LLMTR_MAX_TOKENS = '100000';
+    const fetchFn = mockFetch(() => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }),
+    }));
+    const p = new LlmtrProvider();
+    await p.complete({ system: 'S', messages: [{ role: 'user', content: 'x' }], maxTokens: 200 });
+    await p.complete({ system: 'S', messages: [{ role: 'user', content: 'x' }] });
+    await p.complete({
+      system: 'S',
+      messages: [{ role: 'user', content: 'x' }],
+      maxTokens: 250000,
+    });
+    const budgets = fetchFn.mock.calls.map(
+      ([, init]) => JSON.parse(init.body as string).max_tokens,
+    );
+    expect(budgets).toEqual([100000, 100000, 250000]);
+
+    process.env.LLMTR_MAX_TOKENS = 'nope';
+    await p.complete({ system: 'S', messages: [{ role: 'user', content: 'x' }], maxTokens: 200 });
+    expect(JSON.parse(fetchFn.mock.calls[3]![1].body as string).max_tokens).toBe(200);
   });
 });

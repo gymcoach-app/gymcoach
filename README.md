@@ -77,7 +77,8 @@ docker compose up -d
 
 Open <http://localhost:3000> and create your account. To turn the coach on, add
 `ANTHROPIC_API_KEY=...` (or `LLM_PROVIDER=openrouter` with `OPENROUTER_API_KEY`
-and `OPENROUTER_MODEL`, or a
+and `OPENROUTER_MODEL`, or `LLM_PROVIDER=llmtr` with `LLMTR_API_KEY` and
+`LLMTR_MODEL`, or a
 [local model](docs/self-hosting.md#run-the-coach-on-a-local-model)) to `.env` and run `docker compose up -d` again. Every
 option is documented at the top of
 [`docker-compose.selfhost.yml`](docker-compose.selfhost.yml); reaching the app
@@ -362,7 +363,7 @@ The app:
 
 The AI layer:
 
-- A single provider interface (`lib/llm`) sits in front of the Anthropic SDK, any OpenRouter model, any OpenAI Chat Completions-compatible server (`openai-compatible`: aimed at Ollama, LM Studio, vLLM; tested against a stubbed server only), or an OpenAI Responses-compatible `codex-lb` endpoint. You pick one with the `LLM_PROVIDER` env var; the rest of the app does not care which.
+- A single provider interface (`lib/llm`) sits in front of the Anthropic SDK, any OpenRouter model, LLMTR (a prepaid OpenAI-compatible gateway), any OpenAI Chat Completions-compatible server (`openai-compatible`: aimed at Ollama, LM Studio, vLLM; tested against a stubbed server only), or an OpenAI Responses-compatible `codex-lb` endpoint. You pick one with the `LLM_PROVIDER` env var; the rest of the app does not care which.
 - For every AI call the server builds a compact, structured payload (your profile + recent sessions + active program + per-exercise progression) instead of dumping raw rows, then:
   - Weekly debrief and program adjustments: one completion that returns markdown plus an optional structured block of suggested changes, validated with Zod before anything touches your program.
   - Chat coach: the same context plus your conversation, streamed back token by token.

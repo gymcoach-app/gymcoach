@@ -1,7 +1,7 @@
 // ============================================================
 // LLM provider abstraction
 // ============================================================
-// A minimal, provider-agnostic surface for Anthropic, OpenRouter, codex-lb,
+// A minimal, provider-agnostic surface for Anthropic, OpenRouter, LLMTR, codex-lb,
 // any OpenAI-compatible Chat Completions server, and the local demo provider. The active provider is selected at runtime
 // from the LLM_PROVIDER env var (see ./index).
 
@@ -18,7 +18,7 @@ export interface LlmCompletionRequest {
   system: string;
   messages: LlmMessage[];
   maxTokens?: number;
-  // Honored by providers that accept sampling params (OpenRouter and
+  // Honored by providers that accept sampling params (OpenRouter, LLMTR and
   // openai-compatible). Ignored by the Anthropic provider: Claude Opus 4.7
   // rejects temperature/top_p/top_k.
   temperature?: number;
@@ -45,7 +45,7 @@ export class LlmError extends Error {
 }
 
 export interface LlmProvider {
-  readonly id: 'anthropic' | 'openrouter' | 'openai-compatible' | 'codex-lb' | 'demo';
+  readonly id: 'anthropic' | 'openrouter' | 'llmtr' | 'openai-compatible' | 'codex-lb' | 'demo';
   // Human-friendly name and the env var holding the key, used by the UI to
   // tell the user what to configure when no key is present.
   readonly label: string;
