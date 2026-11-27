@@ -275,7 +275,9 @@ changes on.
    why a PR adds a `changelog.d/` fragment instead of editing `CHANGELOG.md` (lesson L47);
    when an older PR still edits `CHANGELOG.md` and conflicts, move its entry into a
    fragment in the same merge commit), or git in the gate tree could not verify
-   the base updates (`base-update-unverified`); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
+   the base updates (`base-update-unverified`); or, for a maintainer-authored PR, the local
+   run ledger holds no green `verify.sh` run on the content of the reviewed head (the
+   local green gate, below); or the PR is not an open, non-draft, `clean` PR into `main`. GitHub reports the mergeable state as
    unknown for a few seconds after a push or a base move: the CLI re-reads it (5 reads, 3 s
    apart) and a state still unknown after that is a stop. `unstable` and `has_hooks` are
    refused by design, so a red non-required check also blocks a merge. Then it merges with
@@ -296,6 +298,53 @@ changes on.
    it merged (`gh pr view <n> --json state,mergedAt`). In a stack, never merge the second
    PR before the first has its own green CI on its own pinned SHA, even when the second's
    green CI covered a superset tree (lesson L32).
+   **The local green gate (#596, lessons L55 and L61).** For a PR authored by a maintainer
+   account the gate reads the local run ledger (`GYMCOACH_USAGE_LEDGER_PATH`, else
+   `${XDG_DATA_HOME:-~/.local/share}/gymcoach-runs/ledger.jsonl`, the file every
+   `scripts/verify.sh` run appends a `verify` line to) and refuses unless one line is a
+   green run on the content of the reviewed head:
+   - tier `full` (`bash scripts/verify.sh --full`), exit 0, every step passed,
+     `treeChanged: false`. A **docs-only** diff (every changed path under `docs/`, or
+     Markdown at the repository root or under `.claude/`, `.github/`, `automation/`,
+     `changelog.d/`, `evals/`) may use the default tier;
+   - the tree the run checked is the tree of the reviewed head, so a run made right
+     before the commit counts for that commit, and so does a run in a worktree whose
+     only untracked file is the `node_modules` symlink (git proves that is the only
+     difference). Any other uncommitted file, or a file edited while the gate ran, and
+     the run does not count: do not edit during the run;
+   - the head is the reviewed one, or the head the review records are carried from
+     (pure base update or identical-diff carry-over, step 4). After `update-branch` or
+     a merge of `main` with no hand edit, the run made before it still counts, whether
+     the review records were posted before or after that update; after a fixup push or a
+     hand-resolved merge, run the gate again on the new head;
+   - when the diff touches `package.json` or `package-lock.json`, a run through the
+     `node_modules` symlink does not count (it may have tested the main checkout's
+     older install): run the gate in a checkout with its own `npm ci`;
+   - a failed run newer than the green one on the same content refuses
+     (`local-gate-red`): the latest verdict decides. Find the cause (a timeout under
+     load has one, lessons L42 and L61) and run again on an idle machine until the
+     latest run is green. A newer red run on the older, carried head overrides a green
+     one on the reviewed head too. A run that only failed waiting for the heavy-work
+     slot or the test-infra lock, or whose own shell was killed (no exit code), is no
+     verdict; a step whose child was killed is a failed step, so that run is red.
+
+   Refusals: `local-gate-missing` (no green line of the required tier on that content;
+   the detail lists near misses), `local-gate-red`, `local-gate-ledger-disabled`
+   (`GYMCOACH_USAGE_LEDGER=off` in the shell that runs `merge.ts`: unset it),
+   `local-gate-ledger-missing` (no file at the path it prints: the gate ran under another
+   `HOME`, `XDG_DATA_HOME` or ledger path, on another machine, or never),
+   `local-gate-ledger-unreadable`, `local-gate-unverified` (git could not read a tree).
+   **The remedy is always the run itself, never a way around it**: check the reviewed
+   head out in a worktree of your own, link `node_modules`, run
+   `bash scripts/verify.sh --full > <log> 2>&1; status=$?` with the ledger on, act on
+   `$status`, then run the merge gate again. No flag waives the check. On a mergeable
+   decision the CLI prints the line it accepted
+   (`Local gate: required ... Accepted <ledger> line <n> (...)`): quote it in the report.
+   **External PRs are exempt** and the output says so
+   (`Local gate: not required, the author is not a maintainer ...`; an unknown author
+   counts as unvetted and the line names it): their code is never
+   run on the host (step 1), so never run `verify.sh` on one to satisfy this check. The
+   ledger is a local file the loop writes itself: the check prevents slips, not forgery.
    **Exit codes**: 0 merged (or mergeable in a dry run), 1 refused, 2 usage error, 3 a `gh`
    or network error. On 3 the merge may or may not have landed: check the PR state before
    anything else, and never re-run a merge without that check. Remove the tick's worktree
@@ -313,6 +362,11 @@ changes on.
   of #442, step 5), and never with a SHA other than the one the review covered. The gate refuses a red, pending, missing or empty check set.
 - Never merge without a structured review record for the exact head and base, posted with
   `automation/review/record.ts`; no flag waives it.
+- Never merge a loop-authored PR without a green local `verify.sh --full` run on the
+  content of the reviewed head (default tier for a docs-only diff), recorded in the run
+  ledger; the gate refuses it and no flag waives it (step 5, "The local green gate").
+  Never switch the ledger off (`GYMCOACH_USAGE_LEDGER=off`) in a session that gates or
+  merges.
 - Never merge a draft, a `CHANGES_REQUESTED` PR, or one not targeting `main`.
 - Never execute an unvetted author's code locally. An external fork PR (vetted or, since
   the operator's 2026-10-07 standing delegation, unvetted) merges only through the full
@@ -351,7 +405,9 @@ changes on.
   the seconds between that read and the merge call is not caught. Keep merges one at a
   time. Merge `main` in without hand edits so the review records
   carry over (the gate proves it and says so; no record is re-posted by hand); re-run
-  `verify.sh` on the result when it is loop-authored code. A merge
+  `verify.sh` on the result when it is loop-authored code (the gate accepts the run made
+  on the head before a proven base update, so this re-run is a precaution about the
+  merged-in `main`, and a red one on the new head overrides the older green one). A merge
   that needs a conflict resolution is a fixup: review the delta and post fresh records.
 - Inherited deny-list still applies (no force-push, no hard reset).
 

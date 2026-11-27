@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { PullState } from './gate';
 import { REPO } from './checks';
+import { LEDGER_PATH, matchedRun } from './local-gate.fixtures';
 import {
   carryOverLines,
   changedPaths,
   collectPages,
   fetchSettledPull,
+  localGateHeads,
+  localGateLines,
   mergeRequestArgs,
   needsBaseUpdateCheck,
+  needsLocalGateHops,
   parseArgs,
   type RawPull,
   POLICY_PATH,
@@ -32,6 +36,7 @@ describe('carry-over lines', () => {
         checks: [],
         requiredChecksSource: 'repository',
         advisories: [],
+        localGate: { required: 'none', reason: 'not under test' },
         reviews: [
           { commentId: 1, author: 'JulienAu', reviewer: 'm', lenses: ['correctness'] },
           {
@@ -53,6 +58,87 @@ describe('carry-over lines', () => {
 
   it('prints nothing for a refusal', () => {
     expect(carryOverLines({ mergeable: false, refusals: [] })).toEqual([]);
+  });
+});
+
+describe('local gate lines', () => {
+  const mergeable = {
+    mergeable: true as const,
+    sha: SHA,
+    checks: [],
+    requiredChecksSource: 'repository' as const,
+    advisories: [],
+    reviews: [],
+  };
+
+  it('prints the ledger line the gate accepted, its file and what it checked', () => {
+    const lines = localGateLines({
+      ...mergeable,
+      localGate: {
+        required: 'full',
+        reason: 'the diff changes code or configuration: a green full-tier run',
+        ledgerPath: LEDGER_PATH,
+        accepted: matchedRun(SHA, { line: 181, match: 'tree-plus-node-modules-symlink' }),
+      },
+    });
+    expect(lines).toEqual([
+      `Local gate: required the diff changes code or configuration: a green full-tier run. Accepted ${LEDGER_PATH} line 181 (verify, tier full, exit 0, at 2026-11-20T10:00:00.000Z, HEAD ${SHA.slice(0, 12)}, tree 777777777777, checked the content of ${SHA.slice(0, 12)}: the same tree plus an untracked node_modules symlink).`,
+    ]);
+  });
+
+  it('says why no local run is required of an external author', () => {
+    expect(
+      localGateLines({ ...mergeable, localGate: { required: 'none', reason: 'external' } }),
+    ).toEqual(['Local gate: not required, external.']);
+  });
+
+  it('prints nothing for a refusal', () => {
+    expect(localGateLines({ mergeable: false, refusals: [] })).toEqual([]);
+  });
+});
+
+describe('base update verification for the local gate alone', () => {
+  it('runs for any two-parent merge head, whatever the review records cover', () => {
+    // #577, #579, #580: every record on the merged head, the run on its parent.
+    expect(needsBaseUpdateCheck(SHA, [SHA], () => ['e'.repeat(40), BASE])).toBe(false);
+    expect(needsLocalGateHops(SHA, () => ['e'.repeat(40), BASE])).toBe(true);
+  });
+
+  it('skips git for a plain commit, an octopus or an invalid SHA', () => {
+    expect(needsLocalGateHops(SHA, () => ['e'.repeat(40)])).toBe(false);
+    expect(needsLocalGateHops(SHA, () => ['e'.repeat(40), BASE, 'f'.repeat(40)])).toBe(false);
+    expect(
+      needsLocalGateHops('abc', () => {
+        throw new Error('parents must not be read');
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('heads a local gate run may have checked', () => {
+  const OLD = 'e'.repeat(40);
+  const OLDER = 'f'.repeat(40);
+  const proof = { recordBase: BASE, head: SHA, base: BASE, detail: '' };
+
+  it('is the approved head alone when no base update was examined', () => {
+    expect(localGateHeads(SHA, { hops: [], basesOnMain: [], error: null })).toEqual([SHA]);
+  });
+
+  it('adds the heads of the verified hops and of the proofs that carried, once each', () => {
+    expect(
+      localGateHeads(SHA, {
+        hops: [
+          { head: SHA, reviewedHead: OLD, base: BASE },
+          { head: OLD, reviewedHead: OLDER, base: BASE },
+        ],
+        basesOnMain: [],
+        identicalDiffs: [
+          { ...proof, recordHead: OLDER, carried: true },
+          { ...proof, recordHead: 'a'.repeat(40), carried: false },
+        ],
+        error: null,
+      }),
+    ).toEqual([SHA, OLD, OLDER]);
   });
 });
 

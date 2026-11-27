@@ -31,6 +31,12 @@
 // and the author's trust tier. The union of lenses over the passing records
 // must meet every required group. The paths come from git at the approved SHA,
 // never from the PR's live head; a git error refuses.
+//
+// A maintainer-authored PR also needs a green local gate run (#596, lessons
+// L55 and L61): a `verify` line of the local run ledger, of the full tier (the
+// default tier for a docs-only diff), on the content of the approved head or
+// of a head whose records carry over to it. The rule, its exemptions and its
+// limits are in local-gate.ts; the decision names the ledger line it accepted.
 
 import type { ReviewEvidence } from '@/automation/review/comment';
 import { STOPPING_SEVERITIES, type StructuredReview } from '@/automation/review/schema';
@@ -41,6 +47,12 @@ import {
   normaliseLens,
   requiredLenses,
 } from '@/automation/review/lenses';
+import {
+  type LocalGateEvidence,
+  type LocalGateRefusalCode,
+  type LocalGateReport,
+  evaluateLocalGate,
+} from '@/automation/publish/local-gate';
 
 export const FULL_SHA = /^[0-9a-f]{40}$/;
 
@@ -109,6 +121,16 @@ export interface GateInput {
   changedFiles: ChangedPaths;
   // The PR author's tier (lenses.ts trustTier); an unknown author is unvetted.
   authorTier: TrustTier;
+  // The local run ledger's `verify` lines that git matched to the approved
+  // head and to the heads review records may carry from, or why the ledger
+  // could not be read (local-gate-collect.ts).
+  localGate: LocalGateEvidence;
+  // The pure base updates the local gate may follow, when they were verified
+  // for it alone: the approved head is a merge of the base branch and every
+  // review record is already on it, so `baseUpdates` was not computed (a run
+  // made before an update-branch still counts, #596). Never used for review
+  // records. Absent: the local gate uses `baseUpdates`.
+  localGateBaseUpdates?: BaseUpdateEvidence;
 }
 
 // One verified hop: `head` is a merge commit whose first parent is
@@ -181,7 +203,8 @@ export type RefusalCode =
   | 'review-not-ready'
   | 'review-comment-invalid'
   | 'changed-files-unreadable'
-  | 'review-lens-missing';
+  | 'review-lens-missing'
+  | LocalGateRefusalCode;
 
 export interface Refusal {
   code: RefusalCode;
@@ -229,6 +252,9 @@ export type GateDecision =
       reviews: PassedReview[];
       // Advisory lens groups no record covered (reported, not enforced).
       advisories: string[];
+      // The local gate run that allowed the merge (the ledger line), or why
+      // none is required for this author.
+      localGate: LocalGateReport;
     }
   | { mergeable: false; refusals: Refusal[] };
 
@@ -355,6 +381,21 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     refuse('review-comment-invalid', `review comment ${bad.commentId}: ${bad.reason}`);
   }
 
+  // The local green gate, on the approved head or on a head the records carry
+  // from, by the same two proofs and the same links to the live tip.
+  const localGate = evaluateLocalGate({
+    evidence: input.localGate,
+    approvedSha,
+    carriedHeads: [
+      ...carriedHeads(input, input.localGateBaseUpdates ?? input.baseUpdates),
+      ...identicalDiffCarries(input).map((c) => c.recordHead),
+    ],
+    carryError: (input.localGateBaseUpdates ?? input.baseUpdates).error,
+    changedPaths: input.changedFiles.paths,
+    authorTier: input.authorTier,
+  });
+  if (!localGate.ok) refuse(localGate.code, localGate.detail);
+
   if (pull.mergeableState !== 'clean') {
     refuse(
       'not-clean',
@@ -362,7 +403,7 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     );
   }
 
-  if (refusals.length || !reviews) return { mergeable: false, refusals };
+  if (refusals.length || !reviews || !localGate.ok) return { mergeable: false, refusals };
   return {
     mergeable: true,
     sha: approvedSha,
@@ -370,6 +411,7 @@ export function evaluateMergeGate(input: GateInput): GateDecision {
     requiredChecksSource: input.requiredChecks ? 'repository' : 'unreadable',
     reviews,
     advisories,
+    localGate: localGate.report,
   };
 }
 
@@ -416,8 +458,11 @@ function isStop(review: StructuredReview): boolean {
 // newest hop must have merged in the PR's current base, which the gate
 // separately requires to be the live tip. Anything that does not link ends
 // the walk, so a gap never widens what counts.
-export function carriedHeads(input: GateInput): string[] {
-  const { pull, approvedSha, baseUpdates } = input;
+export function carriedHeads(
+  input: GateInput,
+  baseUpdates: BaseUpdateEvidence = input.baseUpdates,
+): string[] {
+  const { pull, approvedSha } = input;
   const carried: string[] = [];
   if (baseUpdates.error !== null) return carried;
   let head = approvedSha;
