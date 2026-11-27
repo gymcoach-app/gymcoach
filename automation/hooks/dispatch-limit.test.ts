@@ -13,7 +13,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { describeCost, referenceCost } from '@/lib/testing/cpu-cost';
 
 const require = createRequire(import.meta.url);
 type Decision = { allow?: true; deny?: string; notes?: { code: string; text: string }[] };
@@ -41,6 +42,43 @@ function tmp(): string {
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
+
+// "It did not wait for the lock" used to be asserted as "it took under
+// 1000 ms", which a busy machine can break with no wait at all and which let
+// up to 49 waits through (#593). It is now two assertions that do not read a
+// clock against a constant:
+// - no sleep: every wait of the hook is one Atomics.wait of SPIN_MS (`spin`),
+//   and none may happen;
+// - no spin either: a wait written as a loop on the clock (the hook's own
+//   fallback where Atomics is missing) sleeps nowhere and burns CPU instead,
+//   so the CPU time of the call is held to NO_WAIT_LIMIT_UNITS of the
+//   reference work of lib/testing/cpu-cost.ts measured around it. The call
+//   costs a few file operations: 0.1 to 0.6 units measured, where 200 ms of
+//   spinning is 47 to 123.
+const NO_WAIT_LIMIT_UNITS = 10;
+function withoutLockWait<T>(label: string, run: () => T): T {
+  const spy = vi.spyOn(Atomics, 'wait');
+  let result: T | undefined;
+  let cost;
+  let waits;
+  try {
+    cost = referenceCost(() => {
+      result = run();
+    });
+    waits = spy.mock.calls.length;
+  } finally {
+    spy.mockRestore();
+  }
+  expect(waits, `${label}: waits for the lock`).toBe(0);
+  const measured = describeCost(
+    label,
+    cost.units,
+    NO_WAIT_LIMIT_UNITS,
+    `${cost.cpuMs.toFixed(2)} ms of CPU, reference ${cost.referenceMs.toFixed(3)} ms`,
+  );
+  expect(cost.units, measured).toBeLessThan(NO_WAIT_LIMIT_UNITS);
+  return result as T;
+}
 
 const SESSION = 'session-1';
 function env(over: Record<string, string> = {}): Record<string, string> {
@@ -160,9 +198,10 @@ describe('dispatch limit: concurrency', () => {
     hook.handle(start('busy'), e, t);
     const dir = hook.sessionDir(e, SESSION);
     mkdirSync(join(dir, '.lock'));
-    const began = Date.now();
-    expect(hook.handle(stop('busy'), e, t + 1).allow).toBe(true);
-    expect(Date.now() - began).toBeLessThan(1000);
+    const decision = withoutLockWait('dispatch limit, SubagentStop under a held lock', () =>
+      hook.handle(stop('busy'), e, t + 1),
+    );
+    expect(decision.allow).toBe(true);
     expect(readdirSync(dir).filter((f) => f.startsWith('running-'))).toHaveLength(0);
   });
 
@@ -290,9 +329,10 @@ describe('dispatch limit: the hook process', () => {
     const dir = hook.sessionDir(e, SESSION);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, '.lock'), 'debris');
-    const began = Date.now();
-    expect(hook.withLock(dir, () => 'ran')).toBe('ran');
-    expect(Date.now() - began).toBeLessThan(1000);
+    const ran = withoutLockWait('dispatch limit, a .lock that is a file', () =>
+      hook.withLock(dir, () => 'ran'),
+    );
+    expect(ran).toBe('ran');
   });
 
   it('warns once when a budget is set but the ledger is off, and lets dispatches through', () => {

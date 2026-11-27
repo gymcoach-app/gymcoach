@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseTcx, tcxExerciseName, TCX_MAX_BYTES, TCX_MIN_STARTED_AT } from './tcx';
+import { measureGrowth } from '@/lib/testing/cpu-cost';
 
 // ============================================================
 // Happy-path fixtures
@@ -171,18 +172,45 @@ describe('parseTcx (hostile input)', () => {
     expect(res.fatalError).toMatch(/not allowed/);
   });
 
+  // A billion-laughs document: every entity is ten of the one before, so
+  // `levels` of them stand for 3 x 10^levels characters once expanded.
+  function entityBomb(levels: number): string {
+    let declarations = '<!ENTITY lol1 "lol">';
+    for (let level = 2; level <= levels; level++) {
+      declarations += `<!ENTITY lol${level} "${`&lol${level - 1};`.repeat(10)}">`;
+    }
+    return (
+      `<?xml version="1.0"?><!DOCTYPE lolz [${declarations}]>` +
+      `<TrainingCenterDatabase>&lol${levels};</TrainingCenterDatabase>`
+    );
+  }
+
+  // "Fast" is measured as growth, not as milliseconds on the wall clock (the
+  // old bound, 1000 ms, depended on the machine and was a hundred thousand
+  // times what the rejection takes, #593). Three more levels make the document
+  // about twice as long and what it expands to a thousand times as long: a
+  // parser that rejects it outright takes about twice as long (measured 1 to 3
+  // times: a rejection is a few microseconds, which is hard to time), one that
+  // expands anything first hundreds of times as long (measured 560 to 1050).
   it('rejects a billion-laughs entity bomb outright (and fast)', () => {
-    const bomb =
-      `<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">` +
-      `<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">` +
-      `<!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">` +
-      `<!ENTITY lol9 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">]>` +
-      `<TrainingCenterDatabase>&lol9;</TrainingCenterDatabase>`;
-    const start = Date.now();
-    const res = parseTcx(bomb);
-    expect(res.ok).toBe(false);
-    expect(res.fatalError).toMatch(/not allowed/);
-    expect(Date.now() - start).toBeLessThan(1000);
+    for (const levels of [3, 6, 9]) {
+      const res = parseTcx(entityBomb(levels));
+      expect(res.ok).toBe(false);
+      expect(res.fatalError).toMatch(/not allowed/);
+    }
+    const bombs = new Map([3, 6].map((levels) => [entityBomb(levels).length, entityBomb(levels)]));
+    const [small, large] = [...bombs.keys()] as [number, number];
+    const growth = measureGrowth(
+      (length) => {
+        parseTcx(bombs.get(length)!);
+      },
+      small,
+      large,
+    );
+    expect(
+      growth.ratio,
+      `${growth.smallMs.toFixed(4)} ms for 3 levels, ${growth.largeMs.toFixed(4)} ms for 6`,
+    ).toBeLessThan(25);
   });
 
   it('never expands entity references even without a DTD (no entity table exists)', () => {

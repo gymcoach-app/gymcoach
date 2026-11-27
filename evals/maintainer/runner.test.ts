@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { measureGrowth } from '@/lib/testing/cpu-cost';
 import {
   EGRESS_ALLOWLIST,
   NODE_IMAGE,
@@ -43,7 +44,7 @@ import {
   type TreeEntry,
 } from './runner';
 import { evalTaskSchema, type TestRun } from './schema';
-import { testGlobalHits } from './test-globals';
+import { aliasEdgeChecks, testGlobalHits } from './test-globals';
 
 // A changed regular file for the tamper check.
 const ch = (
@@ -646,16 +647,57 @@ describe('tamperViolations', () => {
     ).toContainEqual(expect.stringContaining('test global'));
   });
 
+  // Every alias is declared before the one it copies, so a pass over the
+  // declarations in order binds one name per pass: closing the set that way
+  // takes as many passes as there are names, the square of the chain. The
+  // worklist checks each declaration once, and once more when the name it
+  // copies joins the set. Counted, not timed: 5 checks per name for the alias
+  // sets together, where a pass per name makes as many checks per name as the
+  // chain is long. The test used to time 3000 names against 5 s on the wall
+  // clock, which depends on the machine (issue #593); a count is exact at any
+  // length, so 500 names say as much, and the test no longer takes a second
+  // of CPU time by itself.
   it('screens a long reverse-ordered alias chain in linear time', () => {
-    const n = 3000;
+    const n = 500;
     const lines: string[] = [];
     for (let i = n; i >= 1; i--) lines.push(`const a${i} = a${i - 1};`);
     lines.push('const a0 = globalThis;', `a${n}.afterEach(restore);`);
-    const started = Date.now();
+    const before = aliasEdgeChecks();
     expect(tamperViolations([ch('lib/b.ts', lines.join('\n'))], task)).toContainEqual(
       expect.stringContaining('test global'),
     );
-    expect(Date.now() - started).toBeLessThan(5000);
+    expect((aliasEdgeChecks() - before) / n).toBeLessThan(10);
+  });
+
+  // The count above only sees work that goes through the worklist's own
+  // check: a closure rewritten as passes that do not call it would count
+  // nothing and take the square of the chain all the same. So the time is
+  // measured too, as growth between two chain lengths (an exponent of 1 is
+  // proportional, 2 the square), on the screen of the test globals alone,
+  // whose syntax tree is kept between calls. Measured: 0.9 to 1.15, calm and
+  // with 16 busy loops; 1.86 with such uncounted passes.
+  it('screens an alias chain eight times longer in about eight times the time', () => {
+    const chain = (n: number) => {
+      const lines: string[] = [];
+      for (let i = n; i >= 1; i--) lines.push(`const a${i} = a${i - 1};`);
+      lines.push('const a0 = globalThis;', `a${n}.afterEach(restore);`);
+      return lines.join('\n');
+    };
+    const chains = new Map([150, 1200].map((n) => [n, chain(n)]));
+    for (const content of chains.values()) {
+      expect(testGlobalHits('lib/b.ts', content).length).toBeGreaterThan(0);
+    }
+    const growth = measureGrowth(
+      (n) => {
+        testGlobalHits('lib/b.ts', chains.get(n)!);
+      },
+      150,
+      1200,
+    );
+    expect(
+      growth.exponent,
+      `${growth.smallMs.toFixed(2)} ms for 150 names, ${growth.largeMs.toFixed(2)} ms for 1200`,
+    ).toBeLessThan(1.5);
   });
 
   it('blames a base hit moved onto a changed line', () => {
