@@ -31,6 +31,9 @@ function row(category: 'COMPOUND' | 'CARDIO', extra: Record<string, unknown> = {
     loadAdjustmentPct: null,
     targetDurationSec: null,
     targetDistanceM: null,
+    targetRpe: null,
+    targetHrMin: null,
+    targetHrMax: null,
     exercise: { id: 'ex1', name: 'Running', muscleGroup: 'OTHER', category },
     ...extra,
   } as unknown as Row;
@@ -60,6 +63,32 @@ describe('ProgramExerciseRow prescription (issue #558)', () => {
       />,
     );
     expect(prescription()).toBe('20 min · 5 km');
+  });
+
+  // Slice 2: the intensity of the target follows the duration.
+  it('adds the RPE and the heart rate range when the target has them', () => {
+    render(
+      <ProgramExerciseRow
+        programExercise={row('CARDIO', {
+          targetDurationSec: 1200,
+          targetRpe: 6,
+          targetHrMin: 140,
+          targetHrMax: 150,
+        })}
+        catalog={[]}
+      />,
+    );
+    expect(prescription()).toBe('20 min · RPE 6 · 140-150 bpm');
+  });
+
+  it('never shows an intensity on a strength exercise', () => {
+    render(
+      <ProgramExerciseRow
+        programExercise={row('COMPOUND', { targetRpe: 6, targetHrMin: 140, targetHrMax: 150 })}
+        catalog={[]}
+      />,
+    );
+    expect(prescription()).not.toMatch(/RPE 6|bpm/);
   });
 
   it('shows a neutral label, not the strength line, for a cardio exercise without a target', () => {

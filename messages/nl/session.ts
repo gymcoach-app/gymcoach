@@ -121,6 +121,7 @@ export const session = {
     parseError: 'Kon dat niet verwerken. Probeer de korte notatie (bv. 100x8@9).',
     duration: 'Duur (mm:ss)',
     durationExample: 'bv. 12:30 of 12.30',
+    cardioIntensity: 'Doelintensiteit: {target}',
     durationError:
       'Verwacht formaat: mm:ss (bv. 12:30, of 12.30 op een numeriek toetsenbord), u:mm:ss of gewoon minuten.',
     distance: 'Afstand ({unit}, optioneel)',

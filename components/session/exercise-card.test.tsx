@@ -38,6 +38,9 @@ const pe: ProgramExercise & { exercise: Exercise } = {
   loadAdjustmentPct: null,
   targetDurationSec: null,
   targetDistanceM: null,
+  targetRpe: null,
+  targetHrMin: null,
+  targetHrMax: null,
   exercise: exo,
 };
 
@@ -377,7 +380,13 @@ describe('ExerciseCard cardio last-performance', () => {
 // Issue #558 (slice 1): a cardio exercise coming from a workout with a cardio
 // target shows that target instead of the set count.
 describe('ExerciseCard cardio target', () => {
-  function renderTarget(target: { targetDurationSec: number | null; targetDistanceM: number | null }) {
+  function renderTarget(target: {
+    targetDurationSec: number | null;
+    targetDistanceM: number | null;
+    targetRpe?: number | null;
+    targetHrMin?: number | null;
+    targetHrMax?: number | null;
+  }) {
     return render(
       <ExerciseCard
         programExercise={{ ...cardioPe, targetSets: 1, ...target }}
@@ -393,6 +402,22 @@ describe('ExerciseCard cardio target', () => {
     renderTarget({ targetDurationSec: 1200, targetDistanceM: 5000 });
     expect(screen.getByText('Target: 20 min · 5 km')).toBeInTheDocument();
     expect(screen.queryByText(/1 set/)).not.toBeInTheDocument();
+  });
+
+  // Slice 2: the RPE and heart rate range of the target are shown once in the
+  // live session, by the set logger under this card, so the card leaves them
+  // out and keeps reading as the duration and distance.
+  it('leaves the intensity of the target to the set logger', () => {
+    renderTarget({
+      targetDurationSec: 1200,
+      targetDistanceM: 5000,
+      targetRpe: 6,
+      targetHrMin: 140,
+      targetHrMax: 150,
+    });
+    expect(screen.getByText('Target: 20 min · 5 km')).toBeInTheDocument();
+    expect(screen.queryByText(/RPE 6/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bpm/)).not.toBeInTheDocument();
   });
 
   it('shows a duration-only target', () => {

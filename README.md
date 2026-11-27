@@ -297,7 +297,9 @@ on your own key - all self-hosted.
   one block.
 - **Cardio in a program** - a cardio exercise is prescribed by a duration and
   an optional distance ("20 min · 5 km") instead of sets, reps and RIR, and the
-  live session starts its inputs from that target.
+  live session starts its inputs from that target. It can also carry an
+  intensity to hold: an RPE from 1 to 10 and a heart rate range
+  ("20 min · RPE 6 · 140-150 bpm").
 - **Exercise catalog** - searchable by name, on top of your custom exercises and
   muscle-group grouping. Star your favourites: they get their own section at
   the top of the catalog and come first in the in-session pickers. Filter it by

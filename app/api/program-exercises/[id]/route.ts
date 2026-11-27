@@ -44,13 +44,24 @@ export async function PUT(req: Request, props: Params) {
     if (!cardio && (data.targetDurationSec != null || data.targetDistanceM != null)) {
       throw new ApiError(400, 'Only a cardio exercise takes a duration or distance target.');
     }
+    // Intensity (slice 2): a target RPE and a heart rate range follow the
+    // same rules as the distance. The schema already guarantees that the two
+    // heart rate bounds come together and in order.
+    const hasIntensityInput =
+      data.targetRpe != null || data.targetHrMin != null || data.targetHrMax != null;
+    if (!cardio && hasIntensityInput) {
+      throw new ApiError(400, 'Only a cardio exercise takes an RPE or heart rate target.');
+    }
     const nextDurationSec =
       data.targetDurationSec !== undefined ? data.targetDurationSec : owned.targetDurationSec;
     if (cardio && data.targetDistanceM != null && nextDurationSec == null) {
       throw new ApiError(400, 'A distance target needs a duration target.');
     }
-    // Clearing the duration clears the distance with it, so a stored row
-    // never holds a distance without a duration.
+    if (cardio && hasIntensityInput && nextDurationSec == null) {
+      throw new ApiError(400, 'An RPE or heart rate target needs a duration target.');
+    }
+    // Clearing the duration clears the distance and the intensity with it, so
+    // a stored row never holds one of them without a duration.
     const clearDistance = cardio && data.targetDurationSec === null;
 
     // Replacing a row's exercise with one the workout already holds would
@@ -87,6 +98,9 @@ export async function PUT(req: Request, props: Params) {
         supersetGroup: data.supersetGroup,
         targetDurationSec: cardio ? data.targetDurationSec : null,
         targetDistanceM: cardio ? (clearDistance ? null : data.targetDistanceM) : null,
+        targetRpe: cardio ? (clearDistance ? null : data.targetRpe) : null,
+        targetHrMin: cardio ? (clearDistance ? null : data.targetHrMin) : null,
+        targetHrMax: cardio ? (clearDistance ? null : data.targetHrMax) : null,
       },
       include: { exercise: true },
     });

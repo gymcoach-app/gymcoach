@@ -120,6 +120,12 @@ export const programs = {
     cardioDurationError: '请输入以分钟为单位的时长，最多 1440。',
     cardioDistanceError: '请输入不超过 {max} {unit}的距离，或留空。',
     cardioNoTarget: '有氧运动 - 未设置目标',
+    cardioRpe: '目标 RPE（1-10，选填）',
+    cardioRpeHint: '1 表示非常轻松，10 表示全力以赴。',
+    cardioHrMin: '心率下限（次/分，选填）',
+    cardioHrMax: '心率上限（次/分，选填）',
+    cardioRpeError: '请输入 1 到 10 的整数，或留空。',
+    cardioHrError: '请输入两个心率值，范围为 {min} 到 {max} 次/分，先填较低的值，或将两项都留空。',
   },
   print: {
     action: '打印训练表',

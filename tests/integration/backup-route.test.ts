@@ -325,7 +325,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(14);
+    expect(dump.version).toBe(15);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -779,7 +779,7 @@ describe('POST /api/backup - malformed and oversized input (issue #168)', () => 
     await db.set.update({ where: { id: set.id }, data: { watchAvgHr: 131, watchMaxHr: 152 } });
     actAs(user.id);
     const dump = await (await getBackup()).json();
-    expect(dump.version).toBe(14);
+    expect(dump.version).toBe(15);
     const exportedSets = dump.sessions.flatMap(
       (s: { sets: Array<{ watchAvgHr: number | null; watchMaxHr: number | null }> }) => s.sets,
     );

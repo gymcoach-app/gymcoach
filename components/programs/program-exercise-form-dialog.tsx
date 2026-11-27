@@ -49,7 +49,13 @@ import {
   durationSecToMinutesInput,
   isCardioExercise,
   distanceInputToM,
+  heartRateInputsToRange,
   minutesInputToDurationSec,
+  optionalIntInput,
+  TARGET_HR_MAX,
+  TARGET_HR_MIN,
+  TARGET_RPE_MAX,
+  TARGET_RPE_MIN,
 } from '@/lib/cardio-target';
 import { useDistanceUnit } from '@/components/shared/distance-unit-provider';
 
@@ -138,6 +144,23 @@ export function ProgramExerciseFormDialog(props: Props) {
       : '';
   const [durationMin, setDurationMin] = useState(initialDurationMin);
   const [distanceKm, setDistanceKm] = useState(initialDistanceKm);
+  // Intensity of the cardio target (issue #558, slice 2): an optional RPE
+  // from 1 to 10 and an optional heart rate range in bpm, raw strings too.
+  const initialRpe =
+    props.mode === 'edit' && props.programExercise.targetRpe != null
+      ? String(props.programExercise.targetRpe)
+      : '';
+  const initialHrMin =
+    props.mode === 'edit' && props.programExercise.targetHrMin != null
+      ? String(props.programExercise.targetHrMin)
+      : '';
+  const initialHrMax =
+    props.mode === 'edit' && props.programExercise.targetHrMax != null
+      ? String(props.programExercise.targetHrMax)
+      : '';
+  const [rpeInput, setRpeInput] = useState(initialRpe);
+  const [hrMinInput, setHrMinInput] = useState(initialHrMin);
+  const [hrMaxInput, setHrMaxInput] = useState(initialHrMax);
   const [cardioSubmitted, setCardioSubmitted] = useState(false);
 
   const form = useForm<ProgramExerciseInput>({
@@ -165,6 +188,9 @@ export function ProgramExerciseFormDialog(props: Props) {
       form.reset(initial);
       setDurationMin(initialDurationMin);
       setDistanceKm(initialDistanceKm);
+      setRpeInput(initialRpe);
+      setHrMinInput(initialHrMin);
+      setHrMaxInput(initialHrMax);
       setCardioSubmitted(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,8 +218,14 @@ export function ProgramExerciseFormDialog(props: Props) {
     distanceUnit,
     props.mode === 'edit' ? [props.programExercise.targetDistanceM] : [],
   );
+  // Both intensity targets are optional: null is an empty field, undefined a
+  // value the schema would refuse (a half or reversed heart rate range too).
+  const targetRpe = optionalIntInput(rpeInput, TARGET_RPE_MIN, TARGET_RPE_MAX);
+  const hrRange = heartRateInputsToRange(hrMinInput, hrMaxInput);
   const durationInvalid = cardioSubmitted && durationSec === null;
   const distanceInvalid = cardioSubmitted && distanceM === undefined;
+  const rpeInvalid = cardioSubmitted && targetRpe === undefined;
+  const hrInvalid = cardioSubmitted && hrRange === undefined;
 
   // When an exercise is selected from the catalog, we pre-fill restSec
   // with its defaultRestSec (only in create mode).
@@ -228,21 +260,43 @@ export function ProgramExerciseFormDialog(props: Props) {
   async function onSubmit(values: ProgramExerciseInput) {
     // The cardio target is validated here, not by the form schema: its two
     // fields are typed in minutes and the user's distance unit and only exist for a cardio
-    // exercise. Duration is required, distance optional. One exception: a
-    // cardio row saved before targets existed has none, and it can still be
-    // edited (its notes, say) with both fields left empty; no target is sent
-    // and the row keeps reading as cardio without a target.
-    let cardioTarget: { targetDurationSec?: number; targetDistanceM?: number | null } = {};
+    // exercise. Duration is required, distance, RPE and heart rate optional.
+    // One exception: a cardio row saved before targets existed has none, and
+    // it can still be edited (its notes, say) with every field left empty; no
+    // target is sent and the row keeps reading as cardio without a target.
+    let cardioTarget: {
+      targetDurationSec?: number;
+      targetDistanceM?: number | null;
+      targetRpe?: number | null;
+      targetHrMin?: number | null;
+      targetHrMax?: number | null;
+    } = {};
     const untouchedLegacyCardio =
       props.mode === 'edit' &&
       props.programExercise.targetDurationSec == null &&
       values.exerciseId === props.programExercise.exerciseId &&
       durationMin.trim() === '' &&
-      distanceKm.trim() === '';
+      distanceKm.trim() === '' &&
+      rpeInput.trim() === '' &&
+      hrMinInput.trim() === '' &&
+      hrMaxInput.trim() === '';
     if (isCardio && !untouchedLegacyCardio) {
       setCardioSubmitted(true);
-      if (durationSec === null || distanceM === undefined) return;
-      cardioTarget = { targetDurationSec: durationSec, targetDistanceM: distanceM };
+      if (
+        durationSec === null ||
+        distanceM === undefined ||
+        targetRpe === undefined ||
+        hrRange === undefined
+      ) {
+        return;
+      }
+      cardioTarget = {
+        targetDurationSec: durationSec,
+        targetDistanceM: distanceM,
+        targetRpe,
+        targetHrMin: hrRange?.min ?? null,
+        targetHrMax: hrRange?.max ?? null,
+      };
     }
     const url =
       props.mode === 'edit'
@@ -315,49 +369,109 @@ export function ProgramExerciseFormDialog(props: Props) {
           </div>
 
           {isCardio ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="targetDurationMin">{t('cardioDuration')}</Label>
-                <Input
-                  id="targetDurationMin"
-                  type="number"
-                  inputMode="decimal"
-                  min="1"
-                  max="1440"
-                  step="1"
-                  value={durationMin}
-                  onChange={(e) => setDurationMin(e.target.value)}
-                  aria-invalid={durationInvalid ? true : undefined}
-                />
-                {durationInvalid && (
-                  <p className="text-sm text-destructive">{t('cardioDurationError')}</p>
-                )}
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="targetDurationMin">{t('cardioDuration')}</Label>
+                  <Input
+                    id="targetDurationMin"
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    max="1440"
+                    step="1"
+                    value={durationMin}
+                    onChange={(e) => setDurationMin(e.target.value)}
+                    aria-invalid={durationInvalid ? true : undefined}
+                  />
+                  {durationInvalid && (
+                    <p className="text-sm text-destructive">{t('cardioDurationError')}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="targetDistanceKm">
+                    {t('cardioDistance', { unit: distanceUnitText })}
+                  </Label>
+                  <Input
+                    id="targetDistanceKm"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    max={distanceMax}
+                    step="0.01"
+                    value={distanceKm}
+                    onChange={(e) => setDistanceKm(e.target.value)}
+                    aria-invalid={distanceInvalid ? true : undefined}
+                  />
+                  {distanceInvalid && (
+                    <p className="text-sm text-destructive">
+                      {t('cardioDistanceError', {
+                        max: String(distanceMax),
+                        unit: distanceUnitText,
+                      })}
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="targetDistanceKm">
-                  {t('cardioDistance', { unit: distanceUnitText })}
-                </Label>
+                <Label htmlFor="targetRpe">{t('cardioRpe')}</Label>
                 <Input
-                  id="targetDistanceKm"
+                  id="targetRpe"
                   type="number"
-                  inputMode="decimal"
-                  min="0"
-                  max={distanceMax}
-                  step="0.01"
-                  value={distanceKm}
-                  onChange={(e) => setDistanceKm(e.target.value)}
-                  aria-invalid={distanceInvalid ? true : undefined}
+                  inputMode="numeric"
+                  min={TARGET_RPE_MIN}
+                  max={TARGET_RPE_MAX}
+                  step="1"
+                  value={rpeInput}
+                  onChange={(e) => setRpeInput(e.target.value)}
+                  aria-invalid={rpeInvalid ? true : undefined}
+                  aria-describedby="targetRpeHint"
                 />
-                {distanceInvalid && (
-                  <p className="text-sm text-destructive">
-                    {t('cardioDistanceError', {
-                      max: String(distanceMax),
-                      unit: distanceUnitText,
-                    })}
+                <p id="targetRpeHint" className="text-xs text-muted-foreground">
+                  {t('cardioRpeHint')}
+                </p>
+                {rpeInvalid && <p className="text-sm text-destructive">{t('cardioRpeError')}</p>}
+              </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 items-end gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="targetHrMin">{t('cardioHrMin')}</Label>
+                    <Input
+                      id="targetHrMin"
+                      type="number"
+                      inputMode="numeric"
+                      min={TARGET_HR_MIN}
+                      max={TARGET_HR_MAX}
+                      step="1"
+                      value={hrMinInput}
+                      onChange={(e) => setHrMinInput(e.target.value)}
+                      aria-invalid={hrInvalid ? true : undefined}
+                      aria-describedby={hrInvalid ? 'targetHrError' : undefined}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="targetHrMax">{t('cardioHrMax')}</Label>
+                    <Input
+                      id="targetHrMax"
+                      type="number"
+                      inputMode="numeric"
+                      min={TARGET_HR_MIN}
+                      max={TARGET_HR_MAX}
+                      step="1"
+                      value={hrMaxInput}
+                      onChange={(e) => setHrMaxInput(e.target.value)}
+                      aria-invalid={hrInvalid ? true : undefined}
+                      aria-describedby={hrInvalid ? 'targetHrError' : undefined}
+                    />
+                  </div>
+                </div>
+                {hrInvalid && (
+                  <p id="targetHrError" className="text-sm text-destructive">
+                    {t('cardioHrError', { min: TARGET_HR_MIN, max: TARGET_HR_MAX })}
                   </p>
                 )}
               </div>
-            </div>
+            </>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3">

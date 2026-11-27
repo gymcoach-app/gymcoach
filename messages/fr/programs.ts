@@ -126,6 +126,13 @@ export const programs = {
     cardioDurationError: 'Saisissez une durée en minutes, 1440 au maximum.',
     cardioDistanceError: 'Saisissez une distance de {max} {unit} au maximum, ou laissez le champ vide.',
     cardioNoTarget: 'Cardio - aucun objectif défini',
+    cardioRpe: 'RPE cible (1-10, facultatif)',
+    cardioRpeHint: '1 : très facile, 10 : effort maximal.',
+    cardioHrMin: 'Fréquence cardiaque de (bpm, facultatif)',
+    cardioHrMax: 'Fréquence cardiaque à (bpm, facultatif)',
+    cardioRpeError: 'Saisissez un nombre entier de 1 à 10, ou laissez le champ vide.',
+    cardioHrError:
+      'Saisissez les deux fréquences cardiaques, entre {min} et {max} bpm et la plus basse en premier, ou laissez les deux champs vides.',
   },
   print: {
     action: 'Fiche à imprimer',

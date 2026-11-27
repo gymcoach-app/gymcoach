@@ -118,6 +118,7 @@ export const session = {
     parseError: 'Bu çözümlenemedi. Kısa yazımı dene (örn. 100x8@9).',
     duration: 'Süre (dd:ss)',
     durationExample: 'örn. 12:30 ya da 12.30',
+    cardioIntensity: 'Hedef yoğunluk: {target}',
     durationError:
       'Beklenen biçim: dd:ss (örn. 12:30 ya da sayısal klavyede 12.30), s:dd:ss ya da yalnızca dakika.',
     distance: 'Mesafe ({unit}, isteğe bağlı)',

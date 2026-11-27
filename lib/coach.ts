@@ -291,6 +291,11 @@ interface ProgramSummary {
       // targets above are then placeholders, not the plan.
       targetDurationMin?: number;
       targetDistanceKm?: number;
+      // Intensity of that target (slice 2): the planned effort on the 1 to 10
+      // RPE scale and the planned heart rate range in bpm (both or neither).
+      targetRpe?: number;
+      targetHrMinBpm?: number;
+      targetHrMaxBpm?: number;
     }>;
   }>;
 }

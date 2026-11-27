@@ -80,6 +80,9 @@ export const common = {
     chinese: 'Chinês simplificado',
     error: 'Não foi possível mudar o idioma.',
   },
+  units: {
+    bpm: '{value} bpm',
+  },
   theme: {
     dark: 'Escuro',
     light: 'Claro',

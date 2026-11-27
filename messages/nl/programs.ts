@@ -126,6 +126,13 @@ export const programs = {
     cardioDurationError: 'Voer een duur in minuten in, maximaal 1440.',
     cardioDistanceError: 'Voer een afstand tot {max} {unit} in of laat het veld leeg.',
     cardioNoTarget: 'Cardio - geen doel ingesteld',
+    cardioRpe: 'Doel-RPE (1-10, optioneel)',
+    cardioRpeHint: '1 is heel licht, 10 is maximale inspanning.',
+    cardioHrMin: 'Hartslag van (bpm, optioneel)',
+    cardioHrMax: 'Hartslag tot (bpm, optioneel)',
+    cardioRpeError: 'Voer een geheel getal van 1 tot en met 10 in of laat het veld leeg.',
+    cardioHrError:
+      'Voer beide hartslagen in, tussen {min} en {max} bpm en de laagste eerst, of laat beide velden leeg.',
   },
   print: {
     action: 'Trainingsschema afdrukken',

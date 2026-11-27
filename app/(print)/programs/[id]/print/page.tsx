@@ -22,11 +22,12 @@ interface Props {
 }
 
 export default async function ProgramPrintPage(props: Props) {
-  const [params, searchParams, session, t, locale] = await Promise.all([
+  const [params, searchParams, session, t, common, locale] = await Promise.all([
     props.params,
     props.searchParams,
     requireSession(),
     getTranslations('programs.print'),
+    getTranslations('common'),
     getLocale(),
   ]);
 
@@ -100,7 +101,12 @@ export default async function ProgramPrintPage(props: Props) {
             }}
             labels={labels}
             exerciseName={(name) => getExerciseDisplayName(name, locale)}
-            format={{ locale, distanceUnit: cardioDistanceUnit(user) }}
+            format={{
+              locale,
+              distanceUnit: cardioDistanceUnit(user),
+              // Heart rate target of a cardio row (issue #558, slice 2).
+              bpm: (value) => common('units.bpm', { value }),
+            }}
             breakAfter={index < workouts.length - 1}
           />
         ))
