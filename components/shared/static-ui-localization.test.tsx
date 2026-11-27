@@ -234,6 +234,9 @@ describe.each(['en', 'zh-CN'] as const)('static application UI in %s', (locale) 
       loadAdjustmentPct: null,
       targetDurationSec: null,
       targetDistanceM: null,
+      targetRpe: null,
+      targetHrMin: null,
+      targetHrMax: null,
       exercise,
     };
     const onSubmit = vi.fn();

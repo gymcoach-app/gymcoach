@@ -4,6 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
 import { SetInput } from './set-input';
+import { ExerciseCard } from './exercise-card';
 import { EffortScaleProvider } from '@/components/shared/effort-scale-provider';
 import { DistanceUnitProvider } from '@/components/shared/distance-unit-provider';
 
@@ -39,6 +40,9 @@ const pe: ProgramExercise & { exercise: Exercise } = {
   loadAdjustmentPct: null,
   targetDurationSec: null,
   targetDistanceM: null,
+  targetRpe: null,
+  targetHrMin: null,
+  targetHrMax: null,
   exercise: exo,
 };
 
@@ -696,7 +700,13 @@ describe('SetInput cardio target prefill', () => {
   type Existing = Parameters<typeof SetInput>[0]['existingSets'];
 
   function renderWithTarget(
-    target: { targetDurationSec: number | null; targetDistanceM: number | null },
+    target: {
+      targetDurationSec: number | null;
+      targetDistanceM: number | null;
+      targetRpe?: number | null;
+      targetHrMin?: number | null;
+      targetHrMax?: number | null;
+    },
     existingSets: Existing = [],
   ) {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
@@ -731,6 +741,80 @@ describe('SetInput cardio target prefill', () => {
     renderWithTarget({ targetDurationSec: 1200, targetDistanceM: null });
     expect(screen.getByLabelText(/duration/i)).toHaveValue('20:00');
     expect(screen.getByLabelText(/distance/i)).toHaveValue(null);
+    // No intensity target, no intensity line.
+    expect(screen.queryByTestId('cardio-intensity-target')).not.toBeInTheDocument();
+  });
+
+  // Slice 2: the logger has no field for the effort or the heart rate, so
+  // the intensity to hold is shown next to its inputs.
+  it('shows the intensity target next to the inputs and logs the set unchanged', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderWithTarget({
+      targetDurationSec: 1200,
+      targetDistanceM: null,
+      targetRpe: 6,
+      targetHrMin: 140,
+      targetHrMax: 150,
+    });
+    expect(screen.getByTestId('cardio-intensity-target')).toHaveTextContent(
+      'Target intensity: RPE 6 · 140-150 bpm',
+    );
+
+    await user.click(screen.getByRole('button', { name: /log the set/i }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ weight: 0, reps: 1, rir: null, durationSec: 1200, distanceM: null }),
+    );
+  });
+
+  it('shows no intensity line on a row whose intensity has no duration', () => {
+    renderWithTarget({
+      targetDurationSec: null,
+      targetDistanceM: null,
+      targetRpe: 6,
+      targetHrMin: 140,
+      targetHrMax: 150,
+    });
+    expect(screen.queryByTestId('cardio-intensity-target')).not.toBeInTheDocument();
+  });
+
+  // The live session renders the exercise card and, under it, this logger
+  // (session-runner). The intensity must read once on that screen: in the
+  // logger, not also on the card's target line.
+  it('is the only place the live session shows the intensity', () => {
+    const programExercise = {
+      ...cardioPE,
+      targetDurationSec: 1200,
+      targetDistanceM: 5000,
+      targetRpe: 6,
+      targetHrMin: 140,
+      targetHrMax: 150,
+    };
+    render(
+      <>
+        <ExerciseCard
+          programExercise={programExercise}
+          lastPerformance={undefined}
+          readiness={null}
+          deloadActive={false}
+          unit="KG"
+        />
+        <SetInput
+          programExercise={programExercise}
+          existingSets={[]}
+          lastPerformance={undefined}
+          readiness={null}
+          deloadActive={false}
+          unit="KG"
+          onSubmit={vi.fn()}
+        />
+      </>,
+    );
+    expect(screen.getByText('Target: 20 min · 5 km')).toBeInTheDocument();
+    expect(screen.getAllByText(/RPE 6/)).toHaveLength(1);
+    expect(screen.getAllByText(/140-150 bpm/)).toHaveLength(1);
+    expect(screen.getByTestId('cardio-intensity-target')).toHaveTextContent(
+      'Target intensity: RPE 6 · 140-150 bpm',
+    );
   });
 
   it('stays empty, with the log button disabled, without a target', () => {

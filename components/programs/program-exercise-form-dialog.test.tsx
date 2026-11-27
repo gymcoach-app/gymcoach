@@ -144,6 +144,9 @@ describe('ProgramExerciseFormDialog cardio target', () => {
     restSec: 120,
     targetDurationSec: null,
     targetDistanceM: null,
+    targetRpe: null,
+    targetHrMin: null,
+    targetHrMax: null,
     exercise: running,
   } as unknown as EditProps['programExercise'];
 
@@ -238,6 +241,119 @@ describe('ProgramExerciseFormDialog cardio target', () => {
     expect(await screen.findByText('Enter a duration in minutes, up to 1440.')).toBeInTheDocument();
     expect(screen.getByLabelText('Duration (min)')).toHaveAttribute('aria-invalid', 'true');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Intensity (slice 2): an optional RPE and an optional heart rate range.
+  const RPE = 'Target RPE (1-10, optional)';
+  const HR_MIN = 'Heart rate from (bpm, optional)';
+  const HR_MAX = 'Heart rate to (bpm, optional)';
+  const HR_ERROR =
+    'Enter both heart rates, between 40 and 250 bpm and lowest first, or leave both empty.';
+  const withTarget = {
+    ...cardioRow,
+    targetDurationSec: 1200,
+  } as unknown as EditProps['programExercise'];
+
+  function type(label: string, value: string) {
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  }
+
+  it('shows the intensity fields on a cardio exercise only', () => {
+    renderEdit(cardioRow);
+    for (const label of [RPE, HR_MIN, HR_MAX]) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+  });
+
+  it('explains the RPE scale under its field', () => {
+    renderEdit(cardioRow);
+    const hint = screen.getByText('1 is very easy, 10 is all out.');
+    expect(screen.getByLabelText(RPE)).toHaveAttribute('aria-describedby', hint.id);
+    expect(screen.getByLabelText(RPE)).toHaveAccessibleDescription(
+      '1 is very easy, 10 is all out.',
+    );
+  });
+
+  it('shows no intensity field on a strength exercise', () => {
+    renderEdit(programExercise);
+    for (const label of [RPE, HR_MIN, HR_MAX]) {
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+  });
+
+  it('saves the RPE and the heart rate range typed', async () => {
+    const fetchMock = renderEdit(withTarget);
+    type(RPE, '6');
+    type(HR_MIN, '140');
+    type(HR_MAX, '150');
+    expect(await savedBody(fetchMock)).toMatchObject({
+      targetDurationSec: 1200,
+      targetRpe: 6,
+      targetHrMin: 140,
+      targetHrMax: 150,
+    });
+  });
+
+  it('saves null for the intensity left empty, which clears a stored one', async () => {
+    const fetchMock = renderEdit({
+      ...withTarget,
+      targetRpe: 6,
+      targetHrMin: 140,
+      targetHrMax: 150,
+    } as unknown as EditProps['programExercise']);
+    expect((screen.getByLabelText(RPE) as HTMLInputElement).value).toBe('6');
+    expect((screen.getByLabelText(HR_MIN) as HTMLInputElement).value).toBe('140');
+    expect((screen.getByLabelText(HR_MAX) as HTMLInputElement).value).toBe('150');
+    type(RPE, '');
+    type(HR_MIN, '');
+    type(HR_MAX, '');
+    const body = await savedBody(fetchMock);
+    expect(body.targetRpe).toBeNull();
+    expect(body.targetHrMin).toBeNull();
+    expect(body.targetHrMax).toBeNull();
+  });
+
+  it('refuses an RPE out of 1 to 10 and saves nothing', async () => {
+    const fetchMock = renderEdit(withTarget);
+    type(RPE, '11');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(
+      await screen.findByText('Enter a whole number from 1 to 10, or leave it empty.'),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(RPE)).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['one bound alone', '140', ''],
+    ['a reversed range', '150', '140'],
+    ['a bound under 40', '30', '150'],
+    ['a bound over 250', '140', '260'],
+  ])('refuses %s as a heart rate target and saves nothing', async (_name, min, max) => {
+    const fetchMock = renderEdit(withTarget);
+    type(HR_MIN, min);
+    type(HR_MAX, max);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(HR_ERROR)).toBeInTheDocument();
+    expect(screen.getByLabelText(HR_MIN)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText(HR_MAX)).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('asks for a duration when only an intensity is typed on a row without a target', async () => {
+    const fetchMock = renderEdit(cardioRow);
+    type(RPE, '6');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Enter a duration in minutes, up to 1440.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends no intensity for a cardio row that never had a target and is left untouched', async () => {
+    const fetchMock = renderEdit(cardioRow);
+    const body = await savedBody(fetchMock);
+    for (const key of ['targetRpe', 'targetHrMin', 'targetHrMax']) {
+      expect(key in body).toBe(false);
+    }
   });
 
   // A cardio row saved before targets existed has none. It stays editable

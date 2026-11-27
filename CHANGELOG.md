@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Drag-and-drop reordering in the program editor: every exercise row has a
+  grip that drags with a mouse, a finger or a pen, and a line shows where the
+  exercise will land. A superset moves as one block and cannot be split or
+  dropped into. Escape aborts a drag, the page scrolls by itself near the
+  screen edges, and the grip also takes the up and down arrow keys. "Move up"
+  and "Move down" stay in the row menu; browsers without Pointer Events
+  (Safari 12 and older) keep only those. Requested by mattordev (#591, closes
+  #557).
+- Browse the exercise catalog by muscle and by gym equipment: tap a muscle on
+  the body silhouette (or pick it in the equivalent keyboard and screen-reader
+  list) and switch on "Only what my gym has". Both combine with the search, and
+  an empty result offers one "Clear filters" action. The gym filter hides
+  dumbbell and barbell exercises when the saved gym has no such weights, and any
+  exercise switched off for that gym in the settings. Bodyweight, machine, cable
+  and cardio exercises, and exercises with no set equipment type, stay listed: a
+  saved gym does not list its machines, so the per-exercise switch is the way to
+  rule one out. A gym with no saved equipment says so next to the switch (#590,
+  closes #402).
+- Edit a finished workout and log a past one. A session of the history
+  gets an "Edit" page: its date, start time and duration, and every set (weight,
+  reps, RIR, working / warm-up / drop set, the cardio fields), with sets added
+  and removed in the same table as the live logger. "Log a past workout" on the
+  history page creates a finished session on a chosen past date, from a workout
+  or freestyle, and opens that editor; a future date is refused and the session
+  in progress is left alone. Records, estimated 1RM, volume, the next suggested
+  load and the calendar follow the corrected data: the sets of a moved session
+  move with it, a set added afterwards is dated inside its session, and a
+  goal's achieved date is kept in step. An imported session moved to another
+  date no longer matches its source file, so importing that file again creates
+  it a second time (#589, closes #389).
 - Apple Health import: Settings, Import training history accepts the Health
   app's `export.zip` (or `export.xml`). The file is streamed in the browser,
   however large, and only workout summaries reach the server; cardio workouts

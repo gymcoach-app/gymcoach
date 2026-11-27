@@ -114,6 +114,7 @@ export const session = {
     parseError: 'Could not parse that. Try the shorthand (e.g. 100x8@9).',
     duration: 'Duration (mm:ss)',
     durationExample: 'e.g. 12:30 or 12.30',
+    cardioIntensity: 'Target intensity: {target}',
     durationError:
       'Expected format: mm:ss (e.g. 12:30, or 12.30 on a numeric keyboard), h:mm:ss, or plain minutes.',
     distance: 'Distance ({unit}, optional)',

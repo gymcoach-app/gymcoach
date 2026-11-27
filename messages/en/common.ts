@@ -77,6 +77,9 @@ export const common = {
     chinese: 'Simplified Chinese',
     error: 'Could not change the language.',
   },
+  units: {
+    bpm: '{value} bpm',
+  },
   theme: {
     dark: 'Dark',
     light: 'Light',

@@ -130,12 +130,17 @@ export function ProgramExerciseRow({
       ? `${programExercise.targetRepsMin}`
       : `${programExercise.targetRepsMin}-${programExercise.targetRepsMax}`;
 
-  // A cardio exercise reads as its duration and distance target (issue #558),
-  // or as a neutral label when it has none: never as sets, reps and RIR.
+  // A cardio exercise reads as its target (issue #558): duration, distance,
+  // then RPE and heart rate when set ("20 min · RPE 6 · 140-150 bpm"), or as
+  // a neutral label when it has none: never as sets, reps and RIR.
   const isCardio = isCardioExercise(programExercise.exercise);
   const distanceUnit = useDistanceUnit();
   const cardioTarget = isCardio
-    ? formatCardioTarget(programExercise, { locale, distanceUnit })
+    ? formatCardioTarget(programExercise, {
+        locale,
+        distanceUnit,
+        bpm: (value) => common('units.bpm', { value }),
+      })
     : null;
 
   return (

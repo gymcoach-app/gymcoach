@@ -126,6 +126,13 @@ export const programs = {
     cardioDurationError: 'Inserisci una durata in minuti, al massimo 1440.',
     cardioDistanceError: 'Inserisci una distanza fino a {max} {unit} oppure lascia il campo vuoto.',
     cardioNoTarget: 'Cardio - nessun obiettivo impostato',
+    cardioRpe: 'RPE obiettivo (1-10, facoltativo)',
+    cardioRpeHint: '1 è molto facile, 10 è lo sforzo massimo.',
+    cardioHrMin: 'Frequenza cardiaca da (bpm, facoltativa)',
+    cardioHrMax: 'Frequenza cardiaca a (bpm, facoltativa)',
+    cardioRpeError: 'Inserisci un numero intero da 1 a 10 oppure lascia il campo vuoto.',
+    cardioHrError:
+      'Inserisci entrambe le frequenze cardiache, tra {min} e {max} bpm e la più bassa per prima, oppure lascia vuoti entrambi i campi.',
   },
   print: {
     action: 'Stampa scheda',

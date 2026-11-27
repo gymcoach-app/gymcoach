@@ -52,6 +52,9 @@ export function toRunnerExercises(rows: FreestyleRow[]): RunnerExercise[] {
         // A freestyle row stores no cardio target (issue #558 covers workouts).
         targetDurationSec: null,
         targetDistanceM: null,
+        targetRpe: null,
+        targetHrMin: null,
+        targetHrMax: null,
       };
     });
 }

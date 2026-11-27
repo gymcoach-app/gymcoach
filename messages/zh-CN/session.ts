@@ -111,6 +111,7 @@ export const session = {
     parseError: '无法解析输入，请尝试简写格式（例如：100x8@9）。',
     duration: '时长（分:秒）',
     durationExample: '例如：12:30 或 12.30',
+    cardioIntensity: '目标强度：{target}',
     durationError:
       '支持的格式：分:秒（如 12:30，数字键盘也可输入 12.30）、时:分:秒，或直接输入分钟数。',
     distance: '距离（{unit}，选填）',

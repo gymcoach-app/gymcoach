@@ -85,6 +85,9 @@ export const common = {
 
     chinese: 'Chiński uproszczony',
   },
+  units: {
+    bpm: '{value} ud./min',
+  },
   theme: {
     dark: 'Ciemny',
     light: 'Jasny',

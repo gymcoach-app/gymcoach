@@ -126,6 +126,13 @@ export const programs = {
     cardioDurationError: 'Podaj czas w minutach, maksymalnie 1440.',
     cardioDistanceError: 'Podaj dystans do {max} {unit} lub zostaw pole puste.',
     cardioNoTarget: 'Cardio - brak ustawionego celu',
+    cardioRpe: 'Docelowe RPE (1-10, opcjonalnie)',
+    cardioRpeHint: '1 to bardzo lekko, 10 to maksymalny wysiłek.',
+    cardioHrMin: 'Tętno od (ud./min, opcjonalnie)',
+    cardioHrMax: 'Tętno do (ud./min, opcjonalnie)',
+    cardioRpeError: 'Podaj liczbę całkowitą od 1 do 10 lub zostaw pole puste.',
+    cardioHrError:
+      'Podaj obie wartości tętna, od {min} do {max} ud./min i najpierw niższą, lub zostaw oba pola puste.',
   },
   print: {
     action: 'Drukuj kartę',

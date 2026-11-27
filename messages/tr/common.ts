@@ -81,6 +81,9 @@ export const common = {
 
     chinese: 'Basitleştirilmiş Çince',
   },
+  units: {
+    bpm: '{value} bpm',
+  },
   theme: {
     dark: 'Koyu',
     light: 'Açık',

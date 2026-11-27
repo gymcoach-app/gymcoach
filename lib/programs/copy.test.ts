@@ -26,6 +26,9 @@ const programExercise: ProgramExercise = {
   loadAdjustmentPct: 2.5,
   targetDurationSec: null,
   targetDistanceM: null,
+  targetRpe: null,
+  targetHrMin: null,
+  targetHrMax: null,
 };
 
 describe('programExerciseCopyData (issue #394)', () => {
@@ -158,6 +161,9 @@ describe('workoutRowsFromSession (issue #394)', () => {
         loadAdjustmentPct: 2.5,
         targetDurationSec: null,
         targetDistanceM: null,
+        targetRpe: null,
+        targetHrMin: null,
+        targetHrMax: null,
       },
       {
         exerciseId: 'bench',
@@ -169,6 +175,9 @@ describe('workoutRowsFromSession (issue #394)', () => {
         loadAdjustmentPct: null,
         targetDurationSec: null,
         targetDistanceM: null,
+        targetRpe: null,
+        targetHrMin: null,
+        targetHrMax: null,
       },
     ]);
     // The first programmed row of the exercise wins.

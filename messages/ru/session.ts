@@ -117,6 +117,7 @@ export const session = {
     parseError: 'Не удалось распознать. Используйте краткую запись, например 100x8@9.',
     duration: 'Длительность (мм:сс)',
     durationExample: 'например: 12:30',
+    cardioIntensity: 'Целевая интенсивность: {target}',
     durationError: 'Формат: мм:сс, ч:мм:сс или количество минут.',
     distance: 'Дистанция ({unit}, необязательно)',
     distanceExample: 'например: 2.5',

@@ -124,6 +124,13 @@ export const programs = {
     cardioDurationError: 'Dakika cinsinden bir süre girin, en fazla 1440.',
     cardioDistanceError: 'En fazla {max} {unit} olan bir mesafe girin veya alanı boş bırakın.',
     cardioNoTarget: 'Kardiyo - hedef belirlenmedi',
+    cardioRpe: 'Hedef RPE (1-10, isteğe bağlı)',
+    cardioRpeHint: '1 çok kolay, 10 maksimum efor.',
+    cardioHrMin: 'Nabız alt sınırı (bpm, isteğe bağlı)',
+    cardioHrMax: 'Nabız üst sınırı (bpm, isteğe bağlı)',
+    cardioRpeError: '1 ile 10 arasında bir tam sayı girin veya alanı boş bırakın.',
+    cardioHrError:
+      'İki nabız değerini de girin, {min} ile {max} bpm arasında ve önce düşük olanı, ya da iki alanı da boş bırakın.',
   },
   print: {
     action: 'Çıktı al',
