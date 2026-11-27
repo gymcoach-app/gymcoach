@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { expect, it } from 'vitest';
-import { describeCost, repeatedReferenceCost } from '@/lib/testing/cpu-cost';
+import { describeCost, measureGrowth, repeatedReferenceCost } from '@/lib/testing/cpu-cost';
 
 const require = createRequire(import.meta.url);
 const guard = require('./guard-git.cjs') as {
@@ -70,20 +70,70 @@ const REPEATS = 5_000;
 // measures are printed on CI and with COST_UNITS_LOG=1 (describeCost).
 const HEAVIEST_INPUT_LIMIT_UNITS = 24;
 
-it('reads the heaviest input it was first held to at a bounded cost', () => {
-  const command = `${'"$('.repeat(REPEATS)} git status`;
-  const cost = repeatedReferenceCost(
-    () => {
-      expect(decideAsAgent(command).deny).toBeFalsy();
-    },
-    { rounds: 4, referenceBatchMs: 50 },
-  );
-  const measured = describeCost(
-    `git guard, "$(" x ${REPEATS}`,
-    cost.units,
-    HEAVIEST_INPUT_LIMIT_UNITS,
-    `${cost.cpuMs.toFixed(0)} ms, reference ${cost.referenceMs.toFixed(3)} ms`,
-  );
-  expect(cost.units, measured).toBeGreaterThan(0);
-  expect(cost.units, measured).toBeLessThan(HEAVIEST_INPUT_LIMIT_UNITS);
-});
+// Both tests of this file read long commands several times: up to 3.1 s was
+// seen under load for the first, against the 5 s a test gets by default.
+// The limits they check are on cost, not on this.
+const COST_TEST_TIMEOUT_MS = 30_000;
+
+it(
+  'reads the heaviest input it was first held to at a bounded cost',
+  () => {
+    const command = `${'"$('.repeat(REPEATS)} git status`;
+    const cost = repeatedReferenceCost(
+      () => {
+        expect(decideAsAgent(command).deny).toBeFalsy();
+      },
+      { rounds: 4, referenceBatchMs: 50 },
+    );
+    const measured = describeCost(
+      `git guard, "$(" x ${REPEATS}`,
+      cost.units,
+      HEAVIEST_INPUT_LIMIT_UNITS,
+      `${cost.cpuMs.toFixed(0)} ms, reference ${cost.referenceMs.toFixed(3)} ms`,
+    );
+    expect(cost.units, measured).toBeGreaterThan(0);
+    expect(cost.units, measured).toBeLessThan(HEAVIEST_INPUT_LIMIT_UNITS);
+  },
+  COST_TEST_TIMEOUT_MS,
+);
+
+// The bound above is on 5 000 repeats, and the growth tests of
+// guard-git.test.ts stop at 8 000: neither sees a slowdown that only starts
+// on a longer command. So the cost is also compared between 5 000 repeats
+// and the 50 000 of the old test (15 kB against 150 kB): ten times the
+// length may take about ten times longer, under the same limit on the
+// exponent as the other growth tests (1 is proportional, 2 the square).
+// Measured: 0.98 to 1.00 on a calm machine, 0.94 to 1.04 over 20 runs with
+// 16 busy loops. With commands longer than 30 000 characters read several
+// times and shorter ones once: five times 1.70 and ten times 2.02, which
+// fail; four times 1.62, which fails by little; three times 1.48, which
+// passes.
+const GROWTH_LIMIT = 1.6;
+
+it(
+  'reads ten times the heaviest input in about ten times the time',
+  () => {
+    const commands = new Map(
+      [REPEATS, 50_000].map((repeats) => {
+        const command = `${'"$('.repeat(repeats)} git status`;
+        return [command.length, command];
+      }),
+    );
+    const [smallLength, largeLength] = [...commands.keys()] as [number, number];
+    const growth = measureGrowth(
+      (length) => {
+        decideAsAgent(commands.get(length)!);
+      },
+      smallLength,
+      largeLength,
+    );
+    const measured =
+      `[cost] git guard, "$(" x ${REPEATS} to x 50000: exponent ${growth.exponent.toFixed(2)}, ` +
+      `limit ${GROWTH_LIMIT} (${growth.smallMs.toFixed(2)} ms for ${smallLength} characters, ` +
+      `${growth.largeMs.toFixed(2)} ms for ${largeLength})`;
+    // Printed from a passing test on CI and on request, like describeCost.
+    if (process.env.CI || process.env.COST_UNITS_LOG) console.info(measured);
+    expect(growth.exponent, measured).toBeLessThan(GROWTH_LIMIT);
+  },
+  COST_TEST_TIMEOUT_MS,
+);
