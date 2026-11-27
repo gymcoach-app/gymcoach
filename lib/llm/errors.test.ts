@@ -278,6 +278,7 @@ describe('classifyProviderFailure: unknown', () => {
 describe('describeLlmFailure', () => {
   const anthropic = { id: 'anthropic', apiKeyEnvVar: 'ANTHROPIC_API_KEY' } as const;
   const openrouter = { id: 'openrouter', apiKeyEnvVar: 'OPENROUTER_API_KEY' } as const;
+  const llmtr = { id: 'llmtr', apiKeyEnvVar: 'LLMTR_API_KEY' } as const;
   const compatible = {
     id: 'openai-compatible',
     apiKeyEnvVar: 'OPENAI_COMPATIBLE_BASE_URL',
@@ -300,6 +301,7 @@ describe('describeLlmFailure', () => {
       },
     });
     expect(describeLlmFailure(err, openrouter).variable).toBe('OPENROUTER_API_KEY');
+    expect(describeLlmFailure(err, llmtr).variable).toBe('LLMTR_API_KEY');
     // The optional key of a local server, not the base URL the UI asks for
     // when the provider is unconfigured.
     expect(describeLlmFailure(err, compatible).variable).toBe('OPENAI_COMPATIBLE_API_KEY');
@@ -354,7 +356,7 @@ describe('describeLlmFailure', () => {
       new Error(SECRET),
     ];
     for (const input of inputs) {
-      for (const provider of [anthropic, openrouter, compatible, codexLb]) {
+      for (const provider of [anthropic, openrouter, llmtr, compatible, codexLb]) {
         const serialized = JSON.stringify(describeLlmFailure(input, provider));
         expect(serialized).not.toContain(SECRET);
         expect(serialized).not.toContain('PLANTED');

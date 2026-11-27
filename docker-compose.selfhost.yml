@@ -27,8 +27,9 @@
 #                                   0 only as a last resort with no proxy: one
 #                                   client can then block every login and signup
 #   Behind a proxy, publish the port on loopback only: GYMCOACH_PORT=127.0.0.1:3000
-#   LLM_PROVIDER=anthropic | openrouter | openai-compatible | demo
+#   LLM_PROVIDER=anthropic | openrouter | llmtr | openai-compatible | demo
 #   ANTHROPIC_API_KEY=...  or  OPENROUTER_API_KEY=... + OPENROUTER_MODEL=...
+#   or  LLMTR_API_KEY=... + LLMTR_MODEL=...
 #   A local model (Ollama, LM Studio, vLLM): LLM_PROVIDER=openai-compatible,
 #   OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:11434/v1 and
 #   OPENAI_COMPATIBLE_MODEL=<model name>
@@ -71,6 +72,10 @@ services:
       OPENROUTER_APP_NAME: GymCoach
       OPENROUTER_APP_URL: ${OPENROUTER_APP_URL:-https://github.com/gymcoach-app/gymcoach}
       OPENROUTER_MAX_TOKENS: ${OPENROUTER_MAX_TOKENS:-}
+      # llmtr: prepaid OpenAI-compatible gateway at https://llmtr.com/v1
+      LLMTR_API_KEY: ${LLMTR_API_KEY:-}
+      LLMTR_MODEL: ${LLMTR_MODEL:-}
+      LLMTR_MAX_TOKENS: ${LLMTR_MAX_TOKENS:-}
       # openai-compatible: any Chat Completions server (Ollama, LM Studio,
       # vLLM, llama.cpp server). A server on the host is reached at
       # host.docker.internal (see extra_hosts below), not localhost. The key

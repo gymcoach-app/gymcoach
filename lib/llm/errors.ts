@@ -193,6 +193,7 @@ type ProviderId = LlmProvider['id'];
 const KEY_VARIABLE: Record<ProviderId, string | null> = {
   anthropic: 'ANTHROPIC_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
+  llmtr: 'LLMTR_API_KEY',
   'openai-compatible': 'OPENAI_COMPATIBLE_API_KEY',
   'codex-lb': 'CODEX_LB_API_KEY',
   demo: null,
@@ -201,6 +202,7 @@ const KEY_VARIABLE: Record<ProviderId, string | null> = {
 const MODEL_VARIABLE: Record<ProviderId, string | null> = {
   anthropic: 'ANTHROPIC_MODEL',
   openrouter: 'OPENROUTER_MODEL',
+  llmtr: 'LLMTR_MODEL',
   'openai-compatible': 'OPENAI_COMPATIBLE_MODEL',
   'codex-lb': 'CODEX_LB_MODEL',
   demo: null,
@@ -209,6 +211,7 @@ const MODEL_VARIABLE: Record<ProviderId, string | null> = {
 const MAX_TOKENS_VARIABLE: Record<ProviderId, string | null> = {
   anthropic: null,
   openrouter: 'OPENROUTER_MAX_TOKENS',
+  llmtr: 'LLMTR_MAX_TOKENS',
   'openai-compatible': 'OPENAI_COMPATIBLE_MAX_TOKENS',
   'codex-lb': null,
   demo: null,
